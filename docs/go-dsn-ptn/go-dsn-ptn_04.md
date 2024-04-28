@@ -1106,12 +1106,12 @@ type Weather struct {
 
 这是一个相当长的结构，但我们拥有响应可能包含的所有内容。该结构称为`Weather`，因为它由 ID，名称和代码（`Cod`）以及一些匿名结构组成，即`Coord`，`Weather`，`Base`，`Main`，`Wind`，`Clouds`，`Rain`，`Dt`和`Sys`。我们可以通过给它们命名来在`Weather`结构之外编写这些匿名结构，但是只有在我们必须单独使用它们时才有用。
 
-在我们的`Weather`结构中的每个成员和结构之后，您可以找到一个``json：`something```行。当区分 JSON 键名和成员名时，这非常方便。如果 JSON 键是`something`，我们就不必将我们的成员称为`something`。例如，我们的 ID 成员在 JSON 响应中将被称为`id`。
+在我们的`Weather`结构中的每个成员和结构之后，您可以找到一个`` `json：`something` ``行。当区分 JSON 键名和成员名时，这非常方便。如果 JSON 键是`something`，我们就不必将我们的成员称为`something`。例如，我们的 ID 成员在 JSON 响应中将被称为`id`。
 
 为什么我们不将 JSON 键的名称给我们的类型？好吧，如果您的类型中的字段是小写的，则`encoding/json`包将无法正确解析它们。此外，最后的注释为我们提供了一定的灵活性，不仅可以更改成员名称，还可以省略一些键（如果我们不需要），具有以下签名：
 
 ```go
-`json:"something,omitempty" 
+`json:"something,omitempty"`
 
 ```
 
@@ -1141,720 +1141,527 @@ type CurrentWeatherData struct {
 
 ```
 
-通过对`OpenWeatherMap`使用 API 密钥进行请求生成了前面的模拟数据。`response`变量是包含 JSON 响应的字符串。仔细看一下重音符（```go) used to open and close the string. This way, you can use as many quotes as you want without any problem.
+通过对`OpenWeatherMap`使用 API 密钥进行请求生成了前面的模拟数据。`response`变量是包含 JSON 响应的字符串。仔细看一下重音符（`` ` ``）用于打开和关闭字符串。这样，你可以毫无问题地使用任意多的引用。
 
 Further on, we use a special function in the bytes package called `NewReader`, which accepts an slice of bytes (which we create by converting the type from string), and returns an `io.Reader` implementor with the contents of the slice. This is perfect to mimic the `Body` member of an HTTP response.
 
 We will write a test to try `response parser`. Both methods return the same type, so we can use the same `JSON parser` for both:
 
+```go
+
+func TestOpenWeatherMap_responseParser(t *testing.T) { 
+  r := getMockData() 
+  openWeatherMap := CurrentWeatherData{APIkey: ""} 
+ 
+  weather, err := openWeatherMap.responseParser(r) 
+  if err != nil { 
+    t.Fatal(err) 
+  } 
+ 
+  if weather.ID != 3117735 { 
+    t.Errorf("Madrid id is 3117735, not %d\n", weather.ID) 
+  } 
+} 
 ```
 
-func TestOpenWeatherMap_responseParser（t * testing.T）{
+在前面的测试中，我们首先请求了一些模拟数据，我们将其存储在变量`r`中。稍后，我们创建了一种叫做`openWeatherMap`的`CurrentWeatherData`类型。最后，我们请求为提供的 `io.Reader` 接口的天气值，将其存储在变量`weather`中。在检查错误后，我们确保 ID 与从`getMockData`方法获取的模拟数据中存储的 ID 相同。
 
-r：= getMockData（）
-
-openWeatherMap：= CurrentWeatherData {APIkey：""}
-
-weather，err：= openWeatherMap.responseParser（r）
-
-if err！= nil {
-
-t.Fatal（err）
-
-}
-
-如果 weather.ID！= 3117735 {
-
-t.Errorf（“马德里 id 为 3117735，而不是％d\n”，weather.ID）
-
-}
-
-}
+我们必须在运行测试之前声明`responseParser`方法，否则代码不会编译：
 
 ```go
 
-In the preceding test, we first asked for some mock data, which we store in the variable `r`. Later, we created a type of `CurrentWeatherData`, which we called `openWeatherMap`. Finally, we asked for a weather value for the provided `io.Reader` interface that we store in the variable `weather`. After checking for errors, we make sure that the ID is the same as the one stored in the mock data that we got from the `getMockData` method.
+func (p *CurrentWeatherData) responseParser(body io.Reader) (*Weather, error) { 
+  return nil, fmt.Errorf("Not implemented yet") 
+} 
+```
 
-We have to declare the `responseParser` method before running tests, or the code won't compile:
+有了上述所有内容，我们可以运行这个测试：
+
+```go
+go test -v -run=responseParser .
+=== RUN   TestOpenWeatherMap_responseParser
+--- FAIL: TestOpenWeatherMap_responseParser (0.00s)
+        facade_test.go:72: Not implemented yet
+FAIL
+exit status 1
+FAIL
 
 ```
 
-func（p * CurrentWeatherData）responseParser（body io.Reader）（* Weather，error）{
+好的。我们不会写更多的测试，因为其余的仅仅是集成测试，这超出了结构模式解释的范围，并会强制我们拥有一个 API 密钥以及互联网连接。如果您想看看这个示例的集成测试是什么样的，请参考随书附带的代码。
 
-返回 nil，fmt.Errorf（“尚未实施”）
+## 实现
 
-}
+首先，我们将实现我们的方法将用于解析`OpenWeatherMap` REST API 的 JSON 响应的解析器：
 
 ```go
 
-With all the aforementioned, we can run this test:
-
+func (p *CurrentWeatherData) responseParser(body io.Reader) (*Weather, error) { 
+  w := new(Weather) 
+  err := json.NewDecoder(body).Decode(w) 
+  if err != nil { 
+    return nil, err 
+  } 
+ 
+  return w, nil 
+} 
 ```
 
-go test -v -run=responseParser。
-
-=== RUN TestOpenWeatherMap_responseParser
-
----失败：测试 OpenWeatherMap_responseParser（0.00 秒）
-
-facade_test.go：72：尚未实施
-
-失败
-
-退出状态 1
-
-失败
+现在，这应该足以通过测试了：
 
 ```go
 
-Okay. We won't write more tests, because the rest would be merely integration tests, which are outside of the scope of explanation of a structural pattern, and will force us to have an API key as well as an Internet connection. If you want to see what the integration tests look like for this example, refer to the code that comes bundled with the book.
-
-## Implementation
-
-First of all, we are going to implement the parser that our methods will use to parse the JSON response from the `OpenWeatherMap` REST API:
+go test -v -run=responseParser . 
+=== RUN   TestOpenWeatherMap_responseParser 
+--- PASS: TestOpenWeatherMap_responseParser (0.00s) 
+PASS 
+ok
 
 ```
 
-func（p * CurrentWeatherData）responseParser（body io.Reader）（* Weather，error）{
-
-w：= new（Weather）
-
-err：= json.NewDecoder（body）.Decode（w）
-
-if err！= nil {
-
-返回 nil，err
-
-}
-
-返回 w，nil
-
-}
+至少我们对我们的解析器进行了充分测试。让我们将我们的代码结构化得像一个库。首先，我们将创建通过城市名和国家代码以及通过其纬度和经度来检索城市天气的方法，以及使用其纬度和经度的方法：
 
 ```go
 
-And this should be enough to pass the test by now:
+func (c *CurrentWeatherData) GetByGeoCoordinates(lat, lon float32) (weather *Weather, err error) { 
+  return c.doRequest( 
+  fmt.Sprintf("http://api.openweathermap.org/data/2.5/weather q=%s,%s&APPID=%s", lat, lon, c.APIkey)) 
+} 
+ 
+func (c *CurrentWeatherData) GetByCityAndCountryCode(city, countryCode string) (weather *Weather, err error) { 
+  return c.doRequest(   
+  fmt.Sprintf("http://api.openweathermap.org/data/2.5/weather?lat=%f&lon=%f&APPID=%s", city, countryCode, c.APIkey) ) 
+} 
 
 ```
 
-go test -v -run=responseParser。
+小菜一碟？当然！一切都必须尽可能简单，并且这是一项出色工作的标志。这个外观中的复杂性在于创建与`OpenWeatherMap` API 的连接，以及控制可能的错误。这个问题在我们的示例中的所有 Facade 方法之间共享，所以我们暂时不需要编写多个 API 调用。
 
-=== RUN TestOpenWeatherMap_responseParser
-
----通过：测试 OpenWeatherMap_responseParser（0.00 秒）
-
-通过
-
-好的
+我们所做的是传递 REST API 需要的 URL 以便返回我们想要的信息。这是通过 `fmt.Sprintf` 函数实现的，该函数在每种情况下格式化字符串。例如，为了使用城市名和国家代码获取数据，我们使用以下字符串：
 
 ```go
-
-At least we have our parser well tested. Let's structure our code to look like a library. First, we will create the methods to retrieve the weather of a city by its name and its country code, and the method that uses its latitude and longitude:
-
-```
-
-func（c * CurrentWeatherData）GetByGeoCoordinates（lat，lon float32）（weather * Weather，err error）{
-
-返回 c.doRequest（
-
-fmt.Sprintf（“http://api.openweathermap.org/data/2.5/weather q =％s，％s＆APPID =％s”，lat，lon，c.APIkey）
-
-}
-
-func (c *CurrentWeatherData) GetByCityAndCountryCode(city, countryCode string) (weather *Weather, err error) {
-
-return c.doRequest(
-
-fmt.Sprintf("http://api.openweathermap.org/data/2.5/weather?lat=%f&lon=%f&APPID=%s", city, countryCode, c.APIkey) )
-
-}
-
-```go
-
-A piece of cake? Of course! Everything must be as easy as possible, and it is a sign of a good job. The complexity in this facade is to create connections to the `OpenWeatherMap` API, and control the possible errors. This problem is shared between all the Facade methods in our example, so we don't need to write more than one API call right now.
-
-What we do is pass the URL that the REST API needs in order to return the information we desire. This is achieved by the `fmt.Sprintf` function, which formats the strings in each case. For example, to gather the data using a city name and a country code, we use the following string:
-
-```
 
 fmt.Sprintf("http://api.openweathermap.org/data/2.5/weather?lat=%f&lon=%f&APPID=%s", city, countryCode, c.APIkey)
 
-```go
-
-This takes the pre-formatted string [`openweathermap.org/api`](https://openweathermap.org/api) and formats it by replacing each `%s` specifier with the city, the `countryCode` that we introduced in the arguments, and the API key member of the `CurrentWeatherData` type.
-
-But, we haven't set any API key! Yes, because this is a library, and the users of the library will have to use their own API keys. We are hiding the complexity of creating the URIs, and handling the errors.
-
-Finally, the `doRequest` function is a big fish, so we will see it in detail, step by step:
-
 ```
 
-func (o *CurrentWeatherData) doRequest(uri string) (weather *Weather, err error) {
+这需要预先格式化的字符串[`openweathermap.org/api`](https://openweathermap.org/api)，并通过用城市、我们在参数中引入的`countryCode`和`CurrentWeatherData`类型的 API 密钥成员来替换每个 `%s` 指定符来格式化它。
 
-client := &http.Client{}
+但是，我们还没有设置任何 API 密钥！是的，因为这是一个库，库的用户将必须使用自己的 API 密钥。我们正在隐藏创建 URI 和处理错误的复杂性。
 
-=== RUN   TestTeamFlyweightFactory_GetTeam
-
-if err != nil {
-
-return
-
-}
-
-req.Header.Set("Content-Type", "application/json")
+最后，`doRequest`函数是个大问题，所以我们会逐步详细地查看它：
 
 ```go
 
-First, the signature tells us that the `doRequest` method accepts a URI string, and returns a pointer to the `Weather` variable and an error. We start by creating an `http.Client` class, which will make the requests. Then, we create a request object, which will use the `GET` method, as described in the `OpenWeatherMap` webpage, and the URI we passed. If we were to use a different method, or more than one, they would have to be brought about by arguments in the signature. Nevertheless, we will use just the `GET` method, so we could hardcode it there.
-
-Then, we check whether the request object has been created successfully, and set a header that says that the content type is a JSON:
+func (o *CurrentWeatherData) doRequest(uri string) (weather *Weather, err error) { 
+  client := &http.Client{} 
+  req, err := http.NewRequest("GET", uri, nil) 
+  if err != nil { 
+    return 
+  } 
+  req.Header.Set("Content-Type", "application/json") 
 
 ```
 
-resp, err := client.Do(req)
+首先，签名告诉我们`doRequest`方法接受一个 URI 字符串，并返回一个指向`Weather`变量和一个错误的指针。我们首先创建一个`http.Client`类，它将发送请求。然后，我们创建一个请求对象，该对象将使用`GET`方法，如`OpenWeatherMap`网页中所述，并传递我们传递的 URI。如果我们要使用不同的方法，或者多个方法，则必须通过签名中的参数来实现。尽管如此，我们只会使用`GET`方法，所以我们可以在那里硬编码它。
 
---- FAIL: TestTeamFlyweightFactory_GetTeam (0.00s)
-
-return
-
-}
-
-if resp.StatusCode != 200 {
-
-byt, errMsg := ioutil.ReadAll(resp.Body)
-
-if errMsg == nil {
-
-errMsg = fmt.Errorf("%s", string(byt))
-
-}
-
-err = fmt.Errorf("状态码为%d，中止。错误消息为:\n%s\n",resp.StatusCode, errMsg)
-
-return
-
-}
+然后，我们检查请求对象是否已成功创建，并设置一个标题，说明内容类型是 JSON：
 
 ```go
 
-Then we make the request, and check for errors. Because we have given names to our return types, if any error occurs, we just have to return the function, and Go will return the variable `err` and the variable `weather` in the state they were in at that precise moment.
-
-We check the status code of the response, as we only accept 200 as a good response. If 200 isn't returned, we will create an error message with the contents of the body and the status code returned:
-
+resp, err := client.Do(req) 
+if err != nil { 
+  return 
+} 
+ 
+if resp.StatusCode != 200 { 
+  byt, errMsg := ioutil.ReadAll(resp.Body) 
+  if errMsg == nil { 
+    errMsg = fmt.Errorf("%s", string(byt)) 
+  } 
+  err = fmt.Errorf("Status code was %d, aborting. Error message was:\n%s\n",resp.StatusCode, errMsg) 
+ 
+  return 
+} 
 ```
 
-weather, err = o.responseParser(resp.Body)
+然后我们发出请求，并检查错误。因为我们给返回类型命名了，如果发生任何错误，我们只需返回函数，Go 就会返回变量`err`和变量`weather`在那一刻的状态。
 
-resp.Body.Close()
-
-return
-
-}
+我们检查响应的状态码，因为我们只接受 200 作为良好的响应。如果没有返回 200，我们将创建一个包含主体内容和返回的状态码的错误消息：
 
 ```go
 
-Finally, if everything goes well, we use the `responseParser` function we wrote earlier to parse the contents of Body, which is an `io.Reader` interface. Maybe you are wondering why we aren't controlling `err` from the `response parser` method. It's funny, because we are actually controlling it. `responseParser` and `doRequest` have the same return signature. Both return a `Weather` pointer and an error (if any), so we can return directly whatever the result was.
-
-## Library created with the Facade pattern
-
-We have the first milestone for a library for the `OpenWeatherMap` API using the facade pattern. We have hidden the complexity of accessing the `OpenWeatherMap` REST API in the `doRequest` and `responseParser` functions, and the users of our library have an easy-to-use syntax to query the API. For example, to retrieve the weather for Madrid, Spain, a user will only have to introduce arguments and an API key at the beginning:
-
+  weather, err = o.responseParser(resp.Body) 
+  resp.Body.Close() 
+ 
+  return 
+} 
 ```
 
-weatherMap := CurrentWeatherData{*apiKey}
+最后，如果一切顺利，我们使用之前编写的`responseParser`函数来解析 Body 的内容，它是一个`io.Reader`接口。也许你想知道为什么我们没有控制`response parser`方法中的`err`。有趣的是，因为我们实际上是在控制它。`responseParser`和`doRequest`具有相同的返回签名。两者都返回一个`Weather`指针和一个错误（如果有的话），所以我们可以直接返回结果。
 
-weather, err := weatherMap.GetByCityAndCountryCode("Madrid", "ES")
+## 使用外观模式创建的库
 
-/home/mcastro/Desktop/go-design-patterns/structural/flyweight/flyweight.go:71 +0x159
-
-t.Fatal(err)
-
-}
-
-fmt.Printf("马德里的温度为%f 摄氏度\n", weather.Main.Temp-273.15)
+我们为使用外观模式的`OpenWeatherMap` API 创建了第一个里程碑。我们在`doRequest`和`responseParser`函数中隐藏了访问`OpenWeatherMap` REST API 的复杂性，而我们库的用户则可以使用易于使用的语法查询 API。例如，要获取西班牙马德里的天气，用户只需在开头输入参数和 API 密钥：
 
 ```go
 
-The console output for the weather in Madrid at the moment of writing this chapter is the following:
-
+  weatherMap := CurrentWeatherData{*apiKey} 
+ 
+  weather, err := weatherMap.GetByCityAndCountryCode("Madrid", "ES") 
+  if err != nil { 
+    t.Fatal(err) 
+  } 
+ 
+  fmt.Printf("Temperature in Madrid is %f celsius\n", weather.Main.Temp-273.15) 
 ```
 
-$ 马德里的温度为 30.600006 摄氏度
+写作本章时，马德里的天气控制台输出如下：
 
 ```go
 
-A typical summer day!
-
-# Flyweight design pattern
-
-Our next pattern is the **Flyweight** design pattern. It's very commonly used in computer graphics and the video game industry, but not so much in enterprise applications.
-
-## Description
-
-Flyweight is a pattern which allows sharing the state of a heavy object between many instances of some type. Imagine that you have to create and store too many objects of some heavy type that are fundamentally equal. You'll run out of memory pretty quickly. This problem can be easily solved with the Flyweight pattern, with additional help of the Factory pattern. The factory is usually in charge of encapsulating object creation, as we saw previously.
-
-## Objectives
-
-Thanks to the Flyweight pattern, we can share all possible states of objects in a single common object, and thus minimize object creation by using pointers to already created objects.
-
-## Example
-
-To give an example, we are going to simulate something that you find on betting webpages. Imagine the final match of the European championship, which is viewed by millions of people across the continent. Now imagine that we own a betting webpage, where we provide historical information about every team in Europe. This is plenty of information, which is usually stored in some distributed database, and each team has, literally, megabytes of information about their players, matches, championships, and so on.
-
-If a million users access information about a team and a new instance of the information is created for each user querying for historical data, we will run out of memory in the blink of an eye. With our Proxy solution, we could make a cache of the *n* most recent searches to speed up queries, but if we return a clone for every team, we will still get short on memory (but faster thanks to our cache). Funny, right?
-
-Instead, we will store each team's information just once, and we will deliver references to them to the users. So, if we face a million users trying to access information about a match, we will actually just have two teams in memory with a million pointers to the same memory direction.
-
-## Acceptance criteria
-
-The acceptance criteria for a Flyweight pattern must always reduce the amount of memory that is used, and must be focused primarily on this objective:
-
-1.  We will create a `Team` struct with some basic information such as the team's name, players, historical results, and an image depicting their shield.
-2.  We must ensure correct team creation (note the word *creation* here, candidate for a creational pattern), and not having duplicates.
-3.  When creating the same team twice, we must have two pointers pointing to the same memory address.
-
-## Basic structs and tests
-
-Our `Team` struct will contain other structs inside, so a total of four structs will be created. The `Team` struct has the following signature:
-
+$ Temperature in Madrid is 30.600006 celsius
 ```
 
-type Team struct {
+一个典型的夏日！
 
-ID             uint64
+# [享元模式](https://zh.wikipedia.org/wiki/享元模式)
 
-Name           string
+我们接下来介绍的是**享元**设计模式。它在计算机图形和视频游戏行业中非常常见，但在企业应用中并不常见。
 
-Shield         []byte
+## 描述
 
-Players        []Player
+享元是一种模式，它允许在某种类型的许多实例之间共享一个重型对象的状态。想象一下，你必须创建和存储太多基本相同的某种重型对象，你会很快耗尽内存。这个问题可以很容易地通过享元模式来解决，还可以额外借助工厂模式的帮助。工厂通常负责封装对象的创建，就像我们之前看到的那样。
 
-}
+## 目标
 
-}
+由于享元模式（**Flyweight pattern**）的存在，我们可以在单个共同对象中共享对象的所有可能状态，从而通过使用指向已创建对象的指针来最小化对象的创建。
+
+## 示例
+
+举个例子，我们将模拟您在赌博网页上找到的一些事情。 想象一下欧洲锦标赛的最后一场比赛，数百万人在整个欧洲观看。 现在想象一下我们拥有一个提供欧洲每支球队历史信息的赌博网页。 这是大量信息，通常存储在一些分布式数据库中，每支球队都有着字面上的兆字节信息，包括球员、比赛、冠军等等。
+
+如果有百万用户访问有关一支球队的信息，并且为每个查询历史数据的用户创建新信息实例，我们将瞬间耗尽内存。 有了我们的代理模式解决方案，我们可以创建一个 *n* 个最近搜索的缓存以加快查询速度，但如果我们为每支球队返回一个克隆，我们仍然会因内存不足而短缺（但由于缓存，速度会更快）。 有趣，是吧？
+
+相反，我们将仅仅存储每支球队的信息一次，并向用户提供对它们的引用。 因此，如果有百万用户尝试访问有关一场比赛的信息，实际上我们将在内存中只有两支球队，并且有百万个指针指向相同的内存地址。
+
+## 验收标准
+
+享元模式的验收标准必须始终减少使用的内存量，并且必须主要专注于这个目标：
+
+1.  我们将创建一个名为`Team`的结构体，其中包含一些基本信息，比如球队的名称、球员、历史成绩以及展示其队徽的图像。
+
+1.  我们必须确保正确的团队创建（注意这里的 *创建* 一词，适合用创建型模式），并且不会出现重复。
+
+1.  当两次创建相同的球队时，我们必须拥有两个指针指向相同的内存地址。
+
+## 基本结构体和测试
+
+我们的`Team`结构体将包含其他结构体，因此将创建总共四个结构体。 `Team` 结构体的签名如下：
 
 ```go
 
-Each team has an ID, a name, some image in an slice of bytes representing the team's shield, a slice of players, and a slice of historical data. This way, we will have two teams' ID:
+type Team struct { 
+  ID             uint64 
+  Name           string 
+  Shield         []byte 
+  Players        []Player 
+  HistoricalData []HistoricalData 
+} 
 
 ```
 
-const (
+每支球队都有一个 ID、一个名称、表示球队队徽的字节片段图像、一组球员和一组历史数据。 这样，我们将有两支球队的 ID：
 
-TEAM_A = iota
+```go
+const ( 
+  TEAM_A = iota 
+  TEAM_B 
+) 
 
-TEAM_B
+```
 
-)
+我们通过使用 `const` 和 `iota` 关键字声明两个常量。 `const` 关键字简单地声明接下来的声明为常量。 `iota` 是一个无类型整数，它会自动递增其值，用于每个括号之间的新常量。 当我们声明`TEAM_A`时，`iota`的值开始重置为 0，因此`TEAM_A`等于 0。 在`TEAM_B`变量上，`iota`增加了一个，因此`TEAM_B`等于 1。 `iota` 赋值是在声明不需要特定值的常量值时节约输入的一种优雅方式（就像 `math` 包中的 *Pi* 常量）。
+
+我们的`Player`和`HistoricalData`如下：
+
+```go
+type Player struct { 
+  Name    string 
+  Surname string 
+  PreviousTeam uint64 
+  Photo   []byte 
+} 
+ 
+type HistoricalData struct { 
+  Year          uint8 
+  LeagueResults []Match 
+} 
+
+```
+
+如您所见，我们还需要一个存储在 `HistoricalData` 结构体中的 `Match` 结构体。在这个上下文中，`Match` 结构体表示比赛的历史结果：
 
 ```go
 
-We declare two constants by using the `const` and `iota` keywords. The `const` keyword simply declares that the following declarations are constants. `iota` is a untyped integer that automatically increments its value for each new constant between the parentheses. The `iota` value starts to reset to 0 when we declare `TEAM_A`, so `TEAM_A` is equal to 0\. On the `TEAM_B` variable, `iota` is incremented by one so `TEAM_B` is equal to 1\. The `iota` assignment is an elegant way to save typing when declaring constant values that doesn't need specific value (like the *Pi* constant on the `math` package).
-
-Our `Player` and `HistoricalData` are the following:
+type Match struct { 
+  Date          time.Time 
+  VisitorID     uint64 
+  LocalID       uint64 
+  LocalScore    byte 
+  VisitorScore  byte 
+  LocalShoots   uint16 
+  VisitorShoots uint16 
+} 
 
 ```
 
-type Player struct {
+这足以表示一个团队，并满足 *验收标准 1*。您可能已经猜到每个团队都有很多信息，因为一些欧洲团队已经存在了 100 多年。
 
-Name    string
-
-Surname string
-
-PreviousTeam uint64
-
-Photo   []byte
-
-}
-
-type HistoricalData struct {
-
-Year          uint8
-
-LeagueResults []Match
-
-}
+对于 *验收标准 2*，单词 *creation* 应该为我们提供一些解决此问题的线索。我们将构建一个工厂来创建和存储我们的团队。我们的工厂将包括一个年份映射，其中包括指向 `Teams` 的指针作为值，以及一个 `GetTeam` 函数。使用映射将会加速团队的搜索，如果我们提前知道它们的名称。我们还将提供一个方法来返回已创建对象的数量，称为 `GetNumberOfObjects` 方法：
 
 ```go
 
-As you can see, we also need a `Match` struct, which is stored within `HistoricalData` struct. A `Match` struct, in this context, represents the historical result of a match:
-
+type teamFlyweightFactory struct { 
+  createdTeams map[string]*Team 
+} 
+ 
+func (t *teamFlyweightFactory) GetTeam(name string) *Team { 
+  return nil 
+} 
+ 
+func (t *teamFlyweightFactory) GetNumberOfObjects() int { 
+  return 0 
+} 
 ```
 
-type Match struct {
-
-Date          time.Time
-
-VisitorID     uint64
-
-LocalID       uint64
-
-LocalScore    byte
-
-VisitorScore  byte
-
-LocalShoots   uint16
-
-VisitorShoots uint16
-
-}
+这足以编写我们的第一个单元测试了：
 
 ```go
 
-This is enough to represent a team, and to fulfill *Acceptance Criteria 1*. You have probably guessed that there is a lot of information on each team, as some of the European teams have existed for more than 100 years.
-
-For *Acceptance Criteria 2,* the word *creation* should give us some clue about how to approach this problem. We will build a factory to create and store our teams. Our Factory will consist of a map of years, including pointers to `Teams` as values, and a `GetTeam` function. Using a map will boost the team search if we know their names in advance. We will also dispose of a method to return the number of created objects, which will be called the `GetNumberOfObjects` method:
+func TestTeamFlyweightFactory_GetTeam(t *testing.T) { 
+  factory := teamFlyweightFactory{} 
+ 
+teamA1 := factory.GetTeam(TEAM_A) 
+  if teamA1 == nil { 
+    t.Error("The pointer to the TEAM_A was nil") 
+  } 
+ 
+  teamA2 := factory.GetTeam(TEAM_A) 
+  if teamA2 == nil { 
+    t.Error("The pointer to the TEAM_A was nil") 
+  } 
+ 
+  if teamA1 != teamA2 { 
+    t.Error("TEAM_A pointers weren't the same") 
+  } 
+ 
+  if factory.GetNumberOfObjects() != 1 { 
+    t.Errorf("The number of objects created was not 1: %d\n", factory.GetNumberOfObjects()) 
+  } 
+} 
 
 ```
 
-type teamFlyweightFactory struct {
+在我们的测试中，我们验证了所有的验收标准。首先我们创建一个工厂，然后请求 `TEAM_A` 的指针。这个指针不能为 `nil`，否则测试将失败。
 
-createdTeams map[string]*Team
+然后我们调用第二个指针指向同一支团队。这个指针也不能为 `nil`，并且应该指向与前一个指针相同的内存地址，这样我们就知道它没有分配新的内存。
 
-req, err := http.NewRequest("GET", uri, nil)
-
-func (t *teamFlyweightFactory) GetTeam(name string) *Team {
-
-return nil
-
-}
-
-}
-
-return 0
-
-}
+最后，我们应该检查已创建团队的数量是否只有一个，因为我们已经两次请求了相同的团队。我们有两个指针，但只有一个团队实例。让我们运行测试：
 
 ```go
-
-This is enough to write our first unit test:
-
-```
-
-if err != nil {
-
-factory := teamFlyweightFactory{}
-
-teamA1 := factory.GetTeam(TEAM_A)
-
-if teamA1 == nil {
-
-t.Error("TEAM_A 的指针为空")
-
-}
-
-teamA2 := factory.GetTeam(TEAM_A)
-
-if teamA2 == nil {
-
-t.Error("TEAM_A 的指针为空")
-
-}
-
-if teamA1 != teamA2 {
-
-t.Error("TEAM_A 的指针不同")
-
-}
-
-if factory.GetNumberOfObjects() != 1 {
-
-t.Errorf("创建的对象数量不是 1: %d\n", factory.GetNumberOfObjects())
-
-if err != nil {
-
-}
-
-```go
-
-In our test, we verify all the acceptance criteria. First we create a factory, and then ask for a pointer of `TEAM_A`. This pointer cannot be `nil`, or the test will fail.
-
-Then we call for a second pointer to the same team. This pointer can't be nil either, and it should point to the same memory address as the previous one so we know that it has not allocated a new memory.
-
-Finally, we should check whether the number of created teams is only one, because we have asked for the same team twice. We have two pointers but just one instance of the team. Let's run the tests:
-
-```
 
 $ go test -v -run=GetTeam .
-
 === RUN   TestTeamFlyweightFactory_GetTeam
-
-HistoricalData []HistoricalData
-
-flyweight_test.go:11: TEAM_A 的指针为空
-
-flyweight_test.go:21: TEAM_A 的指针为空
-
-flyweight_test.go:31: 创建的对象数量不是 1: 0
-
-FAIL
-
-panic(0x530900, 0xc0820025c0)
-
-FAIL
-
-```go
-
-Well, it failed. Both pointers were nil and it has not created any object. Interestingly, the function that compares the two pointers doesn't fail; all in all, nil equals nil.
-
-## Implementation
-
-Our `GetTeam` method will need to scan the `map` field called `createdTeams` to make sure the queried team is already created, and return it if so. If the team wasn't created, it will have to create it and store it in the map before returning:
-
-```
-
-func (t *teamFlyweightFactory) GetTeam(teamID int) *Team {
-
-if t.createdTeams[teamID] != nil {
-
-return t.createdTeams[teamID]
-
-}
-
-return Team{
-
-t.createdTeams[teamID] = &team
-
-return t.createdTeams[teamID]
-
-}
-
-```go
-
-The preceding code is very simple. If the parameter name exists in the `createdTeams` map, return the pointer. Otherwise, call a factory for team creation. This is interesting enough to stop for a second and analyze. When you use the Flyweight pattern, it is very common to have a Flyweight factory, which uses other types of creational patterns to retrieve the objects it needs.
-
-So, the `getTeamFactory` method will give us the team we are looking for, we will store it in the map, and return it. The team factory will be able to create the two teams: `TEAM_A` and `TEAM_B`:
-
-```
-
-func getTeamFactory(team int) Team {
-
-switch team {
-
-case TEAM_B:
-
-func (t *teamFlyweightFactory) GetNumberOfObjects() int {
-
-ID:   2,
-
-Name: TEAM_B,
-
-}
-
-default:
-
-return Team{
-
-ID:   1,
-
-Name: TEAM_A,
-
-}
-
-}
-
-}
-
-```go
-
-We are simplifying the objects' content so that we can focus on the Flyweight pattern's implementation. Okay, so we just have to define the function to retrieve the number of objects created, which is done as follows:
-
-```
-
-func (t *teamFlyweightFactory) GetNumberOfObjects() int {
-
-return len(t.createdTeams)
-
-}
-
-```go
-
-This was pretty easy. The `len` function returns the number of elements in an array or slice, the number of characters in a `string`, and so on. It seems that everything is done, and we can launch our tests again:
-
-```
-
-$ go test -v -run=GetTeam .
-
-goroutine 5 [running]:
-
 --- FAIL: TestTeamFlyweightFactory_GetTeam (0.00s)
-
-panic: 分配给 nil 映射中的条目 [已恢复]
-
-panic: 分配给 nil 映射中的条目
-
-func TestTeamFlyweightFactory_GetTeam(t *testing.T) {
-
-team := getTeamFactory(teamID)
-
-/home/mcastro/Go/src/runtime/panic.go:481 +0x3f4
-
-测试.tRunner.func1(0xc082068120)
-
-/home/mcastro/Go/src/testing/testing.go:467 +0x199
-
-panic(0x530900, 0xc0820025c0)
-
-/home/mcastro/Go/src/runtime/panic.go:443 +0x4f7
-
-/home/mcastro/go-design-patterns/structural/flyweight.(*teamFlyweightFactory).GetTeam(0xc08202fec0, 0x0, 0x0)
-
+flyweight_test.go:11: The pointer to the TEAM_A was nil
+flyweight_test.go:21: The pointer to the TEAM_A was nil
+flyweight_test.go:31: The number of objects created was not 1: 0
+FAIL
 exit status 1
-
-/home/mcastro/go-design-patterns/structural/flyweight.TestTeamFlyweightFactory_GetTeam(0xc082068120)
-
-/home/mcastro/Desktop/go-design-patterns/structural/flyweight/flyweight_test.go:9 +0x61
-
-testing.tRunner(0xc082068120, 0x666580)
-
-/home/mcastro/Go/src/testing/testing.go:473 +0x9f
-
-created by testing.RunTests
-
-/home/mcastro/Go/src/testing/testing.go:582 +0x899
-
-exit status 2
-
 FAIL
+```
+
+嗯，失败了。两个指针都是 `nil`，并且没有创建任何对象。有趣的是，比较这两个指针的函数并没有失败；总之，`nil` 等于 `nil`。
+
+## 实现
+
+我们的 `GetTeam` 方法将需要扫描称为 `createdTeams` 的映射字段，以确保查询的团队已经创建，并在返回前存储它。如果团队尚未创建，则必须在返回前创建它并将其存储在映射中：
 
 ```go
 
-Panic! Have we forgotten something? By reading the stack trace on the panic message, we can see some addresses, some files, and it seems that the `GetTeam` method is trying to assign an entry to a nil map on *line 71* of the `flyweight.go` file. Let's look at *line 71* closely (remember, if you are writing code while following this tutorial, that the error will probably be in a different line so look closely at your own stark trace):
+func (t *teamFlyweightFactory) GetTeam(teamID int) *Team { 
+  if t.createdTeams[teamID] != nil { 
+    return t.createdTeams[teamID] 
+  } 
+ 
+  team := getTeamFactory(teamID) 
+  t.createdTeams[teamID] = &team 
+ 
+  return t.createdTeams[teamID] 
+} 
+```
+
+上述代码非常简单。如果参数名称存在于 `createdTeams` 映射中，则返回指针。否则，调用团队创建工厂。这足够有趣，让我们停下来分析一下。当您使用享元模式时，很常见有一个享元工厂，它使用其他类型的创建模式来检索它所需的对象。
+
+因此，`getTeamFactory` 方法将为我们提供所需的团队，我们将其存储在映射中并返回。团队工厂将能够创建两支团队：`TEAM_A` 和 `TEAM_B`：
+
+```go
+
+func getTeamFactory(team int) Team { 
+  switch team { 
+    case TEAM_B: 
+    return Team{ 
+      ID:   2, 
+      Name: TEAM_B, 
+    } 
+    default: 
+    return Team{ 
+      ID:   1, 
+      Name: TEAM_A, 
+    } 
+  } 
+} 
+```
+
+我们简化了对象的内容，以便可以专注于享元模式的实现。好的，我们只需定义检索已创建对象数量的函数，如下所示：
+
+```go
+
+func (t *teamFlyweightFactory) GetNumberOfObjects() int { 
+  return len(t.createdTeams) 
+} 
 
 ```
+
+这很简单。`len` 函数返回数组或切片中的元素数量，`string` 中的字符数量等。看起来一切都完成了，我们可以再次运行测试了：
+
+```go
+
+$ go test -v -run=GetTeam . 
+=== RUN   TestTeamFlyweightFactory_GetTeam 
+--- FAIL: TestTeamFlyweightFactory_GetTeam (0.00s) 
+panic: assignment to entry in nil map [recovered] 
+        panic: assignment to entry in nil map 
+ 
+goroutine 5 [running]: 
+panic(0x530900, 0xc0820025c0) 
+        /home/mcastro/Go/src/runtime/panic.go:481 +0x3f4 
+testing.tRunner.func1(0xc082068120) 
+        /home/mcastro/Go/src/testing/testing.go:467 +0x199 
+panic(0x530900, 0xc0820025c0) 
+        /home/mcastro/Go/src/runtime/panic.go:443 +0x4f7 
+/home/mcastro/go-design-patterns/structural/flyweight.(*teamFlyweightFactory).GetTeam(0xc08202fec0, 0x0, 0x0) 
+        /home/mcastro/Desktop/go-design-patterns/structural/flyweight/flyweight.go:71 +0x159 
+/home/mcastro/go-design-patterns/structural/flyweight.TestTeamFlyweightFactory_GetTeam(0xc082068120) 
+        /home/mcastro/Desktop/go-design-patterns/structural/flyweight/flyweight_test.go:9 +0x61 
+testing.tRunner(0xc082068120, 0x666580) 
+        /home/mcastro/Go/src/testing/testing.go:473 +0x9f 
+created by testing.RunTests 
+        /home/mcastro/Go/src/testing/testing.go:582 +0x899 
+exit status 2 
+FAIL
+
+```
+
+惊慌！我们有什么忘了吗？通过阅读 panic 消息中的堆栈跟踪，我们可以看到一些地址、一些文件，似乎`GetTeam`方法试图在`flyweight.go`文件的*第 71 行*给一个空 map 赋值。让我们仔细看看*第 71 行*（请记住，如果您在按照本教程编写代码，那么错误可能在不同的行，因此请仔细查看您自己的堆栈跟踪）：
+
+```go
 
 t.createdTeams[teamName] = &team
 
-```go
-
-Okay, this line is on the `GetTeam` method, and, when the method passes through here, it means that it had not found the team on the map-it has created it (the variable team), and is trying to assign it to the map. But the map is nil, because we haven't initialized it when creating the factory. This has a quick solution. In our test, initialize the map where we have created the factory:
-
 ```
+
+好了，这行位于`GetTeam`方法中，当方法通过这里时，意味着它在 map 中没有找到团队-它已经创建了它（变量团队），并尝试将其分配给 map。但 map 是 nil，因为我们在创建工厂时没有初始化它。这有一个快速解决方案。在我们创建工厂的地方，在测试中初始化 map：
+
+```go
 
 factory := teamFlyweightFactory{
-
-createdTeams: make(map[int]*Team,0),
-
+    createdTeams: make(map[int]*Team,0),
 }
-
-```go
-
-I'm sure you have seen the problem here already. If we don't have access to the package, we can initialize the variable. Well, we can make the variable public, and that's all. But this would involve every implementer necessarily knowing that they have to initialize the map, and its signature is neither convenient, or elegant. Instead, we are going to create a simple factory builder to do it for us. This is a very common approach in Go:
 
 ```
 
-func NewTeamFactory() teamFlyweightFactory {
-
-return teamFlyweightFactory{
-
-createdTeams: make(map[int]*Team),
-
-}
-
-}
+我相信你已经看到了这里的问题。如果我们无法访问包，我们可以初始化变量。好吧，我们可以将变量设为公共的，就这样。但这会导致每个实现者必须知道他们必须初始化 map，而且它的签名既不方便也不优雅。相反，我们将创建一个简单的工厂构建器来代替。这在 Go 中是一种非常常见的方法：
 
 ```go
 
-So now, in the test, we replace the factory creation with a call to this function:
-
+func NewTeamFactory() teamFlyweightFactory { 
+  return teamFlyweightFactory{ 
+    createdTeams: make(map[int]*Team), 
+  } 
+} 
 ```
 
-func TestTeamFlyweightFactory_GetTeam(t *testing.T) {
-
-factory := NewTeamFactory()
-
-...
-
-}
+现在，在测试中，我们用对此函数的调用替换了工厂的创建：
 
 ```go
 
-And we run the test again:
-
+func TestTeamFlyweightFactory_GetTeam(t *testing.T) { 
+  factory := NewTeamFactory() 
+  ... 
+} 
 ```
 
+然后我们再次运行测试：
+
+```go
 $ go test -v -run=GetTeam .
-
 === RUN   TestTeamFlyweightFactory_GetTeam
-
 --- PASS: TestTeamFlyweightFactory_GetTeam (0.00s)
-
 PASS
+ok 
+```
 
+完美！让我们通过添加第二个测试来改进测试，以确保一切都会按预期运行并具有更多的量。我们将创建一百万次对团队创建的调用，代表一百万个用户的调用。然后，我们只需检查创建的团队数量是否只有两个：
+
+```go
+
+func Test_HighVolume(t *testing.T) { 
+  factory := NewTeamFactory() 
+ 
+  teams := make([]*Team, 500000*2) 
+  for i := 0; i < 500000; i++ { 
+  teams[i] = factory.GetTeam(TEAM_A) 
+} 
+ 
+for i := 500000; i < 2*500000; i++ { 
+  teams[i] = factory.GetTeam(TEAM_B) 
+} 
+ 
+if factory.GetNumberOfObjects() != 2 { 
+  t.Errorf("The number of objects created was not 2: %d\n",factory.GetNumberOfObjects()) 
+```
+
+在这个测试中，我们分别检索了`TEAM_A`和`TEAM_B`500,000 次，每个检索达到一百万用户。然后，我们确保只创建了两个对象：
+
+```go
+
+$ go test -v -run=Volume . 
+=== RUN   Test_HighVolume 
+--- PASS: Test_HighVolume (0.04s) 
+PASS 
 ok
+```
+
+完美！我们甚至可以检查指针指向的位置以及它们的位置。我们将以前三个为例进行检查。将以下行添加到最后一个测试的末尾，然后再次运行它：
 
 ```go
-
-Perfect! Let's improve the test by adding a second test, just to ensure that everything will be running as expected with more volume. We are going to create a million calls to the team creation, representing a million calls from users. Then, we will simply check that the number of teams created is only two:
+for i:=0; i<3; i++ { 
+  fmt.Printf("Pointer %d points to %p and is located in %p\n", i, teams[i], &teams[i]) 
+} 
 
 ```
 
-func Test_HighVolume(t *testing.T) {
+在前面的测试中，我们使用`Printf`方法打印指针的信息。`%p`标志会给出指针指向的对象的内存位置。如果通过传递`&`符号引用指针，它将给出指针本身的方向。
 
-factory := NewTeamFactory()
+用相同的命令再次运行测试；您将在输出中看到三行新信息，信息类似于以下内容：
 
-teams := make([]*Team, 500000*2)
-
-for i := 0; i < 500000; i++ {
-
-teams[i] = factory.GetTeam(TEAM_A)
-
-}
-
-for i := 500000; i < 2*500000; i++ {
-
-teams[i] = factory.GetTeam(TEAM_B)
-
-}
-
-if factory.GetNumberOfObjects() != 2 {
-
-t.Errorf("The number of objects created was not 2: %d\n",factory.GetNumberOfObjects())
-
-}
-
-}
 
 ```go
-
-In this test, we retrieve `TEAM_A` and `TEAM_B` 500,000 times each to reach a million users. Then, we make sure that just two objects were created:
-
-```
-
-$ go test -v -run=Volume .
-
-=== RUN   Test_HighVolume
-
---- PASS: Test_HighVolume (0.04s)
-
-PASS
-
-ok
-
-```go
-
-Perfect! We can even check where the pointers are pointing to, and where they are located. We will check with the first three as an example. Add these lines at the end of the last test, and run it again:
-
-```
-
-for i:=0; i<3; i++ {
-
-fmt.Printf("Pointer %d points to %p and is located in %p\n", i, teams[i], &teams[i])
-
-}
-
-```go
-
-In the preceding test, we use the `Printf` method to print information about pointers. The `%p` flag gives you the memory location of the object that the pointer is pointing to. If you reference the pointer by passing the `&` symbol, it will give you the direction of the pointer itself.
-
-Run the test again with the same command; you will see three new lines in the output with information similar to the following:
-
-```
 
 Pointer 0 points to 0xc082846000 and is located in 0xc082076000
-
 Pointer 1 points to 0xc082846000 and is located in 0xc082076008
-
 Pointer 2 points to 0xc082846000 and is located in 0xc082076010
 
 ```
@@ -1865,7 +1672,7 @@ Pointer 2 points to 0xc082846000 and is located in 0xc082076010
 
 嗯，差异微妙，但确实存在。使用单例模式，我们确保只创建一次相同的类型。此外，单例模式是一种创建模式。对于享元模式，它是一种结构模式，我们不关心对象是如何创建的，而是关心如何以轻量的方式构造一个类型来包含重的信息。我们谈论的结构是我们的例子中的`map[int]*Team`结构。在这里，我们真的不关心如何创建对象；我们只是为它编写了一个简单的`getTeamFactory`方法。我们非常重视拥有一个轻量级的结构来容纳可共享的对象（或对象），在这种情况下是地图。
 
-# Summary
+# 总结
 
 我们已经看到了几种组织代码结构的模式。结构模式关心如何创建对象，或者它们如何进行业务（我们将在行为模式中看到这一点）。
 
