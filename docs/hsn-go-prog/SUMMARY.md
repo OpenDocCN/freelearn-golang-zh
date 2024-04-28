@@ -1,3 +1,4 @@
++   [Go 编程实用手册](README.md)
 +   [前言](hsn-go-prog_00.md)
 +   [第一章：开始使用 Go](hsn-go-prog_01.md)
 +   [第二章：操作字符串值](hsn-go-prog_02.md)

@@ -1,3 +1,4 @@
++   [Go 编程秘籍第二版](README.md)
 +   [前言](go-prog-cb-2e_00.md)
 +   [第一章：I/O 和文件系统](go-prog-cb-2e_01.md)
 +   [第二章：命令行工具](go-prog-cb-2e_02.md)

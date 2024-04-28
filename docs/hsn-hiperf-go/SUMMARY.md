@@ -1,3 +1,4 @@
++   [Go 高性能实用指南](README.md)
 +   [前言](hsn-hiperf-go_00.md)
 +   [第一部分：学习 Go 语言中的性能](hsn-hiperf-go_01.md)
 +   [第一章：Go 性能简介](hsn-hiperf-go_02.md)

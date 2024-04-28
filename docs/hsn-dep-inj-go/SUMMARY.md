@@ -1,3 +1,4 @@
++   [Go 依赖注入实用指南](README.md)
 +   [前言](hsn-dep-inj-go_00.md)
 +   [第一章：永远不要停止追求更好](hsn-dep-inj-go_01.md)
 +   [第二章：Go 的 SOLID 设计原则](hsn-dep-inj-go_02.md)

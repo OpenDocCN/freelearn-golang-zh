@@ -1,3 +1,4 @@
++   [Go 和安全](README.md)
 +   [前言](sec-go_00.md)
 +   [第一章：使用 Go 进行安全介绍](sec-go_01.md)
 +   [第二章：Go 编程语言](sec-go_02.md)

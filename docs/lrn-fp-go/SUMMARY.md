@@ -1,3 +1,4 @@
++   [Go 函数式编程学习手册](README.md)
 +   [前言](lrn-fp-go_00.md)
 +   [第一章：在 Go 中进行纯函数式编程](lrn-fp-go_01.md)
 +   [第二章：操作集合](lrn-fp-go_02.md)

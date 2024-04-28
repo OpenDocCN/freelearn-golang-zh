@@ -1,3 +1,4 @@
++   [Go 无服务应用实用指南](README.md)
 +   [前言](hsn-svls-app-go_00.md)
 +   [第一章：Go 无服务器](hsn-svls-app-go_01.md)
 +   [第二章：开始使用 AWS Lambda](hsn-svls-app-go_02.md)

@@ -1,3 +1,4 @@
++   [构建 Go REST Web 服务](README.md)
 +   [前言](bd-rst-websvc-go_00.md)
 +   [第一章：开始使用 REST API 开发](bd-rst-websvc-go_01.md)
 +   [第二章：处理我们的 REST 服务的路由](bd-rst-websvc-go_02.md)

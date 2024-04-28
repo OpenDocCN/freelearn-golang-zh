@@ -1,3 +1,4 @@
++   [Go 分布式计算](README.md)
 +   [前言](dist-cmp-go_00.md)
 +   [第一章：Go 的开发环境](dist-cmp-go_01.md)
 +   [第二章：理解 Goroutines](dist-cmp-go_02.md)

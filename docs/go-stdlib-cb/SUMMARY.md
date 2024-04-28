@@ -1,3 +1,4 @@
++   [Go 标准库秘籍](README.md)
 +   [前言](go-stdlib-cb_00.md)
 +   [第一章：与环境交互](go-stdlib-cb_01.md)
 +   [第二章：字符串和其他内容](go-stdlib-cb_02.md)
