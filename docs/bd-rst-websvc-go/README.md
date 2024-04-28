@@ -1,6 +1,6 @@
-# 每个程序员都应该知道的 40 个算法
+# 构建 Go REST Web 服务
 
-> 原文：[`zh.annas-archive.org/md5/8ddea683d78e7bd756401ec665273969`](https://zh.annas-archive.org/md5/8ddea683d78e7bd756401ec665273969)
+> 原文：[`zh.annas-archive.org/md5/57EDF27484D8AB35B253814EEB7E5A77`](https://zh.annas-archive.org/md5/57EDF27484D8AB35B253814EEB7E5A77)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 

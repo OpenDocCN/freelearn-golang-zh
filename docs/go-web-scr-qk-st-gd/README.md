@@ -1,6 +1,6 @@
-# 每个程序员都应该知道的 40 个算法
+# Go Web 爬虫快速启动指南
 
-> 原文：[`zh.annas-archive.org/md5/8ddea683d78e7bd756401ec665273969`](https://zh.annas-archive.org/md5/8ddea683d78e7bd756401ec665273969)
+> 原文：[`zh.annas-archive.org/md5/5F4220C3B6C0AD580CCD346802D7B1C0`](https://zh.annas-archive.org/md5/5F4220C3B6C0AD580CCD346802D7B1C0)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 

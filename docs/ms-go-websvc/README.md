@@ -1,6 +1,6 @@
-# 每个程序员都应该知道的 40 个算法
+# 精通 Go Web 服务
 
-> 原文：[`zh.annas-archive.org/md5/8ddea683d78e7bd756401ec665273969`](https://zh.annas-archive.org/md5/8ddea683d78e7bd756401ec665273969)
+> 原文：[`zh.annas-archive.org/md5/2D0D1F51B3626D3F3DD6A0D48080FBC1`](https://zh.annas-archive.org/md5/2D0D1F51B3626D3F3DD6A0D48080FBC1)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 

@@ -1,6 +1,6 @@
-# 每个程序员都应该知道的 40 个算法
+# Go 设计模式
 
-> 原文：[`zh.annas-archive.org/md5/8ddea683d78e7bd756401ec665273969`](https://zh.annas-archive.org/md5/8ddea683d78e7bd756401ec665273969)
+> 原文：[`zh.annas-archive.org/md5/8A110D02C69060149D76F09768570714`](https://zh.annas-archive.org/md5/8A110D02C69060149D76F09768570714)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 
