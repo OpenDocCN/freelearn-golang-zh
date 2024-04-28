@@ -125,7 +125,7 @@ Go 确实有一个代码格式化标准，可以通过在源代码文件上运�
 
 注释遵循 C++风格，允许双斜杠和斜杠星号包装样式：
 
-```go
+```
 // Line comment, everything after slashes ignored
 /* General comment, can be in middle of line or span multiple lines */
 ```
@@ -140,7 +140,7 @@ Go 确实有一个代码格式化标准，可以通过在源代码文件上运�
 
 布尔类型表示真或假值。有些语言不提供`bool`类型，您必须使用整数或定义自己的枚举，但 Go 方便地预先声明了`bool`类型。`true`和`false`常量也是预定义的，并且以全小写形式使用。以下是创建布尔值的示例：
 
-```go
+```
 var customFlag bool = false  
 ```
 
@@ -214,7 +214,7 @@ Go 还为高级数学应用提供了复数类型，以及一些别名以方便�
 
 请注意，数字被存储为整数，它们之间没有区别，除了它们在源代码中的格式化方式。在处理二进制数据时，八进制和十六进制可能很有用。以下是如何定义整数的简短示例：
 
-```go
+```
 package main
 
 import "fmt"
@@ -237,41 +237,27 @@ func main() {
 
 Go 还提供了`string`类型以及一个`strings`包，其中包含一套有用的函数，如`Contains()`，`Join()`，`Replace()`，`Split()`，`Trim()`和`ToUpper()`。此外还有一个专门用于将各种数据类型转换为字符串的`strconv`包。您可以在[`golang.org/pkg/strings/`](https://golang.org/pkg/strings/)上阅读有关`strings`包的更多信息，以及在[`golang.org/pkg/strconv/`](https://golang.org/pkg/strconv/)上阅读有关`strconv`包的更多信息。
 
-双引号用于字符串。单引号仅用于单个字符或符文，而不是字符串。可以使用长形式或使用声明和分配运算符的短形式来定义字符串。您还可以使用```go (backticks) symbol to encapsulate strings that span multiple lines. Here is a short example of string usage:
+双引号用于字符串。单引号仅用于单个字符或符文，而不是字符串。可以使用长形式或使用声明和分配运算符的短形式来定义字符串。您还可以使用`` ` ``（反引号）符号，用于封装跨多行的字符串。以下是字符串用法的简短示例:
 
 ```
 
 package main
-
 import "fmt"
-
 func main() {
-
-// 长形式分配
-
-var myText = "test string 1"
-
-// 短形式分配
-
-myText2 := "test string 2"
-
-// 多行字符串
-
-myText3 := `long string
-
-跨越多个
-
-lines`
-
-fmt.Println(myText)
-
-fmt.Println(myText2)
-
-fmt.Println(myText3)
-
+   // 长形式分配
+   var myText = "test string 1"
+   // 短形式分配
+   myText2 := "test string 2"
+   // 多行字符串
+   myText3 := `long string
+   spans multiple
+   lines`
+   fmt.Println(myText)
+   fmt.Println(myText2)
+   fmt.Println(myText3)
 }
 
-```go
+```
 
 # Array
 
@@ -283,7 +269,7 @@ To create an array of 128 bytes, this syntax can be used:
 
 var myByteArray [128]byte
 
-```go
+```
 
 Individual elements of an array can be accessed by its 0-based numeric index. For example, to get the fifth element from the byte array, the syntax is as follows:
 
@@ -291,7 +277,7 @@ Individual elements of an array can be accessed by its 0-based numeric index. Fo
 
 singleByte := myByteArray[4]
 
-```go
+```
 
 # Slice
 
@@ -302,40 +288,28 @@ Slices are created using the `make()` function. The `make()` function will creat
 ```
 
 make([]T, lengthAndCapacity)
-
 make([]T, length, capacity)
 
-```go
+```
 
 A nil slice can be created with a capacity and length of 0\. There is no underlying array associated with a nil slice. Here is a short example program demonstrating how to create and inspect a slice:
 
 ```
 
 package main
-
 import "fmt"
-
 func main() {
-
-// 创建一个 nil 切片
-
-var mySlice []byte
-
-// 创建长度为 8，最大容量为 128 的字节切片
-
-mySlice = make([]byte, 8, 128)
-
-// 切片的最大容量
-
-fmt.Println("Capacity:", cap(mySlice))
-
-// 切片的当前长度
-
-fmt.Println("Length:", len(mySlice))
-
+   // 创建一个 nil 切片
+   var mySlice []byte
+   // 创建长度为 8，最大容量为 128 的字节切片
+   mySlice = make([]byte, 8, 128)
+   // 切片的最大容量
+   fmt.Println("Capacity:", cap(mySlice))
+   // 切片的当前长度
+   fmt.Println("Length:", len(mySlice))
 }
 
-```go
+```
 
 You can also append to a slice using the built-in `append()` function.
 
@@ -346,78 +320,43 @@ This code sample provides various examples of working with slices:
 ```
 
 package main
-
 import "fmt"
-
 func main() {
-
-var mySlice []int // nil slice
-
-// 在 nil 切片上可以使用附加功能。
-
-// 由于 nil 切片的容量为零，并且具有
-
-// 没有基础数组，它将创建一个。
-
-mySlice = append(mySlice, 1, 2, 3, 4, 5)
-
-// 可以从切片中访问单个元素
-
-// 就像使用方括号运算符一样，就像数组一样。
-
-firstElement := mySlice[0]
-
-fmt.Println("First element:", firstElement)
-
-// 仅获取第二个和第三个元素，请使用：
-
-subset := mySlice[1:4]
-
-fmt.Println(subset)
-
-// 要获取切片的全部内容，除了
-
-// 第一个元素，使用：
-
-subset = mySlice[1:]
-
-fmt.Println(subset)
-
-// 要获取切片的全部内容，除了
-
-// 最后一个元素，使用：
-
-subset = mySlice[0 : len(mySlice)-1]
-
-fmt.Println(subset)
-
-// 要复制切片，请使用 copy()函数。
-
-// 如果您使用等号将一个切片分配给另一个切片，
-
-// 切片将指向相同的内存位置，
-
-// 更改一个会更改两个切片。
-
-slice1 := []int{1, 2, 3, 4}
-
-slice2 := make([]int, 4)
-
-// 在内存中创建一个唯一的副本
-
-copy(slice2, slice1)
-
-// 更改一个不应影响另一个
-
-slice2[3] = 99
-
-fmt.Println(slice1)
-
-fmt.Println(slice2)
-
+   var mySlice []int // nil slice
+   // 在 nil 切片上可以使用附加功能。
+   // 由于 nil 切片的容量为零，并且具有
+   // 没有基础数组，它将创建一个。
+   mySlice = append(mySlice, 1, 2, 3, 4, 5)
+   // 可以从切片中访问单个元素
+   // 就像使用方括号运算符一样，就像数组一样。
+   firstElement := mySlice[0]
+   fmt.Println("First element:", firstElement)
+   // 仅获取第二个和第三个元素，请使用：
+   subset := mySlice[1:4]
+   fmt.Println(subset)
+   // 要获取切片的全部内容，除了
+   // 第一个元素，使用：
+   subset = mySlice[1:]
+   fmt.Println(subset)
+   // 要获取切片的全部内容，除了
+   // 最后一个元素，使用：
+   subset = mySlice[0 : len(mySlice)-1]
+   fmt.Println(subset)
+   // 要复制切片，请使用 copy()函数。
+   // 如果您使用等号将一个切片分配给另一个切片，
+   // 切片将指向相同的内存位置，
+   // 更改一个会更改两个切片。
+   slice1 := []int{1, 2, 3, 4}
+   slice2 := make([]int, 4)
+   // 在内存中创建一个唯一的副本
+   copy(slice2, slice1)
+   // 更改一个不应影响另一个
+   slice2[3] = 99
+   fmt.Println(slice1)
+   fmt.Println(slice2)
 }
 
-```go
+```
 
 # Struct
 
@@ -430,60 +369,34 @@ The following example creates a simple struct named `Person` and one named `Hack
 ```
 
 package main
-
 import "fmt"
-
 func main() {
-
-// 定义一个 Person 类型。两个字段都是公共的
-
-type Person struct {
-
-Name string
-
-Age  int
-
+   // 定义一个 Person 类型。两个字段都是公共的
+   type Person struct {
+      Name string
+      Age  int
+   }
+   // 创建一个 Person 对象并存储指向它的指针
+   nanodano := &Person{Name: "NanoDano", Age: 99}
+   fmt.Println(nanodano)
+   // 结构也可以嵌入在其他结构中。
+   // 这通过简单地存储
+   // 另一个变量作为数据类型。
+   type Hacker struct {
+      Person           Person
+      FavoriteLanguage string
+   }
+   fmt.Println(nanodano)
+   hacker := &Hacker{
+      Person:           *nanodano,
+      FavoriteLanguage: "Go",
+   }
+   fmt.Println(hacker)
+   fmt.Println(hacker.Person.Name)
+   fmt.Println(hacker)
 }
 
-// 创建一个 Person 对象并存储指向它的指针
-
-nanodano := &Person{Name: "NanoDano", Age: 99}
-
-fmt.Println(nanodano)
-
-// 结构也可以嵌入在其他结构中。
-
-// 这通过简单地存储
-
-// 另一个变量作为数据类型。
-
-type Hacker struct {
-
-Person           Person
-
-FavoriteLanguage string
-
-}
-
-fmt.Println(nanodano)
-
-hacker := &Hacker{
-
-Person:           *nanodano,
-
-FavoriteLanguage: "Go",
-
-}
-
-fmt.Println(hacker)
-
-fmt.Println(hacker.Person.Name)
-
-fmt.Println(hacker)
-
-}
-
-```go
+```
 
 You can create *private* variables by starting their name with a lowercase letter. I use quotation marks because private variables work slightly different than in other languages. The privacy works at the package level and not at the *class* or type level.
 
@@ -498,30 +411,19 @@ This example demonstrates basic pointer usage. It first creates an integer, and 
 ```
 
 package main
-
 import (
-
-"fmt"
-
-"reflect"
-
+   "fmt"
+   "reflect"
 )
-
 func main() {
-
-myInt := 42
-
-intPointer := &myInt
-
-fmt.Println(reflect.TypeOf(intPointer))
-
-fmt.Println(intPointer)
-
-fmt.Println(*intPointer)
-
+   myInt := 42
+   intPointer := &myInt
+   fmt.Println(reflect.TypeOf(intPointer))
+   fmt.Println(intPointer)
+   fmt.Println(*intPointer)
 }
 
-```go
+```
 
 # Function
 
@@ -532,98 +434,53 @@ All of these examples are demonstrated in the following code source:
 ```
 
 package main
-
 import "fmt"
-
 // 没有参数的函数
-
 func sayHello() {
-
-fmt.Println("Hello.")
-
+   fmt.Println("Hello.")
 }
-
 // 带有一个参数的函数
-
 func greet(name string) {
-
-fmt.Printf("Hello, %s.\n", name)
-
+   fmt.Printf("Hello, %s.\n", name)
 }
-
 // 具有相同类型的多个参数的函数
-
 func greetCustom(name, greeting string) {
-
-fmt.Printf("%s, %s.\n", greeting, name)
-
+   fmt.Printf("%s, %s.\n", greeting, name)
 }
-
 // 变参参数，无限参数
-
 func addAll(numbers ...int) int {
-
-sum := 0
-
-for _, number := range numbers {
-
-sum += number
-
+   sum := 0
+   for _, number := range numbers {
+      sum += number
+   }
+   return sum
 }
-
-return sum
-
-}
-
 // 具有多个返回值的函数
-
 // 由括号封装的多个值
-
 func checkStatus() (int, error) {
-
-return 200, nil
-
+   return 200, nil
 }
-
 // 将类型定义为函数，以便可以使用
-
 // 作为返回类型
-
 type greeterFunc func(string)
-
 // 生成并返回一个函数
-
 func generateGreetFunc(greeting string) greeterFunc {
-
-return func(name string) {
-
-fmt.Printf("%s, %s.\n", greeting, name)
-
+   return func(name string) {
+      fmt.Printf("%s, %s.\n", greeting, name)
+   }
 }
-
-}
-
 func main() {
-
-sayHello()
-
-greet("NanoDano")
-
-greetCustom("NanoDano", "Hi")
-
-fmt.Println(addAll(4, 5, 2, 3, 9))
-
-russianGreet := generateGreetFunc("Привет")
-
-russianGreet("NanoDano")
-
-var stringToIntMap map[string]int
-
-fmt.Println(statusCode, err)
-
+   sayHello()
+   greet("NanoDano")
+   greetCustom("NanoDano", "Hi")
+   fmt.Println(addAll(4, 5, 2, 3, 9))
+   russianGreet := generateGreetFunc("Привет")
+   russianGreet("NanoDano")
+   var stringToIntMap map[string]int
+   fmt.Println(statusCode, err)
 }
 
-```go
+```
 
 # Interface
 
@@ -634,14 +491,11 @@ You can add as many other functions as you want to your custom type. The interfa
 The most commonly used interface is the `error` interface. The `error` interface only requires a single function to be implemented, a function named `Error()` that returns a string with the error message. Here is the interface definition:
 
 ```
+type error interface {
+   Error() string
+} 
 
-// and signal when done
-
-Error() string
-
-}
-
-```go
+```
 
 This makes it very easy for you to implement your own error interfaces. This example creates a `customError` type and then implements the `Error()` function needed to satisfy the interface. Then, a sample function is created, which returns the custom error:
 
@@ -649,77 +503,51 @@ This makes it very easy for you to implement your own error interfaces. This exa
 
 package main
 
-}
+import "fmt"
 
-fmt.Println(map1)
-
+// Define a custom type that will
 // be used to satisfy the error interface
-
 type customError struct {
-
-Message string
-
+   Message string
 }
 
-// This is a blocking operation so execution
+// Satisfy the error interface
+// by implementing the Error() function
+// which returns a string
+func (e *customError) Error() string {
+   return e.Message
+}
+
+// Sample function to demonstrate
+// how to use the custom error
+func testFunction() error {
+   if true != false { // Mimic an error condition
+      return &customError{"Something went wrong."}
+   }
+   return nil
+}
 
 func main() {
-
-// which returns a string
-
-func (e *customError) Error() string {
-
-return e.Message
-
-}
-
-log.Println("No done signal yet. Waiting.")
-
-// how to use the custom error
-
-func testFunction() error {
-
-log.Println(tempBool)
-
-fmt.Println("n is not greater than 1000.")
-
-// Initialize a map using make
-
-return nil
-
-}
-
-"fmt"
-
-err := testFunction()
-
-if err != nil {
-
-fmt.Println(err)
-
-if x < 100 {
-
-}
-
-```go
+   err := testFunction()
+   if err != nil {
+      fmt.Println(err)
+   }
+} 
+```
 
 Other frequently used interfaces are the `Reader` and `Writer` interfaces. Each one only requires one function to be implemented in order to satisfy the interface requirements. The big benefit here is that you can create your own custom types that reads and writes data in some arbitrary way. The implementation details are not important to the interface. The interface won't care whether you are reading and writing to a hard disk, a network connection, storage in memory, or `/dev/null`. As long as you implement the function signatures that are required, you can use your type anywhere the interface is used. Here is the definition of the `Reader` and `Writer` interfaces:
 
 ```
 
 type Reader interface {
+   Read(p []byte) (n int, err error)
+} 
+ 
+type Writer interface {
+   Write(p []byte) (n int, err error)
+} 
 
-Read(p []byte) (n int, err error)
-
-}
-
-import (
-
-Write(p []byte) (n int, err error)
-
-}
-
-```go
+```
 
 # Map
 
@@ -731,69 +559,44 @@ Here are some example map usages:
 
 ```
 
-time.Sleep(time.Second * 3)
-
-import (
-
-"fmt"
-
-"reflect"
-
-}
-
 package main
 
-fmt.Println("x is less than 1000.")
-
-func main() {
-
-for key := range myMap {
-
-for key, value := range map2 {
-
-fmt.Println(reflect.TypeOf(intToStringMap))
-
-fmt.Println(reflect.TypeOf(stringToIntMap))
-
-func main() {
-
 import (
+   "fmt"
+   "reflect"
+)
 
-map1["Key Example"] = "Value Example"
+func main() {
+   // Nil maps will cause runtime panic if used 
+   // without being initialized with make()
+   var intToStringMap map[int]string
+   var stringToIntMap map[string]int
+   fmt.Println(reflect.TypeOf(intToStringMap))
+   fmt.Println(reflect.TypeOf(stringToIntMap))
 
-map1["Red"] = "FF0000"
+   // Initialize a map using make
+   map1 := make(map[string]string)
+   map1["Key Example"] = "Value Example"
+   map1["Red"] = "FF0000"
+   fmt.Println(map1)
 
-}
+   // Initialize a map with literal values
+   map2 := map[int]bool{
+      4:  false,
+      6:  false,
+      42: true,
+   }
 
-// Initialize a map with literal values
+   // Access individual elements using the key
+   fmt.Println(map1["Red"])
+   fmt.Println(map2[42])
+   // Use range to iterate through maps
+   for key, value := range map2 {
+      fmt.Printf("%d: %t\n", key, value)
+   }
 
-map2 := map[int]bool{
-
-4:  false,
-
-6:  false,
-
-42: true,
-
-case done := <-doneChannel:
-
-// Access individual elements using the key
-
-fmt.Println(map1["Red"])
-
-fmt.Println(map2[42])
-
-// Use range to iterate through maps
-
-return &customError{"Something went wrong."}
-
-fmt.Printf("%d: %t\n", key, value)
-
-// Satisfy the error interface
-
-}
-
-```go
+} 
+```
 
 # Channel
 
@@ -808,94 +611,57 @@ Here is an example program that demonstrates basic channel usage:
 package main
 
 import (
+   "log"
+   "time"
+)
 
-"log"
-
-"time"
-
-"fmt"
-
-statusCode, err := checkStatus()
-
+// Do some processing that takes a long time
 // in a separate thread and signal when done
-
 func process(doneChannel chan bool) {
-
-type error interface {
-
-doneChannel <- true
-
+   time.Sleep(time.Second * 3)
+   doneChannel <- true
 }
 
 func main() {
+   // Each channel can support one data type.
+   // Can also use custom types
+   var doneChannel chan bool
 
-// Each channel can support one data type.
+   // Channels are nil until initialized with make
+   doneChannel = make(chan bool)
 
-// Can also use custom types
+   // Kick off a lengthy process that will
+   // signal when complete
+   go process(doneChannel)
 
-var doneChannel chan bool
+   // Get the first bool available in the channel
+   // This is a blocking operation so execution
+   // will not progress until value is received
+   tempBool := <-doneChannel
+   log.Println(tempBool)
+   // or to simply ignore the value but still wait
+   // <-doneChannel
 
-// Channels are nil until initialized with make
+   // Start another process thread to run in background
+   // and signal when done
+   go process(doneChannel)
 
-}
-
-type Writer interface {
-
-// signal when complete
-
-go process(doneChannel)
-
-// Get the first bool available in the channel
-
-fmt.Println("x is greater than 10,000")
-
-)
-
-tempBool := <-doneChannel
-
-for !readyToExit {
-
-// or to simply ignore the value but still wait
-
-n++
-
-// Start another process thread to run in background
-
-fmt.Println("i:", i)
-
-go process(doneChannel)
-
-// This gives you the ability to continue executing
-
-var intToStringMap map[int]string
-
-// even if no message is waiting in the channel
-
-var readyToExit = false
-
-}
-
-select {
-
-// without being initialized with make()
-
-log.Println("Done message received.", done)
-
-readyToExit = true
-
-default:
-
-for key, value := range intSlice {
-
-time.Sleep(time.Millisecond * 500)
-
-// Define a custom type that will
-
-}
-
-}
-
-```go
+   // Make channel non-blocking with select statement
+   // This gives you the ability to continue executing
+   // even if no message is waiting in the channel
+   var readyToExit = false
+   for !readyToExit {
+      select {
+      case done := <-doneChannel:
+         log.Println("Done message received.", done)
+         readyToExit = true
+      default:
+         log.Println("No done signal yet. Waiting.")
+         time.Sleep(time.Millisecond * 500)
+      }
+   }
+} 
+```
 
 # Control structures
 
@@ -911,63 +677,39 @@ This example demonstrates the various ways to use an `if` statement:
 
 package main
 
-doneChannel = make(chan bool)
-
-}
-
-"math/rand"
-
-}
-
-func main() {
-
-x := rand.Int()
-
-// <-doneChannel
-
-fmt.Println("x is less than 100.")
-
-// Basic for loop
-
-if x < 1000 {
-
-// Make channel non-blocking with select statement
-
-} else if x < 10000 {
-
-fmt.Println("x is less than 10,000.")
-
-} else {
-
-// Sample function to demonstrate
-
-}
-
-fmt.Println("x:", x)
-
-map1 := make(map[string]string)
-
-// The variable scope of n is limited
-
+import (
+   "fmt"
+   "math/rand"
 )
 
-fmt.Println("n is greater than 1000.")
+func main() {
+   x := rand.Int()
 
-fmt.Println("n:", n)
+   if x < 100 {
+      fmt.Println("x is less than 100.")
+   }
 
-} else {
+   if x < 1000 {
+      fmt.Println("x is less than 1000.")
+   } else if x < 10000 {
+      fmt.Println("x is less than 10,000.")
+   } else {
+      fmt.Println("x is greater than 10,000")
+   }
 
-}
+   fmt.Println("x:", x)
 
-fmt.Println("n:", n)
-
-}
-
-// n is no longer available past the if statement
-
-}
-
-```go
+   // You can put a statement before the condition 
+   // The variable scope of n is limited
+   if n := rand.Int(); n > 1000 {
+      fmt.Println("n is greater than 1000.")
+      fmt.Println("n:", n)
+   } else {
+      fmt.Println("n is not greater than 1000.")
+      fmt.Println("n:", n)
+   }
+   // n is no longer available past the if statement
+```
 
 # for
 
@@ -977,37 +719,24 @@ The `for` loop has three components, and can be used just like a `for` loop in C
 
 package main
 
-// will not progress until value is received
-
-// Kick off a lengthy process that will
-
+import (
+   "fmt"
 )
 
-"o": "Operator",
+func main() {
+   // Basic for loop
+   for i := 0; i < 3; i++ {
+      fmt.Println("i:", i)
+   }
 
-// Nil maps will cause runtime panic if used
-
-for i := 0; i < 3; i++ {
-
-if n := rand.Int(); n > 1000 {
-
-import "fmt"
-
-// For used as a while loop
-
-n := 5
-
-for n < 10 {
-
-fmt.Println(n)
-
-}
-
-}
-
-// by implementing the Error() function
-
-```go
+   // For used as a while loop
+   n := 5
+   for n < 10 {
+      fmt.Println(n)
+      n++
+   }
+} 
+```
 
 # range
 
@@ -1020,50 +749,32 @@ package main
 import "fmt"
 
 func main() {
+   intSlice := []int{2, 4, 6, 8}
+   for key, value := range intSlice {
+      fmt.Println(key, value)
+   }
 
-intSlice := []int{2, 4, 6, 8}
+   myMap := map[string]string{
+      "d": "Donut",
+      "o": "Operator",
+   }
 
-}
+   // Iterate over a map
+   for key, value := range myMap {
+      fmt.Println(key, value)
+   }
 
-fmt.Println(key, value)
+   // Iterate but only utilize keys
+   for key := range myMap {
+      fmt.Println(key)
+   }
 
-}
-
-// You can put a statement before the condition
-
-"d": "Donut",
-
-if true != false { // Mimic an error condition
-
-// Do some processing that takes a long time
-
-// Iterate over a map
-
-for key, value := range myMap {
-
-fmt.Println(key, value)
-
-}
-
-// Iterate but only utilize keys
-
-myMap := map[string]string{
-
-fmt.Println(key)
-
-}
-
-// Use underscore to ignore keys
-
-for _, value := range myMap {
-
-)
-
-}
-
-fmt.Println(value)
-
-```go
+   // Use underscore to ignore keys
+   for _, value := range myMap {
+      fmt.Println(value)
+   }
+} 
+```
 
 # switch, case, fallthrough, and default
 
@@ -1079,67 +790,40 @@ This example demonstrates two `switch` statements. The first one uses hardcoded 
 
 package main
 
-import（
+import (
+   "fmt"
+   "math/rand"
+)
 
-“fmt”
+func main() {
+   x := 42
 
-“math/rand”
+   switch x {
+   case 25:
+      fmt.Println("X is 25")
+   case 42:
+      fmt.Println("X is the magical 42")
+      // Fallthrough will continue to next case
+      fallthrough
+   case 100:
+      fmt.Println("X is 100")
+   case 1000:
+      fmt.Println("X is 1000")
+   default:
+      fmt.Println("X is something else.")
+   }
 
-}
-
-func main（）{
-
-x：= 42
-
-switch x {
-
-case 25：
-
-fmt.Println（“X 是 25”）
-
-case 42：
-
-fmt.Println（“X 是神奇的 42”）
-
-//Fallthrough 将继续下一个情况
-
-fallthrough
-
-case 100：
-
-fmt.Println（“X 是 100”）
-
-case 1000：
-
-fmt.Println（“X 是 1000”）
-
-default：
-
-fmt.Println（“X 是其他东西。”）
-
-}
-
-//像 if 语句一样的语句
-
-//可以放在开关变量的前面
-
-switch r：= rand.Int（）; r {
-
-case r％2：
-
-fmt.Println（“随机数 r 是偶数。”）
-
-default：
-
-fmt.Println（“随机数 r 是奇数。”）
-
-}
-
-//在 switch 语句之后 r 不再可用
-
-}
-
-```go
+   // Like the if statement a statement
+   // can be put in front of the switched variable
+   switch r := rand.Int(); r {
+   case r % 2:
+      fmt.Println("Random number r is even.")
+   default:
+      fmt.Println("Random number r is odd.")
+   }
+   // r is no longer available after the switch statement
+} 
+```
 
 # goto
 
@@ -1151,25 +835,19 @@ package main
 
 import "fmt"
 
-func main（）{
+func main() {
 
-goto customLabel
+   goto customLabel
 
-//永远不会被执行，因为
+   // Will never get executed because
+   // the goto statement will jump right
+   // past this line
+   fmt.Println("Hello")
 
-// goto 语句将立即跳转
-
-//过了这条线
-
-fmt.Println（“你好”）
-
-customLabel：
-
-fmt.Println（“世界”）
-
-}
-
-```go
+   customLabel:
+   fmt.Println("World")
+} 
+```
 
 # Defer
 
@@ -1183,39 +861,27 @@ This example demonstrates a simple use case for the `defer` keyword. It creates 
 
 package main
 
-import（
+import (
+   "log"
+   "os"
+)
 
-“日志”
+func main() {
 
-os"
+   file, err := os.Create("test.txt")
+   if err != nil {
+      log.Fatal("Error creating file.")
+   }
+   defer file.Close()
+   // It is important to defer after checking the errors.
+   // You can't call Close() on a nil object
+   // if the open failed.
 
-）
+   // ...perform some other actions here...
 
-func main（）{
-
-file，err：= os.Create（“test.txt”）
-
-如果 err！= nil {
-
-log.Fatal（“创建文件时出错。”）
-
-}
-
-defer file.Close（）
-
-//检查错误后延迟很重要。
-
-//您无法在空对象上调用 Close（）
-
-//如果打开失败。
-
-// ...在这里执行一些其他操作...
-
-//在最终退出之前将调用 file.Close（）
-
-}
-
-```go
+   // file.Close() will be called before final exit
+} 
+```
 
 Be sure to properly check and handle errors. The `defer` call will panic if using a nil pointer.
 
@@ -1235,21 +901,17 @@ You can import packages individually:
 
 import "fmt"
 
-```go
+```
 
 Alternatively, you can import multiple packages at once by wrapping them with parenthesis:
 
 ```
 
-import（
-
-“fmt”
-
-“日志”
-
-）
-
-```go
+import (
+   "fmt"
+   "log"
+) 
+```
 
 # Classes
 
@@ -1265,59 +927,38 @@ There is no inheritance in Go, but you can embed types. Here is an example of a 
 
 package main
 
-import（
+import (
+   "fmt"
+   "reflect"
+)
 
-“fmt”
+type Person struct {
+   Name string
+   Age  int
+} 
 
-“reflect”
-
-）
-
-类型 Person struct {
-
-Name string
-
-Age  int
-
+type Doctor struct {
+   Person         Person
+   Specialization string
 }
 
-类型 Doctor struct {
+func main() {
+   nanodano := Person{
+      Name: "NanoDano",
+      Age:  99,
+   } 
 
-Person         Person
+   drDano := Doctor{
+      Person:         nanodano,
+      Specialization: "Hacking",
+   }
 
-Specialization string
-
-}
-
-func main（）{
-
-nanodano：= Person {
-
-Name：“NanoDano”，
-
-Age：99，
-
-}
-
-drDano：= Doctor {
-
-Person：         nanodano，
-
-Specialization：“黑客”，
-
-}
-
-fmt.Println（reflect.TypeOf（nanodano））
-
-fmt.Println（nanodano）
-
-fmt.Println（reflect.TypeOf（drDano））
-
-fmt.Println（drDano）
-
-}
-
-```go
+   fmt.Println(reflect.TypeOf(nanodano))
+   fmt.Println(nanodano)
+   fmt.Println(reflect.TypeOf(drDano))
+   fmt.Println(drDano)
+} 
+```
 
 # Polymorphism
 
@@ -1333,31 +974,21 @@ package main
 
 import "fmt"
 
-类型 Person struct {
-
-Name string
-
+type Person struct {
+   Name string
 }
 
-func NewPerson（）Person {
-
-返回 Person {
-
-Name：“匿名”，
-
+func NewPerson() Person {
+   return Person{
+      Name: "Anonymous",
+   }
 }
 
-}
-
-func main（）{
-
-p：= NewPerson（）
-
-fmt.Println（p）
-
-}
-
-```go
+func main() {
+   p := NewPerson()
+   fmt.Println(p)
+} 
+```
 
 There are no deconstructors in Go, since everything is garbage collected and you do not manually destroy objects. Defer is the closest you can get by deferring a function call to perform some cleanup when the current function ends.
 
@@ -1367,63 +998,44 @@ Methods are functions that belong to a specific type, and are called using the d
 
 ```
 
-myObject.myMethod（）
+myObject.myMethod()
 
-```go
+```
 
 The dot notation is widely used in C++ and other object-oriented languages. The dot notation and the class system stemmed from a common pattern that was used in C. The common pattern is to define a set of functions that all operate on a specific data type. All of the related functions have the same first parameter, which is the data to be operated on. Since this is such a common pattern, Go built it into the language. Instead of passing the object to be manipulated as the first argument, there is a special place to designate the receiver in a Go function definition. The receiver is specified between a set of parenthesis before the function name. The next example demonstrates how to use function receivers.
 
 Instead of writing a large set of functions that all took a pointer as their first parameter, you can write functions that have a special *receiver*. The receiver can either be a type or a pointer to a type:
 
 ```
-
 package main
 
 import "fmt"
 
-类型 Person struct {
-
-Name string
-
+type Person struct {
+   Name string
 }
 
-//人员功能接收器
-
-func（p Person）PrintInfo（）{
-
-fmt.Printf（“Name：%s\n”，p.Name）
-
+// Person function receiver
+func (p Person) PrintInfo() {
+   fmt.Printf("Name: %s\n", p.Name)
 }
 
-//人员指针接收器
-
-//如果您没有使用指针接收器
-
-//它不会修改人的对象
-
-//尝试删除这里的星号，看看
-
-//程序更改行为
-
-func（p * Person）ChangeName（newName string）{
-
-p.Name = newName
-
+// Person pointer receiver
+// If you did not use the pointer receivers
+// it would not modify the person object
+// Try removing the asterisk here and seeing how the
+// program changes behavior
+func (p *Person) ChangeName(newName string) {
+   p.Name = newName
 }
 
-func main（）{
-
-nanodano：= Person {Name：“NanoDano”}
-
-nanodano.PrintInfo（）
-
-nanodano.ChangeName（“Just Dano”）
-
-nanodano.PrintInfo（）
-
-}
-
-```go
+func main() {
+   nanodano := Person{Name: "NanoDano"}
+   nanodano.PrintInfo()
+   nanodano.ChangeName("Just Dano")
+   nanodano.PrintInfo()
+} 
+```
 
 In Go, you do not encapsulate all of the variables and methods inside a monolithic pair of braces. You define a type, and then define methods that operate on that type. This allows you to define all of your structs and data types in one place, and define the methods elsewhere in your package. You also have the option of defining a type and the methods right next to each other. It's pretty simple and straightforward, and it creates a slightly clearer distinction between the state (data) and the logic.
 
@@ -1443,55 +1055,35 @@ Note that the `log` package is safe to use concurrently, but the `fmt` package i
 
 package main
 
-import（
+import (
+   "log"
+   "time"
+)
 
-“日志”
-
-“时间”
-
-）
-
-func countDown（）{
-
-for i：= 5; i> = 0; i-- {
-
-log.Println（i）
-
-time.Sleep（time.Millisecond * 500）
-
+func countDown() {
+   for i := 5; i >= 0; i-- {
+      log.Println(i)
+      time.Sleep(time.Millisecond * 500)
+   }
 }
 
-}
+func main() {
+   // Kick off a thread
+   go countDown()
 
-func main（）{
+   // Since functions are first-class
+   // you can write an anonymous function
+   // for a goroutine
+   go func() {
+      time.Sleep(time.Second * 2)
+      log.Println("Delayed greetings!")
+   }()
 
-//启动一个线程
-
-go countDown（）
-
-//由于函数是头等公民
-
-//您可以编写匿名函数
-
-//用于 goroutine
-
-go func（）{
-
-time.Sleep（time.Second * 2）
-
-log.Println（“延迟问候！”）
-
-（）
-
-//使用通道来表示何时完成
-
-//或在这种情况下只是等待
-
-time.Sleep（time.Second * 4）
-
-}
-
-```go
+   // Use channels to signal when complete
+   // Or in this case just wait
+   time.Sleep(time.Second * 4)
+} 
+```
 
 # Getting help and documentation
 
@@ -1508,23 +1100,14 @@ Go also comes with offline documentation with the `godoc` command-line tool. You
 ```
 
 # 获取 fmt 包信息
-
 godoc fmt
-
 # 获取 fmt 包的源代码
-
 godoc -src fmt
-
 # 获取特定函数信息
-
 godoc fmt Printf
-
 # 获取函数的源代码
-
 godoc -src fmt Printf
-
 # 运行 HTTP 服务器以查看 HTML 文档
-
 godoc -http = localhost：9999
 
 ```
