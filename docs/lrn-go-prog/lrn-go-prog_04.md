@@ -353,486 +353,388 @@ golang.fyi/ch04/string.go
 | --- | --- | --- | --- | --- | --- |
 | \u6C34 | \x20 | 带来 | \x20 | \x6c\x69\x66\x65 | . |
 
-另一方面，变量`txt3`分配的文字值被反引号字符```go`. This creates what is known as a raw string in Go. Raw string values are uninterpreted where escape sequences are ignored and all valid characters are encoded as they appear in the literal.
+另一方面，变量`txt3`分配的文字值被反引号字符`` ` ``包围。这在Go中创建了所谓的原始字符串。原始字符串值未被解释，其中转义序列被忽略，所有有效字符都按照它们在文本中出现的方式进行编码。
 
-When variable `txt3` is printed, it produces the following output:
-
-```包围
-
-\u6C34\x20 带来\x20\x6c\x69\x66\x65。
+打印`txt3`变量时，将产生以下输出：
 
 ```go
 
-Notice that the printed string contains all the backslash-escaped values as they appear in the original string literal. Uninterpreted string literals are a great way to embed large multi-line textual content within the body of a source code without breaking its syntax.
-
-# Pointers
-
-In Go, when a piece of data is stored in memory, the value for that data may be accessed directly or a pointer may be used to reference the memory address where the data is located. As with other C-family languages, pointers in Go provide a level of indirection that let programmers process data more efficiently without having to copy the actual data value every time it is needed.
-
-Unlike C, however, the Go runtime maintains control of the management of pointers at runtime. A programmer cannot add an arbitrary integer value to the pointer to generate a new pointer address (a practice known as pointer arithmetic). Once an area of memory is referenced by a pointer, the data in that area will remain reachable until it is no longer referenced any pointer variable. At that point, the unreferenced value becomes eligible for garbage collection.
-
-## The pointer type
-
-Similar to C/C++, Go uses the `*` operator to designate a type as a pointer. The following snippet shows several pointers with different underlying types:
+\u6C34\x20 brings\x20\x6c\x69\x66\x65。
 
 ```
 
+注意，打印的字符串包含所有反斜杠转义值，就像它们出现在原始字符串文本中一样。未解释的字符串文本是在不破坏语法的情况下将大型多行文本内容嵌入源代码主体中的一种有效方式。
+
+# 指针
+
+在 Go 中，当一段数据存储在内存中时，可以直接访问该数据的值，也可以使用指针来引用存储数据位置的内存地址。与其他 C 家族语言一样，Go 中的指针提供了一种间接的方式，让程序员可以更高效地处理数据，而不必每次需要时都复制实际数据值。
+
+然而，与 C 不同，Go 运行时在运行时管理指针的控制。程序员不能将任意整数值添加到指针中生成新的指针地址（一种称为指针算术的做法）。一旦一个指针引用了内存区域，该区域中的数据将保持可访问状态，直到不再有任何指针变量引用。在那时，未引用的值将变得可供垃圾收集。
+
+## 指针类型
+
+类似于 C/C++，Go 使用`*`运算符指定类型为指针。以下代码片段显示了几个具有不同底层类型的指针：
+
+```go
+
 package main
-
 import "fmt"
-
 var valPtr *float32
-
 var countPtr *int
-
 var person *struct {
-
-name string
-
-年龄  int
-
+   name string
+   age  int
 }
-
 var matrix *[1024]int
-
 var row []*int64
-
 func main() {
-
-fmt.Println(valPtr, countPtr, person, matrix, row)
-
+   fmt.Println(valPtr, countPtr, person, matrix, row)
 }
-
-```go
-
-golang.fyi/ch04/pointers.go
-
-Given a variable of type `T`, Go uses expression `*T` as its pointer type. The type system considers `T` and `*T` as distinct and are not fungible. The zero value of a pointer, when it is not pointing to anything, is the address 0, represented by the literal *constant* nil.
-
-## The address operator
-
-Pointer values can only be assigned addresses of their declared types. One way you can do so in Go is to use the address operator `&`(ampersand) to obtain the address value of a variable as shown in the following example:
 
 ```
+
+[golang.fyi/ch04/pointers.go](https://golang.fyi/ch04/pointers.go)
+
+给定类型`T`的变量，Go 使用表达式`*T`作为其指针类型。类型系统将`T`和`*T`视为不同且不可互换。指针的零值，当它不指向任何内容时，是地址 0，表示为*常数* nil。
+
+## 地址运算符
+
+指针值只能分配给它们声明类型的地址。在 Go 中，一种方法是使用地址运算符`&`（和号）获取变量的地址值，如下例所示：
+
+```go
 
 package main
-
 import "fmt"
-
 func main() {
-
-var a int = 1024
-
-var aptr *int = &a
-
-fmt.Printf("a=%v\n", a)
-
-fmt.Printf("aptr=%v\n", aptr)
-
+   var a int = 1024
+   var aptr *int = &a
+   fmt.Printf("a=%v\n", a)
+   fmt.Printf("aptr=%v\n", aptr)
 }
 
-```go
-
-golang.fyi/ch04/pointers.go
-
-Variable `aptr`, of pointer type `*int`, is initialized and assigned the address value of variable `a` using expression `&a` as listed here:
-
 ```
+
+[golang.fyi/ch04/pointers.go](https://golang.fyi/ch04/pointers.go)
+
+变量`aptr`，指针类型为`*int`，使用表达式`&a`进行初始化，并将变量`a`的地址值分配给它，如下所示：
+
+```go
 
 var a int = 1024
-
 var aptr *int = &a
 
-```go
-
-While variable `a` stores the actual value, we say that `aptr` points to `a`. The following shows the output of the program with the value of variable `a` and its memory location assigned to `aptr`:
-
 ```
+
+虽然变量`a`存储实际值，我们说`aptr`指向`a`。以下显示了程序输出，其中变量`a`的值和其内存位置被分配给`aptr`：
+
+```go
 
 a=1024
-
 aptr=0xc208000150
 
-```go
-
-The assigned address value will always be the same (always pointing to `a`) regardless of where `aptr` may be accessed in the code. It is also worth noting that Go does not allow the use of the address operator with literal constant for numeric, string, and bool types. Therefore, the following will not compile:
-
 ```
+
+分配的地址值将始终相同（始终指向`a`），无论在代码中何处访问`aptr`。值得注意的是，Go 不允许在数字、字符串和布尔类型的文本常量中使用地址运算符。因此，以下代码不会编译：
+
+```go
 
 var aptr *int = &1024
-
 fmt.Printf("a ptr1 = %v\n", aptr)
 
+```
+
+然而，有一个语法例外情况，当用文本常量初始化结构体和数组等复合类型时。以下程序说明了这样的情况：
+
 ```go
 
-There is a syntactical exception to this rule, however, when initializing composite types such as struct and array with literal constants. The following program illustrates such scenarios:
+package main
+import "fmt"
+func main() {
+   structPtr := &struct{ x, y int }{44, 55}
+   pairPtr := &[2]string{"A", "B"}
+   fmt.Printf("struct=%#v, type=%T\n", structPtr, structPtr)
+   fmt.Printf("pairPtr=%#v, type=%T\n", pairPtr, pairPtr)
+}
 
 ```
+
+[golang.fyi/ch04/address2.go](https://golang.fyi/ch04/address2.go)
+
+在前面的代码片段中，地址运算符直接与复合字面量`&struct{ x, y int }{44, 55}`和`&[2]string{"A", "B"}`一起使用，返回指针类型`*struct { x int; y int }`和`*[2]string`。这是一种语法糖，消除了将值分配给变量，然后检索其分配地址的中间步骤。
+
+## new()函数
+
+使用内置函数*new(<type>)*也可以用来初始化指针值。它首先为指定类型的零值分配适当的内存。然后函数返回新创建值的地址。下面的程序使用`new()`函数初始化变量`intptr`和`p`：
+
+```go
 
 package main
 
 import "fmt"
-
 func main() {
-
-structPtr := &struct{ x, y int }{44, 55}
-
-pairPtr := &[2]string{"A", "B"}
-
-fmt.Printf("struct=%#v, type=%T\n", structPtr, structPtr)
-
-fmt.Printf("pairPtr=%#v, type=%T\n", pairPtr, pairPtr)
-
+   intptr := new(int)
+   *intptr = 44
+   p := new(struct{ first, last string })
+   p.first = "Samuel"
+   p.last = "Pierre"
+   fmt.Printf("Value %d, type %T\n", *intptr, intptr)
+   fmt.Printf("Person %+v\n", p)
 }
-
-```go
-
-golang.fyi/ch04/address2.go
-
-In the previous code snippet, the address operator is used directly with composite literal `&struct{ x, y int }{44, 55}` and `&[2]string{"A", "B"}` to return pointer types `*struct { x int; y int }` and `*[2]string` respectively. This is a bit of syntactic sugar that eliminates the intermediary step of assigning the values to a variable, then retrieving their assigned addresses.
-
-## The new() function
-
-The built-in function *new(<type>)* can also be used to initialize a pointer value. It first allocates the appropriate memory for a zero-value of the specified type. The function then returns the address for the newly created value. The following program uses the `new()` function to initialize variables `intptr` and `p`:
 
 ```
-
-package main
-
-import "fmt"
-
-func main() {
-
-intptr := new(int)
-
-*intptr = 44
-
-p := new(struct{ first, last string })
-
-p.first = "Samuel"
-
-p.last = "Pierre"
-
-fmt.Printf("Value %d, type %T\n", *intptr, intptr)
-
-fmt.Printf("Person %+v\n", p)
-
-}
-
-```go
 
 golang.fyi/ch04/newptr.go
 
-Variable `intptr` is initialized as `*int` and `p` as `*struct{first, last string}`. Once initialized, both values are updated accordingly later in the code. You can use the `new()` function to initialize pointer variables with zero values when the actual values are not available at the time of initialization.
+变量`intptr`初始化为`*int`，`p`初始化为`*struct{first, last string}`。一旦初始化，两个值在代码中稍后会相应更新。当实际值在初始化时不可用时，您可以使用`new()`函数以零值初始化指针变量。
 
-## Pointer indirection - accessing referenced values
+## 指针间接引用 - 访问引用的值
 
-If all you have is an address, you can access the value to which it points by applying the `*` operator to the pointer value itself (or dereferencing). The following program illustrates this idea in functions `double()` and `cap()`:
-
-```
-
-package main
-
-import (
-
-"fmt"
-
-"strings"
-
-)
-
-func main() {
-
-a := 3
-
-double(&a)
-
-fmt.Println(a)
-
-p := &struct{ first, last string }{"Max", "Planck"}
-
-cap(p)
-
-fmt.Println(p)
-
-}
-
-func double(x *int) {
-
-*x = *x * 2
-
-}
-
-func cap(p *struct{ first, last string }) {
-
-p.first = strings.ToUpper(p.first)
-
-p.last = strings.ToUpper(p.last)
-
-}
+如果你只有地址，你可以通过将`*`运算符应用到指针值本身（或解引用）来访问它指向的值。以下程序在函数`double()`和`cap()`中演示了这一理念：
 
 ```go
+
+package main
+import (
+   "fmt"
+   "strings"
+)
+func main() {
+   a := 3
+   double(&a)
+   fmt.Println(a)
+   p := &struct{ first, last string }{"Max", "Planck"}
+   cap(p)
+   fmt.Println(p)
+}
+func double(x *int) {
+   *x = *x * 2
+}
+func cap(p *struct{ first, last string }) {
+   p.first = strings.ToUpper(p.first)
+   p.last = strings.ToUpper(p.last)
+}
+
+```
 
 golang.fyi/ch04/derefptr.go
 
-In the preceding code, the expression `*x = *x * 2`, in function `double()`, can be decomposed as follows to understand how it works:
+在前面的代码中，在函数`double()`中，表达式`*x = *x * 2`可以分解如下以了解其工作原理：
 
-| **Expression** | **Step** |
-|  
-```
+| **表达式** | **步骤** |
+| --- | --- |
+
+```go
 
 *x * 2
 
-```go
-
- | Original expression where `x` is of type `*int`. |
-|  
 ```
+
+| `x`是`*int`类型的原始表达式。 |
+| --- |
+
+```go
 
 *(*x) * 2
 
-```go
-
- | Dereferencing pointers by applying `*` to address values. |
-|  
 ```
+
+| 通过对地址值应用`*`进行指针解引用。 |
+| --- |
+
+```go
 
 3 * 2 = 6
 
-```go
-
- | Dereferenced value of `*(*x) = 3`. |
-|  
 ```
+
+| `*(*x) = 3`的解引用值。 |
+| --- |
+
+```go
 
 *(*x) = 6
 
-```go
-
- | The right side of this expression dereferences the value of `x`. It is updated with the result 6. |
-
-In function `cap()`, a similar approach is used to access and update fields in composite variable `p` of type `struct{first, last string}`. However, when dealing with composites, the idiom is more forgiving. It is not necessary to write `*p.first` to access the pointer's field value. We can drop the `*` and just use `p.first = strings.ToUpper(p.first).`
-
-# Type declaration
-
-In Go, it is possible to bind a type to an identifier to create a new named type that can be referenced and used wherever the type is needed. Declaring a type takes the general format as follows:
-
-*type <name identifier> <underlying type name>*
-
-The type declaration starts with the keyword `type` followed by a *name identifier *and the name of an existing *underlying type*. The underlying type can be a built-in named type such as one of the numeric types, a Boolean, or a string type as shown in the following snippet of type declarations:
-
 ```
 
-类型 truth bool
+| 此表达式的右侧解引用了`x`的值。它被更新为结果 6。 |
+| --- |
 
-类型 quart float64
+在函数`cap()`中，使用类似的方法来访问和更新类型为`struct{first, last string}`的复合变量`p`中的字段。然而，处理复合类型时，这种习惯用法更加宽容。不需要写`*p.first`来访问指针的字段值。我们可以去掉`*`，直接使用`p.first = strings.ToUpper(p.first)`。
 
-类型 gallon float64
+# 类型声明
 
-类型 node string
+在 Go 语言中，可以将类型绑定到标识符以创建一个新的命名类型，可以在需要该类型的任何地方引用和使用它。声明类型的通用格式如下：
+
+*type <名称标识符> <基础类型名称>*
+
+类型声明以关键字`type`开始，后跟*名称标识符*和现有*基础类型*的名称。基础类型可以是内置命名类型，如数字类型之一，布尔值，或字符串类型，如下面的类型声明片段所示：
 
 ```go
 
-### Note
-
-A type declaration can also use a composite *type literal* as its underlying type. Composite types include array, slice, map, and struct. This section focuses on non-composite types. For further details on composite types, refer to Chapter 7, *Composite Types*.
-
-The following sample illustrates how named types work in their most basic forms. The code in the example converts temperature values. Each temperature unit is represented by a declared type including `fahrenheit`, `celsius`, and `kelvin`.
+type truth bool
+type quart float64
+type gallon float64
+type node string
 
 ```
+
+### 注意
+
+类型声明也可以使用复合*类型字面值*作为其基础类型。复合类型包括数组、切片、映射和结构体。本节侧重于非复合类型。有关复合类型的更多详细信息，请参阅第七章*复合类型*。
+
+以下示例说明了命名类型在其最基本形式中的工作方式。示例中的代码将温度值转换。每个温度单位都由一个声明类型表示，包括`fahrenheit`、`celsius`和`kelvin`。
+
+```go
 
 package main
-
 import "fmt"
-
-类型 fahrenheit float64
-
-类型 celsius float64
-
-类型 kelvin float64
-
+type fahrenheit float64
+type celsius float64
+type kelvin float64
 func fharToCel(f fahrenheit) celsius {
-
-return celsius((f - 32) * 5 / 9)
-
+   return celsius((f - 32) * 5 / 9)
 }
-
 func fharToKel(f fahrenheit) celsius {
-
-return celsius((f-32)*5/9 + 273.15)
-
+   return celsius((f-32)*5/9 + 273.15)
 }
-
 func celToFahr(c celsius) fahrenheit {
-
-return fahrenheit(c*5/9 + 32)
-
+   return fahrenheit(c*5/9 + 32)
 }
-
 func celToKel(c celsius) kelvin {
-
-return kelvin(c + 273.15)
-
+   return kelvin(c + 273.15)
 }
-
 func main() {
-
-var c celsius = 32.0
-
-f := fahrenheit(122)
-
-fmt.Printf("%.2f \u00b0C = %.2f \u00b0K\n", c, celToKel(c))
-
-fmt.Printf("%.2f \u00b0F = %.2f \u00b0C\n", f, fharToCel(f))
-
+   var c celsius = 32.0
+   f := fahrenheit(122)
+   fmt.Printf("%.2f \u00b0C = %.2f \u00b0K\n", c, celToKel(c))
+   fmt.Printf("%.2f \u00b0F = %.2f \u00b0C\n", f, fharToCel(f))
 }
 
-```go
+```
 
 golang.fyi/ch04/typedef.go
 
-In the preceding code snippet, the new declared types are all based on the underlying built-in numeric type `float64`. Once the new type has been declared, it can be assigned to variables and participate in expressions just like its underlying type. The newly declared type will have the same zero-value and can be converted to and from its underlying type.
+在上述代码片段中，新声明的类型都基于基础的内置数值类型`float64`。一旦新类型已声明，它可以被赋值给变量，并像其基础类型一样参与表达式。新声明的类型将具有相同的零值，并且可以与其基础类型进行相互转换。
 
-# Type conversion
+# 类型转换
 
-In general, Go considers each type to be different. This means under normal circumstances, values of different types are not fungible in assignment, function parameters, and expression contexts. This is true for built-in and declared types. For instance, the following will cause a build error due to type mismatch:
-
-```
-
-package main
-
-import "fmt"
-
-类型信号 int
-
-func main() {
-
-var count int32
-
-var actual int
-
-var test int64 = actual + count
-
-var sig signal
-
-var event int = sig
-
-fmt.Println(test)
-
-fmt.Println(event)
-
-}
+通常情况下，Go 认为每种类型都是不同的。这意味着在正常情况下，不同类型的值在赋值、函数参数和表达式上下文中不可互换。这对于内置类型和声明的类型都适用。例如，以下代码会因类型不匹配而导致构建错误：
 
 ```go
+
+package main
+import "fmt"
+type signal int
+func main() {
+   var count int32
+   var actual int
+   var test int64 = actual + count
+   var sig signal
+   var event int = sig
+   fmt.Println(test)
+   fmt.Println(event)
+}
+
+```
 
 golang.fyi/ch04/type_conv.go
 
-The expression `actual + count` causes a build time error because both variables are of different types. Even though variables `actual` and `count` are of numeric types and `int32` and `int` have the same memory representation, the compiler still rejects the expression.
+表达式`actual + count`会导致构建时错误，因为两个变量的类型不同。即使变量`actual`和`count`都是数值类型，并且`int32`和`int`具有相同的内存表示，编译器仍然会拒绝这个表达式。
 
-The same is true for declared named types and their underlying types. The compiler will reject assignment `var event int = sig` because type `signal` is considered to be different from type `int`. This is true even though `signal` uses `int` as its underlying type.
+声明的命名类型及其基础类型也是如此。编译器将拒绝赋值`var event int = sig`，因为类型`signal`被视为与类型`int`不同。即使`signal`使用`int`作为其基础类型，这也是正确的。
 
-To cross type boundaries, Go supports a type conversion expression that converts value from one type to another. Type conversion is done using the following format:
+要跨越类型边界，Go 支持一种类型转换表达式，用于将一个类型的值转换为另一个类型。类型转换使用以下格式进行：
 
-*<target_type>(<value or expression>)*
+*<目标类型>(<值或表达式>)*
 
-The following code snippet fixes the previous example by converting the variables to the proper types:
-
-```
-
-类型信号 int
-
-func main() {
-
-var count int32
-
-var actual int
-
-var test int32 = int32(actual) + count
-
-var sig signal
-
-var event int = int(sig)
-
-}
+以下代码片段通过将变量转换为适当的类型来修复先前的示例：
 
 ```go
+
+type signal int
+func main() {
+   var count int32
+   var actual int
+   var test int32 = int32(actual) + count
+   var sig signal
+   var event int = int(sig)
+}
+
+```
 
 golang.fyi/ch04/type_conv2.go
 
-Note that in the previous snippet assignment expression `var test int32 = int32(actual) + count` converts variable `actual` to the proper type to match the rest of the expression. Similarly, expression `var event int = int(sig)` converts variable `sig` to match the target type `int` in the assignment.
+请注意，在上述代码中，赋值表达式`var test int32 = int32(actual) + count`将变量`actual`转换为相应的类型，以匹配表达式的其余部分。类似地，表达式`var event int = int(sig)`将变量`sig`转换为匹配赋值中的目标类型`int`。
 
-The conversion expressions satisfy the assignment by explicitly changing the type of the enclosing values. Obviously, not all types can be converted from one to another. The following table summarizes common scenarios when type conversion is appropriate and allowed:
+转换表达式通过显式更改封闭值的类型来满足赋值。显然，并非所有类型都可以互相转换。以下表总结了类型转换适合和允许的常见情况： 
 
-| **Description** | **Code** |
-| The target type and converted value are both simple numeric types. |  
-```
+| **描述** | **代码** |
+| --- | --- |
+| 目标类型和转换值都是简单的数值类型。 |
+
+```go
 
 var i int
-
 var i2 int32 = int32(i)
-
 var re float64 = float64(i +   int(i2))
 
-```go
-
- |
-| The target type and the converted value are both complex numeric types. |  
 ```
+
+| 目标类型和转换值都是复数数值类型。 |
+| --- |
+
+```go
 
 var cn64 complex64
-
 var cn128 complex128 =   complex128(cn64)
 
-```go
-
- |
-| The target type and converted value have the same underlying types. |  
 ```
 
-类型信号 int
+| 目标类型和转换值具有相同的基础类型。 |
+| --- |
 
+```go
+
+type signal int
 var sig signal
-
 var event int = int(sig)
 
-```go
-
- |
-| The target type is a string and the converted value is a valid integer type. |  
 ```
+
+| 目标类型是字符串，转换值是有效的整数类型。 |
+| --- |
+
+```go
 
 a := string(72)
-
 b := string(int32(101))
-
 c := string(rune(108))
 
-```go
-
- |
-| The target type is string and the converted value is a slice of bytes, int32, or runes. |  
 ```
+
+| 目标类型是字符串，转换值是字节片、int32 或符文。 |
+| --- |
+
+```go
 
 msg0 := string([]byte{'H','i'})
-
 msg1 := string([]rune{'Y','o','u','!'})
+
+```
+
+| 目标类型是字节、int32 或符文值的片，转换值是一个字符串。 |
+| --- |
+
 
 ```go
 
- |
-| The target type is a slice of byte, int32, or rune values and the converted value is a string. |  
-```
-
 data0 := []byte("Hello")
-
 data0 := []int32("World!")
 
 ```
 
-|
-
 此外，当目标类型和转换值是引用相同类型的指针时，转换规则也适用。除了上表中的这些情况外，Go 类型不能被显式转换。任何尝试这样做都将导致编译错误。
 
-# Summary
+# 总结
 
 本章向读者介绍了 Go 类型系统。本章以类型概述开篇，深入全面地探讨了基本内置类型，如数字、布尔、字符串和指针类型。讨论继续暴露读者对其他重要主题，如命名类型定义。本章以类型转换的机制结束。在接下来的章节中，您将有机会了解其他类型，如复合类型、函数类型和接口类型。
