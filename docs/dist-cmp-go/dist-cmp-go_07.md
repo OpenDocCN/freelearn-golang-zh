@@ -1,4 +1,4 @@
-# Goophr 图书管理员
+# 第七章：Goophr 图书管理员
 
 在第六章中，*Goophr Concierge*，我们构建了负责接受新文档并将其分解为索引中使用的标记的端点。然而，Concierge 的`api.indexAdder`的当前实现在打印标记到控制台后返回。在本章中，我们将实现 Goophr 图书管理员，它可以与 Concierge 交互以接受标记，并响应标记搜索查询。
 

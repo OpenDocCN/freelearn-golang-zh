@@ -1,4 +1,4 @@
-# Goroutines-高级功能
+# 第十章：Goroutines-高级功能
 
 这是本书的第二章，涉及 goroutines：Go 编程语言的最重要特性，以及大大改进 goroutines 功能的通道，我们将从第九章*,* *Goroutines-基本功能*中停止的地方继续进行。
 

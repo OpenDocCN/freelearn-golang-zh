@@ -1,4 +1,4 @@
-# Go 性能简介
+# 第一章：Go 性能简介
 
 本书是针对中级到高级 Go 开发人员编写的。这些开发人员将希望从其 Go 应用程序中挤出更多性能。为此，本书将帮助推动《Site Reliability Engineering Workbook》中定义的四个黄金信号（[`landing.google.com/sre/sre-book/chapters/monitoring-distributed-systems/`](https://landing.google.com/sre/sre-book/chapters/monitoring-distributed-systems/)）。如果我们能减少延迟和错误，同时增加流量并减少饱和，我们的程序将继续更加高效。遵循四个黄金信号的理念对于任何以性能为目标开发 Go 应用程序的人都是有益的。
 

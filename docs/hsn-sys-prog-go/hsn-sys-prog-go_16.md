@@ -1,4 +1,4 @@
-# 使用 sync 和 atomic 进行同步
+# 第十二章：使用 sync 和 atomic 进行同步
 
 本章将继续介绍 Go 并发，介绍`sync`和`atomic`包，这是另外两个用于协调 goroutine 同步的工具。这将使编写优雅且简单的代码成为可能，允许并发使用资源并管理 goroutine 的生命周期。`sync`包含高级同步原语，而`atomic`包含低级原语。
 

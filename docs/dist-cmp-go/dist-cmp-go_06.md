@@ -1,4 +1,4 @@
-# Goophr Concierge
+# 第六章：Goophr Concierge
 
 在前一章第五章中，*介绍 Goophr*，我们将我们的应用程序分成了两个组件：Concierge 和 Librarian。在本章中，我们将看一下 Concierge 的设计和实现。本章的主要部分如下：
 

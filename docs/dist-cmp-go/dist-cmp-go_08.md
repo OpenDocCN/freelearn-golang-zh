@@ -1,4 +1,4 @@
-# 部署 Goophr
+# 第八章：部署 Goophr
 
 在第六章中，*Goophr Concierge*和第七章中，*Goophr Librarian*，我们构建了 Goophr 的两个组件：Concierge 和 Librarian。我们花时间了解了每个组件设计背后的原理，以及它们如何预期一起工作。
 

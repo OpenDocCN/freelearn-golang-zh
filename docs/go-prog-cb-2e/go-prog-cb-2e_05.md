@@ -1,4 +1,4 @@
-# 网络编程
+# 第五章：网络编程
 
 Go 标准库为网络操作提供了大量支持。它包括允许您使用 TCP/IP、UDP、DNS、邮件和使用 HTTP 的 RPC 的包。第三方包也可以填补标准库中包含的内容的空白，包括`gorilla/websockets` ([`github.com/gorilla/websocket/`](https://github.com/gorilla/websocket/))，用于 WebSocket 实现，可以在普通的 HTTP 处理程序中使用。本章探讨了这些库，并演示了一些简单的用法。这些用法将帮助那些无法使用更高级的抽象，如 REST 或 GRPC，但需要网络连接的开发人员。它对需要执行 DNS 查找或处理原始电子邮件的 DevOps 应用程序也很有用。阅读完本章后，您应该已经掌握了基本的网络编程，并准备深入学习。
 

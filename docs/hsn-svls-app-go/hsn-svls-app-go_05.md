@@ -1,4 +1,4 @@
-# 使用 DynamoDB 管理数据持久性
+# 第五章：使用 DynamoDB 管理数据持久性
 
 在上一章中，我们学习了如何使用 Lambda 和 API Gateway 构建 RESTful API，并发现了为什么 Lambda 函数应该是无状态的。在本章中，我们将使用 AWS DynamoDB 解决无状态问题。此外，我们还将看到如何将其与 Lambda 函数集成。
 
