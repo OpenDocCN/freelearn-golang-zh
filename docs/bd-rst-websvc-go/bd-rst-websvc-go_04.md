@@ -273,1106 +273,775 @@ const schedule = `
 `
 ```
 
-这些都是用反引号(```go) character. The schedule holds the information of a train arriving at a particular station at a given time. Here, train and station are foreign keys to the schedule table. For train, the details related to it are columns. The package name is `dbutils`.When we mention the package names, all the Go programs in that package can share variables and functions exported without any need of actual importing.
+这些都是用反引号（`` ` ``）字符括起来的普通多行字符串。该时刻表保存了在给定时间到达特定车站的列车的信息。在这里，火车和车站是时间表的外键。对于train，与之相关的细节是列。包名是`dbutils`，当我们提到包名时，包中的所有Go程序都可以共享导出的变量和函数，而不需要实际导入。
 
-Now, let us add code to initialize the (create tables) database in the `init-tables.go` file:
-
-```）括起来的普通多行字符串。
-
-package dbutils
-
-import "log"
-
-import "database/sql"
-
-func Initialize(dbDriver *sql.DB) {
-
-statement, driverError := dbDriver.Prepare(train)
-
-if driverError != nil {
-
-log.Println(driverError)
-
-}
-
-// 创建火车表
-
-_, statementError := statement.Exec()
-
-if statementError != nil {
-
-log.Println("Table already exists!")
-
-}
-
-statement, _ = dbDriver.Prepare(station)
-
-statement.Exec()
-
-statement, _ = dbDriver.Prepare(schedule)
-
-statement.Exec()
-
-log.Println("All tables created/initialized successfully!")
-
-}
+现在，让我们在`init-tables.go`文件中添加代码来初始化（创建表）数据库：
 
 ```go
 
-We are importing `database/sql` to pass the type of argument in the function. All other statements in the function are similar to the SQLite3 example we gave in the preceding code. It is just creating three tables in the SQLite3 database. Our main program should pass the database driver to this function. If you observe here, we are not importing train, station, and schedule. But, since this file is in the `db utils` package, variables in `models.go` are accessible here.
-
-Now our initial package is finished. You can build the object code for this package using the following command:
+package dbutils
+import "log"
+import "database/sql"
+func Initialize(dbDriver *sql.DB) {
+    statement, driverError := dbDriver.Prepare(train)
+    if driverError != nil {
+        log.Println(driverError)
+    }
+    // 创建火车表
+    _, statementError := statement.Exec()
+    if statementError != nil {
+        log.Println("Table already exists!")
+    }
+    statement, _ = dbDriver.Prepare(station)
+    statement.Exec()
+    statement, _ = dbDriver.Prepare(schedule)
+    statement.Exec()
+    log.Println("All tables created/initialized successfully!")
+}
 
 ```
+
+我们导入`database/sql`以将参数类型传递给函数。函数中的所有其他语句与我们在上述代码中给出的 SQLite3 示例类似。它只是在 SQLite3 数据库中创建了三个表。我们的主程序应该将数据库驱动程序传递给此函数。如果你观察这里，我们没有导入 train、station 和 schedule。但是，由于此文件位于`db utils`包中，`models.go`中的变量是可访问的。
+
+现在我们的初始包已经完成。你可以使用以下命令为此包构建对象代码：
+
+```go
 
 go build github.com/narenaryan/dbutils
 
-```go
-
-It is not useful until we create and run our main program. So, let us write a simple main program that imports the `Initialize` function from the `dbutils` package. Let us call the file `main.go`:
-
 ```
+
+直到我们创建并运行我们的主程序才有用。所以，让我们编写一个简单的主程序，从`dbutils`包导入`Initialize`函数。让我们将文件命名为`main.go`：
+
+```go
 
 package main
-
 import (
-
-"database/sql"
-
-"log"
-
-_ "github.com/mattn/go-sqlite3"
-
-"github.com/narenaryan/dbutils"
-
+    "database/sql"
+    "log"
+    _ "github.com/mattn/go-sqlite3"
+    "github.com/narenaryan/dbutils"
 )
-
 func main() {
-
-// 连接到数据库
-
-db, err := sql.Open("sqlite3", "./railapi.db")
-
-if err != nil {
-
-log.Println("Driver creation failed!")
-
+    // 连接到数据库
+    db, err := sql.Open("sqlite3", "./railapi.db")
+    if err != nil {
+        log.Println("Driver creation failed!")
+    }
+    // 创建表
+    dbutils.Initialize(db)
 }
-
-// 创建表
-
-dbutils.Initialize(db)
-
-}
-
-```go
-
-And run the program from the `railAPI` directory using the following command:
 
 ```
+
+并使用以下命令从`railAPI`目录运行程序：
+
+```go
 
 go run main.go
 
-```go
-
-The output you see should be something like the following:
-
 ```
+
+你看到的输出应该类似于以下内容：
+
+```go
 
 2017/06/10 14:05:36 所有表格成功创建/初始化！
 
-```go
-
-In the preceding program, we added the code for creating a database driver and passed the table creation task to the `Initialize` function from the `dbutils` package. We can do that straight away in our main program, but it is good to decompose the logic into multiple packages and components. Now, we will extend this simple layout to create an API using the `go-restful` package. The API should implement all the functions of our API design document.
-
-The `railapi.db` file from the preceding directory tree picture gets created once we run our main program. SQLite3 will take care of creating the database file if it doesn't exist. SQLite3 databases are simple files. You can enter into the SQLite shell using the `$ sqlite3 file_name` command.
-
-Let us modify the main program into a new one. We will go step by step and understand how to build REST services using `go-restful` in this example. First, add the necessary imports to the program:
-
 ```
+
+在上述程序中，我们添加了创建数据库驱动程序的代码，并将表创建任务传递给了`dbutils`包中的`Initialize`函数。我们可以直接在主程序中完成这个任务，但是将逻辑分解成多个包和组件是很好的。现在，我们将扩展这个简单的布局，使用`go-restful`包创建一个 API。API 应该实现我们的 API 设计文档中的所有函数。
+
+当我们运行我们的主程序时，上述目录树图片中的`railapi.db`文件将被创建。如果数据库文件不存在，SQLite3 将负责创建数据库文件。SQLite3 数据库是简单的文件。你可以使用`$ sqlite3 file_name`命令进入 SQLite shell。
+
+让我们将主程序修改为一个新的程序。我们将逐步进行，并在此示例中了解如何使用`go-restful`构建 REST 服务。首先，向程序中添加必要的导入：
+
+```go
 
 package main
-
 import (
-
-"database/sql"
-
-"encoding/json"
-
-"log"
-
-"net/http"
-
-"time"
-
-"github.com/emicklei/go-restful"
-
-_ "github.com/mattn/go-sqlite3"
-
-"github.com/narenaryan/dbutils"
-
+    "database/sql"
+    "encoding/json"
+    "log"
+    "net/http"
+    "time"
+    "github.com/emicklei/go-restful"
+    _ "github.com/mattn/go-sqlite3"
+    "github.com/narenaryan/dbutils"
 )
 
-```go
-
-We need two external packages, `go-restful` and `go-sqlite3`, for building the API logic. The first one is for handlers and the second package is for adding persistence features. `dbutils`is the one we previously created. The `time` and `net/http` packages are for general purpose tasks.
-
-Even though concrete names are given to the columns in the SQLite database's tables, in GO programming we need a few structs to handle data coming in and out of the database. There should be data holders for all the models, so we will define them next. Take a look at the following code snippet:
-
 ```
+
+我们需要两个外部包，`go-restful`和`go-sqlite3`，用于构建 API 逻辑。第一个用于处理程序，第二个用于添加持久性特性。`dbutils`是我们之前创建的。`time`和`net/http`包用于一般任务。
+
+尽管 SQLite 数据库表中给出了具体的列名称，在 GO 编程中，我们需要一些结构体来处理数据进出数据库。我们需要为所有模型定义数据持有者，所以下面我们将定义它们。看一下以下代码片段：
+
+```go
 
 // DB Driver visible to whole program
-
 var DB *sql.DB
-
 // TrainResource is the model for holding rail information
-
 type TrainResource struct {
-
-ID int
-
-DriverName string
-
-OperatingStatus bool
-
+    ID int
+    DriverName string
+    OperatingStatus bool
 }
-
 // StationResource holds information about locations
-
 type StationResource struct {
-
-ID int
-
-Name string
-
-OpeningTime time.Time
-
-ClosingTime time.Time
-
+    ID int
+    Name string
+    OpeningTime time.Time
+    ClosingTime time.Time
 }
-
 // ScheduleResource links both trains and stations
-
 type ScheduleResource struct {
-
-ID int
-
-TrainID int
-
-StationID int
-
-ArrivalTime time.Time
-
+    ID int
+    TrainID int
+    StationID int
+    ArrivalTime time.Time
 }
-
-```go
-
-The `DB`variable is allocated to hold the global database driver. All the above structs are exact representations of the database models in the SQL. Go's `time.Time` struct type can actually hold the `TIME` field from the database.
-
-Now comes the actual `go-restful` implementation. We need to create a container for our API in `go-restful`. Then, we should register the web services to that container. Let us write the `Register` function, as shown in the following code snippet:
 
 ```
+
+`DB`变量被分配为保存全局数据库驱动程序。上面的所有结构体都是 SQL 中数据库模型的确切表示。Go 的`time.Time`结构体类型实际上可以保存数据库中的`TIME`字段。
+
+现在是真正的`go-restful`实现。我们需要为我们的 API 在`go-restful`中创建一个容器。然后，我们应该将 Web 服务注册到该容器中。让我们编写`Register`函数，如下面的代码片段所示：
+
+```go
 
 // Register adds paths and routes to container
-
 func (t *TrainResource) Register(container *restful.Container) {
-
-ws := new(restful.WebService)
-
-ws.
-
-Path("/v1/trains").
-
-Consumes(restful.MIME_JSON).
-
-Produces(restful.MIME_JSON) // you can specify this per route as well
-
-ws.Route(ws.GET("/{train-id}").To(t.getTrain))
-
-ws.Route(ws.POST("").To(t.createTrain))
-
-ws.Route(ws.DELETE("/{train-id}").To(t.removeTrain))
-
-container.Add(ws)
-
+    ws := new(restful.WebService)
+    ws.Path("/v1/trains").
+    Consumes(restful.MIME_JSON).
+    Produces(restful.MIME_JSON) // you can specify this per route as well
+    ws.Route(ws.GET("/{train-id}").To(t.getTrain))
+    ws.Route(ws.POST("").To(t.createTrain))
+    ws.Route(ws.DELETE("/{train-id}").To(t.removeTrain))
+    container.Add(ws)
 }
-
-```go
-
-Web services in `go-restful` mainly work based on resources. So here, we are defining a function called `Register` on `TrainResource`, taking containers as arguments. We create a new `WebService` and add paths to it. A path is the URL endpoint and routes are the path parameters or query parameters attached to the function handlers. `ws`is the web service created to serve the `Train` resource.We attached three REST methods, namely `GET`, `POST`, and `DELETE` to three function handlers, `getTrain`, `createTrain`, and `removeTrain` respectively:
 
 ```
 
+在`go-restful`中，Web 服务主要基于资源工作。所以在这里，我们定义了一个名为`Register`的函数在`TrainResource`上，接受容器作为参数。我们创建了一个新的`WebService`并为其添加路径。路径是 URL 端点，路由是附加到函数处理程序的路径参数或查询参数。`ws`是用于提供`Train`资源的 Web 服务。我们将三个 REST 方法，即`GET`、`POST`和`DELETE`分别附加到三个函数处理程序上，分别是`getTrain`、`createTrain`和`removeTrain`：
+
+```go
+
 Path("/v1/trains").
-
 Consumes(restful.MIME_JSON).
-
 Produces(restful.MIME_JSON)
 
-```go
-
-These statements say that API will only entertain `Content-Type` as application/JSON in the request. For all other types, it automatically returns a 415--Media Not Supported error. The returned response is automatically converted to a pretty JSON. We can also have a list of formats such as XML, JSON, and so on. `go-restful` provides this feature out of the box.
-
-Now, let us define the function handlers:
-
 ```
+
+这些语句表明 API 将只接受请求中的`Content-Type`为 application/JSON。对于所有其他类型，它会自动返回 415--媒体不支持错误。返回的响应会自动转换为漂亮的 JSON 格式。我们还可以有一个格式列表，比如 XML、JSON 等等。`go-restful`提供了这个功能。
+
+现在，让我们定义函数处理程序：
+
+```go
 
 // GET http://localhost:8000/v1/trains/1
-
 func (t TrainResource) getTrain(request *restful.Request, response *restful.Response) {
-
-id := request.PathParameter("train-id")
-
-err := DB.QueryRow("select ID, DRIVER_NAME, OPERATING_STATUS FROM train where id=?", id).Scan(&t.ID, &t.DriverName, &t.OperatingStatus)
-
-if err != nil {
-
-log.Println(err)
-
-response.AddHeader("Content-Type", "text/plain")
-
-response.WriteErrorString(http.StatusNotFound, "Train could not be found.")
-
-} else {
-
-response.WriteEntity(t)
-
+    id := request.PathParameter("train-id")
+    err := DB.QueryRow("select ID, DRIVER_NAME, OPERATING_STATUS FROM train where id=?", id).Scan(&t.ID, &t.DriverName, &t.OperatingStatus)
+    if err != nil {
+        log.Println(err)
+        response.AddHeader("Content-Type", "text/plain")
+        response.WriteErrorString(http.StatusNotFound, "Train could not be found.")
+    } else {
+        response.WriteEntity(t)
+    }
 }
-
-}
-
 // POST http://localhost:8000/v1/trains
-
 func (t TrainResource) createTrain(request *restful.Request, response *restful.Response) {
-
-log.Println(request.Request.Body)
-
-decoder := json.NewDecoder(request.Request.Body)
-
-var b TrainResource
-
-err := decoder.Decode(&b)
-
-log.Println(b.DriverName, b.OperatingStatus)
-
-// Error handling is obvious here. So omitting...
-
-statement, _ := DB.Prepare("insert into train (DRIVER_NAME, OPERATING_STATUS) values (?, ?)")
-
-result, err := statement.Exec(b.DriverName, b.OperatingStatus)
-
-if err == nil {
-
-newID, _ := result.LastInsertId()
-
-b.ID = int(newID)
-
-response.WriteHeaderAndEntity(http.StatusCreated, b)
-
-} else {
-
-response.AddHeader("Content-Type", "text/plain")
-
-response.WriteErrorString(http.StatusInternalServerError, err.Error())
-
+    log.Println(request.Request.Body)
+    decoder := json.NewDecoder(request.Request.Body)
+    var b TrainResource
+    err := decoder.Decode(&b)
+    log.Println(b.DriverName, b.OperatingStatus)
+    // Error handling is obvious here. So omitting...
+    statement, _ := DB.Prepare("insert into train (DRIVER_NAME, OPERATING_STATUS) values (?, ?)")
+    result, err := statement.Exec(b.DriverName, b.OperatingStatus)
+    if err == nil {
+        newID, _ := result.LastInsertId()
+        b.ID = int(newID)
+        response.WriteHeaderAndEntity(http.StatusCreated, b)
+    } else {
+        response.AddHeader("Content-Type", "text/plain")
+        response.WriteErrorString(http.StatusInternalServerError, err.Error())
+    }
 }
-
-}
-
 // DELETE http://localhost:8000/v1/trains/1
-
 func (t TrainResource) removeTrain(request *restful.Request, response *restful.Response) {
-
-id := request.PathParameter("train-id")
-
-statement, _ := DB.Prepare("delete from train where id=?")
-
-_, err := statement.Exec(id)
-
-if err == nil {
-
-response.WriteHeader(http.StatusOK)
-
-} else {
-
-response.AddHeader("Content-Type", "text/plain")
-
-response.WriteErrorString(http.StatusInternalServerError, err.Error())
-
+    id := request.PathParameter("train-id")
+    statement, _ := DB.Prepare("delete from train where id=?")
+    _, err := statement.Exec(id)
+    if err == nil {
+        response.WriteHeader(http.StatusOK)
+    } else {
+        response.AddHeader("Content-Type", "text/plain")
+        response.WriteErrorString(http.StatusInternalServerError, err.Error())
+    }
 }
-
-}
-
-```go
-
-All these REST methods are defined on the instance of the `TimeResource` struct. Coming to the `GET` handler, it is passing `Request` and `Response` as its arguments. The `path` parameters can be fetched using the `request.PathParameter`function. The argument passed to it will be in agreement with the route we added in the preceding code snippet. That is, `train-id`will be returned into the handler so that we can strip it and use it as criteria to fetch a record from our SQLite database. 
-
-In the `POST` handler function, we are parsing the request body with the JSON package's `NewDecoder`function. `go-restful` doesn't have a function to parse raw data posted from the client. There are functions available to strip query parameters and form parameters, but this one is missing. So, we wrote our own logic to strip and parsed the JSON body, and used those results to insert data into our SQLite database. That handler is creating a `db` record for the train with the supplied details in the request.
-
-The `DELETE` function is quite obvious if you understand the previous two handlers. We are making a `DELETE` SQL command using `DB.Prepare`and returning a 201 Status OK back, telling us the delete operation was successful. Otherwise, we are sending back the actual error as a server error. Now, let us write the main function handler, which is an entry point for our program:
 
 ```
+
+所有这些 REST 方法都在`TimeResource`结构的实例上定义。谈到`GET`处理程序，它将`Request`和`Response`作为其参数传递。可以使用`request.PathParameter`函数获取路径参数。传递给它的参数将与我们在前面的代码段中添加的路由保持一致。也就是说，`train-id`将被返回到处理程序中，以便我们可以剥离它并将其用作从我们的 SQLite 数据库中获取记录的条件。
+
+在`POST`处理程序函数中，我们使用 JSON 包的`NewDecoder`函数解析请求体。`go-restful`没有一个函数可以解析客户端发布的原始数据。有函数可用于剥离查询参数和表单参数，但这个缺失了。所以，我们编写了自己的逻辑来剥离和解析 JSON 主体，并使用这些结果将数据插入我们的 SQLite 数据库中。该处理程序正在为请求中提供的细节创建一个`db`记录。
+
+如果您理解前两个处理程序，`DELETE`函数就很明显了。我们使用`DB.Prepare`创建一个`DELETE` SQL 命令，并返回 201 状态 OK，告诉我们删除操作成功了。否则，我们将实际错误作为服务器错误发送回去。现在，让我们编写主函数处理程序，这是我们程序的入口点：
+
+```go
 
 func main() {
-
-var err error
-
-DB, err = sql.Open("sqlite3", "./railapi.db")
-
-if err != nil {
-
-log.Println("Driver creation failed!")
-
+    var err error
+    DB, err = sql.Open("sqlite3", "./railapi.db")
+    if err != nil {
+        log.Println("Driver creation failed!")
+    }
+    dbutils.Initialize(DB)
+    wsContainer := restful.NewContainer()
+    wsContainer.Router(restful.CurlyRouter{})
+    t := TrainResource{}
+    t.Register(wsContainer)
+    log.Printf("start listening on localhost:8000")
+    server := &http.Server{Addr: ":8000", Handler: wsContainer}
+    log.Fatal(server.ListenAndServe())
 }
-
-dbutils.Initialize(DB)
-
-wsContainer := restful.NewContainer()
-
-wsContainer.Router(restful.CurlyRouter{})
-
-t := TrainResource{}
-
-t.Register(wsContainer)
-
-log.Printf("start listening on localhost:8000")
-
-server := &http.Server{Addr: ":8000", Handler: wsContainer}
-
-log.Fatal(server.ListenAndServe())
-
-}
-
-```go
-
-The first four lines here are performing the database-related housekeeping. Then, we are creating a new container using `restful.NewContainer`.Then, we are using a router called `CurlyRouter`(which allows us to use `{train_id}` syntax in paths while setting routes) for our container. Then, we created an instance of the `TimeResource` struct and passed this container to the `Register` method. That container can indeed act as an HTTP handler; so, we can pass it to the `http.Server`easily.
-
-Use `request.QueryParameter`to fetch the query parameters from an HTTP request in the `go-restful` handler.
-
-This code is available in the GitHub repo. Now, when we run the `main.go` file within the `$GOPATH/src/github.com/narenaryan` directory, we see this:
 
 ```
+
+这里的前四行执行与数据库相关的工作。然后，我们使用`restful.NewContainer`创建一个新的容器。然后，我们使用称为`CurlyRouter`的路由器（它允许我们在路径中使用`{train_id}`语法来设置路由）来为我们的容器设置路由。接下来，我们创建了`TimeResource`结构的实例，并将该容器传递给`Register`方法。该容器确实可以充当 HTTP 处理程序；因此，我们可以轻松地将其传递给`http.Server`。
+
+使用 `request.QueryParameter` 从 HTTP 请求中获取查询参数在`go-restful`处理程序中。
+
+此代码可在 GitHub 仓库中找到。现在，当我们在`$GOPATH/src/github.com/narenaryan`目录中运行`main.go`文件时，我们会看到这个：
+
+```go
 
 go run railAPI/main.go
 
-```go
-
-And make a curl `POST` request to create a train:
-
 ```
+
+并进行 curl `POST`请求创建一个火车：
+
+```go
 
 curl -X POST \
-
-http://localhost:8000/v1/trains \
-
--H 'cache-control: no-cache' \
-
--H 'content-type: application/json' \
-
--d '{"driverName": "Menaka", "operatingStatus": true}'
-
-```go
-
-This creates a new train with the driver and operation status details. The response is the newly created resource with the train `ID` allocated:
+    http://localhost:8000/v1/trains \
+    -H 'cache-control: no-cache' \
+    -H 'content-type: application/json' \
+    -d '{"driverName": "Menaka", "operatingStatus": true}'
 
 ```
+
+这会创建一个带有驾驶员和操作状态详细信息的新火车。响应是新创建的分配了火车`ID`的资源：
+
+```go
 
 {
-
-"ID": 1,
-
-"DriverName": "Menaka",
-
-"OperatingStatus": true
-
+    "ID": 1,
+    "DriverName": "Menaka",
+    "OperatingStatus": true
 }
 
-```go
-
-Now, let us make a curl request to check the `GET`:
-
 ```
+
+现在，让我们进行一个 curl 请求来检查`GET`：
+
+```go
 
 CURL -X GET "http://localhost:8000/v1/trains/1"
 
-```go
-
-You will see the JSON output, as follows:
-
 ```
+
+您将看到以下 JSON 输出：
+
+```go
 
 {
-
-"ID": 1,
-
-"DriverName": "Menaka",
-
-"OperatingStatus": true
-
+    "ID": 1,
+    "DriverName": "Menaka",
+    "OperatingStatus": true
 }
 
-```go
-
-We can use the same names for both posting data and JSON returned, but in order to show the difference between two operations, different variable names are used. Now, delete the resource we created in the preceding code snippet with the `DELETE` API call:
-
 ```
+
+可以对发布的数据和返回的 JSON 使用相同的名称，但为了显示两个操作之间的区别，使用了不同的变量名称。现在，使用`DELETE`API 调用删除我们在前面代码片段中创建的资源：
+
+```go
 
 CURL -X DELETE "http://localhost:8000/v1/trains/1"
 
-```go
-
-It won't return any response body; it returns `Status 200 ok` if the operation was successful. Now, if we try to do a `GET` on the `ID` 1 train, then it returns us this response:
-
 ```
+
+如果操作成功，它不会返回任何响应体，而是返回`Status 200 ok`。现在，如果我们尝试对`ID`为 1 的火车进行`GET`操作，它会返回以下响应：
+
+```go
 
 Train could not be found.
 
-```go
-
-These implementations can be extended to `PUT` and `PATCH.` We need to add two more routes to the web service in the `Register` method and define respective handlers. Here, we created a web service for the `Train` resource. In a similar way, web services can be created for doing CRUD operations on the `Station`and `Schedule` tables. That task is left for the readers to explore.
-
-`go-restful` is a lightweight library that is powerful in creating RESTful services in an elegant way. The main theme is to convert resources (models) into consumable APIs. Using other heavy frameworks may speed up the development, but the API can end up slower because of the wrapping of code. `go-restful` is a lean and low-level package for API creation.
-
-`go-restful` also provides built-in support for documenting the REST API with **swagger**. Itis a tool that runs and generates templates for documenting the REST API we build. By integrating it with our `go-restful`-based web services, we can generate documentation on the fly. For more information, visit [`github.com/emicklei/go-restful-swagger12`](https://github.com/emicklei/go-restful-swagger12).
-
-# Building RESTful APIs with the Gin framework
-
-`Gin-gonic` is a framework based on the `httprouter`.We learned about the `httprouter` in Chapter 2, *Handling Routing for Our REST Services*. It is an HTTP multiplexer like Gorilla Mux, but it is faster. `Gin` allows a high-level API to create REST services in a clean way. `Gin` compares itself with another web framework called `martini`. All web frameworks allow us to do a lot more things such as templating and web server design, additional to service creation. Install the `Gin` package using the following command:
-
 ```
+
+这些实现可以扩展到`PUT`和`PATCH`。我们需要在`Register`方法中添加两个额外的路由，并定义相应的处理程序。在这里，我们为`Train`资源创建了一个 web 服务。类似地，还可以为`Station`和`Schedule`表上的 CRUD 操作创建 web 服务。这项任务就留给读者去探索。
+
+`go-restful`是一个轻量级的库，在创建 RESTful 服务时具有强大的功能。主题是将资源（模型）转换成可消费的 API。使用其他繁重的框架可能会加快开发速度，但因为代码包装的原因，API 可能会变得更慢。`go-restful`是一个用于 API 创建的精简且底层的包。
+
+`go-restful` 还提供了对使用**swagger**文档化 REST API 的内置支持。它是一个运行并生成我们构建的 REST API 文档模板的工具。通过将其与基于`go-restful`的 web 服务集成，我们可以实时生成文档。欲了解更多信息，请访问[github.com/emicklei/go-restful-swagger12](https://github.com/emicklei/go-restful-swagger12)。
+
+# 使用 Gin 框架构建 RESTful API
+
+`Gin-gonic`是基于`httprouter`的框架。我们在第二章*处理我们的 REST 服务的路由*中学习了`httprouter`。它是一个 HTTP 多路复用器，类似于 Gorilla Mux，但更快。 `Gin`允许以清晰的方式创建 REST 服务的高级 API。 `Gin`将自己与另一个名为`martini`的 web 框架进行比较。所有 web 框架都允许我们做更多的事情，如模板化和 web 服务器设计，除了服务创建。使用以下命令安装`Gin`包：
+
+```go
 
 go get gopkg.in/gin-gonic/gin.v1
 
-```go
-
-Let us write a simple hello world program in `Gin` to get familiarized with the `Gin` constructs. The file is `ginBasic.go`:
-
 ```
+
+让我们写一个简单的 hello world 程序在`Gin`中熟悉`Gin`的构造。文件名是`ginBasic.go`：
+
+```go
 
 package main
-
 import (
-
-"time"
-
-"github.com/gin-gonic/gin"
-
+    "time"
+    "github.com/gin-gonic/gin"
 )
-
 func main() {
-
 r := gin.Default()
-
-/* GET takes a route and a handler function
-
-Handler takes the gin context object
-
-*/
-
-r.GET("/pingTime", func(c *gin.Context) {
-
-// JSON serializer is available on gin context
-
-c.JSON(200, gin.H{
-
-"serverTime": time.Now().UTC(),
-
-})
-
-})
-
-r.Run(":8000") // 在 0.0.0.0:8080 上监听并提供服务
-
+    /* GET takes a route and a handler function
+    Handler takes the gin context object
+    */
+    r.GET("/pingTime", func(c *gin.Context) {
+        // JSON serializer is available on gin context
+        c.JSON(200, gin.H{
+            "serverTime": time.Now().UTC(),
+        })
+    })
+    r.Run(":8000") // 在 0.0.0.0:8080 上监听并提供服务
 }
 
-```go
-
-This simple server tries to implement a service that provides the UTC server time to the clients. We implemented one such service in Chapter 3, *Working with Middleware and RPC*. But here, if you look, `Gin` allows you to do a lot of stuff with just a few lines of code; all the boilerplate details are taken away. Coming to the preceding program, we are creating a router with the `gin.Default`function. Then, we are attaching routes with REST verbs as we did in `go-restful`; a route to the function handler. Then, we are calling the `Run`function by passing the port to run. The default port will be `8080`.
-
-`c` is the `gin.Context`that holds the information of the individual request. We can serialize data into JSON before sending it back to the client using the `context.JSON` function. Now, if we run and see the preceding program:
-
 ```
+
+这个简单的服务器尝试实现一个向客户端提供 UTC 服务器时间的服务。我们在第三章*使用中间件和 RPC 工作*中实现了一个这样的服务。但在这里，如果你看，`Gin`允许你用几行代码做很多事情；所有的样板细节都被省去了。来到前面的程序，我们用`gin.Default`函数创建了一个路由器。然后，我们附加了与 REST 动词相对应的路由，就像在`go-restful`中做的那样；一个到函数处理程序的路由。然后，我们通过传递要运行的端口来调用`Run`函数。默认端口将是`8080`。
+
+`c`是保存单个请求信息的`gin.Context`。我们可以使用`context.JSON`函数将数据序列化为 JSON，然后发送回客户端。现在，如果我们运行并查看前面的程序：
+
+```go
 
 go run ginExamples/ginBasic.go
 
-```go
-
-Make a curl request:
-
 ```
+
+发出一个 curl 请求：
+
+```go
 
 curl -X GET "http://localhost:8000/pingTime"
 
 Output
-
 =======
-
 {"serverTime":"2017-06-11T03:59:44.135062688Z"}
 
-```go
+```
 
-At the same time, the console where we are running the `Gin` server is beautifully presented with debug messages:
+与此同时，我们运行`Gin`服务器的控制台上漂亮地呈现了调试消息：
 
 ![](img/54d2bbb0-6c1c-466d-b187-1828e5283490.png)
 
-It is Apache-style debug logging showing the endpoint, the latency of the request, and the REST method.
+这是显示端点、请求的延迟和 REST 方法的 Apache 风格的调试日志。
 
-In order to run `Gin` in production mode, set the `GIN_MODE = release` environment variable. Then the console output will be muted and log files can be used for monitoring the logs.
+为了在生产模式下运行`Gin`，设置`GIN_MODE = release`环境变量。然后控制台输出将被静音，日志文件可用于监视日志。
 
-Now, let us write our Rail API in `Gin` to show how to implement exactly the same thing using the `Gin` framework. I will use the same project layout, name my new project `railAPIGin`, and use the `dbutils` as it is. First, let us prepare the imports for our program:
+现在，让我们在`Gin`中编写我们的 Rail API，以展示如何使用`Gin`框架实现完全相同的东西。我将使用相同的项目布局，将我的新项目命名为`railAPIGin`，并使用`dbutils`如它所在。首先，让我们准备好我们程序的导入：
 
-```
+```go
 
 package main
-
 import (
-
-"database/sql"
-
-"log"
-
-"net/http"
-
-"github.com/gin-gonic/gin"
-
-_ "github.com/mattn/go-sqlite3"
-
-"github.com/narenaryan/dbutils"
-
+    "database/sql"
+    "log"
+    "net/http"
+    "github.com/gin-gonic/gin"
+    _ "github.com/mattn/go-sqlite3"
+    "github.com/narenaryan/dbutils"
 )
 
-```go
-
-We imported `sqlite3` and `dbutils` for database-related actions. We imported `gin`for creating our API server. `net/http`is useful in providing the intuitive status codes to be sent along with the response. Take a look at the following code snippet:
-
 ```
+
+我们导入了`sqlite3`和`dbutils`用于与数据库相关的操作。我们导入了`gin`用于创建我们的 API 服务器。`net/http`在提供与响应一起发送的直观状态代码方面很有用。看一下下面的代码片段：
+
+```go
 
 // DB Driver visible to whole program
-
 var DB *sql.DB
-
 // StationResource holds information about locations
-
 type StationResource struct {
-
-ID int `json:"id"`
-
-Name string `json:"name"`
-
-OpeningTime string `json:"opening_time"`
-
-ClosingTime string `json:"closing_time"`
-
+    ID int `json:"id"`
+    Name string `json:"name"`
+    OpeningTime string `json:"opening_time"`
+    ClosingTime string `json:"closing_time"`
 }
 
-```go
-
-We created a database driver that is available to all handler functions. `StationResource` is the placeholder for our JSON that decoded from both request body and data coming from the database. In case you noticed, it is slightly modified from the example of `go-restful`. Now, let us write the handlers implementing `GET`, `POST`, and `DELETE`  methods for the `station` resource:
-
 ```
+
+我们创建了一个数据库驱动程序，该驱动程序对所有处理程序函数都可用。 `StationResource`是我们从请求体和来自数据库的数据解码而来的 JSON 的占位符。如果你注意到了，它与`go-restful`的示例略有不同。现在，让我们编写实现`GET`、`POST`和`DELETE`方法的`station`资源的处理程序：
+
+```go
 
 // GetStation returns the station detail
-
-func GetStation(c *gin.Context) {
-
-var station StationResource
-
-id := c.Param("station_id")
-
-err := DB.QueryRow("select ID, NAME, CAST(OPENING_TIME as CHAR), CAST(CLOSING_TIME as CHAR) from station where id=?", id).Scan(&station.ID, &station.Name, &station.OpeningTime, &station.ClosingTime)
-
-if err != nil {
-
-log.Println(err)
-
-c.JSON(500, gin.H{
-
-"error": err.Error(),
-
-})
-
-} else {
-
-c.JSON(200, gin.H{
-
-"result": station,
-
-})
-
+    func GetStation(c *gin.Context) {
+    var station StationResource
+    id := c.Param("station_id")
+    err := DB.QueryRow("select ID, NAME, CAST(OPENING_TIME as CHAR), CAST(CLOSING_TIME as CHAR) from station where id=?", id).Scan(&station.ID, &station.Name, &station.OpeningTime, &station.ClosingTime)
+    if err != nil {
+        log.Println(err)
+        c.JSON(500, gin.H{
+            "error": err.Error(),
+        })
+    } else {
+        c.JSON(200, gin.H{
+        "result": station,
+        })
+    }
 }
-
-}
-
 // CreateStation handles the POST
-
 func CreateStation(c *gin.Context) {
-
-var station StationResource
-
-// Parse the body into our resrource
-
-if err := c.BindJSON(&station); err == nil {
-
-// Format Time to Go time format
-
-statement, _ := DB.Prepare("insert into station (NAME, OPENING_TIME, CLOSING_TIME) values (?, ?, ?)")
-
-result, _ := statement.</span>Exec(station.Name, station.OpeningTime, station.ClosingTime)
-
-if err == nil {
-
-newID, _ := result.LastInsertId()
-
-station.ID = int(newID)
-
-c.JSON(http.StatusOK, gin.H{
-
-"result": station,
-
-})
-
-} else {
-
-c.String(http.StatusInternalServerError, err.Error())
-
+    var station StationResource
+    // Parse the body into our resrource
+    if err := c.BindJSON(&station); err == nil {
+        // Format Time to Go time format
+        statement, _ := DB.Prepare("insert into station (NAME, OPENING_TIME, CLOSING_TIME) values (?, ?, ?)")
+        result, _ := statement.</span>Exec(station.Name, station.OpeningTime, station.ClosingTime)
+        if err == nil {
+            newID, _ := result.LastInsertId()
+            station.ID = int(newID)
+            c.JSON(http.StatusOK, gin.H{
+                "result": station,
+            })
+        } else {
+            c.String(http.StatusInternalServerError, err.Error())
+        }
+    } else {
+        c.String(http.StatusInternalServerError, err.Error())
+    }
 }
-
-} else {
-
-c.String(http.StatusInternalServerError, err.Error())
-
-}
-
-}
-
 // RemoveStation handles the removing of resource
-
 func RemoveStation(c *gin.Context) {
-
-id := c.Param("station-id")
-
-statement, _ := DB.Prepare("delete from station where id=?")
-
-_, err := statement.Exec(id)
-
-if err != nil {
-
-log.Println(err)
-
-c.JSON(500, gin.H{
-
-"error": err.Error(),
-
-})
-
-} else {
-
-c.String(http.StatusOK, "")
-
+    id := c.Param("station-id")
+    statement, _ := DB.Prepare("delete from station where id=?")
+    _, err := statement.Exec(id)
+    if err != nil {
+        log.Println(err)
+        c.JSON(500, gin.H{
+            "error": err.Error(),
+        })
+    } else {
+        c.String(http.StatusOK, "")
+    }
 }
-
-}
-
-```go
-
-In `GetStation`, we are using the `c.Param`to strip the `station_id` path parameter. After that, we are using that ID to fetch a database record from the SQLite3 station table. If you observed carefully, the SQL query is bit different. We are using the `CAST` method to retrieve the SQL `TIME` field as a string for Go to consume properly. If you remove the casting, a panic error will be raised because we are trying to load a `TIME` field into the Go string at runtime. To give you an idea, the `TIME` field looks like *8:00:00*, *17:31:12,* and so on. Next, we are returning back the result using the `gin.H`method if there is no error.
-
-In `CreateStation`,we are trying to perform an insert query. But before that, in order to get data from the body of the `POST` request, we are using a function called `c.BindJSON`. This function loads the data into the struct that is passed as the argument. It means the station struct will be loaded with the data supplied from the body. That is why `StationResource` has the JSON inference strings to tell what key values are expected. For example, this is such field of `StationResource` struct with inference string.
 
 ```
+
+在`GetStation`中，我们使用`c.Param`来剥离`station_id`路径参数。之后，我们使用该 ID 从 SQLite3 站点表中检索数据库记录。如果您仔细观察，SQL 查询有点不同。我们使用`CAST`方法将 SQL `TIME`字段检索为 Go 可以正确消耗的字符串。如果删除类型转换，将引发恐慌错误，因为我们尝试在运行时将`TIME`字段加载到 Go 字符串中。为了给您一个概念，`TIME`字段看起来像*8:00:00*，*17:31:12*，等等。接下来，如果没有错误，我们将使用`gin.H`方法返回结果。
+
+在`CreateStation`中，我们试图执行插入查询。但在此之前，为了从`POST`请求的主体中获取数据，我们使用了一个名为`c.BindJSON`的函数。这个函数将数据加载到传递的结构体中。这意味着站点结构将加载来自主体提供的数据。这就是为什么`StationResource`具有 JSON 推断字符串来告诉期望的键值是什么。例如，这是`StationResource`结构的一个字段，带有推断字符串。
+
+```go
 
 ID int `json:"id"`
 
-```go
-
-After collecting the data, we are preparing a database insert statement and executing it. The result is the ID of the inserted record. We are using that ID to send station details back to the client. In `RemoveStation`,we are performing a `DELETE` SQL query. If the operation was successful, we return a 200 OK status back. Otherwise, we are sending the appropriate reason for a 500 Internal Server Error.
-
-Now comes the main program, which runs the database logic first to make sure tables are created. Then, it tries to create a `Gin` router and adds routes to it:
-
 ```
+
+在收集数据后，我们正在准备一个数据库插入语句并执行它。结果是插入记录的 ID。我们使用该 ID 将站点详细信息发送回客户端。在`RemoveStation`中，我们执行`DELETE` SQL 查询。如果操作成功，则返回`200 OK`状态。否则，我们会发送适当的原因给`500 Internal Server Error`。
+
+现在来看主程序，它首先运行数据库逻辑以确保表已创建。然后，它尝试创建`Gin`路由器并向其添加路由：
+
+```go
 
 func main() {
-
-var err error
-
-DB, err = sql.Open("sqlite3", "./railapi.db")
-
-if err != nil {
-
-log.Println("Driver creation failed!")
-
+    var err error
+    DB, err = sql.Open("sqlite3", "./railapi.db")
+    if err != nil {
+        log.Println("Driver creation failed!")
+    }
+    dbutils.Initialize(DB)
+    r := gin.Default()
+    // Add routes to REST verbs
+    r.GET("/v1/stations/:station_id", GetStation)
+    r.POST("/v1/stations", CreateStation)
+    r.DELETE("/v1/stations/:station_id", RemoveStation)
+    r.Run(":8000") // 默认监听并在 0.0.0.0:8080 上提供服务
 }
-
-dbutils.Initialize(DB)
-
-r := gin.Default()
-
-// Add routes to REST verbs
-
-r.GET("/v1/stations/:station_id", GetStation)
-
-r.POST("/v1/stations", CreateStation)
-
-r.DELETE("/v1/stations/:station_id", RemoveStation)
-
-r.Run(":8000") // 默认监听并在 0.0.0.0:8080 上提供服务
-
-}
-
-```go
-
-We are registering the `GET`, `POST`, and `DELETE` routes with the `Gin` router. Then, we are passing routes and handlers to them. Finally, we are starting the server using the `Run`function of Gin with `8000` as the port. Run the preceding program, as follows:
 
 ```
+
+我们正在使用`Gin`路由器注册`GET`、`POST`和`DELETE`路由。然后，我们将路由和处理程序传递给它们。最后，我们使用 Gin 的`Run`函数以`8000`作为端口启动服务器。运行前述程序，如下所示：
+
+```go
 
 go run railAPIGin/main.go
 
-```go
-
-Now, we can insert a new record by performing a `POST` request:
-
 ```
+
+现在，我们可以通过执行`POST`请求来插入新记录：
+
+```go
 
 curl -X POST \
-
-http://localhost:8000/v1/stations \
-
--H 'cache-control: no-cache' \
-
--H 'content-type: application/json' \
-
--d '{"name":"Brooklyn", "opening_time":"8:12:00", "closing_time":"18:23:00"}'
-
-```go
-
-It returns:
+    http://localhost:8000/v1/stations \
+    -H 'cache-control: no-cache' \
+    -H 'content-type: application/json' \
+    -d '{"name":"Brooklyn", "opening_time":"8:12:00", "closing_time":"18:23:00"}'
 
 ```
+
+它返回：
+
+```go
 
 {"result":{"id":1,"name":"Brooklyn","opening_time":"8:12:00","closing_time":"18:23:00"}}
 
-```go
-
-And now try to fetch the details using `GET`:
-
 ```
+
+现在尝试使用`GET`获取详细信息：
+
+```go
 
 CURL -X GET "http://10.102.78.140:8000/v1/stations/1"
 
 Output
-
 ======
-
 {"result":{"id":1,"name":"Brooklyn","opening_time":"8:12:00","closing_time":"18:23:00"}}
 
-```go
-
-We can also delete the station record using the following command:
-
 ```
+
+我们也可以使用以下命令删除站点记录：
+
+```go
 
 CURL -X DELETE "http://10.102.78.140:8000/v1/stations/1"
 
-```go
+```
 
-It returns a 200 OK status, confirming the resource was successfully deleted. As we already discussed, `Gin` provides intuitive debugging on the console, showing the attached handler and highlighting the latency and REST verbs with colors:
+它返回`200 OK`状态，确认资源已成功删除。正如我们已经讨论的那样，`Gin`提供了直观的调试功能，显示附加的处理程序，并使用颜色突出显示延迟和 REST 动词：
 
 ![](img/c1f2942f-5dfc-4fda-b9d3-7a9470ca687d.png)
 
-For example, a `200` is green, a `404` is yellow, `DELETE` is red, and so on. `Gin` provides many other features such as the categorization of routes, redirects, and middleware functions. 
+例如，`200`是绿色的，`404`是黄色的，`DELETE`是红色的，等等。`Gin`提供了许多其他功能，如路由的分类、重定向和中间件函数。
 
-Use the `Gin` framework if you are quickly prototyping a REST web service. You can also use it for many other things such as static file serving and so on. Remember that it is a fully-fledged web framework. For fetching the query parameters in Gin, use the following method on the `Gin` context object: `c.Query("param")`.
+如果您要快速创建 REST Web 服务，请使用`Gin`框架。您还可以将其用于许多其他用途，如静态文件服务等。请记住，它是一个完整的 Web 框架。在 Gin 中获取查询参数，请使用以下方法在`Gin`上下文对象上：`c.Query("param")`。
 
-# Building a RESTful API with Revel.go
+# 使用 Revel.go 构建一个 RESTful API
 
-Revel.go is also a fully-fledged web framework like Python's Django. It is older than Gin, and is termed as a high productivity web framework. It is an asynchronous, modular, and stateless framework. Unlike the `go-restful` and `Gin` frameworks where we created the project ourselves, Revel generates a scaffold for working directly.
+Revel.go 也是一个像 Python 的 Django 一样完整的 Web 框架。它比 Gin 还要早，并被称为高生产力的 Web 框架。它是一个异步的、模块化的、无状态的框架。与 `go-restful` 和 `Gin` 框架不同，Revel 直接生成了一个可用的脚手架。
 
-Install `Revel.go` using the following command:
+使用以下命令安装`Revel.go`：
 
-```
+```go
 
 go get github.com/revel/revel
 
-```go
-
-In order to run the scaffold tool, we should install one more supplementary package:
-
 ```
+
+为了运行脚手架工具，我们应该安装另一个附加包：
+
+```go
 
 go get github.com/revel/cmd/revel
 
-```go
-
-Make sure that `$GOPATH/bin` is in your `PATH` variable. Some external packages install the binary in the `$GOPATH/bin` directory. If it is in the path, we can access executables system-wide. Here, Revel installs a binary called `revel`. On Ubuntu or macOS X, you can do it using the following command:
-
 ```
+
+确保 `$GOPATH/bin` 在您的 `PATH` 变量中。一些外部包将二进制文件安装在 `$GOPATH/bin` 目录中。如果在路径中，我们可以在系统范围内访问可执行文件。在这里，Revel 将安装一个名为`revel`的二进制文件。在 Ubuntu 或 macOS X 上，您可以使用以下命令执行：
+
+```go
 
 export PATH=$PATH:$GOPATH/bin
 
-```go
-
-Add the preceding line to `~/.bashrc` to save the setting. On Windows, you need to directly call the executable by its location. Now we are ready to start with Revel. Let us create a new project called `railAPIRevel` in `github.com/narenaryan`:
-
 ```
+
+将上面的内容添加到 `~/.bashrc` 以保存设置。在 Windows 上，您需要直接调用可执行文件的位置。现在我们已经准备好开始使用 Revel 了。让我们在 `github.com/narenaryan` 中创建一个名为 `railAPIRevel` 的新项目：
+
+```go
 
 revel new railAPIRevel
 
-```go
-
-This creates a project scaffold without writing a single line of code. This is how web frameworks abstract things for quick prototyping. A Revel project layout tree looks like this:
-
 ```
 
-conf/             Configuration directory
+这样就可以在不写一行代码的情况下创建一个项目脚手架。这就是 Web 框架在快速原型设计中的抽象方式。Revel 项目布局树看起来像这样：
 
+```go
+
+conf/         Configuration directory
 app.conf      Main app configuration file
-
-routes 路由定义文件
-
-app/ 应用程序源
-
-init.go 拦截器注册
-
-controllers/ 这里放置应用程序控制器
-
-views/ 模板目录
-
-messages/ 消息文件
-
-public/ 公共静态资产
-
-css/ CSS 文件
-
-js/ Javascript 文件
-
-images/ 图像文件
-
-tests/ 测试套件
-
-```go
-
-Out of all those boilerplate directories, three things are important for creating an API. Those are:
-
-*   `app/controllers`
-*   `conf/app.conf`
-*   `conf/routes`
-
-Controllers are the logic containers that execute the API logic. `app.conf` allows us to set the `host`, `port`, and `dev` mode/production mode and so on. `routes` defines the triple of the endpoint, REST verb, and function handler (here, controller's function). This means to define a function in the controller and attach it to a route in the routes file.
-
-Let us use the same example we have seen for `go-restful`, creating an API for trains. But here, due to the redundancy, we will drop the database logic. We will see shortly how to build `GET`, `POST`, and `DELETE` actions for the API using Revel. Now, modify the routes file to this:
+routes        路由定义文件
+app/          应用程序源
+init.go       拦截器注册
+controllers/  这里放置应用程序控制器
+views/        模板目录
+messages/     消息文件
+public/       公共静态资产
+css/          CSS 文件
+js/           Javascript 文件
+images/       图像文件
+tests/        测试套件
 
 ```
+
+在所有那些样板目录中，有三个重要的东西用于创建一个 API。那是：
+
++   `app/controllers`
+
++   `conf/app.conf`
+
++   `conf/routes`
+
+控制器是执行 API 逻辑的逻辑容器。`app.conf` 允许我们设置 `host`、`port`、`dev` 模式/生产模式等。`routes` 定义了端点、REST 动词和函数处理程序（这里是控制器的函数）。这意味着在控制器中定义一个函数，并在路由文件中将其附加到路由上。
+
+让我们使用我们之前看到的 `go-restful` 的相同例子，为列车创建一个 API。但由于冗余，我们将删除数据库逻辑。稍后我们将看到如何使用 Revel 为 API 构建 `GET`、`POST` 和 `DELETE` 操作。现在，将路由文件修改为这样：
+
+```go
 
 # 路由配置
-
 #
-
 # 此文件定义了所有应用程序路由（优先级较高的路由优先）
-
 #
 
 module:testrunner
-
 # module:jobs
 
 GET /v1/trains/:train-id App.GetTrain
-
 POST /v1/trains App.CreateTrain
-
 DELETE /v1/trains/:train-id App.RemoveTrain
 
-```go
-
-The syntax may look a bit new. It is a configuration file where we simply define a route in this format:
-
 ```
+
+语法可能看起来有点新。这是一个配置文件，我们只需以这种格式定义一个路由：
+
+```go
 
 VERB END_POINT HANDLER
 
-```go
-
-We haven't defined handlers yet. In the endpoint, the path parameters are accessed using the `:param`notation. This means for the `GET` request in the file, `train-id` will be passed as the `path` parameter. Now, move to the `controllers` folder and modify the  existing controller in  `app.go` file to this:
-
 ```
+
+我们还没有定义处理程序。在端点中，路径参数使用`:param` 注释进行访问。这意味着对于文件中的 `GET` 请求，`train-id` 将作为 `path` 参数传递。现在，转到 `controllers` 文件夹，并将 `app.go` 文件中的现有控制器修改为这样：
+
+```go
 
 package controllers
-
 import (
-
-"log"
-
-"net/http"
-
-"strconv"
-
-"github.com/revel/revel"
-
-）
-
+    "log"
+    "net/http"
+    "strconv"
+    "github.com/revel/revel"
+)
 type App struct {
-
-*revel.Controller
-
+    *revel.Controller
 }
-
 // TrainResource 是用于保存铁路信息的模型
-
 type TrainResource struct {
-
-ID int `json:"id"`
-
-DriverName string `json:"driver_name"`
-
-OperatingStatus bool `json:"operating_status"`
-
+    ID int `json:"id"`
+    DriverName string `json:"driver_name"`
+    OperatingStatus bool `json:"operating_status"`
 }
-
 // GetTrain 处理对火车资源的 GET
-
 func (c App) GetTrain() revel.Result {
-
-var train TrainResource
-
-// 从路径参数中获取值。
-
-id := c.Params.Route.Get("train-id")
-
-// 使用此 ID 从数据库查询并填充 train 表....
-
-train.ID，_ = strconv.Atoi（id）
-
-train.DriverName = "Logan" // 来自数据库
-
-train.OperatingStatus = true // 来自数据库
-
-c.Response.Status = http.StatusOK
-
-返回 c.RenderJSON（train）
-
+    var train TrainResource
+    // 从路径参数中获取值。
+    id := c.Params.Route.Get("train-id")
+    // 使用此 ID 从数据库查询并填充 train 表....
+    train.ID，_ = strconv.Atoi（id）
+    train.DriverName = "Logan" // 来自数据库
+    train.OperatingStatus = true // 来自数据库
+    c.Response.Status = http.StatusOK
+    return c.RenderJSON(train)
 }
-
 // CreateTrain 处理对火车资源的 POST
-
 func (c App) CreateTrain() revel.Result {
-
-var train TrainResource
-
-c.Params.BindJSON（&train）
-
-// 使用 train.DriverName 和 train.OperatingStatus 插入到 train 表中....
-
-train.ID = 2
-
-c.Response.Status = http.StatusCreated
-
-return c.RenderJSON（train）
-
+    var train TrainResource
+    c.Params.BindJSON(&train)
+    // 使用 train.DriverName 和 train.OperatingStatus 插入到 train 表中....
+    train.ID = 2
+    c.Response.Status = http.StatusCreated
+    return c.RenderJSON(train)
 }
-
 // RemoveTrain 实现对火车资源的 DELETE
-
 func (c App) RemoveTrain() revel.Result {
-
-id := c.Params.Route.Get("train-id")
-
-// 使用 ID 从 train 表中删除记录....
-
-log.Println("成功删除资源：", id)
-
-c.Response.Status = http.StatusOK
-
-return c.RenderText("")
-
+    id := c.Params.Route.Get("train-id")
+    // 使用 ID 从 train 表中删除记录....
+    log.Println("成功删除资源：", id)
+    c.Response.Status = http.StatusOK
+    return c.RenderText("")
 }
-
-```go
-
-We created API handlers in the file `app.go`. Those handler names should match the ones we mentioned in the routes file. We can create a Revel controller using a struct with `*revel.Controller` as its member. Then, we can attach any number of handlers to it. The controller holds the information of incoming HTTP requests so that we can use the information such as query parameters, path parameters, JSON body, form data, and so on in our handler.
-
-We are defining `TrainResource`to work as a data holder. In `GetTrain`,we are fetching the path parameters using the `c.Params.Route.Get`function. The argument to that function is the path parameter we specified in the route file (here, `train-id`). The value will be a string. We need to convert it to `Int` type to map it with `train.ID`.Then, we are setting the response status as `200 OK` using the `c.Response.Status` variable (not function). `c.RenderJSON` takes a struct and transforms it into the JSON body. 
-
-In `CreateTrain,`we are adding the `POST` request logic. We are creating a new `TrainResource` struct and passing it to a function called `c.Params.BindJSON`.What `BindJSON`does is it plucks the parameters from the JSON `POST` body and tries to find matching fields in the struct and fill them. When we marshal a Go struct to JSON, field names will be translated to keys as it is. But, if we attach the ``jason:"id"`` string format to any struct field, it explicitly says that the JSON that is marshaled from this struct should have the key `id`, not **ID**. This is a good practice in Go while working with JSON. Then, we are adding a status of 201 created to the HTTP response. We are returning the train struct, which will be converted into JSON internally.
-
-The `RemoveTrain`handler logic is similar to that of `GET`. A subtle difference is that nothing is sent in the body. As we previously mentioned, database CRUD logic is omitted from the preceding example. It is an exercise for readers to try adding SQLite3 logic by observing what we have done in the `go-restful` and `Gin` sections.
-
-Finally, the default port on which the Revel server runs is `9000`. The configuration to change the port number is in the `conf/app.conf`file. Let us follow the tradition of running our app on `8000`. So, modify the `http` port section of the file to the following. This tells the Revel server to run on a different port:
 
 ```
+
+我们在文件 `app.go` 中创建了 API 处理程序。这些处理程序的名称应与我们在路由文件中提到的名称匹配。我们可以使用带有 `*revel.Controller` 作为其成员的结构创建一个 Revel 控制器。然后，我们可以向其附加任意数量的处理程序。控制器保存了传入 HTTP 请求的信息，因此我们可以在处理程序中使用信息，如查询参数、路径参数、JSON 主体、表单数据等。
+
+我们正在定义 `TrainResource` 作为一个数据持有者。在 `GetTrain` 中，我们使用 `c.Params.Route.Get` 函数获取路径参数。该函数的参数是我们在路由文件中指定的路径参数（这里是 `train-id`）。该值将是一个字符串。我们需要将其转换为 `Int` 类型以与 `train.ID` 进行映射。然后，我们使用 `c.Response.Status` 变量（而不是函数）将响应状态设置为 `200 OK`。`c.RenderJSON` 接受一个结构体并将其转换为 JSON 主体。
+
+在 `CreateTrain` 中，我们添加了 `POST` 请求逻辑。我们创建了一个新的 `TrainResource` 结构体，并将其传递给一个名为 `c.Params.BindJSON` 的函数。`BindJSON` 的作用是从 JSON `POST` 主体中提取参数，并尝试在结构体中查找匹配的字段并填充它们。当我们将 Go 结构体编组为 JSON 时，字段名将按原样转换为键。但是，如果我们将 `jason:"id"` 字符串格式附加到任何结构字段上，它明确表示从该结构编组的 JSON 应具有键 `id`，而不是 **ID**。在使用 JSON 时，这是 Go 中的一个良好做法。然后，我们向 HTTP 响应添加了一个 201 创建的状态。我们返回火车结构体，它将在内部转换为 JSON。
+
+`RemoveTrain` 处理程序逻辑与 `GET` 类似。一个微妙的区别是没有发送任何内容。正如我们之前提到的，数据库 CRUD 逻辑在上述示例中被省略。读者可以通过观察我们在 `go-restful` 和 `Gin` 部分所做的工作来尝试添加 SQLite3 逻辑。
+
+最后，默认端口号是 `9000`，Revel 服务器运行的配置更改端口号在 `conf/app.conf` 文件中。让我们遵循在 `8000` 上运行我们的应用程序的传统。因此，将文件的 `http` 端口部分修改为以下内容。这告诉 Revel 服务器在不同的端口上运行：
+
+```go
 
 ......
 
 # 要监听的 IP 地址。
-
-http.addr =
-
+http.addr = "0.0.0.0"
 # 要监听的端口。
-
 http.port = 8000 # 从 9000 更改为 8000 或任何端口
-
 # 是否使用 SSL。
-
 http.ssl = false
-
 ......
 
-```go
-
-Now, we can run our Revel API server using this command:
-
 ```
+
+现在，我们可以使用以下命令运行 Revel API 服务器：
+
+```go
 
 revel run github.com/narenaryan/railAPIRevel
 
-```go
-
-Our app server starts at `http://localhost:8000`. Now, let us make a few API requests:
-
 ```
+
+我们的应用服务器在 `http://localhost:8000` 上启动。现在，让我们进行一些 API 请求：
+
+```go
 
 CURL -X GET "http://10.102.78.140:8000/v1/trains/1"
 
-输出
-
+output
 =======
-
 {
-
-"id": 1,
-
-"driver_name": "Logan",
-
-"operating_status": true
-
+    "id": 1,
+    "driver_name": "Logan",
+    "operating_status": true
 }
-
-```go
-
-`POST` request:
 
 ```
 
+`POST` 请求：
+
+
+```go
+
 curl -X POST \
+    http://10.102.78.140:8000/v1/trains \
+    -H 'cache-control: no-cache' \
+    -H 'content-type: application/json' \
+    -d '{"driver_name":"Magneto", "operating_status": true}'
 
-http://10.102.78.140:8000/v1/trains \
-
--H 'cache-control: no-cache' \
-
--H 'content-type: application/json' \
-
--d '{"driver_name":"Magneto", "operating_status": true}'
-
-输出
-
+output
 ======
-
 {
-
-"id": 2,
-
-"driver_name": "Magneto",
-
-"operating_status": true
-
+    "id": 2,
+    "driver_name": "Magneto",
+    "operating_status": true
 }
 
 ```
