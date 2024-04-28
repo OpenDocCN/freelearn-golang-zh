@@ -125,7 +125,7 @@ Go 确实有一个代码格式化标准，可以通过在源代码文件上运�
 
 注释遵循 C++风格，允许双斜杠和斜杠星号包装样式：
 
-```
+```go
 // Line comment, everything after slashes ignored
 /* General comment, can be in middle of line or span multiple lines */
 ```
@@ -140,7 +140,7 @@ Go 确实有一个代码格式化标准，可以通过在源代码文件上运�
 
 布尔类型表示真或假值。有些语言不提供`bool`类型，您必须使用整数或定义自己的枚举，但 Go 方便地预先声明了`bool`类型。`true`和`false`常量也是预定义的，并且以全小写形式使用。以下是创建布尔值的示例：
 
-```
+```go
 var customFlag bool = false  
 ```
 
@@ -214,7 +214,7 @@ Go 还为高级数学应用提供了复数类型，以及一些别名以方便�
 
 请注意，数字被存储为整数，它们之间没有区别，除了它们在源代码中的格式化方式。在处理二进制数据时，八进制和十六进制可能很有用。以下是如何定义整数的简短示例：
 
-```
+```go
 package main
 
 import "fmt"
@@ -239,7 +239,7 @@ Go 还提供了`string`类型以及一个`strings`包，其中包含一套有用
 
 双引号用于字符串。单引号仅用于单个字符或符文，而不是字符串。可以使用长形式或使用声明和分配运算符的短形式来定义字符串。您还可以使用`` ` ``（反引号）符号，用于封装跨多行的字符串。以下是字符串用法的简短示例:
 
-```
+```go
 
 package main
 import "fmt"
@@ -259,42 +259,42 @@ func main() {
 
 ```
 
-# Array
+# 数组
 
-Arrays are made up of sequenced elements of a specific type. An array can be created for any data type. The length of an array cannot be changed and must be specified at the time of declaration. Arrays are seldom used directly, but are used mostly through the slice type covered in the next section. Arrays are always one-dimensional, but you can create an array of arrays to create multidimensional objects.
+数组由特定类型的序列化元素组成。可以为任何数据类型创建一个数组。数组的长度是不可变的，必须在声明时指定。数组很少直接使用，而是在下一节中介绍的切片类型中大多数使用。数组始终是一维的，但可以创建一个数组的数组来创建多维对象。
 
-To create an array of 128 bytes, this syntax can be used:
+要创建一个包含`128`个字节的数组，可以使用以下语法：
 
-```
+```go
 
 var myByteArray [128]byte
 
 ```
 
-Individual elements of an array can be accessed by its 0-based numeric index. For example, to get the fifth element from the byte array, the syntax is as follows:
+数组的各个元素可以通过基于`0`的数字索引进行访问。例如，要获取字节数组的第五个元素，语法如下：
 
-```
+```go
 
 singleByte := myByteArray[4]
 
 ```
 
-# Slice
+# 切片
 
-Slices use arrays as the underlying data type. The main advantage is that slices can be resized, unlike arrays. Think of slices as a viewing window in to an underlying array. The **capacity** refers to the size of the underlying array, and the maximum possible length of a slice. The **length** of a slice refers to its current length which can be resized.
+切片使用数组作为基础数据类型。主要优点是切片可以调整大小，而数组不行。将切片视为对基础数组的查看窗口。**容量**指的是基础数组的大小，以及切片的最大可能长度。切片的**长度**指当前长度，可以调整大小。
 
-Slices are created using the `make()` function. The `make()` function will create a slice of a certain type with a certain length and capacity. The `make()` function can be used two ways when creating a slice. With only two parameters, the length and capacity are the same. With three parameters, you can specify a maximum capacity larger than the length. Here are two of the `make()` function declarations:
+使用`make()`函数创建切片。`make()`函数将创建指定类型、长度和容量的切片。在创建切片时，`make()`函数可以有两种方式。只有两个参数时，长度和容量相同。有三个参数时，可以指定一个比长度大的最大容量。以下是两种`make()`函数声明：
 
-```
+```go
 
 make([]T, lengthAndCapacity)
 make([]T, length, capacity)
 
 ```
 
-A nil slice can be created with a capacity and length of 0\. There is no underlying array associated with a nil slice. Here is a short example program demonstrating how to create and inspect a slice:
+可以创建具有容量和长度为`0`的`nil`切片。`nil`切片没有关联的基础数组。以下是演示如何创建和检查切片的简短示例程序：
 
-```
+```go
 
 package main
 import "fmt"
@@ -311,13 +311,13 @@ func main() {
 
 ```
 
-You can also append to a slice using the built-in `append()` function.
+也可以使用内置`append()`函数向切片追加元素。
 
-Append can add one or more elements at a time. The underlying array will be resized if necessary. This means that the maximum capacity of a slice can be increased. When a slice increases its underlying capacity, creating a larger underlying array, it will create the array with some extra space. This means that if you surpass a slice's capacity by one, it might increase the array size by four. This is done so that the underlying array has room to grow to reduce the number of times the underlying array has to be resized, which may require moving memory around to accommodate the larger array. It could be expensive to resize an array every time just to add a single element. The slice mechanics will automatically determine the best size for resizing.
+`Append`可以一次添加一个或多个元素。必要时，基础数组将调整大小。这意味着切片的最大容量可以增加。当一个切片增加其基础容量时，创建一个更大的基础数组时，将创建具有一些额外空间的数组。这意味着如果超过一个切片的容量，可能会将数组大小增加四倍。这样做是为了使基础数组有空间增长，以减少重新调整大小基础数组的次数，这可能需要移动内存以容纳更大的数组。每次只需添加一个元素就重新调整大小数组可能会很昂贵。切片机制将自动确定最佳的调整大小。
 
-This code sample provides various examples of working with slices:
+以下代码示例提供了使用切片的各种示例：
 
-```
+```go
 
 package main
 import "fmt"
@@ -358,15 +358,15 @@ func main() {
 
 ```
 
-# Struct
+# 结构体
 
-In Go, a struct or data structure is a collection of variables. The variables can be of different types. We will look at an example of creating a custom struct type.
+在 Go 中，结构体或数据结构是一组变量。变量可以是不同类型的。我们将看一个创建自定义结构体类型的示例。
 
-Go uses case-based scoping to declare a variable either `public` or `private`. Variables and methods that are capitalized are exported and accessible from other packages. Lowercase values are private and only accessible within the same package.
+Go 使用基于大小写的作用域来声明变量为`public`或`private`。大写的变量和方法是公开的，可以从其他包中访问。小写的值是私有的，只能在同一包中访问。
 
-The following example creates a simple struct named `Person` and one named `Hacker`. The `Hacker` type has a `Person` type embedded within it. An instance of each type is then created and the information about them is printed to standard output:
+以下示例创建了一个名为`Person`的简单结构体，以及一个名为`Hacker`的结构体。`Hacker`类型在其中嵌入了一个`Person`类型。然后分别创建了每种类型的实例，并将有关它们的信息打印到标准输出：
 
-```
+```go
 
 package main
 import "fmt"
@@ -398,17 +398,17 @@ func main() {
 
 ```
 
-You can create *private* variables by starting their name with a lowercase letter. I use quotation marks because private variables work slightly different than in other languages. The privacy works at the package level and not at the *class* or type level.
+你可以通过将它们的名称以小写字母开头来创建*私有*变量。我用引号是因为私有变量与其他语言中的工作方式略有不同。隐私工作在包级别而不是*类*或类型级别。
 
-# Pointer
+# 指针
 
-Go provides a pointer type that stores the memory location where data of a specific type is stored. Pointers can be used to pass a struct to a function by reference without creating a copy. This also allows a function to modify an object in-place.
+Go 提供了一个指针类型，用于存储特定类型数据的内存位置。指针可以被用来通过引用传递一个结构体给函数，而不需要创建副本。这也允许函数就地修改对象。
 
-There is no pointer arithmetic allowed in Go. Pointers are considered *safe* because Go does not even define the addition operator on the pointer type. They can only be used to reference an existing object.
+Go 不允许指针算术。指针被认为是*安全*的，因为 Go 甚至不定义指针类型上的加法运算符。它们只能用于引用现有对象。
 
-This example demonstrates basic pointer usage. It first creates an integer, and then creates a pointer to the integer. It then prints out the data type of the pointer, the address stored in the pointer, and then the value of data being pointed at:
+这个示例演示了基本的指针用法。它首先创建一个整数，然后创建一个指向该整数的指针。然后打印指针的数据类型，指针中存储的地址，以及被指向的数据的值：
 
-```
+```go
 
 package main
 import (
@@ -425,13 +425,13 @@ func main() {
 
 ```
 
-# Function
+# 函数
 
-Functions are defined with the `func` keyword. Functions can have multiple parameters. All parameters are positional and there are no named parameters. Go supports variadic parameters allowing for an unknown number of parameters. Functions are first-class citizens in Go, and can be used anonymously and returned as a variable. Go also supports multiple return values from a function. The underscore can be used to ignore a return variable.
+使用`func`关键字定义函数。函数可以有多个参数。所有参数都是位置参数，没有命名参数。Go 支持可变参数，允许有未知数量的参数。在 Go 中，函数是一等公民，并且可以匿名使用并作为变量返回。Go 还支持从函数返回多个值。下划线可以用于忽略返回变量。
 
-All of these examples are demonstrated in the following code source:
+所有这些示例都在以下代码来源中演示：
 
-```
+```go
 
 package main
 import "fmt"
@@ -482,24 +482,24 @@ func main() {
 
 ```
 
-# Interface
+# 接口
 
-Interfaces are a special type that define a collection of function signatures. You can think of an interface as saying, "a type must implement function X and function Y to satisfy this interface." If you create any type and implement the functions needed to satisfy the interface, your type can be used anywhere that the interface is expected. You don't have to specify that you are trying to satisfy an interface, the compiler will determine if it satisfies the requirements.
+接口是一种特殊类型，它定义了一系列函数签名。你可以把接口看作是在说，“一个类型必须实现函数 X 和函数 Y 来满足这个接口。” 如果你创建了任何类型并实现了满足接口所需的函数，那么你的类型可以在期望接口的任何地方使用。你不必指定你正在尝试满足一个接口，编译器将确定它是否满足要求。
 
-You can add as many other functions as you want to your custom type. The interface defines the functions that are required, but it does not mean that your type is limited to implementing only those functions.
+你可以为你的自定义类型添加任意多的其他函数。接口定义了所需的函数，但这并不意味着你的类型仅限于实现这些函数。
 
-The most commonly used interface is the `error` interface. The `error` interface only requires a single function to be implemented, a function named `Error()` that returns a string with the error message. Here is the interface definition:
+最常用的接口是`error`接口。`error`接口只需要实现一个函数，即一个名为`Error()`的函数，该函数返回一个带有错误消息的字符串。以下是接口定义：
 
-```
+```go
 type error interface {
    Error() string
 } 
 
 ```
 
-This makes it very easy for you to implement your own error interfaces. This example creates a `customError` type and then implements the `Error()` function needed to satisfy the interface. Then, a sample function is created, which returns the custom error:
+这使得你很容易实现自己的错误接口。这个示例创建了一个`customError`类型，然后实现了满足接口所需的`Error()`函数。然后，创建了一个示例函数，该函数返回自定义错误：
 
-```
+```go
 
 package main
 
@@ -535,9 +535,9 @@ func main() {
 } 
 ```
 
-Other frequently used interfaces are the `Reader` and `Writer` interfaces. Each one only requires one function to be implemented in order to satisfy the interface requirements. The big benefit here is that you can create your own custom types that reads and writes data in some arbitrary way. The implementation details are not important to the interface. The interface won't care whether you are reading and writing to a hard disk, a network connection, storage in memory, or `/dev/null`. As long as you implement the function signatures that are required, you can use your type anywhere the interface is used. Here is the definition of the `Reader` and `Writer` interfaces:
+其他经常使用的接口是 `Reader` 和 `Writer` 接口。每个接口只需要实现一个函数以满足接口要求。这里的一个重大好处是你可以创建自己的自定义类型，以某种任意的方式读取和写入数据。接口不关心实现细节。接口不会在乎你是在读写硬盘、网络连接、内存中的存储还是 `/dev/null`。只要你实现了所需的函数签名，你就可以在任何使用接口的地方使用你的类型。下面是 `Reader` 和 `Writer` 接口的定义：
 
-```
+```go
 
 type Reader interface {
    Read(p []byte) (n int, err error)
@@ -551,13 +551,13 @@ type Writer interface {
 
 # Map
 
-A map is a hash table or dictionary that stores key and value pairs. The key and value can be any data types, including maps themselves, creating multiple dimensions.
+Map 是一个存储键值对的哈希表或字典。键和值可以是任何数据类型，包括映射本身，从而创建多个维度。
 
-The order is not guaranteed. You can iterate over a map multiple times and it might be different. Additionally, maps are not concurrent safe. If you must share a map between threads, use a mutex.
+顺序不受保证。你可以多次迭代一个映射，并且可能会不同。此外，映射不是并发安全的。如果必须在线程之间共享映射，请使用互斥锁。
 
-Here are some example map usages:
+这里是一些示例映射用法：
 
-```
+```go
 
 package main
 
@@ -600,13 +600,13 @@ func main() {
 
 # Channel
 
-Channels are used to communicate between threads. Channels are **first-in, first-out** (**FIFO**) queues. You can push objects on to the queue and pull from the front asynchronously. Each channel can only support one data type. Channels are blocking by default, but can be made nonblocking with a `select` statement. Like slices and maps, channels must be initialized before use with the `make()` function.
+通道用于线程之间通信。通道是**先进先出**（**FIFO**）队列。你可以将对象推送到队列并异步从前端拉取。每个通道只能支持一个数据类型。通道默认是阻塞的，但可以通过 `select` 语句使其成为非阻塞。像切片和映射一样，通道必须在使用之前用 `make()` 函数初始化。
 
-The saying in Go is *Do not communicate by sharing memory; instead, share memory by communicating*. Read more about this philosophy at [`blog.golang.org/share-memory-by-communicating`](https://blog.golang.org/share-memory-by-communicating).
+在 Go 中的格言是 *不要通过共享内存来通信；而是通过通信来共享内存*。在[`blog.golang.org/share-memory-by-communicating`](https://blog.golang.org/share-memory-by-communicating)上阅读更多关于这一哲学的内容。
 
-Here is an example program that demonstrates basic channel usage:
+下面是一个演示基本通道使用的示例程序：
 
-```
+```go
 
 package main
 
@@ -663,17 +663,17 @@ func main() {
 } 
 ```
 
-# Control structures
+# 控制结构
 
-Control structures are used to control the flow of program execution. The most common forms are the `if` statements, `for` loops, and `switch` statements. Go also supports the `goto` statement, but should be reserved for cases of extreme performance and not used regularly. Let's look briefly at each of these to understand the syntax.
+控制结构用于控制程序执行的流程。最常见的形式是 `if` 语句、`for` 循环和 `switch` 语句。Go 也支持 `goto` 语句，但应保留用于极端性能情况，不应经常使用。让我们简要地看一下这些以了解语法。
 
 # if
 
-The `if` statement comes with the `if`, `else if`, and `else` clauses, just like most other languages. The one interesting feature that Go has is the ability to put a statement before the condition, creating temporary variables that are discarded after the `if` statement has completed.
+`if` 语句有 `if`、`else if` 和 `else` 子句，就像大多数其他语言一样。 Go 的一个有趣特性是能够在条件之前放置语句，创建在 `if` 语句完成后被丢弃的临时变量。
 
-This example demonstrates the various ways to use an `if` statement:
+这个示例演示了使用 `if` 语句的各种方式：
 
-```
+```go
 
 package main
 
@@ -713,9 +713,9 @@ func main() {
 
 # for
 
-The `for` loop has three components, and can be used just like a `for` loop in C or Java. Go has no `while` loop because the `for` loop serves the same purpose when used with a single condition. Refer to the following example for more clarity:
+`for` 循环有三个组件，可以像在 C 或 Java 中一样使用 `for` 循环。Go 没有 `while` 循环，因为当与单个条件一起使用时，`for` 循环起到相同的作用。请参考以下示例以获得更多的清晰度：
 
-```
+```go
 
 package main
 
@@ -740,9 +740,9 @@ func main() {
 
 # range
 
-The `range` keyword is used to iterate over a slice, map, or other data structure. The `range` keyword is used in combination with the `for` loop, to operate on an iterable data structure. The `range` keyword returns the key and value variables. Here are some basic examples of using the `range` keyword:
+`range`关键字用于遍历切片、映射或其他数据结构。`range`关键字与`for`循环结合使用，对可迭代的数据结构进行操作。`range`关键字返回键和值变量。以下是使用`range`关键字的一些基本示例：
 
-```
+```go
 
 package main
 
@@ -776,17 +776,17 @@ func main() {
 } 
 ```
 
-# switch, case, fallthrough, and default
+# switch、case、fallthrough 和 default
 
-The `switch` statement allows you to branch execution based on the state of a variable. It is similar to the `switch` statement in C and other languages.
+`switch`语句允许您根据变量的状态分支执行。它类似于 C 和其他语言中的`switch`语句。
 
-There is no `fallthrough` by default. This means once the end of a case is reached, the code exits the `switch` statement completely unless an explicit `fallthrough` command is provided. A `default` case can be provided if none of the cases are matched.
+默认情况下没有`fallthrough`。这意味着一旦到达一个情况的末尾，代码就会完全退出`switch`语句，除非提供了显式的`fallthrough`命令。如果没有匹配到任何情况，则可以提供一个`default`情况。
 
-You can put a statement in front of the variable to be switched, such as the `if` statement. This creates a variable whose scope is limited to the `switch` statement.
+您可以在要切换的变量前放置一个语句，例如`if`语句。这会创建一个作用域限于`switch`语句的变量。
 
-This example demonstrates two `switch` statements. The first one uses hardcoded values and includes a `default` case. The second `switch` statement uses an alternate syntax that allows for a statement in the first line:
+此示例演示了两个`switch`语句。第一个使用硬编码的值，并包含一个`default`情况。第二个`switch`语句使用了一种允许在第一行中包含语句的替代语法：
 
-```
+```go
 
 package main
 
@@ -825,11 +825,11 @@ func main() {
 } 
 ```
 
-# goto
+# 跳转
 
-Go does have a `goto` statement, but it is very rarely used. Create a label with a name and a colon, then *go to* it using the `goto` keyword. Here is a basic example:
+Go 语言确实有`goto`语句，但很少使用。使用一个名称和一个冒号创建一个标签，然后使用`goto`关键字*跳转*到它。这是一个基本示例：
 
-```
+```go
 
 package main
 
@@ -849,15 +849,15 @@ func main() {
 } 
 ```
 
-# Defer
+# 延迟
 
-By deferring a function, it will run whenever the current function is exited. This is a convenient way to ensure that a function will get executed before exiting, which is useful for cleaning up or closing files. It is convenient because a deferred function will get executed no matter where the surrounding function exits if there are multiple return locations.
+通过延迟一个函数，它会在当前函数退出时运行。这是一种方便的方式，可以确保一个函数在退出之前被执行，这对于清理或关闭文件很有用。这很方便，因为一个延迟的函数会在周围函数的任何退出处被执行，如果有多个返回位置的话。
 
-Common use cases are deferring calls to close a file or database connection. Right after opening a file, you can defer a call to close. This will ensure that a file is closed whenever the function is exited, even if there are multiple return statements and you can't be sure about when and where the current function will exit.
+常见用例是延迟调用关闭文件或数据库连接。在打开文件后，您可以延迟调用关闭。这将确保文件在函数退出时关闭，即使有多个返回语句，您也不能确定当前函数何时何地退出。
 
-This example demonstrates a simple use case for the `defer` keyword. It creates a file and then defers a call to `file.Close()`:
+此示例演示了`defer`关键字的一个简单用例。它创建一个文件，然后延迟调用`file.Close()`：
 
-```
+```go
 
 package main
 
@@ -883,29 +883,29 @@ func main() {
 } 
 ```
 
-Be sure to properly check and handle errors. The `defer` call will panic if using a nil pointer.
+一定要正确检查和处理错误。如果使用空指针，则`defer`调用会导致恐慌。
 
-It is also important to understand that deferred functions are run when the surrounding function is exited. If you put a `defer` call inside a `for` loop, it will not get called at the end of each `for` loop iteration.
+还要明白延迟函数是在周围函数退出时运行的。如果在`for`循环中放置一个`defer`调用，它将不会在每个`for`循环迭代结束时被调用。
 
-# Packages
+# 包
 
-Packages are just directories. Every directory is its own package. Creating subdirectories creates a new package. Having no subpackages leads to a flat hierarchy. Subdirectories are used just for organizing code.
+包只是目录。每个目录都是一个包。创建子目录会创建一个新包。没有子包会导致一个平坦的层次结构。子目录仅用于组织代码。
 
-Packages should be stored in the `src` folder of your `$GOPATH` variable.
+包应该存储在您的`$GOPATH`变量的`src`文件夹中。
 
-A package name should match the folder name or be named `main`. A `main` package means that it is not intended to be imported into another application, but meant to compile and run as a program. Packages are imported using the `import` keyword.
+包名应该与文件夹名匹配，或者命名为`main`。一个`main`包意味着它不打算被导入到另一个应用程序中，而是打算编译并作为程序运行。使用`import`关键字导入包。
 
-You can import packages individually:
+你可以单独导入包：
 
-```
+```go
 
 import "fmt"
 
 ```
 
-Alternatively, you can import multiple packages at once by wrapping them with parenthesis:
+或者，你可以通过用括号包裹多个包来一次性导入多个包：
 
-```
+```go
 
 import (
    "fmt"
@@ -913,17 +913,17 @@ import (
 ) 
 ```
 
-# Classes
+# 类
 
-Go technically does not have classes, but there are only a few subtle distinctions that keep it from being called an object-oriented language. Conceptually, I do consider it an object-oriented programming language, though it only supports the most basic features of an object-oriented language. It does not come with all of the features many people have come to associate with object-oriented programming, such as inheritance and polymorphism, which are replaced with other features such as embedded types and interfaces. Perhaps you could call it a *microclass* system, because it is a minimalistic implementation with none of the extra features or baggage, depending on your perspective.
+从技术上讲，Go 并没有类，但有几个微妙的区别使其不被称为面向对象的语言。概念上，我认为它是一种面向对象的编程语言，尽管仅支持最基本的面向对象语言特性。它不具备许多人们对面向对象编程所熟悉的所有特性，比如继承和多态性，而是用其他特性如嵌入类型和接口来替代。也许你可以把它称为一个*微类*系统，因为它是一个最简化实现，没有额外的特性或负担，这取决于你的角度。
 
-Throughout this book, the terms *object* and *class* may be used to illustrate a point using familiar terms, but be aware that these are not formal terms in Go. A type definition in combination with the functions that operate on that type are like the class, and the object is an instance of a type.
+本书中，术语*对象*和*类*可能会被用来说明一个概念，使用熟悉的术语，但请注意这些在 Go 中并不是正式术语。类型定义与操作该类型的函数结合起来类似于类，而对象是类型的一个实例。
 
-# Inheritance
+# 继承
 
-There is no inheritance in Go, but you can embed types. Here is an example of a `Person` and `Doctor` types, which embeds the `Person` type. Instead of inheriting the behavior of `Person` directly, it stores the `Person` object as a variable, which brings with it all of its expected `Person` methods and attributes:
+Go 中没有继承，但可以嵌入类型。这里有一个`Person`和`Doctor`类型的示例，`Doctor`类型嵌入了`Person`类型。与直接继承`Person`的行为不同，它将`Person`对象作为变量存储，从而带来了其预期的`Person`方法和属性：  
 
-```
+```go
 
 package main
 
@@ -960,15 +960,15 @@ func main() {
 } 
 ```
 
-# Polymorphism
+# 多态性
 
-There is no polymorphism in Go, but you can use interfaces to create common abstraction that can be used by multiple types. Interfaces define one or more method declarations that must be satisfied to be compatible with the interface. Interfaces were covered earlier in this chapter.
+Go 中没有多态性，但可以使用接口创建可以被多个类型使用的通用抽象。接口定义了一个或多个必须满足以兼容接口的方法声明。接口在本章的前面已经介绍过。
 
-# Constructors
+# 构造函数
 
-There are no constructors in Go, but there are `New()` functions that act like factories initializing an object. You simply have to create a function named `New()` that returns your data type. Here is an example:
+Go 中没有构造函数，但有类似于初始化对象的工厂函数`New()`。你只需创建一个名为`New()`的函数，返回你的数据类型。下面是一个示例：
 
-```
+```go
 
 package main
 
@@ -990,23 +990,23 @@ func main() {
 } 
 ```
 
-There are no deconstructors in Go, since everything is garbage collected and you do not manually destroy objects. Defer is the closest you can get by deferring a function call to perform some cleanup when the current function ends.
+Go 中没有析构函数，因为一切都是由垃圾回收来处理，你不需要手动销毁对象。通过延迟（defer）一个函数调用来在当前函数结束时执行一些清理操作是最接近的方法。
 
-# Methods
+# 方法
 
-Methods are functions that belong to a specific type, and are called using the dot notation, for example:
+方法是属于特定类型的函数，使用点标记法来调用，例如：
 
-```
+```go
 
 myObject.myMethod()
 
 ```
 
-The dot notation is widely used in C++ and other object-oriented languages. The dot notation and the class system stemmed from a common pattern that was used in C. The common pattern is to define a set of functions that all operate on a specific data type. All of the related functions have the same first parameter, which is the data to be operated on. Since this is such a common pattern, Go built it into the language. Instead of passing the object to be manipulated as the first argument, there is a special place to designate the receiver in a Go function definition. The receiver is specified between a set of parenthesis before the function name. The next example demonstrates how to use function receivers.
+点符号标记在 C++和其他面向对象的语言中被广泛使用。 点符号标记和类系统源自于在 C 中使用的一个常见模式。 这个常见模式是定义一组函数，所有这些函数都操作一个特定的数据类型。 所有相关的函数都有相同的第一个参数，即要操作的数据。 由于这是一个如此常见的模式，Go 将其内置到语言中。 在 Go 函数定义中，不是将要操作的对象作为第一个参数传递，而是有一个特殊的位置来指定接收器。 接收器在函数名称之前的一对括号之间指定。 下一个示例演示了如何使用函数接收器。
 
-Instead of writing a large set of functions that all took a pointer as their first parameter, you can write functions that have a special *receiver*. The receiver can either be a type or a pointer to a type:
+与其编写一组大型函数，所有这些函数都将指针作为它们的第一个参数，不如编写具有特殊*接收器*的函数。 接收器可以是类型或类型的指针：
 
-```
+```go
 package main
 
 import "fmt"
@@ -1037,21 +1037,21 @@ func main() {
 } 
 ```
 
-In Go, you do not encapsulate all of the variables and methods inside a monolithic pair of braces. You define a type, and then define methods that operate on that type. This allows you to define all of your structs and data types in one place, and define the methods elsewhere in your package. You also have the option of defining a type and the methods right next to each other. It's pretty simple and straightforward, and it creates a slightly clearer distinction between the state (data) and the logic.
+在 Go 中，您不会将所有变量和方法封装在一个整体的大括号对中。 您定义一个类型，然后定义操作该类型的方法。 这使您可以在一个地方定义所有的结构体和数据类型，并在包的其他地方定义方法。 您还可以选择在一起定义类型和方法。 这非常简单直接，创建了状态（数据）和逻辑之间稍微清晰的区别。
 
-# Operator overloading
+# 运算符重载
 
-There is no operator overloading in Go, so you can't add to structs together with the `+` sign, but you can easily define an `Add()` function on the type and then call something like `dataSet1.Add(dataSet2)`. By omitting operator overloading from the language, we can confidently use the operators without worrying about unexpected behavior due to operator behavior being overloaded somewhere else in code without realizing it.
+Go 中没有运算符重载，因此您不能使用`+`号将两个结构体相加，但是您可以轻松地在类型上定义一个`Add()`函数，然后调用类似`dataSet1.Add(dataSet2)`的函数。 通过将语言中的操作符重载省略掉，我们可以放心地使用这些操作符，而不必担心由于在代码中的其他地方重载操作符行为而导致的意外行为。
 
 # Goroutines
 
-Goroutines are lightweight threads built into the language. You simply have to put the word `go` in front of a function call to have the function execute in a thread. Goroutines may also be referred to as threads in this book.
+Goroutines 是内置到语言中的轻量级线程。 您只需在函数调用前加上`go`这个词，就可以让函数在一个线程中执行。 本书中还可以将 goroutines 称为线程。
 
-Go does provide mutexes, but they are avoidable in most cases and will not be covered in this book. You can read more about mutexes in the `sync` package documentation at [`golang.org/pkg/sync/`](https://golang.org/pkg/sync/). Channels should be used instead for sharing data and communicating between threads. Channels were covered earlier in this chapter.
+Go 确实提供了互斥锁，但在大多数情况下可以避免使用，并且本书不会涵盖它们。 您可以在[`golang.org/pkg/sync/`](https://golang.org/pkg/sync/)上阅读有关互斥锁的更多信息。 通道应该用于在线程之间共享数据和通信。 本章前面已经介绍了通道。
 
-Note that the `log` package is safe to use concurrently, but the `fmt` package is not. Here is a short example of using goroutines:
+注意，`log`包是可以并发安全使用的，但`fmt`包不是。 下面是使用 goroutines 的简短示例：
 
-```
+```go
 
 package main
 
@@ -1085,19 +1085,20 @@ func main() {
 } 
 ```
 
-# Getting help and documentation
+# 获取帮助和文档
 
-Go has both online and offline help documentation. The offline documentation is built-in for Go and is the same documentation that is hosted online. These next sections will walk you through accessing both forms of documentation.
+Go 同时具有在线和离线帮助文档。 离线文档是 Go 内置的，与在线托管的文档相同。 接下来的几节将引导您访问这两种形式的文档。
 
-# Online Go documentation
+# 在线 Go 文档
 
-The online documentation is available at [`golang.org/`](https://golang.org/), and has all the formal documentation, specifications, and help files. Language documentation specifically is at [`golang.org/doc/`](https://golang.org/doc/), and information about the standard library is at [`golang.org/pkg/`](https://golang.org/pkg/).
+在线文档可在[`golang.org/`](https://golang.org/) 上找到，其中包含所有正式文档、规范和帮助文件。语言文档专门位于[`golang.org/doc/`](https://golang.org/doc/)，标准库信息位于[`golang.org/pkg/`](https://golang.org/pkg/)。
 
-# Offline Go documentation
+# 离线 Go 文档
 
-Go also comes with offline documentation with the `godoc` command-line tool. You can use it on the command line, or have it run a web server where it serves the same website that [`golang.org/`](https://golang.org/) hosts. It is quite handy to have the full website documentation available locally. Here are a few examples that get documentation for the `fmt` package. Replace `fmt` with whatever package you are interested in:
+Go 还附带了离线文档，使用`godoc`命令行工具即可。您可以在命令行上使用它，或者让它运行一个 Web 服务器，在其中提供与[`golang.org/`](https://golang.org/) 相同的网站。将完整的网站文档本地可用是非常方便的。以下是几个示例，用于获取`fmt`包的文档。将`fmt`替换为您感兴趣的任何包：
 
-```
+
+```go
 
 # 获取 fmt 包信息
 godoc fmt
