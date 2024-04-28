@@ -188,464 +188,355 @@ func main() {
 }
 ```
 
-这里需要注意的是`User`结构中变量的 JSON 表示。每当您在重音符号（```go) characters, this represents a rune. Although a string is represented in double quotes and a char in single, the accent represents Unicode data that should remain constant. Technically, this content is held in an `int32` value.
+这里需要注意的是`User`结构中变量的 JSON 表示。每当您在重音符号（`` ` ``）字符时，这都代表一个符文。虽然字符串用双引号表示，字符用单引号表示，但重音符号表示应该保持不变的Unicode数据。从技术上讲，该内容保存在`int32`值中。
 
-In a struct, a third parameter in a variable/type declaration is called a tag. These are noteworthy for encoding because they have direct translations to JSON variables or XML tags.
+在一个结构体中，变量/类型声明中的第三个参数被称为标签。这些对于编码是值得注意的，因为它们可以直接翻译为 JSON 变量或 XML 标签。
 
-Without a tag, we'll get our variable names returned directly.
+如果没有标签，我们将直接返回我们的变量名。
 
 ## XML
 
-As mentioned earlier, XML was once the format of choice for developers. And although it's taken a step back, almost all APIs today still present XML as an option. And of course, RSS is still the number one syndication format.
+正如前面提到的，XML 曾经是开发者的首选格式。尽管它已经退居幕后，但几乎所有的 API 今天仍然将 XML 作为一个选项呈现出来。当然，RSS 仍然是第一种选择的格式。
 
-As we saw earlier in our SOAP example, marshaling data into XML is simple. Let's take the data structure that we used in the earlier JSON response and similarly marshal it into the XML data in the following example.
+正如我们之前在 SOAP 示例中看到的，将数据编组成 XML 是简单的。让我们采用我们在先前 JSON 响应中使用的数据结构，并类似地将其编组成 XML 数据，如下例所示。
 
-Our `User` struct is as follows:
+我们的 `User` 结构如下所示：
 
-```
+```go
 
-类型用户结构{
-
-Name string `xml：“name”`
-
-电子邮件字符串`xml：“email”`
-
-ID int `xml：“id”`
-
+type User struct{
+  Name string `xml: "name"`
+  Email string `xml: "email"`
+  ID int `xml: "id"`
 }
 
-```go
-
-And our obtained output is as follows:
-
 ```
 
-ourUser：= User{}
-
-ourUser.Name =“Bill Smith”
-
-ourUser.Email =“bill.smith@example.com”
-
-ourUser.ID = 100
-
-output，_：= xml.Marshal（&ourUser）
-
-fmt.Fprintln（w，string（output））
+我们得到的输出如下：
 
 ```go
+
+ourUser：= User{}
+ourUser.Name = "Bill Smith"
+ourUser.Email = "bill.smith@example.com"
+ourUser.ID = 100
+output，_：= xml.Marshal(&ourUser)
+fmt.Fprintln(w, string(output))
+
+```
 
 ## YAML
 
-**YAML** was an earlier attempt to make a human-readable serialized format similar to JSON. There does exist a Go-friendly implementation of YAML in a third-party plugin called `goyaml`.
+**YAML** 是早期尝试制定的一种类似于 JSON 的人类可读的序列化格式。在名为 `goyaml` 的第三方插件中存在一个友好的 Go 实现。
 
-You can read more about `goyaml` at [`godoc.org/launchpad.net/goyaml`](https://godoc.org/launchpad.net/goyaml). To install `goyaml`, we'll call a `go get launchpad.net/goyaml` command.
+您可以在 [`godoc.org/launchpad.net/goyaml`](https://godoc.org/launchpad.net/goyaml) 上阅读更多关于 `goyaml` 的信息。要安装 `goyaml`，我们将调用 `go get launchpad.net/goyaml` 命令。
 
-As with the default XML and JSON methods built into Go, we can also call `Marshal` and `Unmarshal` on YAML data. Using our preceding example, we can generate a YAML document fairly easily, as follows:
-
-```
-
-主要
-
-进口
-
-(
-
-“ fmt”
-
-“net/http”
-
-“launchpad.net/goyaml”
-
-）
-
-类型用户结构{
-
-Name string`}`
-
-电子邮件字符串
-
-ID int
-
-}
-
-func userRouter(w http.ResponseWriter, r *http.Request) {
-
-ourUser := User{}
-
-ourUser.Name = "Bill Smith"
-
-ourUser.Email = "bill.smith@example.com"
-
-ourUser.ID = 100
-
-output,_ := goyaml.Marshal(&ourUser)
-
-fmt.Fprintln(w, string(output))
-
-}
-
-func main() {
-
-fmt.Println("Starting YAML server")
-
-http.HandleFunc("/user", userRouter)
-
-http.ListenAndServe(":8080",nil)
-
-}
+就像在 Go 中内置的默认 XML 和 JSON 方法一样，我们也可以在 YAML 数据上调用 `Marshal` 和 `Unmarshal`。使用我们先前的示例，我们可以相当容易地生成一个 YAML 文档，如下所示：
 
 ```go
 
-The obtained output is as shown in the following screenshot:
+package main
+import (
+  "fmt"
+  "net/http"
+  "launchpad.net/goyaml"
+)
+type User struct {
+  Name string 
+  Email string
+  ID int
+}
+func userRouter(w http.ResponseWriter, r *http.Request) {
+  ourUser := User{}
+  ourUser.Name = "Bill Smith"
+  ourUser.Email = "bill.smith@example.com"
+  ourUser.ID = 100
+  output,_ := goyaml.Marshal(&ourUser)
+  fmt.Fprintln(w, string(output))
+}
+func main() {
+  fmt.Println("Starting YAML server")
+  http.HandleFunc("/user", userRouter)
+  http.ListenAndServe(":8080",nil)
+}
+
+```
+
+所获得的输出如下所示：
 
 ![YAML](img/1304OS_02_02.jpg)
 
 ## CSV
 
-The **Comma Separated Values** (**CSV**) format is another stalwart that's fallen somewhat out of favor, but it still persists as a possibility in some APIs, particularly legacy APIs.
+**逗号分隔值**（**CSV**）格式是另一种已经不太流行的老牌格式，但它仍然在一些 API 中存在，尤其是旧的 API。
 
-Normally, we wouldn't recommend using the CSV format in this day and age, but it may be particularly useful for business applications. More importantly, it's another encoding format that's built right into Go.
+通常，在当今时代我们不建议使用 CSV 格式，但它对业务应用程序可能特别有用。更重要的是，它是内置到 Go 中的另一种编码格式。
 
-Coercing your data into CSV is fundamentally no different than marshaling it into JSON or XML in Go because the `encoding/csv` package operates with the same methods as these subpackages.
+强制将数据转换为 CSV 与在 Go 中将其编组成 JSON 或 XML 没有根本上的区别，因为 `encoding/csv` 包使用与这些子包相同的方法。
 
-# Comparing the HTTP actions and methods
+# 比较 HTTP 动作和方法
 
-An important aspect to the ethos of REST is that data access and manipulation should be restricted by verb/method.
+REST 的核心思想之一是数据访问和操作应受动词/方法的限制。
 
-For example, the `GET` requests should not allow the user to modify, update, or create the data within. This makes sense. `DELETE` is fairly straightforward as well. So, what about creating and updating? However, no such directly translated verbs exist in the HTTP nomenclature.
+例如，`GET` 请求不应允许用户修改、更新或创建其中的数据。这是有道理的。`DELETE` 也是相当直接的。那么，创建和更新呢？然而，在 HTTP 的命名中并不存在这样的直接翻译的动词。
 
-There is some debate on this matter, but the generally accepted method for handling this is to use `PUT` to update a resource and `POST` to create it.
+对于处理这个问题存在一些争论，但通常接受的处理方法是使用 `PUT` 来更新资源，使用 `POST` 来创建资源。
 
-### Note
+### 注意
 
-Here is the relevant information on this as per the W3C protocol for HTTP 1.1:
+这是根据 W3C 协议的 HTTP 1.1 的相关信息：
 
-The fundamental difference between the `POST` and `PUT` requests is reflected in the different meaning of the Request-URI. The URI in a `POST` request identifies the resource that will handle the enclosed entity. This resource might be a data-accepting process, a gateway to some other protocol, or a separate entity that accepts annotations. In contrast, the URI in a `PUT` request identifies the entity enclosed with the request—the user agent knows which URI is intended and the server *MUST NOT* attempt to apply the request to some other resource. If the server desires that the request to be applied to a different URI, it MUST send a 301 (Moved Permanently) response; the user agent MAY then make its own decision regarding whether or not to redirect the request.
+`POST` 和 `PUT` 请求之间的基本区别反映在请求 URI 的不同含义上。`POST` 请求中的 URI 标识将处理封闭实体的资源。该资源可能是一个接受数据的进程、某种其他协议的网关，或者是一个接受注释的独立实体。相比之下，`PUT` 请求中的 URI 标识了请求中封闭的实体——用户代理知道预期使用的 URI，服务器*不得*尝试将请求应用于其他资源。如果服务器希望请求应用于不同的 URI，它*必须*发送 301（永久移动）响应；然后用户代理可以自行决定是否重定向请求。
 
-So, if we follow this, we can assume that the following actions will translate to the following HTTP verbs:
+因此，如果我们遵循这个规则，我们可以假设以下操作将转换为以下 HTTP 动词：
 
-| Actions | HTTP verbs |
+| 操作 | HTTP 动词 |
 | --- | --- |
-| Retrieving data | `GET` |
-| Creating data | `POST` |
-| Updating data | `PUT` |
-| Deleting data | `DELETE` |
+| 检索数据 | `GET` |
+| 创建数据 | `POST` |
+| 更新数据 | `PUT` |
+| 删除数据 | `DELETE` |
 
-Thus, a `PUT` request to, say, `/api/users/1234` will tell our web service that we're accepting data that will update or overwrite the user resource data for our user with the ID `1234`.
+因此，对 `/api/users/1234` 的 `PUT` 请求将告诉我们的 Web 服务，我们正在接受将更新或覆盖 ID 为 `1234` 的用户资源数据的数据。
 
-A `POST` request to `/api/users/1234` will tell us that we'll be creating a new user resource based on the data within.
+对 `/api/users/1234` 的 `POST` 请求将告诉我们，我们将根据其中的数据创建一个新的用户资源。
 
-### Note
+### 注意
 
-It is very common to see the update and create methods switched, such that `POST` is used to update and `PUT` is used for creation. On the one hand, it's easy enough to do it either way without too much complication. On the other hand, the W3C protocol is fairly clear.
+把更新和创建方法颠倒是非常常见的，比如用`POST`来更新，用`PUT`来创建。一方面，无论哪种方式都不会太复杂。另一方面，W3C 协议相当明确。
 
-## The PATCH method versus the PUT method
+## PATCH 方法与 PUT 方法
 
-So, you might think after going through the last section that everything is wrapped up, right? Cut and dry? Well, as always, there are hitches and unexpected behaviors and conflicting rules.
+那么，在经过上一节的学习后，你可能会认为一切都结束了，对吧？一清二楚？然而，一如既往，总会有一些问题、意想不到的行为和相互冲突的规则。
 
-In 2010, there was a proposed change to HTTP that would include a `PATCH` method. The difference between `PATCH` and `PUT` is somewhat subtle, but, the shortest possible explanation is that `PATCH` is intended to supply only partial changes to a resource, whereas `PUT` is expected to supply a complete representation of a resource.
+在 2010 年，有一个关于 HTTP 的提议修改，其中包括了一个 `PATCH` 方法。`PATCH` 和 `PUT` 之间的区别有些微妙，但最简单的解释是，`PATCH` 旨在提供对资源的部分更改，而 `PUT` 则预期提供对资源的完整表示。
 
-The `PATCH` method also provides the potential to essentially *copy* a resource into another resource given with the modified data.
+`PATCH` 方法还提供了潜力，可以将一个资源“复制”到另一个资源中，并提供修改后的数据。
 
-For now, we'll focus just on `PUT`, but we'll look at `PATCH` later on, particularly when we go into depth about the `OPTIONS` method on the server side of our API.
+现在，我们只关注`PUT`，但稍后我们将详细讨论 `PATCH`，特别是当我们深入研究 API 服务器端的 `OPTIONS` 方法时。
 
-# Bringing in CRUD
+# 引入 CRUD
 
-The acronym **CRUD** simply stands for **Create, Read (or Retrieve), Update, and Delete**. These verbs might seem noteworthy because they closely resemble the HTTP verbs that we wish to employ to manage data within our application.
+缩写**CRUD** 简单地表示**创建、读取（或检索）、更新和删除**。这些动词可能值得注意，因为它们与我们希望在应用程序中使用的 HTTP 动词非常相似。
 
-As we discussed in the last section, most of these verbs have seemingly direct translations to HTTP methods. We say "seemingly" because there are some points in REST that keep it from being entirely analogous. We will cover this a bit more in later chapters.
+正如我们在上一节讨论的那样，大多数这些动词似乎都直接对应着 HTTP 方法。我们说“似乎”，因为在 REST 中有一些点使其不能完全类似。我们稍后会在后面的章节中更详细地讨论这一点。
 
-`CREATE` obviously takes the role of the `POST` method, `RETRIEVE` takes the place of `GET`, `UPDATE` takes the place of `PUT`/`PATCH`, and `DELETE` takes the place of, well, `DELETE`.
+`CREATE`显然承担了`POST`方法的角色，`RETRIEVE`取代了`GET`，`UPDATE`取代了`PUT`/`PATCH`，而`DELETE`则取代了，额，`DELETE`。
 
-If we want to be fastidious about these translations, we must clarify that `PUT` and `POST` are not direct analogs to `UPDATE` and `CREATE`. In some ways this relates to the confusion behind which actions `PUT` and `POST` should provide. This all relies on the critical concept of idempotence, which means that any given operation should respond in the same way if it is called an indefinite number of times.
+如果我们想要对这些翻译非常认真，我们必须澄清`PUT`和`POST`不是`UPDATE`和`CREATE`的直接类比。从某种意义上说，这与`PUT`和`POST`应该提供哪些操作的混淆有关。这一切都取决于幂等性的关键概念，这意味着任何给定操作应在被调用无数次时以同样的方式作出响应。
 
-### Tip
+### 提示
 
-**Idempotence** is the property of certain operations in mathematics and computer science that can be applied multiple times without changing the result beyond the initial application.
+**幂等性**是数学和计算机科学中某些操作的性质，可以多次应用而不会改变结果超出初始应用。
 
-For now, we'll stick with our preceding translations and come back to the nitty-gritty of `PUT` versus `POST` later in the book.
+现在，我们将坚持我们之前的翻译，稍后再回到`PUT`与`POST`的细节。
 
-# Adding more endpoints
+# 添加更多的端点
 
-Given that we now have a way of elegantly handling our API versions, let's take a step back and revisit user creation. Earlier in this chapter, we created some new datasets and were ready to create the corresponding endpoints.
+现在我们已经找到了一个优雅处理 API 版本的方式，让我们退一步重新审视用户创建。在本章的早些时候，我们创建了一些新数据集，并准备创建相应的端点。
 
-Knowing what you know now about HTTP verbs, we should restrict access to user creation through the POST method. The example we built in the first chapter did not work exclusively with the POST request (or with POST requests at all). Good API design would dictate that we have a single URI for creating, retrieving, updating, and deleting any given resource.
+现在你了解了 HTTP 动词的知识后，我们应该通过`POST`方法限制用户创建的访问。我们在第一章构建的示例并不完全只与`POST`请求一起使用。良好的 API 设计应规定我们有一个单一的 URI 用于创建、检索、更新和删除任何给定资源。
 
-With all of this in mind, let's lay out our endpoints and what they should allow a user to accomplish:
+考虑到这一切，让我们列出我们的端点及它们应该允许用户实现的功能：
 
-| Endpoint | Method | Purpose |
+| 端点 | 方法 | 目的 |
 | --- | --- | --- |
-| `/api` | `OPTIONS` | To outline the available actions within the API |
-| `/api/users` | `GET` | To return users with optional filtering parameters |
-| `/api/users` | `POST` | To create a user |
-| `/api/user/123` | `PUT` | To update a user with the ID `123` |
-| `/api/user/123` | `DELETE` | To delete a user with the ID `123` |
+| `/api` | `OPTIONS` | 用来概括 API 中的可用操作 |
+| `/api/users` | `GET` | 返回带有可选过滤参数的用户 |
+| `/api/users` | `POST` | 创建用户 |
+| `/api/user/123` | `PUT` | 用来更新 ID 为`123`的用户 |
+| `/api/user/123` | `DELETE` | 删除 ID 为`123`的用户 |
 
-For now, let's just do a quick modification of our initial API from Chapter 1, *Our First API in Go*, so that we allow user creation solely through the `POST` method.
+现在，让我们对第一章中的初始 API 进行快速修改，只允许使用`POST`方法进行用户创建。
 
-Remember that we've used **Gorilla web toolkit** to do routing. This is helpful for handling patterns and regular expressions in requests, but it is also helpful now because it allows you to delineate based on the HTTP verb/method.
+记住，我们使用了**Gorilla web toolkit**来进行路由。这对于处理请求中的模式和正则表达式非常有帮助，但现在它也很有帮助，因为它允许基于 HTTP 动词/方法进行区分。
 
-In our example, we created the `/api/user/create` and `/api/user/read` endpoints, but we now know that this is not the best practice in REST. So, our goal now is to change any resource requests for a user to `/api/users`, and to restrict creation to `POST` requests and retrievals to `GET` requests.
+在我们的例子中，我们创建了`/api/user/create`和`/api/user/read`端点，但我们现在知道这不是 REST 的最佳实践。因此，我们现在的目标是将任何用户的资源请求更改为`/api/users`，并将创建限制为`POST`请求以及将检索限制为`GET`请求。
 
-In our main function, we'll change our handlers to include a method as well as update our endpoint:
-
-```
-
-routes := mux.NewRouter()
-
-路由.HandleFunc("/api/users", UserCreate).Methods("POST")
-
-routes.HandleFunc("/api/users", UsersRetrieve).Methods("GET")
+在我们的主函数中，我们将改变我们的处理程序来包含一个方法，并更新我们的端点：
 
 ```go
 
-You'll note that we also changed our function names to `UserCreate` and `UsersRetrieve`. As we expand our API, we'll need methods that are easy to understand and can relate directly to our resources.
-
-Let's take a look at how our application changes:
+routes := mux.NewRouter()
+routes.HandleFunc("/api/users", UserCreate).Methods("POST")
+routes.HandleFunc("/api/users", UsersRetrieve).Methods("GET")
 
 ```
+
+你会注意到我们还将我们的函数名称更改为`UserCreate`和`UsersRetrieve`。随着我们扩展 API，我们需要易于理解并能直接与我们的资源相关联的方法。
+
+让我们看一下我们的应用程序如何变化：
+
+```go
 
 package main
-
 import (
-
-"database/sql"
-
-"encoding/json"
-
-"fmt"
-
-_ "github.com/go-sql-driver/mysql"
-
-"github.com/gorilla/mux"
-
-"net/http"
-
-"log"
-
+  "database/sql"
+  "encoding/json"
+  "fmt"
+  _ "github.com/go-sql-driver/mysql"
+  "github.com/gorilla/mux"
+  "net/http"
+  "log"
 )
-
 var database *sql.DB
 
-```go
-
-Up to this point everything is the same—we require the same imports and connections to the database. However, the following code is the change:
-
 ```
+
+到目前为止一切都是一样的——我们需要相同的导入和连接到数据库。然而，以下代码是变化的：
+
+```go
 
 type Users struct {
-
-Users []User `json:"users"`
-
+  Users []User `json:"users"`
 }
 
-```go
-
-We're creating a struct for a group of users to represent our generic `GET` request to `/api/users`. This supplies a slice of the `User{}` struct:
-
 ```
+
+我们正在创建一个用于表示我们的通用`GET`请求`/api/users`的用户组的结构。这提供了一个`User{}`结构的切片：
+
+```go
 
 type User struct {
-
-ID int "json:id"
-
-Name  string "json:username"
-
-Email string "json:email"
-
-First string "json:first"
-
-Last  string "json:last"
-
+  ID int "json:id"
+  Name  string "json:username"
+  Email string "json:email"
+  First string "json:first"
+  Last  string "json:last"
 }
-
 func UserCreate(w http.ResponseWriter, r *http.Request) {
-
-NewUser := User{}
-
-NewUser.Name = r.FormValue("user")
-
-NewUser.Email = r.FormValue("email")
-
-NewUser.First = r.FormValue("first")
-
-NewUser.Last = r.FormValue("last")
-
-output, err := json.Marshal(NewUser)
-
-fmt.Println(string(output))
-
-if err != nil {
-
-fmt.Println("Something went wrong!")
-
+  NewUser := User{}
+  NewUser.Name = r.FormValue("user")
+  NewUser.Email = r.FormValue("email")
+  NewUser.First = r.FormValue("first")
+  NewUser.Last = r.FormValue("last")
+  output, err := json.Marshal(NewUser)
+  fmt.Println(string(output))
+  if err != nil {
+    fmt.Println("Something went wrong!")
+  }
+  sql := "INSERT INTO users set user_nickname='" + NewUser.Name + "', user_first='" + NewUser.First + "', user_last='" + NewUser.Last + "', user_email='" + NewUser.Email + "'"
+  q, err := database.Exec(sql)
+  if err != nil {
+    fmt.Println(err)
+  }
+  fmt.Println(q)
 }
-
-sql := "INSERT INTO users set user_nickname='" + NewUser.Name + "', user_first='" + NewUser.First + "', user_last='" + NewUser.Last + "', user_email='" + NewUser.Email + "'"
-
-q, err := database.Exec(sql)
-
-if err != nil {
-
-fmt.Println(err)
-
-}
-
-fmt.Println(q)
-
-}
-
-```go
-
-Not much has changed with our actual user creation function, at least for now. Next, we'll look at the user data retrieval method.
 
 ```
+
+对于我们实际的用户创建函数，实际上没有太多改变，至少目前是这样。接下来，我们将看一下用户数据检索方法。
+
+```go
 
 func UsersRetrieve(w http.ResponseWriter, r *http.Request) {
-
-w.Header().Set("Pragma","no-cache")
-
-rows,_ := database.Query("select * from users LIMIT 10")
-
-Response 	:= Users{}
-
-for rows.Next() {
-
-user := User{}
-
-rows.Scan(&user.ID, &user.Name, &user.First, &user.Last, &user.Email )
-
-Response.Users = append(Response.Users, user)
-
+  w.Header().Set("Pragma","no-cache")
+  rows,_ := database.Query("select * from users LIMIT 10")
+  Response 	:= Users{}
+  for rows.Next() {
+    user := User{}
+    rows.Scan(&user.ID, &user.Name, &user.First, &user.Last, &user.Email )
+    Response.Users = append(Response.Users, user)
+  }
+  output,_ := json.Marshal(Response)
+  fmt.Fprintln(w,string(output))
 }
-
-output,_ := json.Marshal(Response)
-
-fmt.Fprintln(w,string(output))
-
-}
-
-```go
-
-On the `UsersRetrieve()` function, we're now grabbing a set of users and scanning them into our `Users{}` struct. At this point, there isn't yet a header giving us further details nor is there any way to accept a starting point or a result count. We'll do that in the next chapter.
-
-And finally we have our basic routes and MySQL connection in the main function:
 
 ```
+
+在`UsersRetrieve()`函数中，我们现在正在获取一组用户并将它们扫描到我们的`Users{}`结构中。此时，还没有一个标题给出进一步的细节，也没有任何接受起始点或结果计数的方法。我们将在下一章中做这个。
+
+最后，我们在主函数中有我们的基本路由和 MySQL 连接：
+
+```go
 
 func main() {
-
-db, err := sql.Open("mysql", "root@/social_network")
-
-if err != nil {
-
+  db, err := sql.Open("mysql", "root@/social_network")
+  if err != nil {}
+  database = db
+  routes := mux.NewRouter()
+  routes.HandleFunc("/api/users", UserCreate).Methods("POST")
+  routes.HandleFunc("/api/users", UsersRetrieve).Methods("GET")
+  http.Handle("/", routes)
+  http.ListenAndServe(":8080", nil)
 }
-
-database = db
-
-routes := mux.NewRouter()
-
-routes.HandleFunc("/api/users", UserCreate).Methods("POST")
-
-routes.HandleFunc("/api/users", UsersRetrieve).Methods("GET")
-
-http.Handle("/", routes)
-
-http.ListenAndServe(":8080", nil)
-
-}
-
-```go
-
-As mentioned earlier, the biggest differences in `main` are that we've renamed our functions and are now relegating certain actions using the `HTTP` method. So, even though the endpoints are the same, we're able to direct the service depending on whether we use the `POST` or `GET` verb in our requests.
-
-When we visit `http://localhost:8080/api/users` (by default, a `GET` request) now in our browser, we'll get a list of our users (although we still just have one technically), as shown in the following screenshot:
-
-![Adding more endpoints](img/1304OS_02_03.jpg)
-
-# Handling API versions
-
-Before we go nay further with our API, it's worth making a point about versioning our API.
-
-One of the all-too-common problems that companies face when updating an API is changing the version without breaking the previous version. This isn't simply a matter of valid URLs, but it is also about the best practices in REST and graceful upgrades.
-
-Take our current API for example. We have an introductory `GET` verb to access data, such as `/api/users` endpoint. However, what this really should be is a clone of a versioned API. In other words, `/api/users` should be the same as `/api/{current-version}/users`. This way, if we move to another version, our older version will still be supported but not at the `{current-version}` address.
-
-So, how do we tell users that we've upgraded? One possibility is to dictate these changes via HTTP status codes. This will allow consumers to continue accessing our API using older versions such as `/api/2.0/users`. Requests here will also let the consumer know that there is a new version.
-
-We'll create a new version of our API in Chapter 3, *Routing and Bootstrapping*.
-
-# Allowing pagination with the link header
-
-Here's another REST point that can sometimes be difficult to handle when it comes to statelessness: how do you pass the request for the next set of results?
-
-You might think it would make sense to do this as a data element. For example:
 
 ```
+
+正如前面提到的，`main`中最大的区别在于我们重新命名了我们的函数，并且现在正在使用`HTTP`方法将某些操作归类。因此，即使端点是相同的，我们也能够根据我们的请求是使用`POST`还是`GET`动词来指导服务。
+
+当我们访问`http://localhost:8080/api/users`（默认情况下，是`GET`请求）现在在我们的浏览器中，我们将得到一个我们的用户列表（尽管从技术上讲我们仍然只有一个），如下面的截图所示：
+
+![添加更多端点](img/1304OS_02_03.jpg)
+
+# 处理 API 版本
+
+在我们继续进行 API 之前，值得注意的是对 API 进行版本控制。
+
+当公司更新 API 并更改版本时，他们面临的一个常见问题是在不破坏先前版本的情况下更改版本。这不仅仅是关于有效的 URL，而且还涉及到 REST 和优雅升级的最佳实践。
+
+以我们当前的 API 为例。我们有一个介绍性的`GET`动词来访问数据，例如`/api/users`端点。然而，这实际上应该是版本化 API 的克隆。换句话说，`/api/users`应该与`/api/{current-version}/users`相同。这样，如果我们转移到另一个版本，我们的旧版本仍然受支持，但不在`{current-version}`地址上。
+
+那么，我们如何告诉用户我们已经升级了呢？一种可能性是通过 HTTP 状态码来规定这些更改。这将允许消费者继续使用旧版本访问我们的 API，例如`/api/2.0/users`。这里的请求还将让消费者知道有一个新版本。
+
+我们将在第三章*路由和引导*中创建我们的 API 的新版本。
+
+# 使用链接头允许分页
+
+这是另一个在无状态性方面有时可能难以处理的 REST 点：如何传递对下一组结果的请求？
+
+你可能认为将其作为数据元素做这件事是有道理的。例如：
+
+```go
 
 { "payload": [ "item","item 2"], "next": "http://yourdomain.com/api/users?page=2" }
 
-```go
-
-Although this may work, it violates some principles of REST. First, unless we're explicitly returning hypertext, it is likely that we will not be supplying a direct URL. For this reason, we may not want to include this value in the body of our response.
-
-Secondly, we should be able to do even more generic requests and get information about the other actions and available endpoints.
-
-In other words, if we hit our API simply at `http://localhost:8080/api`, our application should return some basic information to consumers about potential next steps and all the available endpoints.
-
-One way to do this is with the link header. A **link** header is simply another header key/value that you set along with your response.
-
-### Tip
-
-JSON responses are often not considered RESTful because they are not in a hypermedia format. You'll see APIs that embed `self`, `rel`, and `next` link headers directly in the response in unreliable formats.
-
-JSON's primary shortcoming is its inability to support hyperlinks inherently. This is a problem that is solved by JSON-LD, which provides, among other things, linked documents and a stateless context.
-
-**Hypertext** **Application Language** (**HAL**) attempts to do the same thing. The former is endorsed by W3C but both have their supporters. Both formats extend JSON, and while we won't go too deep into either, you can modify responses to produce either format.
-
-Here's how we could do it in our `/api/users` `GET` request:
-
 ```
 
+虽然这样可能有效，但却违反了 REST 的一些原则。首先，除非我们显式返回超文本，否则我们可能不会提供直接的 URL。因此，我们可能不希望将这个值包含在响应体中。
+
+其次，我们应该能够执行更通用的请求，并获取有关其他操作和可用终端的信息。
+
+换句话说，如果我们仅在`http://localhost:8080/api`请求我们的 API，我们的应用程序应向消费者返回有关可能的下一步和所有可用终端的一些基本信息。
+
+实现这一点的方法之一是使用链接标头。**链接**标头只是你与响应一起设置的另一个标头键/值。
+
+### 提示
+
+因为 JSON 响应通常不被认为是 RESTful，因为它们不是超媒体格式。你会发现一些 API 直接在不可靠的格式中嵌入`self`、`rel`和`next`链接头。
+
+JSON 的主要缺点是其无法原生支持超链接。这个问题由 JSON-LD 解决，其中包括联接文档和无状态上下文。
+
+**超文本应用语言**（**HAL**）试图做同样的事情。前者得到了 W3C 的支持，但两者都有支持者。这两种格式扩展了 JSON，虽然我们不会深入探讨任何一种，但你可以修改响应以产生任一格式。
+
+下面是我们如何在`/api/users`的`GET`请求中实现它的方法：
+
+
+```go
+
 func UsersRetrieve(w http.ResponseWriter, r *http.Request) {
-
-log.Println("starting retrieval")
-
-start := 0
-
-limit := 10
-
-next := start + limit
-
-w.Header().Set("Pragma","no-cache")
-
-w.Header().Set("Link","<http://localhost:8080/api/users?start="+string(next)+"; rel=\"next\"")
-
-rows,_ := database.Query("select * from users LIMIT 10")
-
-Response := Users{}
-
-for rows.Next() {
-
-user := User{}
-
-rows.Scan(&user.ID, &user.Name, &user.First, &user.Last, &user.Email )
-
-Response.Users = append(Response.Users, user)
-
-}
-
-output,_ := json.Marshal(Response)
-
-fmt.Fprintln(w,string(output))
-
+    log.Println("starting retrieval")
+    start := 0
+    limit := 10
+    next := start + limit
+    w.Header().Set("Pragma","no-cache")
+    w.Header().Set("Link","<http://localhost:8080/api/users?start="+string(next)+"; rel=\"next\"")
+    rows,_ := database.Query("select * from users LIMIT 10")
+    Response := Users{}
+    for rows.Next() {
+        user := User{}
+        rows.Scan(&user.ID, &user.Name, &user.First, &user.Last, &user.Email )
+        Response.Users = append(Response.Users, user)
+    }
+    output,_ := json.Marshal(Response)
+    fmt.Fprintln(w,string(output))
 }
 
 ```
 
 这告诉客户端去哪里进行进一步的分页。当我们进一步修改这段代码时，我们将包括向前和向后的分页，并响应用户参数。
 
-# Summary
+# 总结
 
 此时，您不仅应该熟悉在 REST 和其他一些协议中创建 API Web 服务的基本思想，还应该熟悉格式和协议的指导原则。
 
