@@ -1,0 +1,940 @@
+- en: Working with Middleware and RPC
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we are going to look at two new concepts. First, we will learn
+    about middleware, and how can we build one from scratch. Then, we will move to
+    a better middleware solution written by the community, called **Gorilla handlers**.
+    We will then see the use cases where middleware is helpful. After that, we will
+    learn about developing **Remote Procedure Call **(**RPC**) services with Go's
+    internal RPC and JSON-RPC. Then, we will move to an advanced RPC framework called
+    Gorilla HTTP RPC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The topics we cover in this chapter are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: What is middleware?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Multiple middleware and chaining
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Painless middleware chaining with `alice`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using Gorilla handlers middleware for logging
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What is RPC?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: JSON-RPC using Gorilla RPC
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The following software should be pre-installed for running code samples:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'OS: Linux (Ubuntu 18.04)/Windows 10/Mac OS X >= 10.13'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Software: Docker >= 18 (Docker Desktop for Windows and Mac OS X)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Go latest version compiler >= 1.13.5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You can download the code for this chapter from [https://github.com/PacktPublishing/Hands-On-Restful-Web-services-with-Go/tree/master/chapter3](https://github.com/PacktPublishing/Hands-On-Restful-Web-services-with-Go/tree/master/chapter3).
+    Clone the code and use the code samples in the `chapter3` directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What is middleware?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**Middleware** is an entity that hooks into a server''s request/response life
+    cycle. The middleware can be defined in many components. Each component has a
+    specific function to perform. Whenever we define handlers for URL patterns (as
+    in [Chapter 2](72226cd9-cd86-497f-ba6c-4a273e0e3193.xhtml), *Handling Routing
+    for our REST Services*), a handler executes some business logic for every incoming
+    request. But middleware, as the name specifies, sits between a request and the
+    handler, or between a handler and a response. So, virtually every middleware can
+    perform these functions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Process the request before reaching the handler (function)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Pass the modified request to the handler function (execute some business logic)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Process the response coming from the handler
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Pass the modified response to the client
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We can see the previous points in the form of a visual illustration, as shown
+    in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f03d6714-7a81-4d67-9eee-8d03e3c4fc0c.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: If we observe the diagram carefully, the journey of a request starts from the
+    client. The request first reaches a middleware called **AUTH MIDDLEWARE** and
+    is then forwarded to a **FUNCTION HANDLER**. Once a response is generated from
+    a handler, it is then forwarded to another middleware called **CUSTOM MIDDLEWARE** that
+    can modify the response.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In an application with no middleware, a request reaches the API server and
+    gets handled by a function handler directly. The response is immediately sent
+    back from the server, and the client receives it. But in applications with middleware
+    configured to a function handler, it can pass through a set of stages, such as
+    logging, authentication, session validation, and so on, and then proceeds to the
+    business logic. This is to filter the requests from interacting with the business
+    logic. The most common use cases are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Use a logger to log each and every request for a REST API
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Validate the session of the user and keep the communication alive
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Authenticate the user, if not identified
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Attach properties to responses while serving the client
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With the help of middleware, we can do any housekeeping work, such as authentication,
+    in its proper place. Let's create a basic middleware and tamper an HTTP request
+    in Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Middleware functions can be handy when many function handlers have the same
+    business logic to execute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a basic middleware
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Building middleware functions is simple and straightforward. Let''s build a
+    program based on the knowledge gained from [Chapter 2](72226cd9-cd86-497f-ba6c-4a273e0e3193.xhtml),
+    *Handling Routing for our REST Services*. If you are not familiar with closure
+    functions, a closure function returns another function. This principle helps us
+    write middleware. A middleware should return another function, which can be either
+    a middleware or a function handler. It is similar to JavaScript chain methods,
+    whereby one function returns a new function as a return value. Let''s create a
+    closure function in Go, by doing the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a program file, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: We use this file to add our code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A closure function returns another function. Let''s create a closure function
+    that generates positive integers, using the following code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: The function is a generator that returns a sequence of integers. A generator
+    pattern generates a new item each time, based on given conditions. The inner function
+    is returning an anonymous function with no arguments and one return type of integer.
+    The `i` variable that is defined inside the outer function is available to the
+    anonymous function, making it remember the state between upcoming function calls.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, we can use the previous generator in our `main` program, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can run the previous code as a standalone program, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following numbers will be generated and printed using *Tab* spaces:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: In Go, the function signature of the outer function should exactly match the
+    anonymous function's signature. In the previous example, `func() int` is the signature
+    for both the outer and inner functions. The only exception is that the outer function
+    can have an interface as a return type, and the inner function can implement that
+    interface. We will see how in the next few lines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, coming to how closures help to build a middleware: any generator function
+    that can return another function that satisfies the `http.Handler` interface can
+    be a middleware. Let''s validate this statement with an example, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a file for our program, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The middleware takes a normal HTTP handler function as its argument and returns
+    another handler function. The function looks like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you notice the preceding middleware function, it is taking `originalHandler`,
+    an HTTP handler, as its argument, and is returning another HTTP handler. The inner
+    function is using the original handler to execute the logic. Before and after
+    that handler is where the middleware operates on request and response objects.
+    This makes all the requests coming to the main handler pass through the middleware
+    logic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, Let''s define the main logic that uses the middleware function we have
+    created, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Run the code, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you do a `curl` request to—or visit— `http://localhost:8000` in your browser,
+    the console will receive this message:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: This program is denoted by the rectangle block to the right in the preceding
+    diagram, with the label CUSTOM MIDDLEWARE. If you observe the middleware visual
+    illustration provided previously, the request phase direction is to the right,
+    and the response direction is to the left.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go web frameworks such as Martini and Gin provide middleware by default. We
+    will see more about them in [Chapter 4](08db4c3a-536c-4f0c-bedc-fcb802c3306a.xhtml),
+    *Simplifying RESTful Services with Popular Go Frameworks*. It is good for a developer
+    to understand the low-level details of middleware.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram can help you understand how the logic flow happens in
+    the middleware. This diagram explains how a handler is converted into a wrapper
+    handler:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/1c61bcf5-1477-48f3-901c-b6e36548941b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: We have seen the creation of a simple middleware, but in a real scenario, multiple
+    middleware are required to log requests, authenticate, and so on. In the next
+    section, we will see how to chain multiple middleware.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Multiple middleware and chaining
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In the previous section, we built a single middleware to perform an action
+    before or after a request hits the handler. It is also possible to chain a group
+    of middleware. In order to do that, we should follow the same closure logic as
+    in the preceding section. Let''s create a `cityAPI` program for saving city details.
+    For simplicity''s sake, the API will have one `POST` method, and the body will
+    consist of two fields: city name and city area.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's us think about a scenario where a client is only allowed to send a JSON
+    `Content-Type` request to an API. The main function of the API is to send a response
+    to the client with a UTC timestamp cookie attached to it. We can add that content
+    check in the middleware.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The functions of the two middleware are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the first middleware, check whether the content type is JSON. If not, don't
+    allow the request to proceed.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In the second middleware, add a timestamp called Server-Time (UTC) to the response
+    cookie.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Before adding the middleware, Let''s create a `POST` API that collects the
+    name and area of a city and returns a message with a status code of `201`, to
+    show it has been successfully created. This can be done in the following way:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a file for our program, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, write the function that handles the `POST` request from the client. It
+    decodes the body and reads the name and area, and fills them into a struct called
+    `city`, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`postHandler` is handling a client request in this snippet. It returns a status
+    code of `405 - Method Not Allowed` if a client tries to perform a `GET` request. `json.NewDecoder` is
+    used to read the body from a request. `Decode` maps the body parameters to a struct,
+    of the `city`  type.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now comes the main logic, as shown here:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can start the API server by using the following code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, fire a couple of `curl` requests, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The server logs this output:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `curl` responses are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now comes the content checks. In order to chain middleware functions, we have
+    to pass the handler between multiple middleware. Only one handler is involved
+    in the preceding example. But now, for the upcoming task, the idea is to pass
+    the main handler to multiple middleware handlers. We can modify the `cityAPI`
+    program to a new file, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s first create the content-check middleware. Let''s call it `filterContentType`.
+    This middleware checks the `MIME` header from the request and, if it is not JSON,
+    returns a response of status code `415- Unsupported Media Type`, as shown in the
+    following code block:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, Let''s define a second middleware called `setServerTimeCookie`. After
+    receiving a proper content type while sending a response back to the client, this
+    middleware adds a cookie called `Server-Time(UTC)` with the server UTC timestamp
+    as the value, as shown in the following code block:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The main function has a slight variation in the mapping of a route to the handler.
+    It uses nested function calls for chaining middleware, as can be seen here:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: We chain the middleware by using `filterContentType(setServerTimeCookie(originalHandler))`.
+    Please carefully observe the order of chaining.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, run the updated server, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, fire a `curl` request, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The response output is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'But if we remove `Content-Type: application/json` from the `curl` request,
+    the middleware blocks us from executing the main handler, as shown in the following
+    code block:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the simplest way of chaining middleware in Go API servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If an API server wishes a request to go through many middleware, then how can
+    we make that chaining simple and readable? There is a very good library called
+    `alice` to solve this problem. It allows you to semantically order and attach
+    your middleware to the main handler. We will see it briefly in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Painless middleware chaining with Alice
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `alice` library reduces the complexity of chaining the middleware when the
+    list of middleware is big. It provides us with a clean API to pass the handler
+    to the middleware. It is a lightweight solution, unlike other middleware chaining
+    Go packages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Install `alice` via the `go get` command, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we can import the `alice` package in our program and use it straight away.
+    We can modify the sections of the previous program to bring the same functionality,
+    with improved chaining. Let''s call the program directory `multipleMiddlewareWithAlice`,
+    and create a main program in this location:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the `import` section, add `github.com/justinas/alice`, as shown in the following
+    code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, in the `main` function, we can modify the handler part, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: The output of this program is similar to the previous one. With the knowledge
+    of the preceding concepts, Let's build a logging middleware with a library from
+    the Gorilla toolkit called **handlers**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Gorilla handlers middleware for logging
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The Gorilla handlers package provides various pre-written middleware for common
+    tasks. The most important ones in the list are:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`LoggingHandler`: For logging in Apache **Common Log Format** (**CLF**)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`CompressionHandler`: For zipping the responses'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`RecoveryHandler`: For recovering from unexpected panics'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Here, we use the `LoggingHandler` middleware to perform API-wide logging. First,
+    install this library using `go get`, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This logging server enables us to create a server-like a log with time and
+    options. For example, when you see `apache.log`, you find the log in a standard
+    format, as shown in the following code block:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The format is this: `IP-Date-Method:Endpoint-ResponseStatus`. Writing our own
+    middleware that mimics Apache-style logging takes some effort, but Gorilla Handlers
+    already implemented one for us. Let''s update the previous program in a few ways
+    by creating a new program, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, Let''s write the program, using the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, we create a `Gorilla` router and attach it to the `LoggingHandler`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The `LoggingHandler` registers a standard output (Let''s say, in our case, `os.Stdout`)
+    and returns a new router. We use that new router to register with the HTTP server,
+    as shown in the following code block:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Start the server by running the following code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, open `http://127.0.0.1:8000` in the browser, or fire a `curl` request,
+    and you will see the following output:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you observe, the last two logs are generated by the middleware. Gorilla `LoggingMiddleware`
+    writes them at response time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the previous example, we always checked the API on the localhost. In this
+    example, we explicitly specified replacing the localhost with `127.0.0.1` because
+    the former will show as an empty IP in the logs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Coming to the program, we are importing the `gorilla/mux` router and `gorilla/handlers`.
+    Then, we are attaching a handler called `handle` to the router. Next, we are wrapping
+    the router in the `handlers.LoggingHandler` middleware. It returns one more handler,
+    which we can pass safely to `http.ListenAndServe`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can try other middleware from handlers, too. This section's goal is to introduce
+    you to `gorilla/handlers`. There are many other external packages available for
+    Go. There is one library worth mentioning for writing middleware directly on `net/http`. It
+    is `Negroni` ([github.com/urfave/negroni](http://github.com/urfave/negroni)).
+    It also provides the functionality of `alice`, the Gorilla `LoggingHandler`. So,
+    please have a look at it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can easily build cookie-based authentication middleware, using a library
+    called `go.uuid` ([github.com/satori/go.uuid](http://github.com/satori/go.uuid))
+    and cookies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Systems talk to each other using web services. A client API can be powered by
+    multiple server instances. RPC is a mechanism to delegate work to a remote server
+    in an understandable fashion. RPC is an important concept in Go because it can
+    play a part in supporting a REST service served to a client. The Gorilla toolkit
+    provides packages to support RPC. We will understand it in detail in the next
+    section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What is RPC?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: RPC is an inter-process communication that exchanges information between various
+    distributed systems. A computer called Alice can call functions (procedures) in
+    another computer called Bob in protocol format and can get the computed result
+    back. Without implementing the functionality locally, we can request things from
+    a network that lies in another place or geographical region.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The entire process can be broken down into the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Clients prepare function name and arguments to send
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Clients send them to an RPC server by dialing the connection
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The server receives the function name and arguments
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The server executes the remote process
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The message will be sent back to the client
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The client collects the data from the request and uses it appropriately
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The server needs to expose its service for the client to connect and request
+    a remote procedure. Take a look at the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/4b91c8df-db63-4b11-8015-78ecebb0859e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Go provides a library to implement both the **RPC Server** and **RPC Client**.
+    In the preceding diagram, the **RPC Client** dials the connection with details
+    such as the host and port. It sends two things along with the request. One is
+    arguments, and the other is the reply pointer. Since it is a pointer, the server
+    can modify it and send it back. Then, the client can use the data filled into
+    the pointer. Go has two libraries, `net/rpc` and `net/rpc/jsonrpc`, for working
+    with RPC. Let's write an RPC server that talks to the client and sends the server
+    time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an RPC server
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Let''s create a simple RPC server that sends the UTC server time back to the
+    RPC client. The RPC server and RPC client should agree upon two things:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Arguments passed
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Value returned
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The types of these two parameters should match exactly for both server and
+    client. Let''s look at the steps for creating an RPC server, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s create an RPC server program, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: We should create an `Args struct` and a reply pointer to hold data for RPC calls.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Then, create a function for a remote client to execute, and name it `GiveServerTime`,
+    as shown in the following code block:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we can activate `TimeServer` with a method called `rpc.Register`. The
+    main logic looks like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There are a few points to note from the preceding example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`GiveServerTime` takes the `Args` object as the first argument and a reply
+    pointer object'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It sets the reply pointer object but does not return anything except an error
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `Args` struct here has no fields because this server is not expecting any
+    arguments from clients
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Before using this RPC server, Let's write the RPC client, too.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an RPC client
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A client also uses the same `net/rpc` package, but different methods to dial
+    to the server and get the remote function executed. The only way to get data back
+    is to pass the reply pointer object along with the request. Let''s look at the
+    steps for creating an RPC client, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s define that client program, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'A client dials to an RPC server, using the `rpc.DialHTTP` method. It returns
+    a `client` object. Once dial-in is successful, it can then execute a remote function
+    using the `client.Call` method, as shown in the following code block:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we can run both the server and client to see them in action. This runs
+    the server, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, open another shell tab and run this, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, the server console will output the following Unix time string:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: Did you see the magic? The client is running as an independent program from
+    the server. Here, both the programs can be on different machines, and computing
+    can still be shared. This is the core concept of distributed systems. The tasks
+    are divided and given to various RPC servers. Finally, the client collects the
+    results and uses them to take further decisions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: RPC should be secured because it is executing the remote functions. Authorization
+    is a must while collecting requests from the client.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Custom RPC code is only useful when the client and server are both written in
+    Go. So, in order to have the RPC server consumed by multiple services, we need
+    to define the JSON-RPC over HTTP. Then, any other programming language can send
+    a JSON string and get JSON as the result back.
+  prefs: []
+  type: TYPE_NORMAL
+- en: JSON-RPC using Gorilla RPC
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We saw that the Gorilla toolkit helps us by providing many useful libraries.
+    It has libraries such as Mux for routing, Handlers for middleware, and now, the
+    `gorilla/rpc` library. Using this, we can create RPC servers and clients that
+    talk using JSON instead of a custom reply pointer. Let's convert the preceding
+    example into a much more useful one.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Consider this scenario. We have a JSON file on the server that has details
+    of books (name, ID, author). The client requests book information by making an
+    HTTP request. When the RPC server receives the request, it reads the file from
+    the filesystem and parses it. If the given ID matches any book, then the server
+    sends the information back to the client in JSON format. Let''s look at the steps
+    here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can install Gorilla RPC with the `go get` command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: This package derives from the standard `net/rpc` package but uses a single HTTP
+    request per call instead of persistent connections. Other differences compared
+    to `net/rpc` are explained in the next few lines. Multiple codecs can be registered
+    on the same server. A codec is chosen based on the `Content-Type` header from
+    the request. Service methods also receive the `http.Request` as a parameter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, Let''s write an RPC JSON server. Here, we are implementing the JSON 1.0
+    specification. For 2.0, you should use Gorilla JSON2. Let''s define a dummy JSON
+    file that has information on books, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s us add a few books to the JSON file, like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we have a book database file (JSON, in this case). Let''s us write the
+    RPC server similar to the previous example, by running the following code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The process is to define a struct to hold types for a book. Then, create a
+    `JSONServer` struct for registering with the RPC Server. It should have a method
+    as an RPC action. Read the JSON file from the given file using the `filepath`
+    built-in utility function. The `reply` argument of `JSONServer` is filled with
+    the matched book information, as shown in the following code block:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: It looks similar to the last example, but a clear difference is that the server
+    here expects an ID from the client. That ID is a key to fetch the book from JSON.
+    In `GiveBookDetail`, we are using `ioutil.ReadFile` to read file content and unmarshal
+    it into the `books` struct. We then iterate over a list of books to match the
+    key and fill the `reply` pointer with the matched book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, Let''s us finish the `main` block, which registers the `JSONServer` defined
+    previously as an RPC service, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: A slight difference here is we have to register codec type using the `RegisterCodec` method.
+    That is JSON codec in this case. Then, we can register the service using the `RegisterService` method
+    and start a normal HTTP server. If you have noticed well, we used the alias `jsonparse`
+    for the `encoding/json` package because it can conflict with another package, `github.com/gorilla/rpc/json`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can start this `jsonRPCServer`, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, do we have to develop a client? Not necessarily, because a client can
+    be a `curl` program since the RPC server is serving requests over HTTP, we need
+    to post JSON with a book ID to get the details. So, fire up another shell and
+    execute this `curl` request:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output will be nice JSON that is served directly from the JSON-RPC server,
+    like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: Make JSON-RPC your preferred choice when multiple client technologies need to
+    connect to your RPC service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: RPC is a very common way of defining typed services in programming languages.
+    The Gorilla toolkit is a very useful package while working with Go. When a REST
+    JSON API needs to be provided, you can go ahead and use JSON-RPC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we first looked into what middleware is and how middleware
+    processes a request and response. We then explored the middleware code, with a
+    few practical examples. After that, we saw how to chain many middleware, one after
+    the other. A package such as `alice` can be used for intuitive chaining. A package
+    from the Gorilla toolkit, `gorilla/handlers`, provides various middleware for
+    logging, compression, and **Cross-Origin Resource Sharing** (**CORS**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, we learned what an RPC is, and how an RPC server and client can be built.
+    After that, we explained what a JSON-RPC is, and we saw how to create a JSON-RPC
+    using the Gorilla toolkit. We introduced many third-party packages for middleware
+    and RPC along the way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we are going to explore a few famous web frameworks that
+    further simplify REST API creation.
+  prefs: []
+  type: TYPE_NORMAL

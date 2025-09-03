@@ -1,0 +1,1716 @@
+- en: Splitting Monoliths into Microservices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '"If the components do not compose cleanly (when migrating to microservices),
+    then all you are doing is shifting the complexity from inside a component to the
+    connections between components. This does not just move complexity around; it
+    moves it to a place that''s less explicit and harder to control."'
+  prefs: []
+  type: TYPE_NORMAL
+- en: – Martin Fowler and James Lewis
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter introduces the concept of **Service-Oriented Architecture** (**SOA**)
+    and compares it with the traditional monolithic design pattern. This will help
+    us discuss the various challenges of microservices such as logging, tracing, and
+    service introspection, and provides advice for reducing the pain points from moving
+    to an SOA.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Toward the end of this chapter, we will be breaking down the monolithic Links
+    'R' Us implementation from the previous chapter into several microservices and
+    deploying them to Kubernetes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following topics will be covered in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: When is a good time to switch from monolithic design to a microservice-based
+    architecture?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Common anti-patterns for microservice implementations and how to work around
+    them
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tracing requests through distributed systems
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Best practices for logging and pitfalls to avoid
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Introspection of live Go services
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Breaking down the Links 'R' Us monolith into microservices and deploying them
+    to Kubernetes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Locking down access to microservices using Kubernetes network policies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: By leveraging the knowledge you will have obtained in this chapter, you will
+    be able to horizontally scale your own projects so as to better handle spikes
+    in incoming traffic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The full code for the topics that will be discussed in this chapter has been
+    published to this book's GitHub repository under the `Chapter11` folder.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can access this book's GitHub repository, which contains the code and all
+    the required resources for each chapter in this book, by pointing your web browser
+    to the following URL: [https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang](https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To get you up and running as quickly as possible, each example project includes
+    a Makefile that defines the following set of targets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Makefile target** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `deps` | Installs any required dependencies |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `test` | Runs all tests and report coverage |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lint` | Checks for lint errors |'
+  prefs: []
+  type: TYPE_TB
+- en: As with all the other chapters in this book, you will need a fairly recent version
+    of Go, which you can download at [https://golang.org/dl/](https://golang.org/dl/)*.*
+  prefs: []
+  type: TYPE_NORMAL
+- en: To run some of the code examples in this chapter, you will need to have a working
+    Docker ^([4]) installation on your machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Furthermore, a subset of the examples are designed to run on Kubernetes. If
+    you don't have access to a Kubernetes cluster for testing, you can simply follow
+    the instructions laid out in the following sections to set up a small cluster
+    on your laptop or workstation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Monoliths versus service-oriented architectures
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the last couple of years, more and more organizations, especially in the
+    start up scene, have been actively embracing the SOA paradigm either for building
+    new systems or for modernizing existing legacy systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: SOA is an architectural approach to creating systems that have been built from
+    autonomous services that may be written in different programming languages and
+    communicate with each other over a network link.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the following sections, we will examine this architectural pattern in more
+    detail and highlight some best practices for migrating from a monolithic application
+    to microservices. At the same time, we will explore some common anti-patterns
+    that can impede the transition to a microservice-based architecture.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Is there something inherently wrong with monoliths?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Before you decide to take the plunge and convert your monolithic application
+    into an SOA, you should take a small pause and ask yourself: is a microservice-based
+    design the right model for my application *at this point in time*?'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Try not to be influenced by the hype surrounding microservices! Just because
+    this kind of model works at a massive scale for companies such as Google, Netflix,
+    or Twitter, it doesn't mean that it also will for your particular use case.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Monolithic system designs have been around for much longer and have proven
+    themselves time and time again when it comes to supporting business-critical systems.
+    As the saying goes: if it''s good enough for banks and airlines, it''s probably
+    adequate for your next start up idea!'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In many cases, the decision to transition to a microservice-based architecture
+    is driven purely by necessity; scaling large, monolithic systems to deal with
+    irregular spikes in traffic can prove to be quite costly and can oftentimes lead
+    to underutilization of the resources available at our disposal. This is a great
+    example where switching to microservices would most probably have both an observable
+    and measurable effect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, if you are building a new product or a **minimum viable product**
+    (**MVP**), it is always much easier to begin with a monolithic design and introduce
+    the right abstractions from the start to facilitate an easier transition path
+    to microservices, if and when that is required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Lots of new start-ups get trapped in the mentality that microservices are the
+    next best thing since sliced bread and forget about the hidden cost of such an
+    architecture: increased complexity, which directly translates to increased demand
+    for DevOps. As a result, engineering teams tend to spend a significant chunk of
+    their development time debugging communication issues or setting up elaborate
+    schemes for monitoring microservices instead of focusing their efforts on building
+    and developing their core product.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Microservice anti-patterns and how to deal with them
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now, let's take a look at some anti-patterns that you might encounter when working
+    with microservice-based projects and explore alternative ways of dealing with
+    them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Sharing a database* is probably the biggest mistake that engineers new to
+    the microservice pattern make when they attempt to split a monolith into microservices
+    for the first time. As a rule of thumb, each microservice must be provisioned
+    with its own, private data store (assuming it needs one) and expose an API so
+    that other microservices can access it. This pattern provides us with the flexibility
+    to select the most suitable technology (for example, NoSQL, relational) for the
+    needs of each particular microservice.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Communication between microservices might fail for a variety of reasons (for
+    example, a service crash, network partition, or lost packets). A correct microservice
+    implementation should operate under the assumption that outbound calls can fail
+    at any time. Instead of immediately bailing out with an error when things go wrong,
+    microservices should always implement some sort of *retry logic*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A corollary to the preceding statement is that when a connection to a remote
+    microservice drops before receiving a reply, the client cannot be sure whether
+    the remote server actually managed to process the request. Based on the preceding
+    recommendation, the client will typically retry the call. Consequently, every
+    microservice that exposes an API must be written in such a way so that requests
+    are always *idempotent*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another common anti-pattern is to allow a service to become a *single point
+    of failure* for the entire system. Imagine a scenario where you have three services
+    that all depend on a piece of data that's been exposed by a fourth, downstream
+    service. If the latter service is underprovisioned, a sudden request in traffic
+    to the three upstream services might cause requests to the downstream service
+    to time out. The upstream services would then retry their requests, increasing
+    the load on the downstream service even further, up to the point where it becomes
+    unresponsive or crashes. As a result, the upstream services now begin experiencing
+    elevated error rates that affect calls that are made to them by other upstream
+    services, and so on and so forth.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To avoid situations like this, microservices can implement the circuit breaker
+    pattern: when the number of errors from a particular downstream service exceeds
+    a particular threshold, the circuit breaker is tripped and all future requests
+    automatically fail with an error. Periodically, the circuit breaker lets some
+    requests go through and after a number of successful responses, the circuit breaker
+    switches back to the open position, allowing all requests to go through.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: By implementing this pattern into your microservices, we allow downstream services
+    to recover from load spikes or crashes. Moreover, some services might be able
+    to respond with cached data when downstream services are not available, thus ensuring
+    that the system remains functional, even in the presence of problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we have already explained, microservice-based architectures are inherently
+    complex as they consist of a large number of moving parts. The biggest mistake
+    that we can make is switching to this kind of architecture before laying down
+    the necessary infrastructure for collecting the log output of each microservice
+    and monitoring its health. Without this infrastructure in place, we are effectively
+    flying blind. In the next section, we will explore a few different approaches
+    to microservice instrumentation and monitoring.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Monitoring the state of your microservices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In the following sections, we will be analyzing an array of different approaches
+    for monitoring the state of a microservice deployment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Request tracing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Log collection and aggregation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Introspection of live Go services with the help of `pprof`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tracing requests through distributed systems
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In a world where you might have distributed systems with hundreds or thousands
+    of microservices running, request tracing is an invaluable tool for figuring out
+    bottlenecks, understanding the dependencies between individual services, and figuring
+    out the root cause of issues that affect production systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The idea behind tracing is to tag an incoming (usually external) request with
+    a unique identifier and keep track of it as it propagates through the system,
+    hopping from one microservice to the next until it eventually exits the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The concept of a distributed tracing system is definitely not new. In fact,
+    systems such as Google''s Dapper ^([17]) and Twitter''s Zipkin ^([16]) have been
+    around for almost a decade. So, why isn''t everyone jumping on the wagon and implementing
+    it for their code bases? The reason is simple: up until now, updating your entire
+    code base to support request tracing used to be a daunting task.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Imagine a system where the components communicate with each other via different
+    types of transports, that is, some microservices use REST, others use gRPC, and
+    others perhaps exchange events over WebSockets. Ensuring that request IDs get
+    injected into all outgoing requests and unmarshaled on the receiving end requires
+    quite a bit of effort to implement across all microservices. What's more, if you
+    were to go down this route, you would be expected to do a bit of research, select
+    a tracing *vendor* to use, and finally integrate with their (typically proprietary)
+    API, which would effectively lock you into their offering.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There's got to be a better way to implement request tracing!
+  prefs: []
+  type: TYPE_NORMAL
+- en: The OpenTracing project
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The OpenTracing ^([18]) project was created to solve exactly the set of problems
+    that we outlined in the previous section. It provides a standardized, vendor-neutral
+    API that software engineers can use to instrument their code base to enable support
+    for request tracing. Moreover, OpenTracing not only dictates the appropriate encoding
+    for transferring trace contexts *across service boundaries*, but also provides
+    APIs to facilitate the exchange of tracing context over REST and gRPC transports.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before we continue, let's spend some time explaining a term that we will be
+    using quite a lot in the following sections. A request trace is comprised of a
+    sequence of **spans**. A span represents a timed unit of work that executes inside
+    a microservice. In a typical scenario, a new span begins when the service receives
+    a request and ends when the service returns a response.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Furthermore, spans can also be nested. If service *A* needs to contact downstream
+    services *B* and *C* for additional data before it can send back a response, then
+    the spans from *B* and *C* can be added as children of *A*'s span. Consequently,
+    a request trace can be thought of as a *tree of spans* whose root is the service
+    that received the initial request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Stepping through a distributed tracing example
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To understand how distributed tracing works, let's build a small demo application
+    that simulates a system for collecting price quotes for a particular SKU from
+    a variety of vendors. You can find the full source code for this demo in the `Chapter11/tracing` folder
+    of this book's GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Our system will feature three types of services, all of which will be built
+    on top of gRPC:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The **provider** service returns price quotes for a single vendor. For our example
+    scenario, we will be spinning up multiple provider instances to simulate different
+    vendor systems.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An **aggregator** service that sends incoming queries to a list of downstream
+    services (providers or other aggregators) collects the responses and returns the
+    aggregated results.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An **API gateway** service, which will serve as the root of the captured request
+    traces. In the real world, the API gateway would handle requests from a frontend
+    application running on the users' browser.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let''s begin by listing the protocol buffer and RPC definitions for the services:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, we define a single RPC named `GetQuote` that receives a `QuotesRequest` and
+    returns a `QuotesResponse`. The response is simply a collection to `Quote` objects,
+    with each one consisting of a `vendor` and a `price` field.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The provider service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The first and easiest service to implement is `Provider`. The following is
+    the definition for the `Provider` type and its constructor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we will implement the `GetQuote` method, as specified in the preceding
+    protocol buffer definitions. To keep our example as simple as possible, we will
+    provide a dummy implementation that returns a single quote with a random price
+    value and the `vendorID` value that was passed as an argument to the `NewProvider` constructor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To simulate a microservice architecture, our main file will start multiple
+    instances of this service. Each service instance will create its own gRPC server
+    and bind it to a random port. Let''s implement this functionality for the `Provider` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `tracer` package encapsulates the required logic for creating tracer instances
+    that satisfy the `opentracing.Tracer` interface. The obtained tracer will be used
+    for each of the services that we will be creating so that it can collect and report
+    spans. In the following sections, we will explore the implementation of this package
+    when we select a suitable tracing provider for our example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After obtaining a tracer, the `Serve` method calls out to `doServe`, whose
+    task is to expose a gRPC server to a random available port and return its listen
+    address. The `doServe` code, which is listed in the following code block, has
+    been intentionally extracted since we will be using this to implement the aggregator
+    service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first lines in the preceding function ask the `net` package to listen to
+    a random free port by passing `:0` as the listen address. The next line is where
+    the real magic happens! The `grpc-opentracing` ^([10]) package provides gRPC interceptors
+    that decode tracing-related information from incoming gRPC requests and *embed* them
+    into the request context that is passed to the RPC method implementations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A gRPC interceptor is a kind of middleware that wraps an RPC call and provides
+    additional functionality. Depending on the type of call that is being wrapped,
+    interceptors are classified as unary or streaming.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Moreover, interceptors can be applied on the server- or client-side. On the
+    server-side, interceptors are typically used to implement features such as authentication,
+    logging, and metrics collection. Client-side interceptors can be used to implement
+    patterns such as circuit breakers or retries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since our service only defines a unary RPC, we need to create a unary interceptor
+    and pass it to the `grpc.NewServer` function. Then, we register the RPC implementation
+    with the server and spin up a goroutine so that we can start serving requests
+    until the provided context expires. While the goroutine is running, the function
+    returns with the address of the server listener.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The aggregator service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The next service that we will be implementing is the `Aggregator` type. As
+    shown in the following code snippet, it stores a vendor ID, a list of provider
+    addresses to query, and a list of gRPC clients for those addresses:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The gRPC clients are lazily created when the `Serve` method is invoked:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: This time, we create a **client** unary interceptor and pass it as an option
+    to each client connection that we dial. Then, we invoke the `doServe` helper that
+    we examined in the previous section so that we can start our server. The use of
+    interceptors for both the server **and** the client ensures that the trace context
+    information that we receive from incoming requests gets **automatically** injected
+    into any outgoing gRPC request without us having to do anything.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, let''s examine how the `GetQuote` method is implemented for the `Aggregator` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This method is quite straightforward. All it does is allocate a new `QuotesResponse`,
+    invoke the `sendRequests` helper, flatten the results into a list, and return
+    it to the caller. The `sendRequests` method queries the downstream providers in
+    parallel and returns a channel where the quotes are posted:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice how the request context argument from `GetQuote` is passed along to the `client.GetQuote` calls.
+    This is all we need to do to associate the span from this service with the spans
+    of the downstream services. Easy, right?
+  prefs: []
+  type: TYPE_NORMAL
+- en: The gateway
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The gateway service is nothing more than a wrapper on top of a gRPC client.
+    The interesting bit of its implementation is the `CollectQuotes` method, which
+    is what our main package will invoke to *begin a new trace*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we use `StartSpanFromContext` to create a new *named* span and embed its
+    trace details into a new context that wraps the one that was provided as an argument
+    to the method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The rest of the code is pretty self-explanatory: we invoke the `GetQuote` method
+    on the embedded client instance, collect the responses, and place them in a map
+    that we then return to the caller.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Putting it all together
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The main file prepares a microservice deployment environment via a call to the `deployServices` helper
+    function. The idea here is to string together the services in such a manner so
+    that tracing a request through the system will yield an interesting trace graph.
+    Let's see how this is done.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, the helper starts three `Provider` instances and keeps track of their
+    addresses:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, it starts an `Aggregator` instance and sets it up to connect to providers *1* and *2* from
+    the preceding list:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Following that, it instantiates yet another `Aggregator` type and connects
+    it to provider *0* and the aggregator we just created:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, a `Gateway` instance is created with the preceding aggregator as its
+    target and returned to the caller:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Gateway` instance that''s returned by the `deployServices` function is
+    used by `runMain` to trigger the execution of a quote query that marks the beginning
+    of a new request trace:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the following section, we will be hooking up a tracer implementation to our
+    code so that we can capture and visualize the request traces that our code generates.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Capturing and visualizing traces using Jaeger
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous sections, we saw how OpenTracing allows us to create and propagate
+    span information across microservice boundaries. But, *how *and, more importantly, *where* is
+    this information collected and processed? After all, having this information available
+    without the means to slice and dice it greatly diminishes its value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we mentioned previously, one of the key design goals of the OpenTracing framework
+    is to avoid vendor lock-in. To this end, when it comes to span collection and
+    visualization, you can either select an open source solution such as Uber's Jaeger ^([11]) or
+    Elastic's APM ^([5]), which you host yourself. Alternatively, you can use one
+    of the several available **Software as a Service** (**SaaS**) solutions ^([19]).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As far as our open tracing example is concerned, we will be using Jaeger ^([11]) as
+    our tracer implementation. Jaeger is simple to install and integrate with the
+    code we have already written so far. It is written in Go and can also be used
+    as a drop-in replacement for Zipkin ^([16]). A Jaeger deployment typically consists
+    of two components:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A local span collection agent is normally deployed as a sidecar container alongside
+    your application. It collects spans that are published by the application over
+    UDP, applies *configurable* probabilistic sampling so that it can select a subset
+    of the spans to be sent upstream, and transmits them to the Jaeger collector service.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The collector service aggregates the spans that are transmitted by the various
+    Jaeger agent instances and persists them to a data store. Depending on the rate
+    at which new spans are produced, collectors can be configured to work in either *direct-to-storage* mode,
+    where they interface directly with the DB, or in *streaming* mode, where a Kafka
+    instance is used as a buffer between the collectors and another process that ingests,
+    indexes, and stores the data in the DB.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For our testing purposes, we will use the official all-in-one Docker image,
+    which includes an agent and collector (backed by an in-memory store) instance,
+    as well as the Jaeger UI. We can start the container using the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Port `6831` is where the Jaeger agent listens for spans that our instrumented
+    services will publish over UDP. On the other hand, port `16686` exposes the Jaeger
+    UI where we can browse, search, and visualize captured request traces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we mentioned in the previous sections, the `tracer` package will encapsulate
+    the logic for instantiating new Jaeger tracer instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at the `GetTracer` function''s implementation. The `MustGetTracer` function
+    that our services invoke calls `GetTracer` and panics in case of an error, as
+    shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: The Go client for Jaeger provides several convenience helpers for creating new
+    tracers. The approach we chose here was to instantiate a tracer from a configuration
+    object that we can obtain via the `FromEnv` helper. `FromEnv` initializes a configuration
+    object with a set of sane defaults and then examines the environment for the presence
+    of Jaeger-specific variables that override the default values. For instance, `JAEGER_AGENT_HOST`
+    and `JAEGER_AGENT_PORT` can be used to specify the address where the Jaeger agent
+    is listening for incoming spans. By default, the agent is expected to listen at `localhost:6831`, which
+    matches the port that was exposed by the Docker container we just launched.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we need to configure a sampling strategy for the tracer. It stands to
+    reason that if we were operating a deployment with very high throughput, we wouldn''t
+    necessarily want to trace every single request as that would generate an enormous
+    amount of data that would need to be stored and indexed. To this end, Jaeger allows
+    us to configure different sampling strategies, depending on our particular application
+    requirements:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A **constant** sampler always makes the same decision for each trace. This is
+    the strategy we are using for our example to ensure that traces are always persisted
+    each time we run our demo.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A **probabilistic** sampler retains traces with a specific probability (for
+    example, 10% of traces).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The **rate-limiting** sampler ensures that traces are sampled at a particular
+    rate (for example, 10 traces per second).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following screenshot shows a detailed view of a captured trace that was
+    generated by running the example application that we just built:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5b467669-f51f-4cd5-814b-a858b23ca7ab.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 1: Visualizing a request trace in Jaeger''s UI'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first row represents the *total* time spent in the `api-gateway` waiting
+    for a response to the outgoing quote request. The rows beneath it contain the
+    nested spans that correspond to other requests that were executing in parallel.
+    Here is a brief overview of the events that occurred:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The gateway makes a request to aggr-0 and blocks waiting for a response.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'aggr-0 makes two requests in parallel: one to vendor-0 and one to aggr-1\.
+    Then, it blocks waiting for the downstream responses before returning a response
+    to the gateway.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'aggr-1 makes two requests in parallel: one to vendor-1 and one to vendor-2\.
+    It blocks waiting for the downstream responses before returning a response to aggr-0.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'One other very cool feature of the Jaeger UI is that it can display the dependencies
+    between services as a **directed acyclic graph** (**DAG**). The following screenshot
+    shows the DAG for our example microservice deployment, which matches the preceding
+    event sequence:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/7d15b395-ac88-4aa6-b842-875f68077f81.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 2: Visualizing the dependencies between services'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In conclusion, request tracing is a great tool for gaining a deeper insight
+    into the internals of modern, complex microservice-based systems. I would strongly
+    recommend considering it for your next large-scale project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Making logging your trusted ally
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Time and time again, logging always proves to be an invaluable resource for
+    investigating the root cause of a problem in contemporary computer software. However,
+    in the context of a microservice-based architecture, where requests cross service
+    boundaries, being able to collect, correlate, and search the log entries that
+    are emitted by each individual service is of paramount importance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the following sections, we will focus on the best practices for writing succinct
+    log entries that are easily searchable and highlight some common pitfalls that
+    you definitely want to avoid. Furthermore, we will discuss solutions for collecting
+    and shipping the logs from your Kubernetes pods (or dockerized services) to a
+    central location where they can be indexed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Logging best practices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The first item on our best practice checklist is **leveled logging**. When
+    using leveled logging, there are two aspects you need to consider:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Selecting the appropriate log level to use for each message**: The majority
+    of logging packages for Go applications support at least the *DEBUG*, *INFO, *and *ERROR* levels.
+    However, your preferred logging solution might also support more granular log
+    levels, such as *TRACE*, *DEBUG*, and *WARNING*.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Deciding which log levels to actually output**: For instance, perhaps you
+    want your application to only output messages at the *INFO* and *ERROR* levels
+    to reduce the volume of produced logs.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'When debugging an application, it makes sense to also include *DEBUG* or *TRACE* messages
+    in the logs so that you can get a better understanding of what''s going on. It
+    stands to reason that you shouldn''t have to recompile and redeploy an application
+    just to change its log level! To this end, it''s good practice to implement some
+    sort of hook to allow you to dynamically change the active log level of an application
+    while it is executing. Here are a few suggestions you can try:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Toggle between the configured log level and the *DEBUG* level when the application
+    receives a particular signal (for example, SIGHUP). If your application reads
+    the initial log level from a config file, you could use the same signal-based
+    approach to force a reload of the config file.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Expose an HTTP endpoint to change the log level.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Store the per-application log level setting in a distributed key-value store
+    such as etcd ^([6]), which allows clients to watch a key for changes. If you are
+    running multiple instances of your application, this is an effective way to change
+    the log level for all the instances in a single step.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If you haven't already done so, you can step up your logging game simply by
+    switching to **structured** logging. While the good old way of extracting timestamps
+    and messages from logs using regular expressions certainly does work, updating
+    your applications to output logs in a format that is easily parsed by the service
+    that indexes them goes a long way toward increasing the volume of logs that can
+    be ingested per unit of time. Consequently, application logs become searchable
+    in real time or near real-time fashions, allowing you to diagnose problems much
+    quicker. There are quite a few Go packages out there that implement structured
+    loggers. If we had to single out some, our list would definitely include `sirupsen/logrus` ^([14]), `uber-go/zap` ^([20]), `rs/zerolog` ^([21]), and `gokit/log` ^([9]).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, what does a structured log entry look like? The following screenshot demonstrates
+    how the `sirupsen/logrus` package formats and prints the same set of logs using
+    two of its built-in text formatters. The Terminal at the top uses a text-based
+    formatter that is more suited for running applications on your development machine,
+    while the Terminal at the bottom displays the same output as JSON. As you can
+    see, each log entry consists, as a minimum, of a level, a timestamp, and a message.
+    In addition, log entries can contain a variable number of key-value pairs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3c81a9c9-55fc-4aaf-a356-489e3f2f0cb9.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3: Example log output produced by logrus
+  prefs: []
+  type: TYPE_NORMAL
+- en: When the log ingestion platform consumes such a log entry, it will also index
+    the key-value pairs and make them available for searching. Consequently, you can
+    compose highly targeted queries by slicing and dicing the log entries by multiple
+    attributes (for example, a customer ID, service name, and data center location).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Always make sure that the *message* portion of your log entries never includes *variable* parts.
+    To explain why not adhering to this advice could lead to problems, let''s take
+    a look at two equivalent error messages that are produced by a service whose task
+    is to redirect users:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`level=error message="cannot connect to server: dial tcp4: lookup invalid.host:
+    no such host" service=redirector customer-id=42`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`level=error message="cannot connect to server" err="dial tcp4: lookup invalid.host:
+    no such host" host=invalid.host service=redirector customer-id=42`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The first message embeds the error that's returned by the Go dialer into the
+    log message. Given that the *no such host* error will most probably change for
+    each request, adding it to the log message introduces a variable component that
+    makes searching harder. What if we want to find the logs for *all* failed connection
+    attempts? The only way to do that would be to use a regular expression, which
+    would be quite slow since the log search engine would need to perform a full table
+    scan and apply the regular expression to each entry.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the other hand, the second message uses a constant message for errors of
+    a particular *class* and includes the error details and hostname as key-value
+    pairs. Searching for this type of error is much easier: the log search engine
+    can probably answer this type of query quickly and efficiently using an index.
+    What''s more, we can keep slicing the data further, for example, count failed
+    attempts by the host. Answering this type of query for the first message would
+    be nearly impossible!'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We have already argued about the usefulness of structured logging. At this
+    point, you might be wondering whether there''s a list of fields that should always
+    be included in your log messages. I would definitely recommend including at least
+    the following bits of information:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The application/service **name**. Having this value present allows you to answer
+    one of the most common queries out there: "display the logs for application *foo*".'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The **hostname** where the application is executing. When your log storage is
+    centralized, having this field available is quite handy if you need to figure
+    out which machine (or container, if you're using Kubernetes) produced the log.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The **SHA** of the git (or your preferred VCS) branch that's used to compile
+    the binary for the application. If your organization is a fan of the *ship frequently* mantra,
+    adding the SHA to your logs makes it easy to link an error to a particular snapshot
+    of the code base.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Imagine that, against your better judgment, you decided to ignore the *never
+    deploy on a Friday* rule and push a set of seemingly innocent changes to some
+    of the microservices in production; after all, the code was thoroughly reviewed
+    and all the tests passed. What could possibly go wrong, right? You come back to
+    work on Monday and your mailbox is full of tickets that have been opened by the
+    support team. According to the tickets, several users experienced issues adding
+    products to their carts. To assist you with tracking down the problem, the support
+    team has included both the affected user IDs and the approximate time when they
+    were accessing the service in the tickets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You fire up your log search tool, plug in the timestamp and user details, and
+    receive a list of logs for the API gateway, which is the first microservice that
+    users hit when they request something from their web browser. The gateway service
+    makes several calls to downstream services that, unfortunately, *do not* have
+    access to the user ID and therefore don't show up in the logs... Good luck tracking
+    down the cause of the problem!
+  prefs: []
+  type: TYPE_NORMAL
+- en: To avoid hairy situations like this, it's good practice to also include a **correlation
+    ID** in your log entries. In this particular scenario, the API gateway would generate
+    a unique correlation ID for incoming requests and inject it into requests to downstream
+    services (which then include it in their own log entries), and so on and so forth.
+    This approach is quite similar to request tracing, but instead of tracking spans
+    and time-related request details, it allows us to correlate logs across service
+    boundaries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The devil is in the (logging) details
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When using structured logging, it is very easy to get carried away and try
+    to stuff as much information as possible into the key-value pairs. Unfortunately,
+    this can often prove to be dangerous security-wise! Take a look at the following
+    code snippet, which retrieves a user''s data from a URL they have provided to
+    us:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Whenever we succeed in fetching the data, we log an *INFO* message with the
+    URL and the time it took to retrieve it. This code looks pretty innocent, right?
+    Wrong! The following screenshot shows the log output from this function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5eed49c9-147a-4af6-85fb-01f742041256.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4: Forgetting to properly sanitize log output can lead to credential
+    leaks
+  prefs: []
+  type: TYPE_NORMAL
+- en: Yikes! We just splatted the user's credentials all over our logs... We have
+    to be very careful not to leak any credentials or any other bits of sensitive
+    information (for example, credit card, bank account, or SSN numbers) to the logs.
+    But how can we achieve this without having to audit every single log line in our
+    code base? Most logging frameworks allow you to provide an `io.Writer` instance
+    for receiving the logger output. You can leverage this capability to implement
+    a filtering mechanism that uses a set of regular expressions to either mask or
+    strip away sensitive information that adheres to specific patterns.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another pitfall that you must be aware of is **synchronous** logging. The golden
+    rule here is that logging should always be considered as an auxiliary function
+    and should never interfere with the normal operation of your service. If you are
+    using a synchronous logger and the output stream blocks (that is, it cannot keep
+    up with the volume of generated logs), your service would also block and cause
+    noticeable delays for upstream services depending on it. Whenever possible, try
+    to use an **asynchronous** logger implementation – ideally, one that uses a leaky
+    bucket abstraction to drop messages when it cannot keep up with the load.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Shipping and indexing logs inside Kubernetes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If you have been following the guidelines from the previous sections, your applications
+    will now emit clean and succinct logs in a format that makes them suitable for
+    ingestion by a log aggregation system. The only missing piece of the puzzle is
+    how we can collect the individual logs from each application instance running
+    on a Kubernetes cluster and ship them either to a self-hosted or SaaS log indexing
+    solution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running a log collector on each Kubernetes node
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This option uses a Kubernetes *DaemonSet* to install a log collection daemon
+    on each node of the Kubernetes cluster. Besides being relatively easy to implement,
+    the main benefit of this particular approach is that it is totally transparent
+    to running applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A DaemonSet is a special type of Kubernetes resource that ensures that all
+    cluster nodes run a copy of a particular pod. Using daemon sets is a quite common
+    pattern for the following reasons:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running cluster storage daemons (for example, ceph or glusterd)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Collecting and shipping logs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Monitoring nodes and transmitting node-specific metrics (for example, load,
+    memory, or disk space usage)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When a pod executes, Kubernetes will capture its standard output and error streams
+    and redirect them to a pair of log files. When you run the `kubectl logs` command,
+    the `kubelet` instance running on the worker node streams the logs by reading
+    off those files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The log collector pod that''s shown in the following diagram digests the captured
+    log files for each executing pod, transforms them (if necessary) into the format
+    expected by the log indexing service, and optionally augments them with additional
+    information such as the Kubernetes namespace and container hostname. Depending
+    on the log ingesting solution in use, logs can be either directly uploaded for
+    ingestion or written to a message queue such as Kafka:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/92219a31-af22-4046-82da-5417d9a16c2a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5: Running a log collector using a DaemonSet
+  prefs: []
+  type: TYPE_NORMAL
+- en: The two most popular log collection daemons out there are Fluent Bit ^([8]), which
+    is written in C, and Logstash ^([15]), which is written in Ruby. Quite often,
+    logs will be shipped to an Elasticsearch cluster for indexing, and a frontend
+    such as Kibana ^([12]) will be used to browse and search the logs. You will hear
+    this type of setup commonly referred to as an EFK or ELK stack, depending on which
+    log collection daemon is being used.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using a sidecar container to collect logs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The second option when it comes to collecting logs is to run a sidecar container
+    for each application, as shown in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d0e6746c-fe4f-41c6-8c54-0f05ec18eb97.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6: Running a log collector as a sidecar container
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While this approach might feel a bit more cumbersome compared to using the
+    infrastructure already built into Kubernetes, it can work quite nicely in cases
+    where the following happens:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The application writes to multiple log files. For example, a web server such
+    as Apache or Nginx might be configured to write error logs to a different location
+    than access logs. In such a case, you would add a sidecar container for each log
+    file that you want to scrape.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Applications use non-standard log formats that need to be transformed on a **per-application** basis.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Shipping logs directly from the application
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The last log shipping strategy that we will be examining is to actually embed
+    the log shipping logic into each application. As shown in the following diagram,
+    the application is sending its logs directly to a log repository:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/9b319765-f4d7-485f-8e9c-671bc457d949.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 7: Shipping logs directly from within the application
+  prefs: []
+  type: TYPE_NORMAL
+- en: An interesting use case for this strategy is to integrate with an external,
+    third-party SaaS offering that requires applications to import and use a vendor-specific
+    software development kit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introspecting live Go services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'After a long journey transitioning from a monolithic application into one based
+    on microservices, you have reached a point where all your new and shiny services
+    are happily running in production. At this stage, you will probably start becoming
+    more and more curious about their operation in the long run:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How much memory are they using?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How many goroutines are currently running?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Are there any leaks (memory or goroutines) that can eventually force the service
+    to crash?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How often does the Go garbage collector run and how much time does each run
+    actually take?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If you are using a container orchestration framework such as Kubernetes, crashing
+    services are not normally a big concern; just bump the number of instances and
+    Kubernetes will take care of restarting them when they crash. However, if the
+    root cause of the crash is a memory leak or an unbounded explosion in the number
+    of running goroutines, crashes will become more and more frequent as the traffic
+    to your system increases. This pattern will inevitably lead to service disruption.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fortunately, the Go runtime exposes a heap of information that we can use to
+    answer these questions. All we need to do is extract, export, and aggregate this
+    information. In [Chapter 13](56c5302a-2c1a-4937-bb65-1b280f27ebed.xhtml), *Metrics
+    Collection and Visualization*, where we will be discussing the SRE aspects of
+    operating microservice architectures, we will explore metrics collection systems
+    such as Prometheus, which let us not only collect this information but also act
+    on it by creating alerts that can eventually turn into page calls for the SRE
+    team.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In some cases, however, we might want to dig a bit deeper... Here are a few
+    interesting examples:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A service suddenly became unresponsive but the Go deadlock detector is not complaining
+    about any deadlocks. The service still accepts requests but never sends out any
+    reply and we need to find out why.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Our metrics dashboard indicates that instance *X* of service *Y* is using quite
+    a lot of heap memory. But how can we inspect the heap's contents and see what
+    is taking up all that memory? Perhaps we are leaking file handles (for example, forgot
+    to close the response body off from the HTTP calls we are making) or maintain
+    unneeded references to objects that prevent the Go garbage collector from freeing
+    them.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A data ingestion service unexpectedly pegs the CPU, but only when running in
+    production! So far, you have been unable to replicate this issue on your local
+    development machine.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To debug issues such as the ones described in the first example, we can SSH
+    into the container that the service executes in and send it a *SIGQUIT* signal.
+    This will force the Go runtime to dump a stack trace for each running goroutine
+    and exit. Then, we can examine the log stream and figure out where exactly the
+    service got stuck.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If your Go application, which seemingly appears to be stuck, is running on the
+    foreground, instead of looking for its pid so that you can send it a *SIGQUIT* signal,
+    you can force it to dump the stack trace for every executing goroutine by pressing
+    *CTRL+\* .
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that, behind the scenes, this key combination actually sends a *SIGQUIT* to
+    the running process and will cause it to exit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, the obvious caveat of this trick is that our application or service
+    will effectively crash. What's more, it doesn't really allow us to introspect
+    its internal state, which is more or less required for dealing with situations
+    such as the ones from the other examples.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Fortunately, Go allows us to embed the `pprof` package into our services and
+    expose a frontend to it over HTTP. You might be worried that shipping what is
+    effectively a sampling profiler with your code will undoubtedly make it run slower.
+    In principle, this is not really the case as you can ask `pprof` to capture various
+    kinds of profiles on demand, thus allowing it to stay out of the way until you
+    need it. As the following code snippet shows, all you need to do is import the `net/http/pprof` package
+    and launch an HTTP server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `net/http/pprof` function defines an `init` function, which registers various
+    pprof-related route handlers to the default `http.ServeMux`. Therefore, the package
+    is typically imported only for its side effects. After spinning up an HTTP server,
+    you can simply point your web browser to `http://localhost:6060/debug/pprof` and
+    access a minimalistic frontend for capturing `pprof` profiles and make them available
+    for download so that they can be processed offline via the `pprof` tool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following screenshot is exposing a `pprof` frontend to introspect running
+    applications:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/a4ce5dc0-34b4-474a-9792-702bdf5c084f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8: Exposing a pprof frontend to introspect running applications
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As shown in the preceding screenshot, the `pprof` UI allows you to capture
+    the following profile types on-demand:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**allocs**: A sampling of all past memory allocations'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**block**: Stack traces that led to blocking on synchronization primitives'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**cmdline**: The command-line invocation of the current program'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**goroutine**: Stack traces of all current goroutines'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**heap**: A sample of the memory allocations of live objects'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**mutex**: Stack traces of holders of contended mutexes'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**profile**: CPU profile'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**threadcreate**: Stack traces that led to the creation of new OS threads'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**trace**: A trace of the execution of the current program'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If your application/service already spins up its own HTTP server that can potentially
+    be exposed to the outside world (for example, via a Kubernetes ingress), make
+    sure you bind its routes to a **new mux** instance and expose the `pprof` routes
+    using the **default mux** via a second HTTP server running on a different (internal)
+    port.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This way, you don't run the risk of allowing unauthorized access to your introspection
+    endpoints.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I would strongly recommend enabling `pprof` support for your production services
+    using the approaches we discussed in this section. It only requires a little bit
+    of effort on your end to set up but will prove to be a great asset if you ever
+    need to debug a live application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building a microservice-based version of Links 'R' Us
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In the last part of this chapter, we will take the monolithic Links ''R'' Us
+    application that we built and deployed in the previous chapter and apply *everything*
+    we have learned so far to break it down into a bunch of microservices. The following
+    diagram illustrates the expected state of our cluster after we''ve made all the
+    necessary changes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5ecc62e1-e8b4-4f04-87ce-f626803d6ab0.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9: Breaking down the Links 'R' Us monolith into microservices
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Kubernetes manifest files that we will be using for the microservice-based
+    version of Links 'R' Us are available under the `Chapter11/k8s` folder of this
+    book's GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you haven't already set up a Minikube cluster and whitelisted its private
+    registry, you can either take a quick break and manually follow the step-by-step
+    instructions from [Chapter 10](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml), *Building,
+    Packaging, and Deploying Software*, or simply run `make bootstrap-minikube`, which
+    will take care of everything for you. On the other hand, if you have already deployed
+    the monolithic version of Links 'R' Us from the previous chapter, make sure to
+    run `kubectl delete namespace linksrus` before proceeding. By deleting the **linksrus** namespace,
+    Kubernetes will get rid of all pods, services, and ingresses for Links 'R' Us
+    but leave the data stores (which live in the **linksrus-data** namespace) intact.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To deploy the various Links ''R'' Us components that we will be defining in
+    the following sections, you will need to build and push a handful of Docker images.
+    To save you some time, the Makefile in the `Chapter11/k8s` folder provides two
+    handy build targets to get you up and running as quickly as possible:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`make dockerize-and-push` will build all required Docker images and push them
+    to Minikube''s private registry'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`make deploy` will ensure that all the necessary data stores have been provisioned
+    and apply all the manifests for deploying the microservice-based version of Links
+    ''R'' Us in one go'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Before we can start breaking down our monolith into microservices, there is
+    one small task we need to take care of first: removing the coupling between our
+    service and the underlying data stores. The next section explores how this can
+    be achieved using the knowledge we acquired in [Chapter 9](b3edd7bf-fd1d-4203-bd96-9113cdbb2422.xhtml), *Communicating
+    with the Outside World*.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Decoupling access to the data stores
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: One fundamental issue with the monolithic implementation from the previous chapter
+    is that our application was talking directly to the Elasticsearch and CockroachDB
+    clusters. We have effectively introduced a tight coupling between the application
+    and the data store implementations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that it's time to create the microservice-based version of Links 'R' Us,
+    we need to take a few steps to rectify this problem. To this end, the first two
+    services that we will be creating as part of our refactoring work will serve as
+    a kind of proxy for facilitating access to the underlying data stores. The **text-indexer** and **link-graph** services
+    will be deployed in the **linksrus-data** namespace and allow other services to
+    interact with the data stores through the gRPC-based APIs that we defined in [Chapter
+    9](b3edd7bf-fd1d-4203-bd96-9113cdbb2422.xhtml), *Communicating with the Outside
+    World*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An important benefit of introducing an indirection layer between the services
+    and the data stores is that we gain the ability to change the data store implementation *at
+    any moment* without having to change, update, or otherwise reconfigure any of
+    the other Links 'R' Us services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In terms of service implementation, things are surprisingly simple. Each service
+    binary receives the URI of the data store to connect to as an argument. Then,
+    it creates a gRPC server on port `8080` and exposes the `pprof` debug endpoints
+    on port 6060\. All the boilerplate code fits nicely into a single main file, which
+    you can find in the `Chapter11/linksrus/linkgraph` and `Chapter11/linksrus/textindexer` folders
+    of this book's GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Breaking down the monolith into distinct services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we will extract the individual services from the Links 'R'
+    Us monolith and build a standalone service binary for each one. This is also the
+    point where you will probably realize that our clean, interface-based design that
+    we have been preaching about since the beginning of this book finally begins to
+    pay off.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As it turns out, we can take the service-specific code from [Chapter 10](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml),
+    *Building, Packaging, and Deploying Software*, and use it as is with a few minor
+    changes. For each service, we will create a `main` package that performs the following
+    set of tasks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creates a logger instance for each service
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Exposes the `pprof` debug endpoints on a configurable port
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Instantiates the gRPC clients for accessing the link-graph and text-indexer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Populates the configuration object for each service with the appropriate settings
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Runs the service main loop and cleanly shuts down the application upon receiving
+    a signal
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: All of this boilerplate code is more or less the same for each service, so we
+    will omit it for brevity. However, if you want to, you can extract the common
+    parts into a separate package and make the `main.go` files for each service a
+    bit leaner.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The configuration of each service is one of the places where we will be deviating
+    slightly compared to the monolithic implementation from the previous chapter.
+    We want our services to be configured either via command-line flags or via environment
+    variables. The latter offers us the flexibility to define all the configuration
+    options in a shared Kubernetes ConfigMap and inject them into our service manifests.
+    Since the built-in `flags` package does not support this kind of functionality,
+    we will be switching to the `urfave/cli` ^([1]) package for our flag parsing needs.
+    This package supports an elegant way of defining typed flags, which also allows
+    us to (optionally) specify the name of an environment variable that can be set
+    to override each flag value:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Each of our new services will need to access both the link-graph and the text-indexer
+    data stores. Both of these stores are exposed over gRPC via the two services we
+    described in the previous section. The following code snippet shows how to obtain
+    a high-level (see [Chapter 9](b3edd7bf-fd1d-4203-bd96-9113cdbb2422.xhtml), *Communicating
+    with the Outside World*) client instance for each of the two services:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you may recall, back in [Chapter 9](b3edd7bf-fd1d-4203-bd96-9113cdbb2422.xhtml),
+    *Communicating with the Outside* *World*, we meticulously designed the high-level
+    clients so that they implement a subset of the `graph.Graph` and `index.Indexer` interfaces.
+    This makes it possible to use the clients as a *drop-in replacement* for the concrete
+    graph and indexer store implementations that are used in the monolithic Links
+    'R' Us version. This is a testament to the benefits of applying the SOLID design
+    principles to make our code more modular and easier to interface with.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deploying the microservices that comprise the Links 'R' Us project
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that we have built standalone binaries for each of the new Links 'R' Us
+    services, it's time to deploy them on Kubernetes! Let's take a quick look at the
+    required Kubernetes resources for deploying each individual service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deploying the link-graph and text-indexer API services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For the link-graph and text-indexer API services, we will be using a Kubernetes
+    deployment resource to spin up two replicas for each service in the **linksrus-data** namespace.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To allow clients from the **linksrus** namespace to access the API, we will
+    be creating a Kubernetes service to load balance traffic to the pods that we will
+    be spinning up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Clients can then access the data stores by connecting their gRPC clients to
+    the following endpoints:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`linksrus-textindexer.linksrus-data:8080`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`linksrus-linkgraph.linksrus-data:8080`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Deploying the web crawler
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The crawler service deployment will use the same partition detection logic that
+    the monolithic implementation from the previous chapter did. Consequently, we
+    will be deploying two instances of the crawler service as a Kubernetes Stateful
+    set, which guarantees that each pod will be assigned a predictable hostname that
+    includes the pod's ordinal in the set.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition, we will be creating a **headless** Kubernetes service that will
+    populate the SRV records for the crawler pods and allow the partition detection
+    code to query the total number of available pods.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deploying the PageRank service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The PageRank service is still subject to the same constraints and limitations
+    that we discussed in the previous chapter. As a result, we will only run a *single* instance
+    of the service by creating a Kubernetes deployment with the replica count set
+    to *one*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deploying the frontend service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The last service that we will be deploying is the frontend. As with most other
+    services in our cluster, we will create a Kubernetes deployment with the required
+    number of replicas for the frontend.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Just as we did in the previous chapter, we will define a Kubernetes service
+    to load balance traffic to the frontend pods and then expose it outside the cluster
+    with the help of a Kubernetes ingress resource.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Locking down access to our Kubernetes cluster using network policies
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As the number of microservices begins to increase, it is probably a good time
+    to start thinking more actively about security. Do we really want each and every
+    pod in our cluster to be able to access every other pod across all namespaces?
+    Truth be told, for our current deployment, it is not that important. However,
+    for larger projects, that's definitely a question that you need to answer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kubernetes offers a special type of resource called **NetworkPolicy** to assist
+    us with the creation of fine-grained rules for governing access to namespaces
+    and pods. A prerequisite to creating and enforcing network policies is for your
+    cluster to run with the *cni* network plugin enabled and to use a network provider
+    implementation that is compliant with the **Container Networking Interface** (**CNI**).
+    Examples of such providers include Calico ^([2]), Cilium ^([3]), and Flannel ^([7]).
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you have bootstrapped a Minikube cluster using the `make bootstrap-minikube`
+    target from the Makefile in either the `Chapter10/k8s` or the `Chapter11/k8s`
+    folder, Calico has already been installed for you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Alternatively, you can manually install Calico to your test cluster by running
+    the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`kubectl apply -f \ https://docs.projectcalico.org/v3.10/manifests/calico.yaml`The
+    installation might take a few moments. You can monitor the status of the deployment
+    by running `kubectl -n kube-system get pods -lk8s-app=calico-node -w` and waiting
+    for the pod status to show up as *running*.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: What would be a good example of a network policy for our Links 'R' Us deployment?
+    Since the various pods in the **linksrus** namespace are now expected to access
+    the data stores over gRPC, it would be good practice to specify a network policy
+    that would block access to any other pod in the **linksrus-data** namespace from
+    other namespaces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A really cool thing about Kubernetes network policies is that we can combine
+    multiple policies to construct more elaborate policies. For our use case, we will
+    start with a **DENY ALL** policy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Each policy has two sections:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The destination is where we specify the set of pods that we want to control
+    access to. In this example, we are using a `podSelector` block with an empty `matchLabels` selector
+    to match *all* pods in the namespace.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The traffic origin, which is where we specify the set of pods that are subject
+    to the policy when attempting to access a pod in the destination list.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'So, the preceding policy can be interpreted as ***deny** access to any pod
+    in the **linksrus-data** namespace from any pod in another namespace*. Moving
+    on, we will define a second network policy that will explicitly whitelist the
+    pods that we want to grant access to:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The pods for the two gRPC services have been tagged with a `role: data-api` label,
+    which the preceding policy uses to explicitly target the pods we are interested
+    in. On the other hand, the pods running in the **linksrus** namespace have been
+    tagged with a `role: linksrus-components` label, which allows us to specify them
+    as part of the ingress selector. This rule is interpreted as ***allow** access
+    from **all** pods with a **linksrus-components** role to pods with a **data-api** role
+    in the **linksrus-data** namespace*.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s apply these rules by running `kubectl apply -f 08-net-policy.yaml` and
+    verify that they work as expected by connecting to the pods in both namespaces
+    and running the *nc* command to check whether we are allowed to connect to the
+    pods protected by the two network policies. The following screenshot shows us
+    how to verify that our network policies work as expected:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/cf41a1ea-2f1a-4850-ba36-6494e660adea.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10: Verifying that our network policies work as expected
+  prefs: []
+  type: TYPE_NORMAL
+- en: Success! As shown in the preceding screenshot, attempting to connect from one
+    of the crawler pods in the **linksrus** namespace to the CockroachDB cluster times
+    out, while attempts to connect to the text indexer API succeed. On the other hand,
+    the connection attempt to CockroachDB succeeds when the same command is executed
+    inside a pod running in the **linksrus-data** namespace.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Of course, this brief introduction to Kubernetes network policies barely scratches
+    the surface. The Kubernetes documentation contains several other match rules that
+    you can use to formulate the appropriate network policies for your particular
+    use case. For those of you who are interested in exploring the different types
+    of policies that you can implement further, I would strongly recommend taking
+    a look at the *Kubernetes network policy recipes* ^([13]) GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we focused on the process of splitting a monolithic application
+    into a series of microservices. We identified some common anti-patterns for building
+    microservices and elaborated on ways for working around them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the second part of this chapter, we examined some interesting approaches
+    for tracing requests through distributed systems, as well as collecting, aggregating,
+    and searching logs. In the last part of this chapter, we split the monolithic
+    Links 'R' Us project from the previous chapter into a series of microservices
+    and deployed them to our test Kubernetes cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will discuss building fault-tolerant systems and build
+    a distributed version of the PageRank calculator using the master/slave pattern.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Explain why using the microservices pattern for an MVP or **proof of concept**
+    (**PoC**) project is often considered to be a bad idea.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Describe how the circuit breaker pattern works.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: List some of the benefits of being able to trace requests as they travel through
+    the system.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Why is it important to sanitize log output?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Briefly describe the three strategies for collecting logs from the pods running
+    inside a Kubernetes cluster.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A simple, fast, and fun package for building command-line apps in Go: [https://github.com/urfave/cli](https://github.com/urfave/cli)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Calico**: Secure networking for the cloud-native era: [https://www.projectcalico.org](https://www.projectcalico.org)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Cilium**: API-aware networking and security: [https://cilium.io](https://cilium.io)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Docker**: Enterprise container platform: [https://www.docker.com](https://www.docker.com)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Elastic APM**: Open source application performance monitoring: [https://www.elastic.co/products/apm](https://www.elastic.co/products/apm)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**etcd**: A distributed, reliable key-value store for the most critical data
+    of a distributed system: [https://etcd.io](https://etcd.io)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Flannel**: A network fabric for containers, designed for Kubernetes: [https://github.com/coreos/flannel](https://github.com/coreos/flannel)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Fluent Bit**: A cloud-native log forwarder: [https://fluentbit.io](https://fluentbit.io)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**gokit/log**: A minimal interface for structured logging in services: [https://github.com/go-kit/kit/tree/master/log](https://github.com/go-kit/kit/tree/master/log)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**grpc-opentracing**: A package for enabling distributed tracing in gRPC clients
+    via the OpenTracing project: [https://github.com/grpc-ecosystem/grpc-opentracing](https://github.com/grpc-ecosystem/grpc-opentracing)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Jaeger**: For open source, end-to-end distributed tracing: [https://jaegertracing.io](https://jaegertracing.io)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**kibana**: Your window into the Elastic Stack: [https://www.elastic.co/products/kibana](https://www.elastic.co/products/kibana)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Kubernetes Network Policy Recipes: [https://github.com/ahmetb/kubernetes-network-policy-recipes](https://github.com/ahmetb/kubernetes-network-policy-recipes)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**logrus**: Structured, pluggable logging for Go: [https://github.com/sirupsen/logrus](https://github.com/sirupsen/logrus)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Logstash**: Centralize, transform, and stash your data: [https://www.elastic.co/products/logstash](https://www.elastic.co/products/logstash)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**OpenZipkin**: A distributed tracing system: [https://zipkin.io](https://zipkin.io)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Sigelman, Benjamin H.; Barroso, Luiz André; Burrows, Mike; Stephenson, Pat; Plakal,
+    Manoj; Beaver, Donald; Jaspan, Saul; Shanbhag, Chandan: *Dapper, a Large-Scale
+    Distributed Systems Tracing Infrastructure*. Google, Inc., 2010.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**The OpenTracing project**: [https://opentracing.io](https://opentracing.io)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**The OpenTracing project: Supported tracers**: [https://opentracing.io/docs/supported-tracers](https://opentracing.io/docs/supported-tracers)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**zap**: Blazing fast, structured, leveled logging in Go: [https://github.com/uber-go/zap](https://github.com/uber-go/zap)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**zerolog**: Zero allocation JSON logger: [https://github.com/rs/zerolog](https://github.com/rs/zerolog)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

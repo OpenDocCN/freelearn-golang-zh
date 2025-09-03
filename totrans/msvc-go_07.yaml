@@ -1,0 +1,624 @@
+- en: '7'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Storing Service Data
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this chapter, we are going to review a very important topic: storing service
+    data in persistent databases. In the previous chapters, we stored movie metadata
+    and user ratings using in-memory repositories. While it was easy to implement
+    in-memory storages of our data, using them would be impractical due to many reasons.
+    One such reason is a lack of a persistence guarantee: if our service instances
+    storing the data were restarted (for example, due to application failure or on
+    host restart), we would lose all our data that was stored in the memory of a previously
+    running instance. To guarantee that our data won’t be lost over time, we need
+    a solution that can persist our data and allow us to read and write it to our
+    microservices. Among such solutions are databases, which we are going to review
+    in this chapter.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introduction to databases
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using MySQL to store our service data
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let’s proceed to the first section of this chapter, which will provide an overview
+    of microservice persistent storage solutions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To complete this chapter, you will need Go 1.11+ or above. Additionally, you
+    will need the following tools:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Docker**: https://www.docker.com'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**grpcurl**: [https://github.com/fullstorydev/grpcurl](https://github.com/fullstorydev/grpcurl)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'You can find the GitHub code for this chapter here: https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter07.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introduction to databases
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**Databases** are systems that allow us to store and retrieve different types
+    of data. Databases offer a variety of guarantees related to data storage, such
+    as **durability** – a guarantee that all records and any related data changes
+    will be persistent over time. A durability guarantee helps ensure that the data
+    stored in a database won’t be lost in case of various events such as software
+    and hardware restarts, which are pretty common for microservices'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Databases help solve lots of different other problems related to data storage.
+    Let’s illustrate one such problem using the metadata service that we created in
+    [*Chapter 2*](B18865_02.xhtml#_idTextAnchor027). In our metadata service code,
+    we implemented an in-memory repository for storing and retrieving the movie data
+    that provides two functions, `Get` and `Put`. If we have just one instance of
+    the metadata service, all its callers would be able to successfully write and
+    read metadata records from the service memory, so long as a service instance does
+    not perform a restart. However, let’s imagine that we add another instance of
+    a metadata service, as illustrated in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.1 – Interaction between the movie service and two instances of the
+    metadata service'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_7.1_B18865.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 7.1 – Interaction between the movie service and two instances of the
+    metadata service
+  prefs: []
+  type: TYPE_NORMAL
+- en: Imagine that the movie service wants to write movie metadata and calls the metadata
+    service to do this. The movie service instance would pick an instance of a metadata
+    service (let’s assume it picks instance 0) and send a write request to it, storing
+    the record in memory of the instance that processes the request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let’s assume the movie service wants to read the previously stored movie
+    metadata and sends a read request to the metadata service. Depending on which
+    instance handles the request, there would be two possible outcomes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Instance 0**: Successfully return the previously saved movie metadata'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ErrNotFound`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We just illustrated a case where the data is inconsistent between the two instances
+    of the metadata repository. Because we have not implemented any coordination between
+    our in-memory metadata repositories, each one acts as an independent data storage.
+    Using our metadata service in such a way would be highly impractical: each newly
+    added service instance would store a completely independent dataset.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To solve our data inconsistency problem, we can use a database to store the
+    movie metadata: a database will handle all writes and reads from all the available
+    metadata service instances, helping to co-locate the data from them inside a single
+    type of logical storage. Such a scenario is illustrated in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 7.2 – Using a shared metadata database among multiple instances'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_7.2_B18865.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 7.2 – Using a shared metadata database among multiple instances
+  prefs: []
+  type: TYPE_NORMAL
+- en: In our diagram, multiple instances of a metadata service are using a shared
+    database. This helps us aggregate and store the data coming from different metadata
+    service instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We just illustrated how a database can help provide data durability to our
+    services. There are other benefits that this can provide:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Transaction support**: Many databases support transactions – types of data
+    changes – that have the following properties, abbreviated as **ACID**:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Atomicity**: A change either happens entirely or does not happen at all'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Consistency**: A change brings a database from one valid state to another'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Isolation**: Concurrent changes get executed as they were executed sequentially'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Durability**: All changes get persisted'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These transaction properties help provide a reliable way to modify different
+    types of data (for example, simultaneously updating two financial account balances).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Data replication**: A database can offer data replication – a mechanism of
+    duplicating data to additional instances, called **replicas**. Replication can
+    help make the database more resilient to data losses (for example, when a database
+    host becomes unavailable, data can be accessed on its replica) and reduce read
+    latency (for example, when a user reads data from a replica that is located closer
+    to them).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Additional query capabilities**: There are many databases (such as MySQL
+    and PostgreSQL), that offer support for different query languages, such as SQL
+    ([https://en.wikipedia.org/wiki/SQL](https://en.wikipedia.org/wiki/SQL)).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Different types of databases can help you efficiently store and retrieve various
+    types of data. Let’s review some of these popular database types:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Key-value databases**: These are databases that store data in key-value format,
+    where each record contains a key (for example, user identifier) and a value (for
+    example, user metadata). Keys and values are often represented as strings or byte
+    arrays. Operations provided by key-value databases are often limited to key-based
+    writes (store a value for the provided key) and key-based reads (read a value
+    for the provided key). Because of their functional simplicity, key-value databases
+    are among the most performant, since they don’t involve any complex data processing
+    or indexing.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Relational databases**: These are databases that store the data as a collection
+    of tables, each consisting of a set of rows and columns. Users can run SQL queries
+    to retrieve the data from one or multiple tables, being able to join the data
+    between them or perform complex searching based on a variety of conditions. Historically,
+    relational databases have been the most popular across all database types due
+    to their ability to execute queries of any complexity, as well as their ability
+    to store various types of structured (having a well-defined schema that maps row
+    data to table columns) data.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Document databases**: These are databases that store data in a document format,
+    such as JSON or XML. Document databases don’t require you to define data schemas,
+    so they’re a great fit for storing various kinds of differently structured documents
+    (for example, a collection of YAML files containing movie metadata from multiple
+    websites in different formats).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Graph databases**: These are databases that store information in the form
+    of *vertices* – objects that have different properties (for example, user details),
+    and *edges* – the relationships between vertices (for example, if user A is following
+    user B). Graph databases are different from relational databases in terms of the
+    types of read queries they offer: most graph databases support *traversal* queries
+    (checking each vertex in a graph), *connectivity* queries (getting all vertices
+    connected to the target one), and many other ones.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Blob databases**: These are databases for storing *blob* (binary large object)
+    data, such as audio or video files. Blob records are generally immutable (their
+    content never gets changed after a successful write), so blob databases are well
+    optimized for *append-only* writes (such as writing new files), as well as blob
+    reads (such as retrieving the contents of a large file).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We won’t go into the details of various types of databases because this is
+    a topic for a separate book, but it is important to note that there is no *one-size-fits-all*
+    solution among all of them, and each database provides a unique set of features
+    that can be useful for solving a specific problem. For example, if the only purpose
+    of your service is to store files, using a blob database would be sufficient,
+    while a graph database could help with building a social network to store user
+    relationship data. However, many use cases can be modeled using the relational
+    model that powers relational databases: since it was introduced in 1970 by E.F.
+    Codd, it has been used across the software development industry for nearly all
+    types of problems. Popular relational databases, such as MySQL and PostgreSQL,
+    remain the top-used software solutions, helping to build various types of applications,
+    from tiny services running on a single host to large-scale clusters spanning hundreds
+    of thousands of hosts. Because of the wide adoption and maturity of popular relational
+    databases, many companies use them as a standard way to store various types of
+    data. We are going to illustrate how to store our microservice data using a popular
+    relational database: MySQL.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using MySQL to store our service data
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we are going to provide a brief overview of MySQL and demonstrate
+    how to write and read data from the microservices that we created in the previous
+    chapters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'MySQL is an open source relational database that was created in 1995 and since
+    then has become one of the top-used databases across the development industry,
+    according to DB-Engines ranking ([https://db-engines.com/en/ranking](https://db-engines.com/en/ranking)).
+    It stores data as a set of tables, each consisting of rows and columns of predefined
+    types (such as string, numeric, binary, or more), and allows to data via SQL queries.
+    For example, assume you have the following data, stored as a table called **movies**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| id | title | director |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 922 | New York Stories | John Jones |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 1055 | Christmas Day | Ben Miles |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 1057 | Sunny Weather 3 | Ben Miles |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 7.1 – Movie table example
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A SQL query to get all movies filmed by a particular director would look as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let’s imagine we have in the same database called **ratings** that contains
+    the following data:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| record_id | record_type | user_id | rating |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 1055 | movie | alex001 | 5 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 1055 | movie | chris.rocks | 3 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 1057 | movie | alex001 | 4 |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 7.2 – Rating table example
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using SQL language, we can write a more complex query to get all ratings that
+    are associated with movies of a certain director:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: In our SQL query, we perform a **join** of two tables – an operation that allows
+    us to group the data belonging to two tables and perform additional filtering
+    (in our case, we will only select rating events where the **record_type** column’s
+    value is equal to *movie* and the **director** column’s value is equal to *Ben
+    Miles*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To demonstrate how to use MySQL to store our service data, let’s define which
+    data we want to store and how we want to access it. Let’s start with the metadata
+    service, which performs two data storage operations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Stores movie metadata for a given movie ID
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Gets movie metadata for a given movie ID
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Now, let’s review the data schema of the movie metadata object. Our movie metadata
+    contains the following fields:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**ID**: String'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Title**: String'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Description**: String'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Director**: String'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Now, let’s see which data is stored by our rating service, which performs the
+    following storage-related operations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Stores a rating for a given record (identified by a combination of a record
+    ID and its type)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Gets all ratings for a given record
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let’s review the data schema of a rating:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**User ID**: String'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Record ID**: String'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Record type**: String'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Rating value**: Integer'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'At this point, we know which data we want to store in the database and can
+    set up our database. We will use a Docker version of MySQL that you can run by
+    executing the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: In our command, we set the password for the MySQL root user to `password` so
+    that we can use it for testing. We also set the database name to `movieexample`
+    and exposed it on port `3306` so that we can use it to access our MySQL database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s verify that our container started successfully. Run the following command
+    to see the list of running Docker containers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The output should include a container with a `movieexample_db` name, a `mysql:latest`
+    image, and an `Up` status.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next step is to create our data schema. We will define it in a separate
+    folder in our `src` directory, called `schema`. Create this directory and a `schema.sql`
+    file in it, and add the following code to the newly created file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: In our schema file, we define two tables, called `movies` and `ratings`. The
+    tables that we just defined consist of `VARCHAR(255)` and `TEXT` columns. `VARCHAR`
+    is a MySQL type for storing string data, and `255` is the maximal size of a column
+    value. `TEXT` is another MySQL type that is often used for storing long text records,
+    so we used it for storing movie descriptions that may contain long texts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let’s connect to our newly provisioned database and initialize our data
+    schema. Run the following command inside the `src` directory of our project:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If everything worked correctly, our database should be ready to use. You can
+    check if the tables were created successfully by running the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output of the preceding command should include our two tables:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We are ready to implement the logic to write and read from it. Create a `metadata/internal/repository/mysql`
+    directory and add a file called `mysql.go` to it with the following contents:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In our code, we defined a MySQL-based repository that we will use to store
+    and retrieve the movie metadata. Note that we added the following line to our
+    imports:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The line that we added initializes a Go MySQL `root:password@/movieexample`
+    inside our `New` function – the value is called a **connection string** and it
+    includes the name of the user, its password, and the name of the database to be
+    connected. The connection string may also include the name of the host, MySQL
+    port, and other values, but we don’t need to set them as we are using the default
+    values to access the local version of MySQL.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Please note that storing database credentials in code is a bad practice, and
+    it is recommended to store such data (often called *secrets*) separately: for
+    example, as separate configuration files. In [*Chapter 8*](B18865_08.xhtml#_idTextAnchor109),
+    we will review how to create and use configuration files with Go microservices.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, add the following code to the file that we just created:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: In our code, we implemented the `Get` and `Put` functions so that we can store
+    and retrieve the movie metadata from MySQL. Inside our `Get` function, we use
+    the `QueryRowContext` function of our database instance to read a single row from
+    our table. In the case of a query error, we check if it is equal to `sql.ErrNoRows`;
+    if so, we return `ErrNotFound`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let’s implement our MySQL rating repository. Create a `rating/internal/repository/mysql`
+    directory and add a `mysql.go` file to it with the following contents:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So far, our rating repository code is similar to the metadata repository. Inside
+    the same file, let’s implement two functions to read and write rating data:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: In our `Get` handler, we use the `Query` function to read rating rows from our
+    table. We scan each row by calling the `rows.Scan` function, converting MySQL
+    data into the necessary structures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Our repository code is ready, so we can import the newly used package, `github.com/go-sql-driver/mysql`,
+    by running the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s verify that our logic is correct by manually testing the rating repository:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inside the `rating/cmd/main.go` file, change the `movieexample.com/rating/internal/repository/memory`
+    import to `movieexample.com/rating/internal/repository/mysql`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Inside the same file, find the following block:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Change it to the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Navigate to the `cmd` directory of the rating service and run the following
+    command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Make a manual request to write a rating:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You should see the following message:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let’s write a rating to test that our database works correctly. Execute
+    the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let’s fetch an updated rating for the same movie. Execute the same command
+    as in *step 4*:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You should get the following response:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: Hooray, we just confirmed that our repository logic works! You can now shut
+    down the rating service, rerun it, and repeat *step 6*. When you do this, you
+    will get the same result, and this will confirm that our data is persistent now
+    and does not get impacted by service restarts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we provided a brief overview of database storage solutions
+    for storing microservice data. We illustrated how to write the logic for writing
+    and reading our service data into MySQL, a popular open source relational database
+    that is widely used across the software development industry.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we are going to illustrate how to build and run our service
+    instances using a popular platform, Kubernetes, that allows us to coordinate various
+    service-related operations, such as code updates, automated service instance count
+    increases, and many more.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To learn more about the topics that were covered in this chapter, take a look
+    at the following resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Types of databases: [https://www.prisma.io/dataguide/intro/comparing-database-types](https://www.prisma.io/dataguide/intro/comparing-database-types)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'DB engines ranking: [https://db-engines.com/en/ranking](https://db-engines.com/en/ranking)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

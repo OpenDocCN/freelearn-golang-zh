@@ -1,0 +1,232 @@
+- en: Implementation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To recall, the `writerSubscriber` must receive messages that it will write on
+    a type that satisfies the `io.Writer` interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, where do we start? Well, each subscriber will run its own Goroutine, and
+    we have seen that the best method to communicate with a Goroutine is a channel.
+    So, we will need a field with a channel in the `Subscriber` type. We can use the
+    same approach as in pipelines to end with the `NewWriterSubscriber` function and
+    the `writerSubscriber` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the first step, if no writer is specified (the `out` argument is nil), the
+    default `io.Writer` interface is `stdout`. Then, we create a new pointer to the
+    `writerSubscriber` type with the ID passed in the first argument, the value of
+    out (`os.Stdout`, or whatever came in the argument if it wasn't nil), and a channel
+    called in to maintain the same naming as in previous examples.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then we launch a new Goroutine; this is the launching mechanism we mentioned.
+    Like in the pipelines, the subscriber will iterate over the `in` channel every
+    time a new message is received and it will format its contents to a string, which
+    also contains the ID of the current subscriber.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As we learned previously, if the `in` channel is closed, the `for range` loop
+    will stop and that particular Goroutine will finish, so the only thing we need
+    to do in the `Close` method is to actually close the `in` channel:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'OK, only the `Notify` method is left; the `Notify` method is a convenient method
+    to manage a particular behavior when communicating, and we will use a pattern
+    that is common in many calls:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When communicating with a channel, there are two behavior that we must usually
+    control: one is waiting time and the other is when the channel is closed. The
+    deferred function actually works for any panicking error that can occur within
+    the function. If the Goroutine panics, it will still execute the deferred function
+    with the `recover()` method. The `recover()` method returns an interface of whatever
+    the error was, so in our case, we set the returning variable error to the formatted
+    value returned by `recover` (which is an interface). The `"%#v"` parameter gives
+    us most of the information about any type when formatted to a string. The returned
+    error will be ugly, but it will contain most of the information we can extract
+    about the error. For a closed channel, for example, it will return "send on a
+    closed channel". Well, this seems clear enough.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The second rule is about waiting time. When we send a value over a channel,
+    we will be blocked until another Goroutine takes the value from it (it will happen
+    the same with a filled buffered channel). We don''t want to get blocked forever,
+    so we set a timeout period of one second by using a select handler. In short,
+    with select we are saying: either you take the value in less than 1 second or
+    I will discard it and return an error.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We have the `Close`, `Notify`, and `NewWriterSubscriber` methods, so we can
+    try our test again:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Much better now. The `Writer` has taken the mock writer we wrote on the test
+    and has written to it the value we pass to the Notify method. At the same time,
+    close has probably closed the channel effectively, because the `Notify` method
+    is returning an error after calling the `Close` method. One thing to mention is
+    that we can't check if a channel is closed or not without interacting with it;
+    that's why we had to defer the execution of a closure that will check the contents
+    of the `recover()` function in the `Notify` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing the publisher
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: OK, the publisher will need also a launching mechanism, but the main problems
+    to deal with are race conditions accessing the subscriber list. We can solve this
+    issue with a Mutex object from the `sync` package but we have already seen how
+    to use this so we will use channels instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When using channels, we will need a channel for each action that can be considered
+    dangerous--add a subscriber, remove a subscriber, retrieve the list of subscribers
+    to `Notify` method them of a message, and a channel to stop all the subscribers.
+    We also need a channel for incoming messages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Names are self-descriptive but, in short, subscribers maintain the list of subscribers;
+    this is the slice that needs multiplexed access. The `addSubCh` instance is the
+    channel to communicate with when you want to add a new subscriber; that's why
+    it's a channel of subscribers. The same explanation applies to the `removeSubCh`
+    channel, but this channel is to remove the subscriber. The `in` channel will handle
+    incoming messages that must be broadcast to all subscribers. Finally, the stop
+    channel must be called when we want to kill all Goroutines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'OK, let''s start with the `AddSubscriberCh`, `RemoveSubscriber` and `PublishingCh`
+    methods, which must return the channel to add and remove subscribers and the channel
+    to send messages to all of them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Stop()` function the `stop` channel by closing it. This will effectively
+    spread the signal to every listening Goroutine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Stop` method, the function to stop the publisher and the subscribers, also
+    pushes to its respective channel, called stop.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You may be wondering why we don't simply leave the channels available so that
+    users push directly to this channel instead of using the proxying function. Well,
+    the idea is that the user that integrates the library in their app doesn't have
+    to deal with the complexity of the concurrent structure associated with the library,
+    so they can focus on their business while maximizing performance as much as possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Handling channels without race conditions
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Until now, we have forwarded data to the channels on the publisher but we haven't
+    actually handled any of that data. The launcher mechanism that is going to launch
+    a different Goroutine will handle them all.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will create a launch method that we will execute by using the `go` keyword
+    instead of embedding the whole function inside the `NewPublisher` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`Launch` is a private method and we haven''t tested it. Remember that private
+    methods are usually called from public methods (the ones we have tested). Generally,
+    if a private method is not called from a public method, it can''t be called at
+    all!'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first thing we notice with this method is that it is an infinite for loop
+    that will repeat a select operation between many channels but only one of them
+    can be executed each time. The first of these operations is the one that receives
+    a new message to publish to subscribers. The `case msg := <- p.in:` code handles
+    this incoming operation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this case, we are iterating over all subscribers and executing their `Notify`
+    method. You may be wondering why we don''t add the `go` keyword in front so that
+    the `Notify` method is executed as a different Goroutine and therefore iterates
+    much faster. Well, this because we aren''t demultiplexing the actions of receiving
+    a message and of closing the message. So, if we launch the subscriber in a new
+    Goroutine and it is closed while the message is processed in the `Notify` method,
+    we''ll have a race condition where a message will try to be sent within the `Notify`
+    method to a closed channel. In fact, we are considering this scenario when we
+    develop the `Notify` method but, still, we won''t control the number of Goroutines
+    launched if we call the `Notify` method in a new Goroutine each time. For simplicity,
+    we just call the `Notify` method, but it is a nice exercise to control the number
+    of Goroutines waiting for a return in a `Notify` method execution. By buffering
+    the `in` channel in each subscriber, we can also achieve a good solution:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The next operation is what to do when a value arrives to the channel to add
+    subscribers. In this case it''s simple: we update it, appending the new value
+    to it. While this case is executed, not other calls can be executed in this selection:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: When a value arrives at the remove channel, the operation is a bit more complex
+    because we have to search for the subscriber in the slice. We use a *O(N)* approach
+    for it, iterating from the beginning until we find it, but the search algorithm
+    could be greatly improved. Once we find the corresponding `Subscriber` interface,
+    we remove it from the subscribers slice and stop it. One thing to mention is that
+    on tests, we are accessing the length of the subscribers slice directly without
+    demultiplexing the operation. This is clearly a race condition, but generally,
+    it isn't reflected when running the race detector.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The solution will be to develop a method just to multiplex calls to get the
+    length of the slice, but it won''t belong to the public interface. Again, for
+    simplicity, we''ll leave it like this, or this example may become too complex
+    to handle:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The last operation to demultiplex is the `stop` operation, which must stop all
+    Goroutines in the publisher and subscribers. Then we have to iterate through every
+    Subscriber stored in the subscribers field to execute their `Close()` method,
+    so their Goroutines are closed, too. Finally, if we return this Goroutine, it
+    will finish, too.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'OK, time to execute all tests and see how is it going:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Not so bad. All tests have passed successfully and we have our Observer pattern
+    ready. While the example can still be improved, it is a great example of how we
+    must handle an Observer pattern using channels in Go. As an exercise, we encourage
+    you to try the same example using mutexes instead of channels to control access.
+    It's a bit easier, and will also give you an insight of how to work with mutexes.
+  prefs: []
+  type: TYPE_NORMAL

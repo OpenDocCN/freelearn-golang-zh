@@ -1,0 +1,503 @@
+- en: Appendix
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Go Garbage Collector
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The subject of this appendix is the operation of the Go **Garbage Collector**
+    (**GC**). It is important to note that the details and performance characteristics
+    of the GC may evolve with each new Go release.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Developers generally do not need to interact directly with the GC, as **it operates
+    automatically in the background in its own goroutine**. However, understanding
+    its behavior can be beneficial for optimizing memory usage and avoiding common
+    pitfalls related to memory management. For the most up-to-date and detailed information,
+    it is recommended to refer to the official Go documentation and release notes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, let us discuss garbage collection in general. Following that, we will
+    dig deeper into the nuances of the Go GC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Garbage collection
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Garbage collection is the process of freeing up memory space that is not being
+    used. In other words, the GC sees which objects are out of scope and cannot be
+    referenced anymore and frees the memory space they consume. This process happens
+    in a concurrent way while a Go program is running and not before or after the
+    execution of the program. The documentation of the Go GC implementation states
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: ”The GC runs concurrently with mutator threads, is type accurate (also known
+    as precise), allows multiple GC threads to run in parallel. It is a concurrent
+    mark and sweep that uses a write barrier. It is non-generational and non-compacting.
+    Allocation is done using size segregated per P allocation areas to minimize fragmentation
+    while eliminating locks in the common case.”
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: The key characteristics of the Go GC
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The key characteristics of the Go garbage collector are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Concurrent and parallel**: The Go GC operates concurrently with the execution
+    of Go programs. It runs concurrently with the application’s threads, meaning that
+    the GC can perform its work without stopping the application that is being executed.
+    Additionally, certain phases of the GC can be parallelized to take advantage of
+    multiple CPU cores and modern CPUs.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Generational collector**: The Go GC uses a generational garbage collection
+    strategy, dividing objects into two generations: young and old. Most objects are
+    allocated to the young generation, and most garbage collection work is focused
+    there. The old generation contains longer-lived objects, which are less likely
+    to get garbage collected.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Tri-color mark and sweep algorithm**: The Go GC uses a tri-color mark-and-sweep
+    algorithm. This algorithm uses three colors (white, gray, and black) to track
+    the state of objects during the marking phase. White objects are not yet visited,
+    gray objects are in the process of being visited, and black objects have been
+    visited.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Write barrier**: Go uses a write barrier to keep track of pointers that are
+    updated in the heap in order to maintain consistency during garbage collection.
+    The write barrier ensures that the GC is aware of changes to pointers, allowing
+    it to trace object dependencies accurately.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Garbage collection triggers**: The Go GC is triggered based on memory allocation
+    and heap size. When the allocated memory reaches a certain threshold or the heap
+    size grows beyond a specified limit, the GC is triggered to reclaim unused memory.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Manual control**: While the GC is designed to be automatic and transparent
+    to developers, there are ways to provide hints and control certain aspects of
+    the garbage collection process. For example, the `runtime.GC()` function can be
+    used to request an explicit garbage collection cycle.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We are going to revisit most of the characteristics of the GC in a while.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Learning more about the Go GC
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Go standard library offers functions that allow you to study the operation
+    of the GC and learn more about what the GC covertly does. These functions are
+    illustrated in the `gColl.go` utility. The source code of `gColl.go` is presented
+    here in chunks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: We need the `runtime` package because it allows us to get information about
+    the Go runtime system, which among other things includes information about the
+    operation of the GC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: The main purpose of `printStats()` is to avoid writing the same Go code multiple
+    times. The `runtime.ReadMemStats()` call gets the latest garbage collection statistics
+    for you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this part, we have a for loop that creates 10 byte slices with 50,000,000
+    bytes each. The reason for this is that by allocating large amounts of memory,
+    we can trigger the GC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The last part of the program makes even bigger memory allocations—this time,
+    each byte slice has 100,000,000 bytes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running `gColl.go` on a macOS Sonoma machine with 32 GB of RAM produces the
+    following kind of output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: The value of `mem.Alloc` is the bytes of allocated heap objects—all the objects
+    that the GC has not yet freed. `mem.TotalAlloc` shows the cumulative bytes allocated
+    for heap objects—this number does not decrease when objects are freed, which means
+    that it keeps increasing. Therefore, it shows the total number of bytes allocated
+    for heap objects during program execution. `mem.HeapAlloc` is the same as `mem.Alloc`.
+    Last, `mem.NumGC` **shows the total number of completed garbage collection cycles**.
+    The bigger that value is, the more you have to consider how you allocate memory
+    in your code and if there is a way to optimize that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you want even more verbose output about the operation of the GC, you can
+    combine `go run` `gColl.go` with `GODEBUG=gctrace=1`. Apart from the regular program
+    output, you get some extra metrics—this is illustrated in the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As before, we have the same number of completed garbage collection cycles (20).
+    However, we get extra information about the heap size of each cycle. So, for garbage
+    collection cycle 20 (`gc 20`), we get the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now let us explain the `95->95->0` `MB` triplet in the previous line of output.
+    The first value (`95`) is the heap size when the GC is about to run. The second
+    value (`95`) is the heap size when the GC ends its operation. The last value is
+    the size of the live heap (`0`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The tri-color algorithm
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As mentioned earlier, the operation of the Go GC is based on the tri-color algorithm.
+    Note that the tri-color algorithm is not unique to Go and can be used in other
+    programming languages as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Strictly speaking, the official name for the algorithm used in Go is the **tri-color
+    mark-and-sweep algorithm**. It works concurrently with the program and uses a
+    write barrier. This means that while a Go program runs, the Go scheduler is responsible
+    for the scheduling of the application as well as the GC, which also runs as a
+    goroutine. This is as if the Go scheduler must deal with a regular application
+    with multiple goroutines!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The core idea behind this algorithm came from Edsger W. Dijkstra, Leslie Lamport,
+    A. J. Martin, C. S. Scholten, and E. F. M. Steffens and was first illustrated
+    in a paper named *On-the-Fly Garbage Collection: An Exercise in Cooperation*.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The primary principle behind the tri-color mark-and-sweep algorithm is that
+    it divides the objects of the heap into three different sets according to their
+    color, which is assigned by the algorithm and can be black, gray, or white. The
+    objects in the black set are guaranteed to have no pointers to any object in the
+    white set. On the other hand, an object in the white set can point to an object
+    in the black set because this has no effect on the operation of the GC. The objects
+    in the gray set might have pointers to some objects in the white set. Finally,
+    the objects in the white set are the candidates for garbage collection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, when the garbage collection begins, all objects are white, and the GC visits
+    all the root objects and colors them gray. The roots are the objects that can
+    be directly accessed by the application, which includes global variables and other
+    things on the stack. These objects mostly depend on the Go code of a particular
+    program.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After that, the GC picks a gray object, makes it black, and starts looking at
+    whether that object has pointers to other objects in the white set or not. Therefore,
+    when an object in the gray set is scanned for pointers to other objects, it is
+    colored black. If that scan discovers that this particular object has one or more
+    pointers to a white object, it puts that white object in the gray set. This process
+    keeps going for as long as there exist objects in the gray set. After that, the
+    objects in the white set are unreachable and their memory space can be reused.
+    Therefore, at this point, the elements in the white set are said to be garbage
+    collected. Please note that no object can go directly from the black set to the
+    white set, which allows the algorithm to operate and be able to clear the objects
+    in the white set. As mentioned before, no object in the black set can directly
+    point to an object in the white set. Additionally, if an object in the gray set
+    becomes unreachable at some point in a garbage collection cycle, it will not be
+    collected in that garbage collection cycle but in the next one! Although this
+    is not an optimal situation, it is not that bad.
+  prefs: []
+  type: TYPE_NORMAL
+- en: During this process, the running application is called the mutator. The mutator
+    runs a small function named **write barrier**, which is executed each time a pointer
+    in the heap is modified. If the pointer of an object in the heap is modified,
+    this means that this object is now reachable—the write barrier colors it gray
+    and puts it in the gray set. The mutator is responsible for the invariant that
+    no element of the black set has a pointer to an element of the white set. This
+    is accomplished with the help of the write barrier function. Failing to accomplish
+    this invariant will ruin the garbage collection process and will most likely crash
+    your program in a pretty bad and undesirable way!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, to summarize, there are three different colors: black, white, and gray.
+    When the algorithm begins, all objects are colored white. As the algorithm keeps
+    going, white objects are moved into one of the other two sets. The objects that
+    are left in the white set are the ones that are going to be cleared at some point.
+    The next figure displays the three color sets with objects in them.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![A group of circles with letters and numbers  Description automatically generated](img/B21003_appA_01.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure A.1: The Go garbage collector represents the heap of a program as a
+    graph'
+  prefs: []
+  type: TYPE_NORMAL
+- en: While object **E**, which is in the white set, can access object **F**, it cannot
+    be accessed by any other object because no other object points to object **E**,
+    which makes it a perfect candidate for garbage collection! Additionally, objects
+    **A**, **B**, and **C** are root objects and are always reachable; therefore,
+    they cannot be garbage collected.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Can you guess what happens next? Well, the algorithm will have to process the
+    remaining elements of the gray set, which means that both objects **A** and **F**
+    will go to the black set. Object **A** goes to the black set because it is a root
+    element and **F** goes to the black set because it does not point to any other
+    object while it is in the gray set.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After object **E** is garbage collected, object **F** will become unreachable
+    and will be garbage collected in the next cycle of the GC because an unreachable
+    object cannot magically become reachable in the next iteration of the garbage
+    collection cycle.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go garbage collection can also be applied to variables such as channels. When
+    the GC finds out that a channel is unreachable, which is when the channel variable
+    cannot be accessed anymore, it will free its resources even if the channel has
+    not been closed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go allows you to manually initiate garbage collection cycles by putting a `runtime.GC()`
+    statement in your Go code. However, keep in mind that `runtime.GC()` blocks the
+    caller and it might block the entire program, especially if you are running a
+    very busy Go program with many objects. This mainly happens because you cannot
+    perform garbage collections while everything else is rapidly changing, as this
+    will not give the GC the opportunity to clearly identify the members of the white,
+    black, and gray sets. This garbage collection status is also called a garbage
+    collection safe point.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can find the long and relatively advanced Go code of the GC at [https://github.com/golang/go/blob/master/src/runtime/mgc.go](https://github.com/golang/go/blob/master/src/runtime/mgc.go),
+    which you can study if you want to learn even more information about the garbage
+    collection operation. You can even make changes to that code if you are brave
+    enough!
+  prefs: []
+  type: TYPE_NORMAL
+- en: More about the operation of the Go GC
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: This section talks more about the Go GC and presents additional information
+    about its activities. The main concern of the Go GC is low latency, which basically
+    means short pauses in its operation in order to have real-time operation. On the
+    other hand, what a program does is create new objects and manipulate existing
+    objects with pointers all the time. This process can end up creating objects that
+    cannot be accessed anymore because there are no pointers pointing to these objects.
+    These objects are then garbage and wait for the GC to clean them up and free their
+    memory space. After that, the memory space that has been freed is ready to be
+    used again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The mark-and-sweep algorithm is the simplest algorithm used. The algorithm stops
+    the program execution (**stop-the-world GC**) in order to visit all the accessible
+    objects of the heap of a program and marks them. After that, it sweeps the inaccessible
+    objects. During the mark phase of the algorithm, each object is marked as white,
+    gray, or black. The children of a gray object are colored gray, whereas the original
+    gray object is then colored black. The sweep phase begins when there are no more
+    gray objects to examine. This technique works because there are no pointers from
+    the black set to the white set, which is a fundamental invariant of the algorithm.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although the mark-and-sweep algorithm is simple, it suspends the execution of
+    the program while it is running, which means that it adds latency to the actual
+    process. Go tries to lower that latency by running the GC as a concurrent process
+    and by using the tri-color algorithm described in the previous section. However,
+    other processes can move pointers or create new objects while the GC runs concurrently.
+    This fact can make things difficult for the GC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As a result, the basic principle that will allow the tri-color algorithm to
+    operate concurrently while maintaining the fundamental invariant of the mark-and-sweep
+    algorithm is that no object in the black set can point to an object in the white
+    set.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The solution to this problem is fixing all the cases that can cause a problem
+    for the algorithm. Therefore, new objects must go to the gray set because, this
+    way, the fundamental invariant of the mark-and-sweep algorithm cannot be altered.
+    Additionally, when a pointer of the program is moved, you color the object that
+    the pointer points to as gray. The gray set acts like a barrier between the white
+    set and the black set. Finally, each time a pointer is moved, some Go code gets
+    automatically executed, which is the write barrier mentioned earlier, which does
+    some recoloring. The latency introduced by the execution of the write barrier
+    code is the price we have to pay for being able to run the GC concurrently.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that the Java programming language has many garbage collectors that are
+    highly configurable with the help of multiple parameters. One of these Java garbage
+    collectors is called G1 and it is recommended for low-latency applications. Although
+    Go does not have multiple garbage collectors, it does have knobs that you can
+    use to tune the garbage collector for your applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The section that follows discusses maps and slices from a garbage collection
+    perspective because sometimes the way we handle variables influences the operation
+    of the GC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Maps, slices, and the Go GC
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we discuss the operation of the Go GC in relation to maps and
+    slices. The purpose of this section is to let you write code that makes the work
+    of the GC easier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using slices
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The example in this section uses a slice to store a large number of structures
+    in order to show how slice allocation is related to the operation of the GC. Each
+    structure stores two integer values. This is implemented in `sliceGC.go` as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: The last statement, (`_ = structure[0]`), is used to prevent the GC from garbage
+    collecting the structure variable too early, as it is not referenced or used outside
+    of the `for` loop. The same technique will be used in the three Go programs that
+    follow. Apart from this important detail, a `for` loop is used for putting all
+    values into structures that are stored in the structure slice variable. An equivalent
+    way of doing that is the use of `runtime.KeepAlive()`. The program generates no
+    output—it just triggers the GC using a call to `runtime.GC()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using maps with pointers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this subsection, we use a map for storing pointers. This time, the map uses
+    integer keys that reference the pointers. The name of the program is `mapStar.go`
+    and contains the following Go code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: The operation of the program is the same as in `sliceGC.go` from the previous
+    section. What differs is the use of a map (`make(map[int]*int)`) for storing the
+    pointers to `int`. As before, the program produces no output.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using maps without pointers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this subsection, we use a map that stores integer values directly instead
+    of pointers to integers. The important code of `mapNoStar.go` is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once again, the program produces no output.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Splitting a map
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this last program, we use a different technique called sharding where we
+    split one long map into a map of maps. The implementation of the `main()` function
+    of `mapSplit.go` is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The code uses two `for` loops, one for creating the map of maps and the other
+    one for storing the desired data values in the map of maps.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As all four programs are using huge data structures, they are consuming large
+    amounts of memory. Programs that consume lots of memory space trigger the Go GC
+    more often. The next subsection presents an evaluation of the presented techniques.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Comparing the performance of the presented techniques
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In this subsection, we compare the performance of each one of these four implementations
+    using the time command of `zsh(1)`, which is pretty similar to the `time(1)` UNIX
+    command. The purpose of the comparison is to understand how the allocation technique
+    and the data structure used affect the performance of a program.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: It turns out that **all map versions are slower than the slice version**. Unfortunately
+    for maps, the map version will always be slower than the slice version because
+    of the execution of the hash function and the fact that the data is not contiguous.
+    **In maps, data is stored in a bucket determined by the output of the hash function**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Additionally, the first map program (`mapStar.go`) may trigger some GC slowdown
+    because taking the address of `&value` will cause it to escape to the heap. Every
+    other program is just using the stack for those locals. **When variables escape
+    to the heap, they cause more garbage collection pressure**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Accessing an element of a map or a slice has `O(1)` runtime, which means that
+    the access time does not depend on the number of elements found in the map or
+    the slice. However, the way these structures work affects the overall speed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Additional resources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Go FAQ: How do I know whether a variable is allocated on the heap or the stack?
+    [https://go.dev/doc/faq#stack_or_heap](https://go.dev/doc/faq#stack_or_heap)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The list of available `-gcflags` options: [https://pkg.go.dev/cmd/compile](https://pkg.go.dev/cmd/compile.dev/doc/faq#stack_or_heap)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If you want to learn more about garbage collection, you should visit [http://gchandbook.org/](http://gchandbook.org/)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Leave a review!
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Enjoyed this book? Help readers like you by leaving an Amazon review. Scan the
+    QR code below to get a free eBook of your choice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Review_QR_Code.png)'
+  prefs: []
+  type: TYPE_IMG

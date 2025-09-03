@@ -1,0 +1,2026 @@
+- en: Data-Processing Pipelines
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '"Inside every well-written large program is a well-written small program."'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '- Tony Hoare'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pipelines are a fairly standard and used way to segregate the processing of
+    data into multiple stages. In this chapter, we will be exploring the basic principles
+    behind data-processing pipelines and present a blueprint for implementing generic,
+    concurrent-safe, and reusable pipelines using Go primitives, such as channels,
+    contexts, and go-routines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, you will learn about the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Designing a generic processing pipeline from scratch using Go primitives
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Approaches to modeling pipeline payloads in a generic way
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Strategies for dealing with errors that can occur while a pipeline is executing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Pros and cons of synchronous and asynchronous pipeline design
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Applying pipeline design concepts to building the Links 'R' Us crawler component
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The full code for the topics discussed in this chapter has been published to
+    this book's GitHub repository under the `Chapter07` folder.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can access the GitHub repository that contains the code and all required
+    resources for each of this book's chapters by going to [https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang](https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To get you up and running as quickly as possible, each example project includes
+    a makefile that defines the following set of targets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Makefile target** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `deps` | Install any required dependencies |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `test` | Run all tests and report coverage |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lint` | Check for lint errors |'
+  prefs: []
+  type: TYPE_TB
+- en: As with all other book chapters, you will need a fairly recent version of Go,
+    which you can download at [https://golang.org/dl](https://golang.org/dl)*.*
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building a generic data-processing pipeline in Go
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The following figure illustrates the high-level design of the pipeline that
+    we will be building throughout the first half of this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/c88d9228-c7fa-46e8-813d-1e7464d29804.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1: A generic, multistage pipeline
+  prefs: []
+  type: TYPE_NORMAL
+- en: Keep in mind that this is definitely not the only, or necessarily the best,
+    way to go about implementing a data-processing pipeline. Pipelines are inherently
+    application specific, so there is not really a one-size-fits-all guide for constructing
+    efficient pipelines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Having said that, the proposed design is applicable to a wide variety of use
+    cases, including, but not limited to, the crawler component for the Links ''R''
+    Us project. Let''s examine the preceding figure in a bit more detail and identify
+    the basic components that the pipeline comprises:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The **input source**: Inputs essentially function as data-sources that pump
+    data into the pipeline. From this point onwards, we will be referring to this
+    set of data with the term **payload**. Under the hood, inputs facilitate the role
+    of an **adapter**, reading data typically available in an external system, such
+    as a database or message queue, and converting it into a format that can be consumed
+    by the pipeline.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'One or more processing **stages**: Each stage of the pipeline receives a payload
+    as its input, applies a processing function to it, and passes the result to the
+    stage that follows.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The **output sink**: After stepping through each of the pipeline''s stages,
+    payloads eventually reach the output sink. In a similar fashion to input sources,
+    sinks also work as **adapters**, only this time the conversion works in reverse!
+    Payloads are converted into a format that can be consumed by an external system.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'An **error bus**: The error bus provides a convenient abstraction that allows
+    the pipeline components to report any errors that occur while the pipeline is
+    executing.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The full source code and tests for the pipeline are available at the book's
+    GitHub repository under the `Chapter07/pipeline` folder.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Design goals for the pipeline package
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Let''s quickly enumerate some of the design goals for the `pipeline` package
+    that we will be building. The key principles that will serve as guides for the
+    design decisions that we will be making are: simplicity, extensibility, and genericness.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: First and foremost, our design should be able to adapt to different types of
+    payloads. Keep in mind that payload formats are, in the majority of cases, dictated
+    by the end user of the pipeline package. Consequently, the pipeline internals
+    should not make any assumptions about the internal implementation details of payloads
+    that traverse the various pipeline stages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Secondly, the main role of a data-processing pipeline is to facilitate the flow
+    of payloads between a source and a sink. In a similar manner to payloads, the
+    endpoints of a pipeline are also provided by the end user. As a result, the pipeline
+    package needs to define the appropriate abstractions and interfaces for allowing
+    the end users to register their own source and sink implementations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Moreover, the pipeline package should go beyond just allowing the end users
+    to specify a processing function for each stage. Users should also be able to
+    choose, on a per-stage basis, the strategy used by the pipeline for delivering
+    payloads to processing functions. It stands to reason that the package should
+    come with *batteries included–*that is, provide built-in implementations for the
+    most common payload delivery strategies; however, the user should be given the
+    flexibility to define their own custom strategies if the built-in ones are not
+    sufficient for their particular use cases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, our implementation must expose simple and straightforward APIs for
+    creating, assembling, and executing complex pipelines. Furthermore, the API dealing
+    with the pipeline execution should not only provide users with the means to cancel
+    long-running pipelines, but it should also provide a mechanism for capturing and
+    reporting any errors that might occur while the pipeline is busy processing payloads.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Modeling pipeline payloads
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The first and most crucial question we need to answer before we begin working
+    on the pipeline package implementation is *how can we describe pipeline payloads
+    in a generic way using Go?*
+  prefs: []
+  type: TYPE_NORMAL
+- en: The kind of obvious answer to this question is to define payloads as empty interface
+    values (an `interface{}` in Go terminology). The key argument in favor of this
+    approach is that the pipeline internals shouldn't really care about payloads per
+    se; all the pipeline needs to do is shuttle payloads between the various pipeline
+    stages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The interpretation of the payload contents (for example, by casting the input
+    to a known type) should be the sole responsibility of the processing functions
+    that execute at each stage. Given that the processing functions are specified
+    by the end user of the pipeline, this approach would probably be a good fit for
+    our particular requirements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, as Rob Pike quite eloquently puts it in one of his famous Go proverbs, `interface{}`
+    *says nothing*. There is quite a bit of truth in that statement. The empty interface
+    conveys no useful information about the underlying type. As a matter of fact,
+    if we were to follow the empty interface approach, we would be effectively disabling
+    the Go compiler's ability to do static type checking of some parts of our code
+    base!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On one hand, the use of empty interfaces is generally considered an antipattern
+    by the Go community and is therefore a practice we would ideally want to avoid.
+    On the other hand, Go has no support for generics, which makes it much more difficult
+    to write code that can work with objects whose type is not known in advance. So,
+    instead of trying to find a silver bullet solution to this problem, let''s try
+    to compromise: how about we try to enforce a set of common operations that all
+    payload types must support and create a `Payload` interface to describe them?
+    That would give us an extra layer of type-safety while still making it possible
+    for pipeline processor functions to cast incoming payloads to the type they expect.
+    Here is a possible definition for the `Payload` interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can see, we expect that, regardless of the way that a payload is defined,
+    it must be able to perform at least two simple (and quite common) operations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Perform a deep-copy of itself**: As we will see in one of the following sections,
+    this operation will be required for avoiding data races when multiple processors
+    are operating on the same payload concurrently.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Mark itself as processed**: Payloads are considered to be processed when
+    they either reach the end of the pipeline (the sink) or if they are discarded
+    at an intermediate pipeline stage. Having such a method invoked on payloads when
+    they exit the pipeline is quite useful for scenarios where we are interested in
+    collecting per-payload metrics (total processing time, time spent in the queue
+    before entering the pipeline, and so on).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Multistage processing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The key concept behind pipelining is to break down a complex processing task
+    into a series of smaller steps or **stages **that can be executed *independently* of
+    each other and in a *predefined order*. Multistage processing, as an idea, also
+    seems to resonate quite well with the single-responsibility principle that we
+    discussed in [Chapter 2](96fb70cb-8134-4156-bd3e-48ca53224683.xhtml), *Best Practices
+    for Writing Clean and Maintainable Go Code*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When assembling a multistage pipeline, the end user is expected to provide a
+    set of functions, or **processors**,that will be applied to incoming payloads
+    as they flow through each stage of the pipeline. I will be referring to these
+    functions with the notation *F[i]*, where *i* corresponds to a stage number.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Under normal circumstances, the output of each stage will be used as input by
+    the stage that follows—that is *Output[i] = F[i]( Output[i-1] )*. Yet, one could
+    definitely picture scenarios where we would actually like to discard a payload
+    and prevent it from reaching any of the following pipeline stages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, let's say we are building a pipeline to read and aggregate data
+    from a CSV file. Unfortunately, the file contains some rows with garbage data
+    that we must exclude from our calculations. To deal with cases like this, we can
+    add a **filter stage** to the pipeline that inspects the contents of each row
+    and drops the ones containing malformed data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With the preceding cases in mind, we can describe a stage `Processor` interface
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: There is a small issue with the preceding definition that makes it a bit cumbersome
+    to use in practice. Since we are talking about an interface, it needs to be implemented
+    by a type such as a Go struct; however, one could argue that in many cases, all
+    we really need is to be able to use a simple function, or a **closure**as our
+    processor.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Given that we are designing a *generic* pipeline package, our aim should be
+    to make its API as convenient as possible for the end users. To this end, we will
+    also define an auxiliary type called `ProcessorFunc` that serves the role of a
+    function *adapter*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: If we have a function with the appropriate signature, we can cast it to a `ProcessorFunc` and
+    automatically obtain a type that implements the `Processor` interface! If this
+    trick seems vaguely familiar to you, chances are that you have already used it
+    before if you have written any code that imports the `http` package and registers
+    HTTP handlers. The `HandlerFunc` type from the `http` package uses exactly the
+    same idea to convert user-defined functions into valid HTTP `Handler` instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Stageless pipelines – is that even possible?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Should a pipeline definition include a minimum number of stages for it to be
+    considered as valid? More specifically, should we be allowed to define a pipeline
+    with *zero* stages? In my view, stages should be considered as an optional part
+    of a pipeline definition. Remember that for a pipeline to function, it requires,
+    at minimum, an input source and an output sink.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we were to directly connect the input to the output and execute the pipeline,
+    we would get the same result as if we had executed a pipeline with just a single
+    stage whose `Processor` is an *identity *function—that is, a function that always
+    outputs the value passed to it as input. We could easily define such a function
+    using the `ProcessorFunc` helper from the previous section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Is there a practical real-world use for this kind of pipeline? The answer is
+    yes! Such a pipeline facilitates the role of an adapter for linking together two,
+    potentially incompatible, systems and transferring data between them. For example,
+    we could use this approach for reading events off a message queue and persisting
+    them into a noSQL database for further processing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Strategies for handling errors
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As a pipeline executes, each one of the components that comprise it may potentially
+    encounter errors. Consequently, prior to implementing the internals of our pipeline
+    package, we need to devise a strategy for detecting, collecting, and handling
+    errors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the following sections, we will be exploring some alternative strategies
+    for dealing with errors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Accumulating and returning all errors
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: One of the simplest strategies at our disposal involves the introduction of
+    a mechanism for collecting and accumulating *all* errors emitted by any of the
+    pipeline components while the pipeline is executing. Once the pipeline detects
+    an error, it automatically discards the payload that triggered the error, but
+    appends the captured error to a list of collected errors. The pipeline resumes
+    its execution with the next payload till all payloads have been processed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After the pipeline execution completes, any collected errors are returned back
+    to the user. At this point, we have the option to either return a slice of Go
+    error values or use a helper package, such as `hashicorp/go-multierror` ^([6]), which allows
+    us to aggregate a list of Go error values into a container value that implements
+    the `error` interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A great candidate for this type of error handling is pipelines where the processors
+    implement best-effort semantics. For example, if we were building a pipeline to
+    pump out events in a fire-and-forget manner, we wouldn't want the pipeline to
+    stop if one of the events could not be published.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using a dead-letter queue
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In some scenarios, the user of the pipeline package might be interested in obtaining
+    a list of all the payloads that could not be processed by the pipeline because
+    of the presence of errors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following points apply, depending on the application requirements:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Detailed information about each error and the content of each failed payload
+    can be logged out for further analysis
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Failed payloads can be persisted to an external system (for example, via a messaging
+    queue) so that they can be manually inspected and corrected (when feasible) by
+    human operators
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We could start a new pipeline run to process the payloads that failed during
+    the previous run
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The concept of storing failed items for future processing is quite prevalent
+    in event-driven architectures, and is typically referred to as the **dead-letter
+    queue**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Terminating the pipeline's execution if an error occurs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: One important caveat of the previous strategies is that they cannot be applied
+    to *long-running* pipelines. Even if an error occurs, we will not find out about
+    it until the pipeline completes. This could take hours, days, or even forever
+    if the pipeline's input never runs out of data. An example of the latter case
+    would be a pipeline whose input is connected to a message queue and blocks while
+    waiting for new messages to arrive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To deal with such scenarios, we could *immediately* terminate the pipeline's
+    execution when an error occurs and return the error back to the user. As a matter
+    of fact, this is the error-handling strategy that we will be using in our pipeline
+    implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At first glance, you could argue that this approach is quite limiting compared
+    to the other strategies we have discussed so far; however, if we dig a bit deeper,
+    we will discover that this approach is better suited for a greater number of use
+    cases, as it is versatile enough to emulate the behavior of the other two error-handling
+    strategies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To gain a better understanding of how this can be achieved, we first need to
+    talk a bit about the nature of errors that might occur while a pipeline is executing.
+    Depending on whether errors are fatal, we can classify them into two categories:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Nontransient errors**: Such errors are considered to be fatal and applications
+    cannot really recover from them. An example of a nontransient error would be running
+    out of disk space while writing to a file.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Transient errors**: Applications can, and should, always attempt to recover
+    from such errors, although this may not always be possible. This is usually achieved
+    by means of some sort of retry mechanism. For instance, if the application loses
+    its connection to a remote server, it can attempt to reconnect using an exponential
+    back-off strategy. If a maximum number of retries is reached, then this becomes
+    a nontransient error.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following is a simple example illustrating how a user can apply the decorator design
+    pattern to wrap a `Processor` function and implement a retry mechanism that can
+    distinguish between transient and nontransient errors:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `retryingProcessor` function wraps an existing `Processor` to provide support
+    for automatic retries in the presence of errors. Each time an error occurs, the
+    function consults the `isTransient` helper function to decide whether the obtained
+    error is transient and whether another attempt at processing the payload can be
+    performed. Nontransient errors are considered to be nonrecoverable, and in such
+    cases, the function will return the error to cause the pipeline to terminate.
+    Finally, if the maximum number of retries is exceeded, the function treats the
+    error as nontransient and bails out.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Synchronous versus asynchronous pipelines
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A critical decision that will influence the way we implement the core of the
+    pipeline is whether it will operate in a synchronous or an asynchronous fashion.
+    Let's take a quick look at these two modes of operation and discuss the pros and
+    cons of each one.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Synchronous pipelines
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A synchronous pipeline essentially processes one payload at a time. We could
+    implement such a pipeline by creating a `for` loop that does the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Dequeues the next payload from the input source or exits the loop if no more
+    payloads are available
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Iterates the list of pipeline stages and invokes the `Processor` instance for
+    each stage
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Enqueues the resulting payload to the output source
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Synchronous pipelines are great for workloads where payloads must always be
+    processed in **first-in-first-out** (**FIFO**) fashion, a quite common case for
+    event-driven architectures which, most of the time, operate under the assumption
+    that events are always processed in a specific order.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As an example, let''s say that we are trying to construct an **ETL** (short
+    for **extract**, **transform**, and **load**) pipeline for consuming an event-stream
+    from an order-processing system, enriching some of the incoming events with additional
+    information by querying an external system and finally transforming the enriched
+    events into a format suitable for persisting into a relational database. The pipeline
+    for this use-case can be assembled using the following two stages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first stage inspects the event type and enriches it with the appropriate
+    information by querying an external service
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The second stage converts each enriched event into a sequence of SQL queries
+    for updating one or more database tables
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: By design, our processing code expects that an `AccountCreated` event must always
+    precede an `OrderPlaced` event, which includes a reference (a UUID) to the account
+    of the customer who placed the order. If the events were to be processed in the
+    wrong order, the system might find itself trying to process `OrderPlaced` events
+    before the customer records in the database have been created. While it is certainly
+    possible to code around this limitation, it would make the processing code much
+    more complicated and harder to debug when something goes wrong. A synchronous
+    pipeline would enforce in-order processing semantics and make this a nonissue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So what's the catch when using synchronous pipelines? The main issue associated
+    with synchronous pipelines is *low throughput*. If our pipeline consists of *N* stages
+    and each stage takes *1 time unit* to complete, our pipeline would require *N
+    time-units* to process and emit *each* payload. By extension, each time a stage
+    is processing a payload, the remaining *N-1 *stages are *idling*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Asynchronous pipelines
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In an asynchronous pipeline design, once a stage processes an incoming payload
+    and emits it to the next stage, it can immediately begin processing the next available
+    payload without having to wait for the currently processed payload to exit the
+    pipeline, as would be the case in a synchronous pipeline design. This approach
+    ensures that all stages are continuously kept busy processing payloads instead
+    of idling.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It is important to note that asynchronous pipelines typically require some
+    form of concurrency. A common pattern is to run each stage in a separate goroutine.
+    Of course, this introduces additional complexity to the mix as we need to do the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Manage the lifecycle of each goroutine
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Make use of concurrency primitives, such as locks, to avoid data races
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Nevertheless, asynchronous pipelines have much better throughput characteristics
+    compared to synchronous pipelines. This is the main reason why the pipeline package
+    that we will be building in this chapter will feature an asynchronous pipeline
+    implementation... with a small twist! Even though all pipeline components (input,
+    output, and stages) will be running *asynchronously*, end users will be interacting
+    with the pipeline using a *synchronous* API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A quick survey of the most popular Go **software development kits** (**SDKs**)
+    out there will reveal a general consensus toward exposing synchronous APIs. From
+    the perspective of the API consumer, synchronous APIs are definitely easier to
+    consume as the end user does not need to worry about managing resources, such
+    as Go channels, or writing complex `select` statements to coordinate reads and/or
+    writes between channels. Contrast this approach with having an asynchronous API,
+    where the end user would have to deal with an input, output, and error channel
+    every time they wanted to execute a pipeline run!
+  prefs: []
+  type: TYPE_NORMAL
+- en: As mentioned previously, the pipeline internals will be executing asynchronously.
+    The typical way to accomplish this in Go would be to start a goroutine for each
+    pipeline component and link the individual goroutines together by means of Go
+    channels. The pipeline implementation will be responsible for fully managing the
+    lifecycle of any goroutine it spins up, in a way that is totally transparent to
+    the end user of the pipeline package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When working with goroutines, we must always be conscious about their individual
+    lifecycles. A sound piece of advice is to never start a goroutine unless you know
+    when it will exit and which conditions need to be satisfied for it to exit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Failure to heed this bit of advice can introduce goroutine leaks in long-running
+    applications that typically require quite a bit of time and effort to track down.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exposing a synchronous API for the pipeline package has yet another benefit
+    that we haven't yet mentioned. It is pretty trivial for the end users of the pipeline
+    package to wrap the synchronous API in a goroutine and make it asynchronous. The
+    goroutine would simply invoke the blocking code and use a channel to signal the
+    application code when the pipeline execution has completed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing a stage worker for executing payload processors
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'One of the goals of the pipeline package is to allow the end users to specify
+    a per-stage strategy for dispatching incoming payloads to the registered processor
+    functions. In order to be able to support different dispatch strategies in a clean
+    and extensible way, we are going to be introducing yet another abstraction, the `StageRunner` interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Concrete `StageRunner` implementations provide a `Run` method that implements
+    the payload processing loop for a single stage of the pipeline. A typical processing
+    loop consists of the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Receive the next payload from the previous stage or the input source, if this
+    happens to be the first stage of the pipeline. If the upstream data source signals
+    that it has run out of data, or the externally provided `context.Context` is cancelled,
+    then the `Run` method should automatically return.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Dispatch the payload to a user-defined processor function for the stage. As
+    we will see in the following sections, the implementation of this step depends
+    on the dispatch strategy that is being used by the `StageRunner` implementation.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If the error processor returns an *error*, enqueue the error to the shared error
+    bus and return.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Push successfully processed payloads to the next pipeline stage, or the output
+    sink, if this is the last stage of the pipeline.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The preceding steps make it quite clear that `Run` is a blocking call. The
+    pipeline implementation will start a goroutine for each stage of the pipeline,
+    invoke the `Run` method of each registered `StageRunner` instance, and wait for
+    it to return. Since we are working with goroutines, the appropriate mechanism
+    for interconnecting them is to use Go channels. As both the goroutine and channel
+    lifecycles are managed by the pipeline internals, we need a way to configure each `StageRunner` with
+    the set of channels it will be working with. This information is provided to the `Run` method
+    via its second argument. Here is the definition of the `StageParams` interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Input` method returns a *read-only* channel that the worker will be watching
+    for incoming payloads. The channel will be *closed* to indicate that no more data
+    is available for processing. The `Output` method returns a *write-only* channel
+    where the `StageRunner` should publish the input payload after it has been successfully
+    processed. On the other hand, should an error occur while processing an incoming
+    payload, the `Error` channel returns a *write-only* channel where the error can
+    be published. Finally, the `StageIndex` method returns the position of the stage
+    in the pipeline that can be optionally used by `StageRunner` implementations to
+    annotate errors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following sections, we will be taking a closer look at the implementation
+    of three very common payload dispatch strategies that we will be bundling with
+    the pipeline package: FIFO, fixed/dynamic worker pools, and broadcasting.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: FIFO
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As the name implies, when a stage operates in FIFO mode, it processes payloads
+    sequentially, thereby maintaining their order. By creating a pipeline where *all*
+    stages use FIFO dispatching, we can enforce synchronous-like semantics for data
+    processing, but still retain the high throughput benefits associated with an asynchronous
+    pipeline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `fifo` type is private within the `pipeline` package, but it can be instantiated
+    via a call to the  `FIFO` function, which is outlined as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s now take a look at the `Run` method implementation for the `fifo` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can see, `Run` is, by design, a blocking call; it runs an infinite for-loop
+    with a single `select` statement. Within the `select` block, the code does the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Monitors the provided context for cancellation and exits the main loop when
+    the context gets cancelled (for example, if the user cancelled it or its timeout
+    expired).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Attempts to retrieve the next payload from the input channel. If the input channel
+    closes, the code exits the main loop.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Once a new input payload has been received, the FIFO runner executes the following
+    block of code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The input payload is first passed to the user-defined `Processor` instance.
+    If the processor returns an error, the code annotates it with the current stage
+    number and attempts to enqueue it to the provided error channel by invoking the `maybeEmitError` helper
+    before exiting the worker:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the payload is processed without an error, then we need to check whether
+    the processor returned a valid payload that we need to forward or a *nil* payload
+    to indicate that the input payload should be discarded. Prior to discarding a
+    payload, the code invokes its `MarkAsProcessed` method before commencing a new
+    iteration of the main loop.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, if the processor returns a valid payload, we attempt to enqueue
+    it to the output channel with the help of a `select` statement that blocks until
+    either the payload is written to the output channel or the context gets cancelled.
+    In the latter case, the worker terminates and the payload is dropped to the floor.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fixed and dynamic worker pools
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Oftentimes, processor functions can take quite a bit of time to return. This
+    could be either because the actual payload processing involves CPU-intensive calculations
+    or simply because the function is waiting for an I/O operation to complete (for
+    example, the processor function performed an HTTP request to a remote server and
+    is waiting for a response).
+  prefs: []
+  type: TYPE_NORMAL
+- en: If all stages were linked using the FIFO dispatch strategy, then slowly executing
+    processors could cause the pipeline to stall. If *out-of-order* processing of
+    payloads is not an issue, we can make much better use of the available system
+    resources by introducing worker pools into the mix. Worker pools is a pattern
+    that can significantly improve the throughput of a pipeline by enabling stages
+    in order to process multiple payloads in *parallel*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first worker pool pattern that we will be implementing is a **fixed **worker
+    pool. This type of pool spins up a preconfigured number of workers and distributes
+    incoming payloads among them. Each one of the pool workers implements the same
+    loop as the FIFO `StageRunner`. As the following code shows, our implementation
+    actively exploits this observation and avoids duplicating the main loop code by
+    creating a FIFO instance for each worker in the pool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Run` method shown in the following code spins up the individual pool workers,
+    executes their `Run` method, and uses a `sync.WaitGroup` to prevent it from returning
+    until all the spawned worker goroutines terminate:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In terms of wiring, things are pretty simple here. All we need to do is pass
+    the incoming parameters, as-is, to each one of the FIFO instances. The effect
+    of this wiring is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: All FIFOs are set up to read incoming payloads from the *same* input channel,
+    which is connected to the previous pipeline stage (or input source). This approach
+    effectively acts as a load balancer for distributing payloads to idle FIFOs.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: All FIFOs output processed payloads to the *same* output channel, which is linked
+    to the next pipeline stage (or output sink).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Fixed worker pools are quite easy to set up, but come with a caveat: the number
+    of workers must be specified *in advance*! In some cases, coming up with a good
+    value for the number of workers is really easy. For instance, if we know that
+    the processor will be performing CPU-intensive calculations, we can ensure that
+    our pipeline fully utilizes all available CPU cores by setting the number of workers
+    equal to the result of the `runtime.NumCPU()` call. Sometimes, coming up with
+    a good estimate for the number of workers is not that easy. A potential solution
+    would be to switch to a *dynamic* worker pool.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The key difference between a static and a dynamic worker pool is that with the
+    latter, the number of workers is not fixed but varies over time. This fundamental
+    difference allows us to make better use of available resources by allowing the
+    dynamic pool to automatically scale the number of workers up or down to adapt
+    to variances in the throughput from the previous stages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It goes without saying that we should always enforce an upper limit for the
+    number of workers that can be spawned by the dynamic pool. Without such a limit
+    in place, the number of goroutines spawned by the pipeline might grow out of control
+    and cause the program to either grind to a halt or, even worse, to crash! To avoid
+    this problem, the dynamic worker pool implementation presented in the following
+    code uses a primitive known as a **token pool**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'A token pool is modeled as a buffered `chan struct{}`, which is prepopulated
+    with a number of tokens equal to the maximum number of concurrent workers that
+    we wish to allow. Let''s see how this primitive can be used to as a concurrency-control
+    mechanism by breaking down the dynamic pool''s `Run` method implementation into
+    logical blocks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: Similarly to the FIFO implementation, the dynamic pool executes an infinite
+    for-loop containing a `select` statement; however, the code that deals with payload
+    processing is quite different in this implementation. Instead of calling the payload
+    processor code directly, we will just spin up a goroutine to take care of that
+    task for us in the background, while the main loop attempts to process the next
+    incoming payload.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before a new worker can be started, we must first fetch a token from the pool.
+    This is achieved via the following block of code that blocks until a token can
+    be read off the channel or the provided context gets cancelled:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding block of code serves as a choke point for limiting the number
+    of concurrent workers. Once all tokens in the pool are exhausted, attempts to
+    read off the channel will be blocked until a token is returned to the pool. So
+    how do tokens get returned to the pool? To answer this question, we need to take
+    a look at what happens *after* we successfully read a token from the pool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This block of code is more or less the same as the FIFO implementation, with
+    two small differences:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It executes inside a goroutine.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It includes a `defer` statement to ensure that the token is returned to the
+    pool once the goroutine completes. This is important as it makes the token available
+    for reuse.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The last bit of code that we need to discuss is the for-loop at the end of the `Run` method.
+    To guarantee that the dynamic pool does not leak any goroutines, we need to make
+    sure that any goroutines that were spawned while the method was running have terminated
+    before `Run` can return. Instead of using a `sync.WaitGroup`, we can achieve the
+    same effect by simply draining the token pool. As we already know, workers can
+    only run while holding a token; once the for-loop has extracted all tokens from
+    the pool, we can safely return knowing that all workers have completed their work
+    and their goroutines have been terminated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 1-to-N broadcasting
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The 1-to-*N* broadcasting pattern allows us to support use cases where each
+    incoming payload must to be processed in parallel by *N* different processors,
+    each one of which implements FIFO-like semantics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following code is the definition of the `broadcast` type and the `Broadcast` helper
+    function that serves as its constructor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can see, the variadic `Broadcast` function receives a list of `Processor` instances
+    as arguments and creates a FIFO instance for each one. These FIFO instances are
+    stored inside the returned `broadcast` instance and used within its `Run` method
+    implementation, which we will be dissecting as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Similar to the fixed worker pool implementation that we examined in the previous
+    section, the first thing that we do inside `Run` is to spawn up a goroutine for
+    each FIFO `StageRunner` instance. A `sync.WaitGroup` allows us to wait for all
+    workers to exit before `Run` can return.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To avoid data races, the implementation for the broadcasting stage must intercept
+    each incoming payload, *clone* it, and deliver a copy to each one of the generated
+    FIFO processors. Consequently, the generated FIFO processor instances cannot be
+    directly wired to the input channel for the stage, but must instead be configured
+    with a dedicated input channel for reading . To this end, the preceding block
+    of code generates a new `workerParams` value (an internal type to the `pipeline` package
+    that implements the `StageParams` interface) for each FIFO instance and supplies
+    it as an argument to its `Run` method. Note that while each FIFO instance is configured
+    with a separate input channel, they all share the same output and error channels.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next part of the `Run` method''s implementation is the, by now familiar,
+    main loop where we wait for the next incoming payload to appear:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once a new payload is received, the implementation writes a copy of the payload
+    to the input channel for each FIFO instance, but the first one receives the original
+    incoming payload:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After publishing the payload to all FIFO instances, a new iteration of the
+    main loop begins. The main loop keeps executing until either the input channel
+    closes or the context gets cancelled. After exiting the main loop, the following
+    sentinel block of code gets executed before `Run` returns:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding code snippet, we signal each one of the FIFO workers to shut
+    down by closing their dedicated input channels. We then invoke the `Wait` method
+    of the `WaitGroup` to wait for all FIFO workers to terminate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing the input source worker
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In order to begin a new pipeline run, users are expected to provide an input
+    source that generates the application-specific payloads that drive the pipeline.
+    All user-defined input sources must implement the `Source` interface, whose definition
+    is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Source` interface contains the standard set of methods that you would
+    expect for any data source that supports iteration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`Next` attempts to advance the iterator. It returns `false` if either no more
+    data is available or an error occurred.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Payload` returns the a new `Payload` instance after a successful call to the
+    iterator''s `Next` method.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Error` returns the last error encountered by the input.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To facilitate the asynchronous polling of the input source, the pipeline package
+    will run the following  `sourceWorker` function inside a goroutine. Its primary
+    task is to iterate the data source and publish each incoming payload to the specified
+    channel:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `sourceWorker` function keeps running until a call to the source's `Next` method
+    returns `false`. Before returning, the worker implementation will check for any
+    errors reported by the input source and publish them to the provided error channel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing the output sink worker
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Of course, our pipeline would not be complete without an output sink! After
+    all, payloads that travel through the pipeline do not disappear into thin air
+    once they clear the pipeline; they must end up somewhere. So, together with an
+    input source, users are expected to provide an output sink that implements the `Sink` interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In order to deliver processed payloads to the sink, the pipeline package will
+    spawn a new goroutine and execute the `sinkWorker` function, whose implementation
+    is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `sinkWorker` loop reads payloads from the provided input channel and attempts
+    to publish them to the provided `Sink` instance. If the `sink` implementation
+    reports an error while consuming the payload, the `sinkWorker` function will publish
+    it to the provided error channel before returning.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Putting it all together – the pipeline API
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: After thoroughly describing the ins and outs of each individual pipeline component,
+    it is finally time to bring everything together and implement an API that the
+    end users of the pipeline package will depend on for assembling and executing
+    their pipelines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A new pipeline instance can be created by invoking the variadic `New` function
+    from the `pipeline` package. As you can see in the following code listing, the
+    construction function expects a list of `StageRunner` instances as arguments where
+    each element of the list corresponds to a stage of the pipeline:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: Users can either opt to use the `StageRunner` implementations that we outlined
+    in the previous sections (FIFO, `FixedWorkerPool`, `DynamicWorkerPool`, or `Broadcast`)
+    and that are provided by the `pipeline` package or, alternatively, provide their
+    own application-specific variants that satisfy the single-method `StageRunner`
+    interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After constructing a new pipeline instance and creating a compatible input
+    source/output sink, users can execute the pipeline by invoking the `Process` method
+    on the pipeline instance that is obtained:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The first argument to `Process` is a context instance that can be cancelled
+    by the user to force the pipeline to terminate. Calls to the `Process` method
+    will be blocked until one of the following conditions is met:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The context is cancelled.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The source runs out of data and all payloads have been processed or discarded.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An error occurs in any of the pipeline components or the user-defined processor
+    functions. In the latter case, an error will be returned back to the caller.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at the implementation details of the `Process` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: First of all, we create a new context (`pCtx`) that wraps the user-defined context,
+    but also allows us to manually cancel it. The wrapped context will be passed to
+    all pipeline components, allowing us to easily tear down the entire pipeline if
+    we detect any error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After setting up our context, we proceed to allocate and initialize the channels
+    that we need to interconnect the various workers that we are about to spin up.
+    If we have a total of *N* stages, then we need *N*+1 channels to connect everything
+    together (including the source and sink workers). For instance, if *no* stages
+    were specified when the pipeline was created, then we would still need one channel
+    to connect the source to the sink.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The error channel functions as a *shared error bus*. In the preceding code snippet,
+    you can see that we are creating a *buffered* error channel with *N*+2 slots.
+    This provides enough space to hold a potential error for each one of the pipeline
+    components (*N* stages and the source/sink workers).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following block of code, we start a goroutine whose body invokes the `Run` method
+    of the `StageRunner` instance associated with each stage of the pipeline:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you probably noticed, the output channel of the *n*th worker is used as the
+    input channel for worker *n*+1\. Once the `Run` method for the *n*th worker returns,
+    it closes its output channel to signal to the next stage of the pipeline that
+    no more data is available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After starting the stage workers, we need to spawn two additional workers:
+    one for the input source and one for the output sink:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So far, our pipeline implementation has spawned quite a few goroutines. By
+    this point, you may be wondering: how can we be sure that *all* of these goroutines
+    will actually terminate?'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once the source worker runs out of data, the call to `sourceWorker` returns
+    and we proceed to close the `stageCh[0]` channel. This triggers an avalanche effect
+    that causes each stage worker to cleanly terminate. When the *i*th worker detects
+    that its input channel has been closed, it assumes that no more data is available
+    and closes its own output channel (which also happens to be the *i+1 *worker's
+    input) before terminating. The *last* output channel is connected to the sink
+    worker. Consequently, the sink worker will also terminate once the last stage
+    worker closes its output.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This brings us to the final part of the `Process` method''s implementation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can see in the preceding snippet, we spawn one final worker that serves
+    the role of a **monitor**: it waits for all other workers to complete before closing
+    the shared error channel and cancelling the wrapped context.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: While all workers are happily running, the `Process` method is using the `range` keyword
+    to iterate the contents of the error channel. If any error gets published to the
+    shared error channel, it will be appended to the `err` value with the help of
+    the `hashicorp/multierror` package ^([6]) and the wrapped context will be cancelled
+    to trigger a shutdown of the entire pipeline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, if no error occurs, the preceding  for-loop will block indefinitely
+    until the channel is closed by the monitor worker. Since the error channel will
+    only be closed once all other pipeline workers have terminated, the same range
+    loop prevents the call to `Process` from returning until the pipeline execution
+    completes, with or without an error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building a crawler pipeline for the Links 'R' Us project
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the following sections, we will be putting the generic pipeline package that
+    we built to the test by using it to construct the crawler pipeline for the Links
+    'R' Us project!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Following the single-responsibility principle, we will break down the crawl
+    task into a sequence of smaller subtasks and assemble the pipeline illustrated
+    in the following figure. The decomposition into smaller subtasks also comes with
+    the benefit that each stage processor can be tested in total isolation without
+    the need to create a pipeline instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/781d5ab6-b8cb-4425-b390-d4334b3fd396.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2: The stages of the crawler pipeline that we will be constructing
+  prefs: []
+  type: TYPE_NORMAL
+- en: The full code for the crawler and its tests can be found in the `Chapter07/crawler`
+    package, which you can find at the book's GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining the payload for the crawler
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'First things first, we need to define the payload that will be shared between
+    the processors for each stage of the pipeline:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The first three fields, `LinkID`, `URL`, and `RetrievedAt`, will be populated
+    by the input source. The remaining fields will be populated by the various crawler
+    stages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`RawContent` is populated by the link fetcher'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`NoFollowLinks` and `Links` are populated by the link extractor'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Title` and `TextContent` are populated by the text extractor'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Of course, in order to be able to use this payload definition with the pipeline
+    package, it needs to implement the `pipeline.Payload` interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: Before we go about implementing these two methods on our payload type, let's
+    take a small break and spend some time learning about the memory-allocation patterns
+    for our application-specific pipeline. Given that our plan is to have the crawler
+    executing as a long-running process and tentatively process a high volume of links,
+    we need to consider whether memory allocations will have an impact on the crawler's
+    performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the pipeline is executing, the input source will allocate a new payload
+    for each new link entering the pipeline. In addition, as we saw in *Figure 2*, one extra
+    copy will be made at the fork point where the payload is sent to the graph updater
+    and text indexer stages. Payloads can either be discarded early on (for example, the
+    link fetcher can filter links using a list of blacklisted file extensions) or
+    eventually make their way to the output sink.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Consequently, we will be generating a large number of small objects that at
+    some point need to be garbage-collected by the Go runtime. Performing a large
+    number of allocations in a relatively short amount of time increases the pressure
+    on the Go **garbage collector** (**GC**) and triggers more frequent GC pauses
+    that affect the latency characteristics of our pipeline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The best way to verify our theory is to capture a memory-allocation profile
+    for a running crawler pipeline using the `runtime/pprof` package ^([3]) and analyze
+    it using the `pprof` tool. Using `pprof` ^([8]) is outside of the scope of this
+    book, so this step is left as an exercise for the curious reader.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that we have a better understanding of the expected allocation patterns
+    for our crawler, the next question is: what can we do about it? Fortunately for
+    us, the `sync` package in the Go standard library includes the `Pool` type ^([4]), which
+    is designed for exactly this use case!'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `Pool` type attempts to relieve the pressure on the garbage collector by
+    amortizing the cost of allocating objects across multiple clients. This is achieved
+    by maintaining a cache of allocated, but not used, instances. When a client requests
+    a new object from the pool, they can either receive a cached instance or a newly
+    allocated instance if the pool is empty. Once clients are done using the object
+    they obtained, they must return it to the pool so it can be reused by other clients.
+    Note that any objects *within* the pool that are not in use by clients are fair
+    game for the garbage collector and can be reclaimed at any time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is the definition of the pool that we will be using for recycling payload
+    instances:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `New` method will be automatically invoked by the underlying pool implementation
+    to service incoming client requests when it has run out of cached items. As the
+    zero value of the `Payload` type is already a valid payload, all we need to do
+    is allocate and return a new `Payload` instance. Let''s see how we can use the
+    pool that we just defined to implement the `Clone` method for the payload:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can see, a new payload instance is allocated from the pool and all fields
+    from the original payload are copied over before it is returned to the caller.
+    Finally, let''s take a look at the `MarkAsProcessed` method implementation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: When `MarkAsProcessed` is invoked, we need to clear the payload contents before
+    returning it to the pool so it can be safely used by the next client that retrieves
+    it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One other thing to note is that we also employ a small optimization trick to
+    reduce the total number of allocations that are performed while our pipeline is
+    executing. We set the length of both of the slices and the byte buffer to zero without
+    modifying their original capacities. The next time that a recycled payload is
+    sent through the pipeline, any attempt to write to the byte buffer or append to
+    one of the payload slices will reuse the already allocated space and only trigger
+    a new memory allocation if additional space is required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing a source and a sink for the crawler
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A prerequisite for executing the crawler pipeline is to provide an input source
+    that conforms to the `pipeline.Source` interface and an output sink that implements `pipeline.Sink`.
+    We have discussed both these interfaces in the previous sections, but I am copying
+    their definitions as follows for reference:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In [Chapter 6](ce489d62-aaa3-4fbb-b239-c9de3daa9a8f.xhtml), *Building a Persistence
+    Layer*, we put together the interface of the link graph component and came up
+    with two alternative, concrete implementations. One of the methods of the `graph.Graph` interface
+    that is of particular interest at this point is `Links`. The `Links` method returns
+    a `graph.LinkIterator`, which allows us to traverse the list of links within a
+    section (partition) of the graph or even the graph in its entirety. As a quick
+    refresher, here is the list of methods included in the `graph.LinkIterator` interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, the `LinkIterator` and the `Source` interfaces are quite similar
+    to each other. As it turns out, we can apply the decorator design pattern (as
+    shown in the following code) to wrap a `graph.LinkIterator` and turn it into an
+    input source that is compatible with our pipeline!
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Error` and `Next` methods are simply proxies to the underlying iterator
+    object. The `Payload` method fetches a `Payload` instance from the pool and populates
+    its fields from the `graph.Link` instance that was obtained via the iterator.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Things are much simpler as far as the output sink is concerned. After each
+    payload goes through the link updater and text indexer stages, we have no further
+    use for it! As a result, all we need to do is to provide a sink implementation
+    that functions as a black hole:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Consume` method simply ignores payloads and always returns a `nil` error.
+    Once the call to `Consume` returns,  the pipeline worker automatically invokes
+    the `MarkAsProcessed` method on the payload, which, as we saw in the previous
+    section, ensures that the payload gets returned to the pool so it can be reused
+    in the future.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fetching the contents of graph links
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The link fetcher serves as the first stage of the crawler pipeline. It operates
+    on `Payload` values emitted by the input source and attempts to retrieve the contents
+    of each link by sending out HTTP GET requests. The retrieved link web page contents
+    are stored within the payload's `RawContent` field and made available to the following
+    stages of the pipeline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s now take a look at the definition of the `linkFetcher` type and its
+    associated methods:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'While the Go standard library comes with the `http` package that we could directly
+    use to fetch the link contents, it is often a good practice to allow the intended
+    users of the code to plug in their preferred implementation for performing HTTP
+    calls. As the link fetcher is only concerned about making GET requests, we will
+    apply the interface segregation principle and define a `URLGetter` interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: This approach brings a few important benefits to the table. To begin with, it
+    allows us to test the link fetcher code without the need to spin up a dedicated
+    test server. While it is quite common to use the `httptest.NewServer` method to
+    create servers for testing, arranging for the test server to return the right
+    payload and/or status code for each individual test requires extra effort.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Moreover, having a test server available doesn't really help in scenarios where
+    we expect the `Get` call to return an error and a nil `http.Response`. This could
+    be quite useful for evaluating how our code behaves in the presence of DNS lookup
+    failures or TLS validation errors. By introducing this interface-based abstraction,
+    we can use a package such as `gomock` ^([5]) to generate a compatible mock for
+    our tests, as we illustrated in [Chapter 4](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml),
+    *The Art of Testing*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Besides testing, this approach makes our implementation much more versatile!
+    The end users of the crawler are now given the flexibility to either pass `http.DefaultClient` if
+    they prefer to use a sane default, or to provide their own customized `http.Client` implementation,
+    which can additionally deal with retries, proxies, and so on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In [Chapter 5](6e4047ad-1fc1-4c3e-b90a-f27a62d06f17.xhtml), *The Links ''R''
+    Us Project*, we discussed a list of potential security issues associated with
+    automatically crawling links that are obtained through third-party resources that
+    are outside of our control. The key takeaway from that discussion was that our
+    crawler should never attempt to fetch links that belong to private network addresses,
+    as that could lead in sensitive data ending up in our search index! To this end,
+    the `newLinkFetcher` function also expects an argument that implements the `PrivateNetworkDetector` interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Chapter07/crawler/privnet` package contains a simple private network detector
+    implementation that first resolves hosts into an IP address and then checks whether
+    the IP address belongs to any of the private network ranges defined by RFC1918 ^([7]).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that we have covered all of the important details surrounding the creation
+    of a new `linkFetcher` instance, let''s take a look at its internals. As expected
+    by any component that we want to include in our pipeline, `linkFetcher` adheres
+    to the `pipeline.Processor` interface. Let''s break down the `Process` method
+    into smaller chunks so we can analyze it further:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first step is to cast the incoming `pipeline.Payload` value into the concrete `*crawlerPayload` instance
+    that the input source injected into the pipeline. Next, we check the URL against
+    a case-insensitive regular expression (its definition will be shown in the following
+    section) designed to match file extensions that are known to contain binary data
+    (for example, images) or text content (for example, loadable scripts, JSON data,
+    and so on) that the crawler should ignore. If a match is found, the link fetcher
+    instructs the pipeline to discard the payload by returning the values `nil, nil`.
+    The second and final precheck ensures that the crawler always ignores URLs that
+    resolve to private network addresses. Finally, we invoke the provided `URLGetter` to
+    retrieve the contents of the link.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s now see what happens after the call to the `URLGetter` returns:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For GET requests that complete without an error, we copy the response body
+    into the payload''s `RawContent` field and then close the body to avoid memory
+    leaks. Before allowing the payload to continue to the next pipeline stage, we
+    perform two additional sanity checks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The response status code should be in the 2xx range. If not, we discard the
+    payload rather than returning an error as the latter would cause the pipeline
+    to terminate. Not processing a link is not a big issue; the crawler will be running
+    periodically, so the crawler will revisit problematic links in the future.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `Content-Type` header should indicate that the response contains an HTML
+    document; otherwise, there is no point in further processing the response, so
+    we can simply discard it.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Extracting outgoing links from retrieved webpages
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The task of the link extractor is to scan the body of each retrieved HTML document
+    and extract the unique set of links contained within it. Each **uniform resource
+    locator** (**URL**) in a web page can be classified into one of the following
+    categories:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**URL with a network path reference** ^([1]): This type of link is quite easy
+    to identify as it *does not* include a URL scheme (for example, `<img src="img/banner.png"/>`).
+    When the web browser (or crawler, in our case) needs to access the link, it will
+    substitute the protocol used to access the web page that contained it. Consequently,
+    if the parent page was accessed via HTTPS, then the browser will also request
+    the banner image over HTTPS.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Absolute links**: These links are fully qualified and are typically used
+    to point at resources that are hosted on different domains.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Relative links**: As the name implies, these links are resolved relative
+    to the current page URL. It is also important to note that web pages can opt to
+    override the URL used for resolving relative links by specifying a `<base href="XXX">` tag
+    in their `<head>` section.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'By design, the link graph component only stores fully qualified links. Therefore,
+    one of the key responsibilities of the link extractor is to resolve all relative
+    links into absolute URLs. This is achieved via the `resolveURL` helper function,
+    which is shown as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `resolveURL` function is invoked using a parsed `url.URL` and a target path
+    to resolve relative to it. Resolving relative paths is not a trivial process because
+    of the number of rules specified in RFC 3986 ^([1]). Fortunately, the `URL` type
+    provides the handy `ResolveReference` method that takes care of all the complexity
+    for us. Before passing the target to the `ResolveReference` method, the code performs
+    an extra check to detect network path references. If the target begins with a `//` prefix,
+    the implementation will rewrite the target link by prepending the scheme from
+    the provided `relTo` value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before we examine the link extractor''s implementation, we need to define a
+    few useful regular expressions that we will be using in the code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We will be using the preceding case-insensitive regular expressions to do the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Skip extracted links that point to non-HTML content. Note that this particular
+    regular expression instance is shared between this stage and the link fetcher
+    stage.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Locate the `<base href="XXX">` tag and capture the value in the `href` attribute.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Extract links from the HTML contents. The second regular expression is designed
+    to locate the  `<a href="XXX">` elements and capture the value in the `href` attribute.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Identify links that should be inserted into the graph but should not be considered
+    when calculating the `PageRank` score for the page that links to them. Web masters
+    can indicate such links by adding a `rel` attribute with the `nofollow` value
+    to the `<a>` tag. For instance, forum operators can add `nofollow` tags to links
+    in posted messages to prevent users from artificially increasing the `PageRank`
+    scores to their websites by cross-posting links to multiple forums.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following listing shows the definition of the `linkExtractor` type. Similar
+    to the `linkFetcher` type, the `linkExtractor` also requires a `PrivateNetworkDetector` instance
+    for further filtering extracted links:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The business logic of the link extractor is encapsulated inside its `Process` method.
+    As the implementation is a bit lengthy, we will once again split it into smaller
+    chunks and discuss each chunk separately. Consider the following code block:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: In order to be able to resolve any relative link we might encounter, we need
+    a fully qualified link to use as a base. By default, that would be the incoming
+    link URL that the code parses into a `url.URL` value. As we mentioned previously,
+    if the page includes a valid `<base href="XXX">` tag, we must resolve relative
+    links using *that* instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To detect the presence of a `<base>` tag, we execute the `baseHrefRegex` regular
+    expression against the page content. If we obtain a valid match, `baseMatch`^([1]) will
+    contain the value of the tag's `href` attribute. The captured value is then passed
+    to the `resolveURL` helper and the resolved URL (if valid) is used to override
+    the `relTo` variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following block of code outlines the link extraction and deduplication
+    steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `FindAllStringSubmatch` method returns a list of successive matches for
+    a particular regular expression. The second argument to `FindAllStringSubmatch` controls
+    the maximum number of matches to be returned. Therefore, by passing `-1` as an
+    argument, we effectively ask the regular expression engine to return *all* `<a>` matches.
+    We then iterate each matched link and resolve it into an absolute URL. The captured `<a>` tag
+    contents and the resolved link are passed to the `retainLink` predicate, which
+    returns `false` if the link must be skipped.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The final step of the processing loop entails the deduplication of links within
+    the page. To achieve, this we will be using a map where link URLs are used as
+    keys. Prior to checking the map for duplicate entries, we make sure to trim off
+    the fragment part (also known as an HTML **anchor**) of each link; after all,
+    from the perspective of our crawler, both `http://example.com/index.html#foo` and `http://example.com/index.html` reference
+    the same link. For each link that survives the `is-duplicate` check, we scan its `<a>` tag
+    for the presence of a `rel="nofollow"` attribute. Depending on the outcome of
+    the check, the link is appended either to the `NoFollowLinks` or the `Links` slice
+    of the payload instance and is made available to the following stages of the pipeline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The last part of code that we need to explore is the `retainLink` method implementation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can see from the preceding code, we perform two types of checks beforehand
+    to decide whether a link should be retained or skipped:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Links with a scheme other than HTTP or HTTPS should be skipped. Allowing other
+    scheme types is a potential security risk! A malicious user could submit a web
+    page containing links using `file://` URLs, which could possibly trick the crawler
+    into reading (and indexing) files from the local filesystem.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We have already enumerated the security implications of allowing crawlers to
+    access resources located at private network addresses. Therefore, any links pointing
+    to private networks are automatically skipped.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Extracting the title and text from retrieved web pages
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The next stage of the pipeline is responsible for extracting an index-friendly,
+    text-only version of the web page contents and its title. The easiest way to achieve
+    this is by stripping off any HTML tag in the page body and replacing consecutive
+    whitespace characters with a single space.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A fairly straightforward approach would be to come up with a bunch of regular
+    expressions for matching and then removing HTML tags. Unfortunately, the fact
+    that HTML syntax is quite forgiving (that is, you can open a tag and never close
+    it) makes HTML documents notoriously hard to properly clean up just with the help
+    of regular expressions. Truth be told, to cover all possible edge cases, we need
+    to use a parser that understands the structure of HTML documents.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instead of reinventing the wheel, we will rely on the bluemonday ^([2]) Go package
+    for our HTML sanitization needs. The package exposes a set of configurable filtering
+    policies that can be applied to HTML documents. For our particular use case, we
+    will be using a strict policy (obtained via a call to the `bluemonday.StrictPolicy` helper)
+    that effectively removes all HTML tags from the input document.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A small caveat is that bluemonday policies maintain their own internal state
+    and are therefore not safe to use concurrently. Consequently, to avoid allocating
+    a new policy each time we need to process a payload, we will be using a `sync.Pool` instance
+    to recycle bluemonday policy instances. The pool will be initialized when a new `textExtractor` instance
+    is created, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s take a closer look at the text extractor''s `Process` method implementation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: After obtaining a new bluemonday policy from the pool, we execute a regular
+    expression to detect whether the HTML document contains a `<title>` tag. If a
+    match is found, its content is sanitized and saved into the `Title` attribute
+    of the payload. The same policy is also applied against the web page contents,
+    but this time, the sanitized result is stored in the `TextContent` attribute of
+    the payload.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inserting discovered outgoing links to the graph
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The next crawler pipeline stage that we will be examining is the graph updater.
+    Its main purpose is to insert newly discovered links into the link graph and create
+    edges connecting them to the web page they were retrieved from. Let''s take a
+    look at the definition of the `graphUpdater` type and its constructor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The constructor expects an argument of the `Graph` type, which is nothing more
+    than an interface describing the methods needed for the graph updater to communicate
+    with a link graph component:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The astute reader will probably notice that the preceding interface definition
+    includes a subset of the methods from the similarly named interface in the `graph` package.
+    This is a prime example of applying the interface-segregation principle to distill
+    an existing, more open interface into the minimum possible interface that our
+    code requires for it to function. Next, we will take a look at the implementation
+    of the graph updater''s `Process` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: Before we iterate the list of discovered links, we first attempt to upsert the
+    origin link from the payload to the graph by creating a new `graph.Link` object
+    and invoking the graph's `UpsertLink` method. The origin link already exists in
+    the graph, so all that the preceding upsert call does is update the timestamp
+    for the `RetrievedAt` field.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next step entails the addition of any discovered links with a no-follow
+    `rel` attribute to the graph:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After processing all no-follow links, the graph updater iterates the slice
+    of regular links and adds each one into the link graph together with a directed
+    edge from the origin link to each outgoing link:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'All edges created or updated during this pass will be assigned an `UpdatedAt` value
+    that is greater than or equal to the `removeEdgesOlderThan` value that we capture
+    before entering the loop. We can then use the following block of code to remove
+    any existing edges that were not touched by the preceding loop:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To understand how the preceding process works, let''s walk through a simple
+    example. Assume that at time *t[0]*, the crawler processed a web page located
+    at `https://example.com`. At that particular point in time, the page contained
+    outgoing links to `http://foo.com` and `https://bar.com`. After the crawler completed
+    its first pass, the link graph would contain the following set of edge entries:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Source** | **Destination** | **UpdatedAt** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `https://example.com` | `http://foo.com` | t[0] |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `https://example.com` | `https://bar.com` | t[0] |'
+  prefs: []
+  type: TYPE_TB
+- en: 'Next, the crawler makes a new pass, this time at time *t[1]* (where t[1] >
+    t[0]); however, the contents for the page located at `https://example.com` have
+    now changed: the link to `http://foo.com` is now **gone** and the page authors
+    introduced a new link to `https://baz.com`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After we have updated the edge list and before we prune any stale edges, the
+    edge entries in the link graph would look as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Source** | **Destination** | **UpdatedAt** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `https://example.com` | `http://foo.com` | t[0] |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `https://example.com` | `https://bar.com` | t[1] |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `https://example.com` | `https://baz.com` | t[1] |'
+  prefs: []
+  type: TYPE_TB
+- en: 'The prune step deletes all edges originating from *https://**example.com* that
+    were last updated before *t[1]*. As a result, once the crawler completes its second
+    pass, the final set of edge entries will look as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Source** | **Destination** | **UpdatedAt** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `https://example.com` | `bar.com` | t[1] |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `https://example.com` | `baz.com` | t[1] |'
+  prefs: []
+  type: TYPE_TB
+- en: Indexing the contents of retrieved web pages
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The last component in our pipeline is the text indexer. As the name implies,
+    the text indexer is responsible for keeping the search index up to date by reindexing
+    the content of each crawled web page.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In a similar fashion to the graph updater stage, we apply the single-responsibility
+    principle and define the `Indexer` interface that gets passed to the text indexer
+    component via its constructor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following code listing outlines the `Process` method implementation for
+    the `textIndexer` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Nothing out of the ordinary in the preceding code snippet: we create new `index.Document` instance
+    and populate it with the title and content values provided by the text extractor
+    stage of the pipeline. The document is then inserted into the search index by
+    invoking the `Index` method on the externally provided `Indexer` instance.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Assembling and running the pipeline
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Congratulations for making it this far! We have finally implemented all individual
+    components that are required for constructing a pipeline for our crawler service.
+    All that''s left is to add a little bit of glue code to assemble the individual
+    crawler stages into a pipeline and provide a simple API for running a full crawler
+    pass. All this glue logic is encapsulated inside the `Crawler` type whose definition
+    and constructor details are listed as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Config` type holds all required configuration options for creating a new
+    crawler pipeline:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The caller of the crawler''s constructor is expected to provide the following
+    configuration options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An object that implements the `PrivateNetworkDetector` interface, which will
+    be used by the link fetcher and link extractor components to filter out links
+    that resolve to private network addresses
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An object that implements the `URLGetter` interface (for example, `http.DefaultClient`),
+    which the link fetcher will use to perform HTTP GET requests
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An object that implements the `Graph` interface (for example, any of the link
+    graph implementations from the previous chapter), which the graph updater component
+    will use to upsert discovered links into the link graph
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An object that implements the `Indexer` interface (for example, any of the indexer
+    implementations from the previous chapter), which the text indexer component will
+    use to keep the search index in sync
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The size of the worker pool for executing the link fetcher stage of the pipeline
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The constructor code calls out to the `assembleCrawlerPipeline` helper function,
+    which is responsible for instantiating each stage of the pipeline with the appropriate
+    configuration options and calling out to `pipeline.New` to create a new pipeline
+    instance :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE64]'
+  prefs: []
+  type: TYPE_PRE
+- en: As illustrated in *Figure 2*, the first stage of the crawler pipeline uses a
+    fixed-size worker pool that executes the link-fetcher processor. The output from
+    this stage is piped into two sequentially connected FIFO stages that execute the
+    link-extractor and text-extractor processors. Finally, the output of those FIFO
+    stages is copied and broadcast to the graph updater and text indexer components
+    in parallel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The last piece of the puzzle is the `Crawl` method implementation, which constitutes
+    the API for using the crawler from other packages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE65]'
+  prefs: []
+  type: TYPE_PRE
+- en: The method accepts a context value, which can be cancelled at any time by the
+    caller to force the crawler pipeline to terminate, as well as an iterator, which
+    provides the set of links to be crawled by the pipeline. It returns the total
+    number of links that made it to the pipeline sink.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On a side-note, the fact that `Crawl` creates new source and sink instances
+    on each invocation, combined with the observation that none of the crawler stages
+    maintains any internal state, makes `Crawl` safe to invoke concurrently!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we built from scratch our very own generic, extensible pipeline
+    package using nothing more than the basic Go primitives. We have analyzed and
+    implemented different strategies (FIFO, fixed/dynamic worker pools, and broadcasting)
+    for processing data throughout the various stages of our pipeline. In the last
+    part of the chapter, we applied everything that we have learned so far to implement
+    a multistage crawler pipeline for the Links 'R' Us Project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In summary, pipelines provide an elegant solution for breaking down complex
+    data processing tasks into smaller and easier-to-test steps that can be executed
+    in parallel to make better use of the compute resources available at your disposal.
+    In the next chapter, we are going to take a look at a different paradigm for processing
+    data that is organized as a graph.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Why is it considered an antipattern to use `interface{}` values as arguments
+    to functions and methods?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: You are trying to design and build a complex data-processing pipeline that requires
+    copious amounts of computing power (for example, face recognition, audio transcription,
+    or similar). However, when you try to run it on your local machine, you realize
+    that the resource requirements for some of the stages exceed the ones that are
+    currently available locally. Describe how you could modify your current pipeline
+    setup so that you could still run the pipeline on your machine, but arrange for
+    some parts of the pipeline to execute on a remote server that you control.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Describe how you would apply the decorator pattern to log errors returned by
+    the processor functions that you have attached to a pipeline.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What are the key differences between a synchronous and an asynchronous pipeline
+    implementation?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Explain how dead-letter queues work and why you might want to use one in your
+    application.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the difference between a fixed-size worker pool and a dynamic pool?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Describe how you would modify the Links 'R' Us crawler payload so that you can
+    track the time each payload spent inside the pipeline.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Berners-Lee, T. ; Fielding, R. ; Masinter, L., RFC 3986, Uniform Resource Identifier
+    (URI): Generic Syntax.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'bluemonday: a fast golang HTML sanitizer (inspired by the OWASP Java HTML Sanitizer)
+    to scrub user generated content of XSS: [https://github.com/microcosm-cc/bluemonday](https://github.com/microcosm-cc/bluemonday)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Documentation for the Go pprof package: [https://golang.org/pkg/runtime/pprof](https://golang.org/pkg/runtime/pprof)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Documentation for the Pool type in the sync package: [https://golang.org/pkg/sync/#Pool](https://golang.org/pkg/sync/#Pool)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'gomock: a mocking framework for the Go programming language: [https://github.com/golang/mock](https://github.com/golang/mock)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'go-multierror: a Go (golang) package for representing a list of errors as a
+    single error: [https://github.com/hashicorp/go-multierror](https://github.com/hashicorp/go-multierror)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Moskowitz, Robert ; Karrenberg, Daniel ; Rekhter, Yakov ; Lear, Eliot ; Groot,
+    Geert Jan de: Address Allocation for Private Internets.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The Go blog: profiling Go programs: [https://blog.golang.org/profiling-go-programs](https://blog.golang.org/profiling-go-programs)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

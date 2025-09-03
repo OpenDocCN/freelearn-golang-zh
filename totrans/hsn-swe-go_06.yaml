@@ -1,0 +1,2239 @@
+- en: The Art of Testing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '"Program testing can be used to show the presence of bugs, but never to show
+    their absence!"'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '- Edsger Dijkstra'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Software systems are destined to grow and evolve over time. Open or closed
+    source software projects have one thing in common: their *complexity* seems to
+    follow an upward curve as the number of engineers working on the code base increases.
+    To this end, having a comprehensive set of tests for the code base is of paramount
+    importance. This chapter performs a deep dive into the different types of testing
+    that can be applied to Go projects.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following topics will be covered in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Identifying the differences between high-level primitives such as stubs, mocks,
+    spies, and fake objects that you can use while writing unit tests as substitutes
+    for objects that are used inside the code under test
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Comparing black-box and white-box testing: what''s the difference and why both
+    are needed for writing comprehensive test suites'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Differences between integration and functional (end-to-end) testing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Advanced test concepts: smoke tests, and one of my personal favorites – chaos
+    tests!'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tips and tricks for writing clean tests in Go and pitfalls that you need to
+    avoid
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The full code for the topics discussed within this chapter have been published
+    to this book's GitHub repository under the `Chapter04` folder.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can access this book's GitHub repository by going to [https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang](https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To get you up and running as quickly as possible, each example project includes
+    a makefile that defines the following set of targets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Makefile target** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `deps` | Install any required dependencies |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `test` | Run all the tests and report coverage |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lint` | Check for lint errors |'
+  prefs: []
+  type: TYPE_TB
+- en: As with all the chapters in this book, you will need a fairly recent version
+    of Go, which you can download at [https://golang.org/dl/](https://golang.org/dl/)*.*
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unit testing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: By definition, a unit is the smallest possible bit of code that we can test.
+    In the context of Go programming, this would typically be a *single function*.
+    However, according to the SOLID design principles that we explored in the previous
+    chapters, each *Go package* could also be construed as an independent unit and
+    tested as such.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The term *unit testing* refers to the process of testing each *unit* of an application
+    in *isolation* to verify that its behavior conforms to a particular set of specifications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we will dive into the different methodologies of unit testing
+    at our disposal (black- versus white-box testing). We will also examine strategies
+    for making our code easier to unit test and cover the built-in Go testing packages,
+    as well as third-party packages, that are designed to make writing tests more
+    streamlined.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mocks, stubs, fakes, and spies – commonalities and differences
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before digging deeper into the concepts behind unit testing, we need to discuss
+    and disambiguate some of the terms that we will be using in the upcoming sections.
+    While these terms have been out there for years, software engineers tend to occasionally
+    conflate them when writing tests. A great example of such confusion becomes evident
+    when you hear engineers use the terms *mock* and *stub *interchangeably.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To establish some common ground for a fruitful discussion and to clear any
+    confusion around this terminology, let''s examine the definition of each term,
+    as outlined by Gerard Meszaros ^([5]) in his *XUnit Test Patterns: Refactoring
+    Test Code* book on test patterns.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Stubs and spies!
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A **stub** is the simplest test pattern that we can use in our tests. Stubs
+    typically implement a particular interface and don't contain any real logic; they
+    just provide fixed answers to calls that are performed through the course of a
+    test.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's dissect a short code example that illustrates how we can effectively use
+    the concept of stubs for our tests. The `Chapter04/captcha` package implements
+    the verification logic behind a CAPTCHA test.
+  prefs: []
+  type: TYPE_NORMAL
+- en: CAPTCHA is a fairly straightforward way to determine whether a system is interacting
+    with a human user or another program. This is achieved by displaying a random,
+    often noisy, image containing a distorted sequence of letters and numbers and
+    then prompting the user to type the text content of the image.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As a big fan of the SOLID principles, I opted to define two interfaces, `Challenger` and `Prompter`,
+    to abstract the CAPTCHA image generation and the user-prompting implementation.
+    After all, there is a plethora of different approaches out there for generating
+    CAPTCHA images: we could pick a random image from a fixed set of images, generate
+    them using a neural network, or perhaps even call out to a third-party image generation
+    service. The same could be said about the way we actually prompt our users for
+    an answer. This is how the two interfaces are defined:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'At the end of the day, the actual business logic doesn''t really care how the
+    CAPTCHA images or the users'' answers were obtained. All we need to do is fetch
+    a challenge, prompt the user, and then perform a simple string comparison operation,
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: One interesting, at least in my opinion, aspect of the preceding code is that
+    it uses constant-time string comparisons instead of using the built-in equality
+    operator for comparing the expected answer and the user's response.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Constant-time comparison checks are a common pattern in security-related code
+    as it prevents information leaks, which can be exploited by adversaries to perform
+    a timing side-channel attack. When executing a timing attack, the attacker provides
+    variable-length inputs to a system and then employs statistical analysis to collect
+    additional information about the system's implementation based on the time it
+    takes to execute a particular action.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Imagine if, in the preceding CAPTCHA scenario we had used a simple string comparison
+    that essentially compares each character and returns false on the *first mismatch*.
+    Here''s how an attacker could slowly brute-force the answer via a timing attack:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Start by providing answers following the `$a` pattern and measuring the time
+    it takes to get a response. The `$` symbol is a placeholder for all possible alphanumeric
+    characters. In essence, we try combinations such as `aa`, `ba`, and so on.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Once we have identified an operation that takes *longer than the rest*, we can
+    assume that that particular value of `$` (say, `4`) is the expected first character
+    of the CAPTCHA answer! The reason this takes longer is that the string comparison
+    code matched the first character and then tried matching the next character instead
+    of immediately returning it, like it would if there was a mismatch.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Continue the same process of providing answers but this time using the `4$a` pattern
+    and keep extending the pattern until the expected CAPTCHA answer can be recovered.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In order to test the `ChallengeUser` function, we need to create a stub for
+    each of its arguments. This would provide us with complete control over the inputs
+    to the comparison business logic. Here''s what the stubs might look like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Pretty simple, right? As you can see, the stubs are devoid of any logic; they
+    just return a canned answer. With the two stubs in place, we can write two test
+    functions that exercise the match/non-match code paths:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now that we have a general understanding of how stubs work, let''s look at
+    another useful test pattern: spies! A **spy** is nothing more than a stub that
+    keeps a detailed log of all the methods that are invoked on it. For each method
+    invocation, the spy records the arguments that were provided by the caller and
+    makes them available for inspection by the test code.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Surely, when it comes to Go, the most popular spy implementation is the venerable `ResponseRecorder` type,
+    which is provided by the `net/http/httptest` package. `ResponseRecorder` implements
+    the `http.ResponseWriter` interface and can be used for testing HTTP request handling
+    code without the need to spin up an actual HTTP server. However, HTTP server testing
+    is not that interesting; let''s take a look at a slightly more engaging example.
+    The `Chapter04/chat` package contains a simple chatroom implementation that is
+    perfect for applying the spy test pattern. The following is the definition of
+    the `Room` type and its constructor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, `Room` contains a `Publisher` instance that gets initialized
+    by the value that's passed to the `NewRoom` constructor. The other interesting
+    public methods that are exposed by the `Room` type (not shown here but available
+    in this book's GitHub repo) are `AddUser` and `Broadcast`. The first method adds
+    new users to the room, while the latter can be used to broadcast a particular
+    message to all the users currently in the room.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before we write our actual testing code, let''s create a spy instance that
+    implements the `Publisher` interface and records any published messages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the preceding spy implementation, each time the `Publish` method is invoked,
+    the stub will append a `{user, message}` tuple to the `published` slice. With
+    our spy ready to be used, writing the actual test is a piece of cake:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: This test scenario involves creating a new room, adding some users to it, and
+    broadcasting a message to everyone who has joined the room. The test runner's
+    task is to verify that the call to `Broadcast` did in fact broadcast the message
+    to all the users. We can achieve this by examining the list of messages that have
+    been recorded by our injected spy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mocks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can think of **mocks** as stubs on steroids! Contrary to the fixed behavior
+    exhibited by stubs, mocks allow us to specify, in a *declarative*way, not only
+    the list of calls that the mock is expected to receive but also their order and
+    expected argument values. In addition, mocks allow us to specify different return
+    values for each method invocation, depending on the argument tuple provided by
+    the method caller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All things considered, mocks are a very powerful primitive at our disposal for
+    writing advanced tests. However, building mocks from scratch for every single
+    object we want to substitute as part of our tests is quite a tedious task. This
+    is why it's often better to use an external tool and code generation to automate
+    the creation of the mocks that are needed for our tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing gomock
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we will be introducing `gomock` ^([4]), a very popular mocking
+    framework for Go that leverages reflection and code generation to automatically
+    create mocks based on Go interface definitions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The framework and its supporting tools can be installed by running the following
+    commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `mockgen` tool is responsible for analyzing either individual Go files
+    or entire packages and generating mocks for all (or specific) interfaces that
+    are defined within them. It supports two modes of operation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Source code scanning**: We pass a Gi file to `mockgen`, which is then parsed
+    in order to detect interface definitions.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Reflection-assisted mode**: We pass a package and a list of interfaces to
+    `mockgen`. The tool uses the Go reflection package to analyze the structure of
+    each interface.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`gomock` provides a simple and concise API for specifying the expected behavior
+    of mock instances that are created via the `mockgen` tool. To access this API,
+    you need to create a new instance of the mock and invoke its oddly-cased `EXPECT` method. `EXPECT` returns
+    a special object (a *recorder*, in `gomock` terminology) that provides the means
+    for us to declare the behavior of the method calls that are performed against
+    the mock.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To register a new expectation, we need to do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Declare the name of the method that we expect to be called, along with its arguments.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Specify the return value (or values) that the mock should return to the caller
+    when it invokes the method with the specified set of arguments.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Optionally, we need to specify the number of times that the caller is expected
+    to invoke the method.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'To further streamline the creation of tests, `mockgen` populates the returned
+    recorder instances with methods whose names match the interfaces that we are trying
+    to mock. All we need to do is invoke those methods on the recorder object and
+    specify the arguments that the mock expects to receive from the caller as a variadic
+    list of `interface{}` values. When defining the expected set of arguments, you
+    basically have two options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Specify a value whose *type* matches the one from the method signature (for
+    example, `foo` if the argument is of the `string` type). `gomock` will only match
+    a call to an expectation if the input argument, *value*, is *strictly equal* to
+    the value that's specified as part of the expectation.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Provide a value that implements the `gomock.Matcher` interface. In this case,
+    `gomock` will delegate the comparison to the matcher itself. This powerful feature
+    gives us the flexibility to model any custom test predicate that we can think
+    of. `gomock` already defines a few handy built-in matchers that we can use in
+    our tests: `Any`, `AssignableToTypeOf`, `Nil`, and `Not`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: After specifying the expected method call and its arguments, `gomock` will return
+    an expectation object that provides auxiliary methods so that we can configure
+    the expected behavior further. For instance, we can use the expectation object's `Return` method
+    to define the set of values to be returned to the caller once the expectation
+    is matched. It is also important to note that unless we *explicitly* specify the
+    expected number of calls to the mocked method, `gomock` will assume that the method
+    can only be invoked *o**nce* and will trigger a test failure if the method is
+    not invoked at all or is invoked multiple times. If you require more fine-grained
+    control over the number of expected invocations, the returned expectation object
+    provides the following set of helper methods: `Times`, `MinTimes`, and `MaxTimes`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next two sections, we will analyze an example project and go through
+    all the individual steps for writing a complete, mock-based unit test for it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exploring the details of the project we want to write tests for
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'For the purpose of demonstrating the creation and use of mocks in our code,
+    we will be working with the example code from the `Chapter04/dependency` package.
+    This package defines a `Collector` type whose purpose is to assemble a set of
+    direct and indirect (transitive) dependencies for a given project ID. To make
+    things a bit more interesting, let''s assume that each dependency can belong to
+    one of the following two categories:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A resource that we need to include (for example, an image file) or reserve (for
+    example, a block of memory or an amount of disk space)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Another project with its *own set of dependencies*
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To obtain the list of *direct* dependencies and their respective types, the
+    `Collector` dependency will be performing a series of calls to an external service.
+    To ensure that the implementation lends itself to easier testing, we will not
+    be working with a concrete client instance for the external service. Instead,
+    we will define an interface with the set of required methods for accessing the
+    service and have our test code inject a mock that satisfies that interface. Consider
+    the following definition for the `API` interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To create a new `Collector` instance, we need to invoke the `NewCollector`
+    constructor (not shown) and provide an API instance as an argument. Then, the
+    *unique* set of dependencies for a particular project ID can be obtained via a
+    call to the `AllDependencies` method. It''s a pretty short method whose full implementation
+    is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding block of code is nothing more than a **breadth-first search**
+    (**BFS**) algorithm in disguise! The `ctx` variable stores an auxiliary structure
+    that contains the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*A queue* whose entries correspond to the set of dependencies (resources or
+    projects) that we haven''t visited yet. As we visit the nodes of the project dependency
+    graph, any newly discovered dependencies will be appended to the tail of the queue
+    so that they can be visited in a future search loop iteration.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The unique set of discovered dependency IDs that are returned to the caller
+    once all the entries in the queue have been processed.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To seed the search, initially, we populate the queue with the `projectID` value
+    that was passed in as an argument to the method. With each loop iteration, we
+    dequeue an unchecked dependency ID and invoke the `ListDependencies` API call
+    to get a list of all its direct dependencies. The obtained list of dependency
+    IDs is then passed as input to the `scanProjectDependencies` method, whose role
+    is to examine the dependency list and update the contents of the `ctx` variable.
+    The method''s implementation is pretty straightforward:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: While iterating the dependency list, the implementation automatically skips
+    any dependency that has already been visited. On the other hand, new dependency
+    IDs are appended to the set of unique dependencies that have been tracked by the
+    `ctx` variable via a call to the `AddToDepList` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we mentioned previously, if the dependency corresponds to another project,
+    we need to *recursively* visit its own dependencies and add them to our set as *transitive*dependencies*.*
+    The `DependencyType` method from the `API` interface provides us with the means
+    for querying the type of a dependency by its ID. If the dependency does in fact
+    point to a *project*, we append it to the tail of the unvisited dependencies queue
+    via a call to the `AddToUncheckedList` method. The last step guarantees that the
+    dependency will eventually be processed by the search loop inside the `AllDependencies`
+    method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Leveraging gomock to write a unit test for our application
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Now that we are aware of the implementation details of our example project,
+    we can go ahead and write a simple, mock-based unit test for it. Before we begin,
+    we need to create a mock for the `API` interface. This can be achieved by invoking the `mockgen` tool with
+    the following options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding command does the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creates a `mock` folder in the `dependency` package
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Generates a file called `dependency.go`with the appropriate code for mocking
+    the `API` interface and places it in the `mock` folder
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To save you the trouble of having to manually type in the preceding command,
+    the `Makefile` in the `Chapter04/dependency` folder includes a predefined target
+    for rebuilding the mocks that were used in this example. All you need to do is
+    switch to the folder with the example code in it and run `make mocks`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So far, so good. How can we use the mock in our tests though? The first thing
+    we need to do is create a `gomock` *controller* and associate it with the `testing.T` instance
+    that gets passed to our test function by the Go standard library. The controller
+    instance defines a `Finish` method that our code *must always run before returning
+    from the test* (for example, via a *defer* statement). This method checks the
+    expectations that were registered on each mock object and automatically fails
+    the test if they were not met. Here''s what the preamble of our test function
+    would look like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The purpose of this particular unit test is to verify that a call to the `AllDependencies`
+    method with a specific input yields an expected list of dependency IDs. As we
+    saw in the previous section, the implementation of the `AllDependencies` method
+    uses an externally-provided `API` instance to retrieve information about each
+    dependency. Given that our test will inject a mocked API instance into the `Collector`
+    dependency, our test code must declare the expected set of calls to the mock.
+    Consider the following block of code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Under normal circumstances, `gomock` would just check that the method call expectations
+    are met, *regardless of the order that they were invoked in*. However, if a test
+    relies on a sequence of method calls being performed in a particular order, it
+    can specify this to `gomock` by invoking the `gomock.InOrder` helper function
+    with an ordered list of expectations as arguments. This particular pattern can
+    be seen in the preceding code snippet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With the mock expectations in place, we can complete our unit by introducing
+    the necessary logic to wire everything together, invoke the `AllDependencies`
+    method with the input (`proj0`) that our mock expects, and validate that the returned
+    output matches a predefined value (`"proj1", "res1", "res2"`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: This concludes our short example about using `gomock` to accelerate the authoring
+    of mock-based tests. As a fun learning activity, you can experiment with changing
+    the expected output for the preceding test so that the test fails. Then, you can
+    work backward and try to figure out how to tweak the mock expectations to make
+    the test pass again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fake objects
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In a similar fashion to the other test patterns that we have discussed so far, **fake
+    objects** also adhere to a specific interface, which allows us to inject them
+    into the subject under test. The main difference is that fake objects do, in fact,
+    contain a *fully working* implementation whose behavior matches the objects that
+    they are meant to substitute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, what's the catch? Fake object implementations are typically optimized for
+    running tests and, as such, they are not meant to be used in production. For example,
+    we could provide an in-memory key-value store implementation for our tests, but
+    our production deployments would require something with better availability guarantees.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To achieve a better understanding of how fake objects work, let's take a look
+    at the contents of the `Chapter04/compute` package. This package exports a function
+    called `SumOfSquares`, which operates on a slice of 32-bit floating-point values.
+    The function squares each element of the slice, adds the results together, and
+    returns their sum. Note that we are using a single function purely for demonstration
+    purposes; in a real-world scenario, we would compose this function with other
+    similar functions to form a compute graph that our implementation would then proceed
+    to evaluate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To purposefully add a bit of extra complexity to this particular scenario, let's
+    assume that the input slices that are passed to this function typically contain
+    a *very large number of values*. It is still possible, of course, to use the CPU
+    to calculate the result. Unfortunately, the production service that depends on
+    this functionality has a pretty strict time budget, so using the CPU is not an
+    option. To this end, we have decided to implement a vectorized solution by offloading
+    the work to a GPU.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `Device` interface describes the set of operations that can be offloaded
+    to the GPU:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Given an object instance that implements `Device`, we can define the `SumOfSquares` function
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Nothing too complicated here... Alas, it wasn't until we started working on
+    our tests that we realized that while the compute nodes where we normally run
+    our production code do provide beefy GPUs, the same could not be said for *each
+    one* of the machines that's used locally by our engineers or the CI environment
+    that runs our tests each time we create a new pull request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Obviously, even though our real workload deals with lengthy inputs, there is
+    no strict requirement to do the same within our tests; as we will see in the following
+    sections, this is a job for an end-to-end test. Therefore, we can fall back to
+    a CPU implementation if a GPU is not available when our tests are running. This
+    is an excellent example of where a fake object could help us out. So, let''s start
+    by defining a `Device` implementation that uses the CPU for all its calculations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Our test code can then switch between the GPU- or the CPU-based implementation
+    on the fly, perhaps by inspecting the value of an environment variable or some
+    command-line flag that gets passed as an argument to the test:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: With the help of a fake object, we can always run our tests while still offering
+    this ability to engineers who do have local access to GPUs to run the tests using
+    the GPU-based implementation. Success!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Black-box versus white-box testing for Go packages – an example
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Black- and white-box testing are two different approaches to authoring unit
+    tests. Each approach has its own set of merits and goals. Consequently, we shouldn't
+    treat them as competing approaches but rather as one complementing the other.
+    So, what is the major difference between these two types of tests?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Black-box testing works under the assumption that the underlying implementation
+    details of the package that we test, also known as the **subject under test** (**SUT**),
+    are totally opaque (hence the name black-box) to us, the tester. As a result,
+    we can only test the **public interface** or behavior of a particular package
+    and make sure it adheres to its advertised contract.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, white-box testing assumes that we have *prior* knowledge
+    of the implementation details of a particular package. This allows the tester
+    to either craft each test so that it exercises a particular code path within the
+    package or to directly test the package's internal implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To understand the difference between these two approaches, let's take a look
+    at a short example. The `Chapter04/retail` package implements a *facade* called `PriceCalculator`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A facade is a software design pattern that abstracts the complexity of one or
+    more software components behind a simple interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the context of microservice-based design, the facade pattern allows us to
+    transparently compose or aggregate data across multiple, specialized microservices
+    while providing a simple API for the facade clients to access it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this particular scenario, the facade receives a UUID representing an item
+    and a date representing the period we are interested in as input. Then, it communicates
+    with two backend microservices to retrieve information about the item's price
+    and the VAT rate that was applied on that particular date. Finally, it returns
+    the VAT-inclusive price for the item to the facade's client.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The services behind the facade
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before we dive deeper into the inner workings of the price calculator, let's
+    spend a bit of time examining how the two microservice dependencies work; after
+    all, we will need this information to write our tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `price` microservice provides a REST endpoint for retrieving an item''s
+    published price on a particular date. The service responds with a JSON payload
+    that looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The second microservice in this example is called `vat` and is also RESTful.
+    It exposes an endpoint for retrieving the VAT rate that was applicable on a particular
+    date. The service responds with a JSON payload as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, the returned JSON payload is quite simple and it would be trivial
+    for our test code to mock it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Writing black-box tests
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For the purpose of writing our black-box tests, we will start by examining the *public *interface
+    of the `retail` package. A quick browse of the `retail.go` file reveals a `NewPriceCalculator` function
+    that receives the URLs to the `price` and `vat` services as arguments and returns
+    a `PriceCalculator` instance. The calculator instance can be used to obtain an
+    item's VAT-inclusive price by invoking the `PriceForItem` method and passing the
+    item's UUID as an argument. On the other hand, if we are interested in obtaining
+    a VAT-inclusive item price for a particular date in the past, we can invoke the `PriceForItemAtDate` method,
+    which also accepts a time period argument.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The black-box tests will live *in a separate package* with the name `retail_test`.
+    The `$PACKAGE_test` naming convention is, more or less, the standard way for doing
+    black-box testing as the name itself alludes to the package being tested while
+    at the same time preventing our test code from accessing the internals of the
+    package under test.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'One caveat of black-box testing is that we need to mock/stub any external objects
+    and/or services that the tested code depends on. In this particular case, we need
+    to provide stubs for the `price` and `vat` services. Fortunately, the `net/http/httptest` package,
+    which ships with the Go standard library provides a convenient helper for spinning
+    up a local HTTPS server using random, unused ports. Since we need to spin up two
+    servers for our tests, let''s create a small helper function to do exactly that:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Nothing too complicated here; the `spinUpTestServer` function receives a map
+    with the expected response''s content and returns a server (which our test code
+    needs to explicitly close) that always responds with the response payload formatted
+    in JSON. With this helper function in place, setting up the stubs for our services
+    becomes really easy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, all we need to do now is call the `NewPriceCalculator` constructor and
+    pass the addresses of the two fake servers. Hold on a minute! If those servers
+    always listen on a random port, how do we know which addresses to pass to the
+    constructor? One particularly convenient feature of the `Server` implementation
+    that''s provided by the `httptest` package is that it exposes the endpoint where
+    the server is listening for incoming connections via a public attribute called `URL`.
+    Here''s what the rest of our black-box test would look like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: As we mentioned previously, the preceding code snippet lives in a different
+    package, so our tests must import the package under test and access its public
+    contents using the `retail` selector.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We could add a few more tests, for example, to validate the `PriceForItem` behavior
+    when one or both of the services return an error, but that''s as far as we can
+    test using black-box testing alone! Let''s run our test and see what sort of coverage
+    we can get:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3d8416ee-3964-412c-a36d-c15033cb4867.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 1: Running just the black-box tests'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Not bad at all! However, if we need to boost our test coverage metrics further,
+    we'll need to invest some time and come up with some white-box tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Boosting code coverage via white-box tests
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: One major difference compared to the tests we wrote in the previous section
+    is that the new set of tests will live in the *same* package as the package we
+    are testing. To differentiate from the black-box tests that we authored previously
+    and hint to other engineers perusing the test code that these are internal tests,
+    we will place the new tests in a file named `retail_internal_test.go`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, it''s time to pull the curtain back and examine the implementation details
+    of the `retail` package! The public API of the package is always a good place
+    to begin our exploratory work. An effective strategy would be to identify each
+    exported function and then (mentally) follow its call-graph to locate other candidate
+    functions/methods that we can exercise via our white-box tests. In the unlikely
+    case that the package does not export any functions, we can shift our attention
+    to other exported symbols, such as structs or interfaces. For instance, here is
+    the definition of the `PriceCalculator` struct from the `retail` package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As we can see, the struct contains two private fields of the `svcCaller` type
+    whose names clearly indicate they are somehow linked to the two services that
+    the facade needs to call out to. If we keep browsing through the code, we will
+    discover that `svcCaller` is actually an interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Call` method receives a map of request parameters and returns a response
+    stream as an `io.ReadCloser`. From the perspective of a test writer, the use of
+    such an abstraction should make us quite happy since it provides us with an easy
+    avenue for mocking the actual calls to the two services!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As we saw in the previous section, the public API exposed by the `PriceCalculator` type
+    is composed of two methods:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`PriceForItem`, which returns the price of an item at this point in time'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`PriceForItemAtDate`, which returns the price of an item at a particular point
+    intime'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Since the `PriceForItem` method is a simple wrapper that calls `PriceForItemAtDate` with
+    the current date/time as an argument, we will focus our analysis on the latter.
+    The implementation of `PriceForItemAtDate` is presented as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding code block makes use of a helper called `callService` to send
+    out a request to the `price` and `vat` services and unpack their responses into
+    the `priceRes` and `vatRes` variables. To gain a clearer understanding of what
+    happens under the hood, let''s take a quick peek into the implementation of `callService`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `callService` method implementation is pretty straightforward. All it does
+    is invoke the `Call` method on the provided `svcCaller` instance, treats the returned
+    output as a JSON stream, and attempts to unmarshal it into the `res` argument
+    that's provided by the caller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let's go back to the implementation of the `PriceForItemAtDate` method.
+    Assuming that no error occurred while contacting the remote services, their individual responses
+    are passed as arguments to the `vatInclusivePrice` helper function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As you can probably tell by its name, it implements the business logic of applying
+    VAT rates to prices. Keeping the business logic separate from the code that is
+    responsible for talking to other services is not only a good indicator of a well-thought-out
+    design but it also makes our test-writing job easier. Let''s add a small table-driven
+    test to validate the business logic:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: With that test in place, the next thing we want to test is `PriceForItem`. To
+    do that, we need to somehow control access to the external services. Although
+    we will be using stubs for simplicity, we could also use any of the other test
+    patterns that we discussed in the previous section. Here is a stub that implements
+    the same approach as the test server from our black-box tests but without the
+    need to actually spin up a server!
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Using the preceding stub definition, let''s add a test for the `PriceForItem` method''s
+    happy path:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Of course, our tests wouldn''t really be complete without explicitly testing
+    what happens when a required dependency fails! For this, we need yet another stub,
+    which always returns an error:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With this stub implementation, we can test how the `PriceCalculator` method behaves
+    when particular *classes of errors* occur. For example, here is a test that simulates
+    a 404 response from the `vat` service to indicate to the caller that no VAT rate
+    data is available for the specified time period:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s run the black- and white-box tests together to check how the total coverage
+    has changed now that we''ve introduced the new tests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5f2ba14b-73df-4fe4-b95f-f14bcdfcc3ba.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2: Running both black- and white-box tests
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the ratio of white-box and black-box tests in the Go standard library's
+    sources seems to strongly favor white-box testing, this should not be construed
+    as a hint that you shouldn't be writing black-box tests! Black-box tests certainly
+    have their place and are very useful when you're attempting to replicate the exact
+    set of conditions and inputs that trigger the particular bug that you are trying
+    to track down. What's more, as we will see in the upcoming sections, black-box
+    tests can often serve as templates for constructing another class of tests, commonly
+    referred to as *integration tests*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Table-driven tests versus subtests
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we will be comparing two slightly different approaches when
+    it comes to grouping and executing multiple test cases together. These two approaches,
+    namely table-driven tests and subtests, can easily be implemented using the basic
+    primitives provided by Go's built-in `testing` package. For each approach, we
+    will discuss the pros and cons and eventually outline a strategy to fuse the two
+    approaches together so that we can get the best of both worlds.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Table-driven tests
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Table-driven tests are a quite compact and rather terse way to efficiently
+    test the behavior of a particular piece of code in a host of different scenarios.
+    The format of a typical table-driven test consists of two distinct parts: the
+    test case definitions and the test-runner code.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To demonstrate this, let''s examine a possible implementation of the infamous
+    `FizzBuzz` test: given a number, *N*, the `FizzBuzz` implementation is expected
+    to return `Fizz` if the number is evenly divisible by 3, `Buzz` if the number
+    is evenly divisible by 5, `FizzBuzz` if the number is evenly divisible by *both* 3
+    and 5, or the number itself in all other cases. Here is a listing from the `Chapter04/table-driven/fizzbuzz.go` file,
+    which contains the implementation we will be working with:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the majority of cases, test scenarios will only be accessed by a single
+    test function. With that in mind, a good strategy would be to encapsulate the
+    scenario list inside the test function with the help of a pretty nifty Go feature:
+    anonymous structs. Here is how you would go about defining the struct that contains
+    the scenarios and a scenario list using a single block of code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding code snippet, you may have noticed that I included a description
+    for each test case. This is more of a personal preference, but in my opinion,
+    it makes the test code more pleasant to the eyes and, more importantly, helps
+    us easily locate the specs for failing test cases as opposed to visually scanning
+    the entire list looking for the N^([th]) scenario that corresponds to a failed
+    test. Granted, either approach would be efficient for the *preceding* example
+    where every test case is neatly laid out in a single line, but think how much
+    more difficult things would be if each spec block contained nested objects and
+    thus each spec was defined using a variable number of lines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once we have written down our specs, making sure that we have also included
+    any *edge* cases that we can think of, it is time to run the test. This is actually
+    the easy part! All we need to do is iterate the list of specs, invoke the subject
+    under test with the input(s) provided by each spec, and verify that the outputs
+    conform to the expected values:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'One important aspect of the preceding test-runner implementation is that even
+    when a test case fails, we don''t *immediately* abort the test by invoking any
+    of the `t.Fail/FailNow` or `t.Fatal/f` helpers, but rather exhaust our list of
+    test cases. This is intentional as it allows us to see an overview of all the
+    failing cases in one go. If we were to run the preceding code, we would get the
+    following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/75062476-12f6-4b38-93e9-280da38a2930.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3: Example of a failing case in a table-driven test
+  prefs: []
+  type: TYPE_NORMAL
+- en: One unfortunate caveat of this approach is that we cannot request for the `go
+    test` command to explicitly target a specific test case. We can always ask `go
+    test` to only run a *specific test function* in isolation (for example, `go test
+    -run TestFizzBuzzTableDriven`), but not to *only* run the failing test case number
+    3 within that test function; we need to sequentially test all the cases every
+    single time! Being able to target specific test cases would be a time-saver if
+    our test-runner code was complex and each test case took quite a bit of time to
+    execute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Subtests
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: With the release of Go 1.7, the built-in *testing* package gained support for
+    running subtests. Subtests are nothing more than a hierarchy of test functions
+    that are executed sequentially. This hierarchical structuring of the test code
+    is akin to the notion of a test suite that you may have been exposed to in other
+    programming languages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, how does it work? The `testing.T` type has been augmented with a new method
+    called `Run` that has the following signature:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: This new method provides a new mechanism for spawning subtests that will run
+    in isolation while still retaining the ability to use the parent test function
+    to perform any required setup and teardown steps.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As you might expect, since each subtest function receives its own `testing.T` instance
+    argument, it can, in turn, spawn additional subtests that are nested underneath
+    it. Here''s what a typical test would look like when following this approach:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: What's more, each subtest gets its own unique name, which is generated by concatenating
+    the names of all its ancestor test functions and the description string that gets
+    passed to the invocation of `Run`. This makes it easy to target any subtest in
+    a particular hierarchy tree by specifying its name to the `-run` argument when
+    invoking `go test`. For example, in the preceding code snippet, we can target `test2` by
+    running `go test -run TestXYZ/test2`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One disadvantage of subtests compared to their test-driven brethren is that
+    they are defined in a much more verbose way. This could prove to be a bit of a
+    challenge if we need to define a large number of test scenarios.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The best of both worlds
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'At the end of the day, nothing precludes us from combining these two approaches
+    into a hybrid approach that gives us the best of both worlds: the terseness of
+    table-driven tests and the selective targeting of subtests.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To achieve this, we need to define our table-driven specs, just like we did
+    before. Following that, we iterate the spec list and spawn a subtest for each
+    test case. Here''s how we could adapt our `FizzBuzz` tests so that they follow
+    this pattern:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s say we wanted to only run the second test case. We can easily achieve
+    this by passing its fully qualified name as the value of the `-run` flag when
+    running `go test`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using third-party testing frameworks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'One great thing about testing Go code is that the language itself comes with
+    batteries included: it ships with a built-in, albeit minimalistic, framework for
+    authoring and running tests.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: From a purist's perspective, that's all that you need to be up and running!
+    The built-in `testing` package provides all the required mechanisms for running,
+    skipping, or failing tests. All the software engineer needs to do is set up the
+    required test dependencies and write the appropriate predicates for each test.
+    One caveat of using the `testing` package is that it does not provide any of the
+    more sophisticated test primitives, such as assertions or mocks, that you may
+    be used to if you've come from a Java, Ruby, or Python background. Of course,
+    nothing prevents you from implementing these yourself!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Alternatively, if importing additional test dependencies is something you don't
+    object to, you can make use of one of the several readily available third-party
+    packages that provide all these missing features. Since a full, detailed listing
+    of all third-party test packages is outside of the scope of this book, we will
+    focus our attention on one of the most popular test framework packages out there: `gocheck`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `gocheck` package ^([3]) can be installed by running `go get gopkg.in/check.v1`.
+    It builds on top of the standard Go `testing` package and provides support for
+    organizing tests into test suites. Each suite is defined using a regular Go struct
+    that you can also exploit so that it stores any additional bits of information
+    that might be needed by your tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In order to run each test suite as part of your tests, you need to register
+    it with `gocheck` and hook `gocheck` to the Go testing package. The following
+    is a short example of how to do that:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you would expect of any framework that supports test suites, `gocheck` allows
+    you to optionally specify setup and teardown methods for both the suite and each
+    test by defining any of the following methods on the suite type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`SetUpSuite(c *check.C)`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`SetUpTest(c *check.C)`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`TearDownTest(c *check.C)`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`TearDownSuite(c *check.C)`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Likewise, any suite method matching the `TestXYZ(c *check.C)` pattern will
+    be treated as a test and executed when the suit runs. The `check.C` type gives
+    you access to some useful methods, such as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`Log/Logf`: Prints a message to the test log'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`MkDir`: Creates a temporary folder that is automatically removed after the *suite* finishes
+    running'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Succeed/SucceedNow/Fail/FailNow/Fatal/Fatalf`: Controls the outcome of a running
+    test'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Assert`: Fails the test if the specified predicate condition isn''t met'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: By *default*, `gocheck` buffers all its output and only emits it when a test
+    fails. While this helps cut down the noise and speeds up the execution of chatty
+    tests, you might prefer to see all the output. Fortunately, `gocheck` supports
+    two levels of verbosity that can be controlled via command-line flags that are
+    passed to the `go test` invocation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To force `gocheck` to output its buffered debug log for all tests, regardless
+    of their pass/fail status, you can run `go test` with the `-check.v` argument.
+    The fact that `gocheck` prefers to buffer all the logging output is less than
+    ideal when you're trying to figure out why one of your tests hangs. For such situations,
+    you can dial up the verbosity and disable buffering by running `gocheck` with
+    the `-check.vv` argument. Finally, if you wish to run a particular test from a
+    test suite (akin to `go test -run XYZ`), you can run `gocheck` with `-check.f
+    XYZ`, where `XYZ` is a regular expression matching the names of the test(s) you
+    wish to run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While we mentioned that the `check.C` object provides an `Assert` method, we
+    haven''t really gone into any detail on how it works or how the assertion predicates
+    are defined. The signature of `Assert` is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: The following table contains a list of useful `Checker` implementations provided
+    by `gocheck` that you can use to write your test assertions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Checker** | **Description** | **Example** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `Equals` | Check for equality | `c.Assert(res, check.Equals, 42)` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `DeepEquals` | Check interfaces, slices, and others for equality | `c.Assert(res,
+    check.DeepEquals, []string{"hello", "world"})` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `IsNil` | Check if the value is nil | `c.Assert(err, check.IsNil)` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `HasLen` | Check the length of the slice/map/channel/strings | `c.Assert(list,
+    check.HasLen, 2)` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `Matches` | Check that the string matches the regex | `c.Assert(val, check.Matches,
+    ".*hi.*")` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `ErrorMatches` | Check that the error message matches the regex | `c.Assert(err,
+    check.Matches, ".*not found")` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `FitsTypeOf` | Check that the argument is assigned to a variable with the
+    given type | `c.Assert(impl, check.FitsTypeOf, os.Error(nil)` |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `Not` | Invert the check result | `c.Assert(val, check.Not(check.Equals)),
+    42)` |'
+  prefs: []
+  type: TYPE_TB
+- en: Of course, if your tests require more sophisticated predicates than the ones
+    built into `gocheck`, you can always roll your own by implementing the `Checker` interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This concludes our tour of `gocheck`. If you are interested in using it in your
+    projects, I would definitely recommend visiting the package home ^([3]) and reading
+    its excellent documentation. If you already use `gocheck` but want to explore
+    other popular testing frameworks for Go, I would suggest taking a look at the `stretchr/testify` package ^([7]), which
+    offers similar functionality (test suites, assertions, and so on) to `gocheck`
+    but also includes support for more advanced test primitives such as mocks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Integration versus functional testing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we will attempt to dispel any confusion between the definitions
+    of two very important and useful types of testing: **integration** tests and **functional** tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Integration tests
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Integration tests pick up from where unit testing left off. Whereas unit testing
+    ensures that each individual unit of a system works correctly in isolation, integration
+    testing ensures that different units (or services, in a microservice architecture)
+    interoperate correctly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s consider a hypothetical scenario where we are building an e-shop application.
+    Following the SOLID design principles, we have split our backend implementation
+    into a bunch of microservices. Each microservice comes with its own set of unit
+    tests and, by design, exposes an API that adheres to a contract agreed on by *all* engineering
+    teams. For the purpose of this demonstration, and to keep things simple, we want
+    to focus our efforts on authoring an integration test for the following two microservices:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The **product** microservice performs the following functions:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It exposes a mechanism for manipulating and querying product metadata; for example,
+    to add or remove products, return information about item prices, descriptions,
+    and so on
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It provides a notification mechanism for metadata changes that other services
+    can subscribe to
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The **basket** microservice stores the list of items that have been selected
+    by the customer. When a new item is inserted into a customer's basket, the basket
+    service queries the product service for the item metadata and updates the price
+    summary for the basket. At the same time, it subscribes to the product service
+    change stream and updates the basket's contents if the product metadata is updated.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: One important implementation aspect to be aware of is that each microservice
+    uses its own dedicated data store. Keep in mind though that this approach does
+    not necessarily mean that the data stores are physically separated. Perhaps we
+    are using a single database server and each microservice gets its own database
+    on that server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The integration test for these two services would live in a separate Go test
+    file, perhaps with an `_integration_test.go` suffix so that we can immediately
+    tell its purpose just by looking at the filename. The setup phase of the tests
+    expects that the DB instance(s) that are required by the services have already
+    been externally prepared. As we will see later in this chapter, a simple way to
+    provide DB connection settings to our tests is via the use of environment variables.
+    The tests would proceed to spin up the services that we want to test and then
+    run the following integration scenarios:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Invoke the product service API to insert a new product into the catalog. Then,
+    it would use the basket service API to add the product to a customer basket and
+    verify that the DB that's used by the basket service contains an entry with the
+    correct product metadata.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Add a product to a customer basket. Then, it would use the product service API
+    to mutate the item description and verify that the relevant basket DB entry is
+    updated correctly.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: One caveat of integration tests is that we need to maintain strict isolation
+    between individual tests. Consequently, before running each test scenario, we
+    must ensure that the internal state of each service is reset properly. Typically,
+    this means that we need to flush the database that's used by each service and
+    perhaps also restart the services in case they also maintain any additional in-memory
+    state.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Evidently, the effort that's required to set up, wire together, and prime the
+    various components that are needed for each integration test makes writing such
+    tests quite a tedious process. Not to diminish the significance of integration
+    testing, it is my belief that engineers can make better use of their time by writing
+    a large number of unit tests and just a handful of integration tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Functional tests
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Functional or end-to-end tests take system testing to a whole new level. The
+    primary purpose of functional testing is to ensure that the *complete *system
+    is working as expected. To this end, functional tests are designed to model complex
+    interaction scenarios that involve multiple system components. A very common use
+    case for functional tests is to verify end-to-end correctness by simulating a
+    user's journey through the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For instance, a functional test for an online music streaming service would
+    act as a new user who would subscribe to the service, search for a particular
+    song, add it to their playlist, and perhaps submit a rating for the song once
+    it's done playing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is important to clarify that all the preceding interactions are meant to
+    occur via the web browser. This is a clear-cut case where we need to resort to
+    a *scriptable* browser automation framework such as Selenium ^([6]) in order to
+    accurately model all the required button clicks that we expect a real user to
+    perform while using the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While you could probably find a package that provides Go bindings for Selenium,
+    the truth of the matter is that Go is not the best tool for writing functional
+    tests. Contrary to unit and integration tests, which live within Go files, functional
+    tests are normally written in languages such as Python, JavaScript, or Ruby. Another
+    important distinction is that, due to their increased complexity, functional tests
+    take a *significantly* longer time to run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While it's not uncommon for software engineers working on a particular feature
+    to also provide functional test suites, in the majority of cases, the task of
+    authoring functional tests is one of the primary responsibilities of the **quality
+    assurance** (**QA**) team. As a matter of fact, functional tests are the front
+    and center part of the pre-release workflow that's followed by QA engineers before
+    they can give the green light for a new release.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Functional tests don't usually target production systems; you wouldn't want
+    to fill up your production DB with dummy user accounts, right? Instead, functional
+    tests target **staging environments**, which are isolated and often downsized
+    sandboxes that mirror the setup of the actual production environment. This includes
+    all the services and resources (databases, message queues, and so on ) that are
+    needed for the system to operate. One exception is that access to external third-party
+    services such as payment gateways or email providers is typically mocked unless
+    a particular functional test requests otherwise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Functional tests part deux – testing in production!
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: That's not to say that you cannot actually run your functional tests in a live
+    production environment! Surely whether that's a good or bad idea is a debatable
+    point, but if you do decide to go down that route, there are a few patterns that
+    you can apply to achieve this in a *safe* and *controlled* way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To get the ball rolling, you can begin by revising your DB schemas so that they
+    include a field that indicates whether each row contains real data or is part
+    of a test run. Each service could then silently ignore any test records when it
+    handles live traffic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you are working with a microservice architecture, you can engineer your services
+    so that they do not talk to other services directly but rather to do so via a
+    local proxy that is deployed in tandem with each service as a *sidecar* process.
+    This pattern is known as the *ambassador* pattern and opens up the possibility
+    of implementing a wide range of really cool tricks, as we will see later in this
+    chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since all the proxies are initially configured to talk to the already deployed
+    services, nothing prevents us from deploying a newer version of a particular service
+    and have it run side-by-side with the existing version. Since no traffic can reach
+    the newly deployed service, it is common to use the term **dark launch** to refer
+    to this kind of deployment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the new versions of the services that we need to test against have been
+    successfully deployed, each functional test can reconfigure the local proxies
+    to divert *test* traffic (identified perhaps by an HTTP header or an other type
+    of tag) to the newly deployed services. This can be seen in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/bcc8ab64-b290-42f0-899b-63dfc6b4a975.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4: Using the ambassador pattern to test in production
+  prefs: []
+  type: TYPE_NORMAL
+- en: This neat trick allows us to run our tests in production without interfering
+    with live traffic. As you can tell, live testing requires substantially more preparation
+    effort compared to testing in a sandbox. This is probably one of the reasons why
+    QA teams seem to prefer using staging environments instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In my view, if your system is built in such a way that you can easily introduce
+    one of these patterns to facilitate live testing, you should definitely go for
+    it. After all, there is only so much data that you can collect when running in
+    an isolated environment whose load and traffic profiles don't really align with
+    the ones of your production systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Smoke tests
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Smoke tests or build acceptance tests constitute a special family of tests that
+    are traditionally used as early sanity checks by QA teams.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The use of the word *smoke* alludes to the old adage that *wherever there is
+    smoke, there is also fire*. These checks are explicitly designed to identify early
+    warning signals that something is wrong. It goes without saying that any issue
+    uncovered by a smoke test is treated by the QA team as a show-stopper; if smoke
+    tests fail, no further testing is performed. The QA team reports its findings
+    to the development team and waits for a revised release candidate to be submitted
+    for testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the smoke tests successfully pass, the QA team proceeds to run their suite
+    of functional tests before giving the green light for release. The following diagram
+    summarizes the process of running smoke tests for QA purposes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/18852742-a560-4427-8b00-fed2b5b8b59d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5: Running smoke tests as part of the QA process
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When it comes to execution, smoke tests are the exact antithesis of functional
+    tests. While functional tests are allowed to execute for long periods of time,
+    smoke tests must execute as quickly as possible. As a result, smoke tests are
+    crafted so as to exercise specific, albeit limited, flows in the user-facing parts
+    of a system that are deemed critical for the system''s operation. For example,
+    smoke tests for a social network application would verify the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A user can login with a valid username and password
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Clicking the like button on a post increases the like counter for that post
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Deleting a contact removes them from the user's friends list
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Clicking the logout button signs the user out of the service
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The responsibility for authoring, evolving, and maintaining smoke tests usually
+    falls on the shoulders of the QA team. Consequently, it makes sense for the QA
+    team to maintain smoke tests in a separate, dedicated repository that they own
+    and control. An interesting question here is whether the QA team will opt to execute
+    the smoke tests manually or invest the time and effort that''s required to automate
+    the process. The logical, albeit slightly cliché, answer is: it depends...'
+  prefs: []
+  type: TYPE_NORMAL
+- en: At the end of the day, the decision boils down to the size of the QA team, the
+    individual preferences of the team's members, and the test infrastructure that's
+    available and is at the team's disposal. Needless to say, automated smoke tests
+    are, hands down, the recommended option since the QA team can efficiently verify
+    a plethora of scenarios in a small amount of time. On the other hand, if the build
+    release frequency is low, you could argue that doing manual smoke tests has a
+    smaller cost and makes better use of the QA team's time and resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Chaos testing – breaking your systems in fun and interesting ways!
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Let me begin this section with a question! How confident are you about the quality
+    of your current software stack? If your answer happens to be something along the
+    lines of, *I don't really know until I make it fail*, then we are in total agreement!
+    If not, let me introduce you to the concept of **chaos testing**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Chaos testing is a term that was initially coined by the engineering team at
+    Netflix. The key point behind chaos testing is to evaluate your system''s behavior
+    when various components exhibit different types of failure. So, what kinds of
+    failure are we talking about here? Here are a few interesting examples, ordered
+    by their relative severity (low to high):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A service fails to reach another service it depends on
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Calls between services exhibit high latency/jitter
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Network links experience packet loss
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A database node fails
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We lose a critical piece of storage
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Our cloud provider suffers an outage in an entire availability zone
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Netflix engineers point out that we shouldn't be afraid of failure but rather
+    embrace it and learn as much as we can about it. All these learnings can be applied
+    to fine-tune the design of our systems so that they become incrementally more
+    and more robust and resilient against failure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some of these types of failure have a low likelihood of occurring. Nevertheless,
+    it's better if we are prepared to mitigate them when they actually *do* occur.
+    After all, from a system stability perspective, it's always preferred to operate
+    in a preventive fashion rather than trying to react (often under lots of pressure)
+    when an outage occurs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You might be wondering: *but, if some failures are statistically unlikely to
+    occur, how can we trigger them in the first place?* The only way to do this is
+    to engineer our systems in such a way that failure can be injected on demand.
+    In the *Functional tests part deux – testing in production!* section, we talked
+    about the ambassador pattern, which can help us achieve exactly that.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ambassador pattern decouples service discovery and communication from the
+    actual service implementation. This is achieved with the help of a sidecar process
+    that gets deployed with each service and acts as a proxy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The sidecar proxy service can be used for other purposes, such as conditionally
+    routing traffic based on tags or headers, acting as a circuit breaker, bifurcating
+    traffic to perform A/B testing, logging requests, enforcing security rules, or
+    to *inject artificial failures into the system*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'From a chaos engineering perspective, the sidecar proxy is an easy avenue for
+    introducing failures. Let''s look at some examples of how we can exploit the proxy
+    to inject failure into the system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instruct the proxy to delay outgoing requests or wait before returning upstream
+    responses to the service that initiated the request. This is an effective way
+    to model latency. If we opt not to use fixed intervals but to randomize them,
+    we can inject jitter into intra-service communication.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Configure the proxy to drop outgoing requests with probability *P*. This emulates
+    a degraded network connection.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Configure the proxy for a single service to drop all outgoing traffic to another
+    service. At the same time, all the other service proxies are set up to forward
+    traffic as usual. This emulates a network partition.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: That's not all. We can take chaos testing even further if we are running our
+    systems on a cloud provider that provides us with an API that we can use to break
+    even more things! For instance, we could use such an API to randomly start killing
+    nodes or to take down one or all of our load balancers and check whether our system
+    can automatically recover by itself. With chaos testing, the only limit is your
+    own imagination!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tips and tricks for writing tests
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, I will be going through some interesting ideas that can help
+    super-charge your daily test workflow. What's more, we will also be exploring
+    some neat tricks that you can use to isolate tests, mock calls to system binaries,
+    and control time within your tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using environment variables to set up or skip tests
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In a project of any size, you are eventually bound to come across a series of
+    tests that depend on external resources that are created or configured in an ad
+    hoc fashion.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A typical example of such a use case would be a test suite that talks to a database.
+    As the engineers working locally on the code base, we would probably spin up a
+    local database instance with a more or less predictable endpoint and use that
+    for testing. However, when running under CI, we might be required to use an already
+    provisioned database instance on some cloud provider or, more often than not,
+    the CI setup phase may need to start a database in a Docker container, a process
+    that would yield a non-predictable endpoint to be connected to.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To support scenarios such as these, we must avoid hardcoding the location of
+    resource endpoints to our tests and *defer* their discovery and configuration
+    until the time when the test runs. To this end, one solution would be to use a
+    set of environment variables to supply this information to our tests. Here is
+    a simple test example from the `Chapter04/db` package that illustrates how this
+    can be achieved:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding example makes testing a breeze, regardless of whether we run the
+    tests locally or in a CI environment. But what if our tests require a specialized
+    DB that is not that easy to spin up locally? Maybe we need a DB that operates
+    in a clustered configuration or one whose memory requirements exceed the memory
+    that's available on our development machine. Wouldn't it be great if we could
+    just *skip* that test when running locally?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It turns out that this is also quite easy to achieve with exactly the same
+    mechanism that we used for configuring our DB endpoint. To be more precise, the *absence* of
+    the required configuration settings could serve as a hint to the test that it
+    needs to be skipped. In the preceding example, we can achieve this by adding a
+    simple `if` block after fetching the environment values for the DB configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: Excellent! Now, if we don't export the `DB_HOST` environment variable before
+    running our tests, this particular test will be skipped.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Speeding up testing for local development
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we will be covering a couple of approaches to accelerating
+    testing when working locally. Just to clarify, I am assuming that you already
+    have a proper CI infrastructure in place; no matter what shortcuts we will be
+    taking here, the CI will always run all the tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first item on our agenda is slow versus fast tests. For the sake of argument,
+    say that we find ourselves in a situation where we are writing a fully-fledged,
+    pure CPU ray tracer implementation in Go. To ensure correctness and avoid regressions
+    while we are tweaking our implementation, we have introduced a test suite that
+    renders a sequence of example scenes and compares the ray tracer output to a series
+    of prerendered reference images.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since this is a pure CPU implementation and our tests render at full-HD resolution,
+    running each test would take, as you can imagine, quite a bit of time. This is
+    not an issue when running on the CI but can definitely be an impediment when working
+    locally.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To make matters worse, `go test` will try to run all the tests, even if one
+    of them fails. Additionally, it will automatically fail tests that take a long
+    time (over 10 minutes) to run. Fortunately, the `go test` command supports some
+    really useful flags that we can use to rectify these issues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To begin with, we can notify long-running tests that they should try to shorten
+    their runtime by passing the `-short` flag to the `go test` invocation. This flag
+    gets exposed by the `testing` package via the `Short` helper function, which returns `true` when
+    the `-short` flag is defined. So, how can we use this flag to make our ray tracer
+    tests run faster?
+  prefs: []
+  type: TYPE_NORMAL
+- en: One approach would be to simply skip tests that are known to take a really long
+    time to run. A much better alternative would be to detect the presence of the `-short` flag
+    and *dial down* the output resolution of the ray tracer, say, to something such
+    as a quarter of the original resolution. This change would still allow us to verify
+    the rendering output when testing locally while at the same time would constrain
+    the total runtime of our tests to an acceptable level.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Coming back to the issue of `go test` running all the tests, even if one of
+    them fails, we can actually instruct `go test` to immediately abort if it detects
+    a failing test by passing the `-failfast` command-line flag. Moreover, we can
+    tune the maximum, per-test execution time with the help of the `-timeout` flag.
+    It accepts any string that can be parsed by the `time.Duration` type (for example, *1h*),
+    but if your tests take an unpredictable amount of time to run, you could also
+    pass a timeout value of *0* to disable timeouts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Excluding classes of tests via build flags
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: So far, we have discussed white- and black-box tests, integration, and end-to-end
+    tests. By including tests from all these categories in our projects, we can rest
+    assured that the code base will behave as expected in a multitude of different
+    scenarios.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, imagine we are working on a particular feature and we *only* want to run
+    the unit tests. Alternatively, we may *only* need to run the integration tests
+    to ensure that our changes do not introduce regression to other packages. How
+    can we do that?
+  prefs: []
+  type: TYPE_NORMAL
+- en: The rather simplistic approach would be to maintain separate folders for each
+    test category, but that would veer away from what is considered to be idiomatic
+    Go. Another alternative would be to add the category name as a prefix or suffix
+    to our tests and run `go test` with the `-run` flag (or with the `-check.f` flag
+    if we are using a third-party package such as `gocheck` ^([3])) to only run the
+    tests whose names match a particular regular expression. It stands to reason that
+    while this approach will work, it's quite error-prone; for larger code bases,
+    we would need to compose elaborate regular expressions that might not match all
+    the tests that we need to run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A smarter solution would be to take advantage of Go's support for conditional
+    compilation and repurpose it to serve our needs. This is a great time to explain
+    what conditional compilation is all about and, most importantly, how it works
+    under the hood.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When a package is being built, the `go build` command scans the comments inside
+    each Go file, looking for special keywords that can be interpreted as compiler
+    directives. **Build tags** are one example of such an annotation. They are used
+    by `go build` to decide whether a particular Go file in a package should be passed
+    to the Go compiler. The general syntax for a build tag is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: To be correctly recognized by `go build`, all the build tags must appear as
+    a comment at the *top* of a Go file. While you are allowed to define multiple
+    build tags, it is very important that the *last* build tag is separated with a
+    blank (non-comment) line from the package name declaration. Otherwise, `go build` will
+    just assume that the build tag is part of a package-level comment and simply ignore
+    it. Software engineers that are new to the concept of Go build tags occasionally
+    fall into this trap, so if you find yourself scratching your head, wondering why
+    build tags are not being picked up, the lack of a blank line after the build tag
+    is the most likely suspect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a closer look at the intricacies of the tag syntax and elaborate
+    on the rules that are applied by `go build` to interpret the list of tags following
+    the `+build` keyword:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tags separated by *whitespace* are evaluated as a list of OR conditions.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tags separated by a *comma* are evaluated as a list of AND conditions.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tags beginning with `!` are treated as NOT conditions.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If multiple `+build` lines are defined, they are joined together as an AND condition.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `go build` command recognizes several predefined tags for the target operating
+    system (for example, `linux, windows, darwin`), CPU architecture (for example, `amd64,
+    386, arm64`), and even the version of the Go compiler (for example, `go1.10` to
+    specify Go 1.10 onward). The following table shows a few examples that use tags
+    to model complex build constraints.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Build Target Scenario** | **Build tag** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Only when the target is Linux | linux |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Linux or macOS | linux darwin |'
+  prefs: []
+  type: TYPE_TB
+- en: '| x64 targets but only with Go compiler >= 1.10 | amd64,go1.10 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 32-bit Linux OR 64-bit all platforms *except* OS X | linux,386 amd64,!darwin
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: By now, you should have a better understanding of how build tags work. But how
+    does all this information apply to our particular use case? First of all, let
+    me highlight the fact that test files are also regular Go files and, as such,
+    they are also scanned for the presence of build tags! Secondly, we are not limited
+    to the built-in tags – we can also define our own custom tags and pass them to `go
+    build` *or* `go test` via the `-tags` command-line flag.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can probably see where I am going with this… We can start by defining a
+    build tag for each family of tests, for example, `integration_tests`, `unit_tests`, and `e2e_tests`.
+    Additionally, we will define an `all_tests` tag since we need to retain the capability
+    to run all the tests together. Finally, we will edit our test files and add the
+    following build tag annotations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`+build unit_tests all_tests` to the files containing the unit tests'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`+build integration_tests all_tests` to the files containing the integration
+    tests'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`+build e2e_tests all_tests` to the files containing the end-to-end tests'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If you wish to experiment with the preceding example, you can check out the
+    contents of the `Chapter04/buildtags` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is not the output you are looking for – mocking calls to external binaries
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Have you ever struggled when trying to test code that calls out to an external
+    process and then uses the output as part of the implemented business logic? In
+    some cases, it might be possible to use some of the tricks we have discussed so
+    far to decorate our code with hooks that tests can use to mock the executed command's
+    output. Unfortunately, sometimes this will not be possible. For instance, the
+    code under test could import a third-party package that is actually the one that's
+    responsible for executing some external command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `Chapter04/pinger` package exports a function called `RoundtripTime`. Its
+    job is to calculate the round-trip time for reaching a remote host. Under the
+    hood, it calls out to the `ping` command and parses its output. This is how it
+    is implemented:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: Since the `ping` command flag names are slightly different between Unix-like
+    systems and Windows, the code relies on OS sniffing to select the appropriate
+    set of flags so that `ping` will send out a single request with a 32-byte payload.
+    The `extractRTT` helper function just applies a regular expression to extract
+    the timing information and convert it into a `time.Duration` value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For the purpose of this demonstration, let's assume that we are operating a
+    video streaming service and our business logic (which lives in another Go package)
+    uses the `RoundtripTime` results to redirect our customers to the edge server
+    that is closest to them. We have been tasked with writing an *end-to-end* test
+    for the service so, unfortunately, we are not allowed to mock any of the calls to
+    the `RoundtripTime` function; our test actually needs to invoke the `ping` command!
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you ever find yourself in a similar situation, let me suggest a nice trick
+    that you can use to mock calls to external processes. I came across the concept
+    that I am about to describe when I first joined Canonical to work on the juju code
+    base. In hindsight, the idea is pretty straightforward. The implementation, however,
+    is not something immediately obvious and requires some platform-specific tweaks,
+    so kudos to the engineers that came up with it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This approach exploits the fact that when you try to execute a binary (for example,
+    using the `Command` function from the `os/exec` package), the operating system
+    will look for the binary in the current working directory and if that fails, it
+    will sequentially scan each entry in the system's `PATH` environment variable,
+    trying to locate it. To our advantage, both Unix-like systems and Windows follow
+    the same logic. Another interesting observation is that when you ask Windows to
+    execute a command named `foo`, it will search for an executable called `foo.exe` *or* a
+    batch file called `foo.bat`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To mock an external process, we need to provide two pieces of information:
+    the expected process output and an appropriate status code; an exit status code
+    of *zero* would indicate that the process completed successfully. Therefore, if
+    we could somehow create an *executable* shell script that prints out the expected
+    output before exiting with a particular status code and prepend its path to the *front* of
+    the system''s `PATH` variable, we could trick the operating system into executing
+    our script instead of the real binary!'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At this point, we are entering the realm of OS-specific code. This practice
+    will probably be frowned upon by some engineers, with the argument that Go programs
+    are *usually* supposed to be portable across operating systems and CPU architectures.
+    In this case, however, we just need to deal with two operating system families
+    so we can probably get away with it. Let''s take a look at the templates for the
+    Unix and Windows shell scripts that our test code will be injecting. Here is the
+    one for Unix:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: The script uses the here document syntax ^([1]) to output the text between the
+    two `!!!EOF!!!` labels in verbatim. Since here documents include an extra, trailing
+    line-feed character, we pipe the output to a Perl one-liner to strip it off. The `%s` placeholder
+    will be replaced with the text (which can span several lines) that we want our
+    command to output. Finally, the `%d` placeholder will be replaced with the exit
+    code that the command will return.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Windows version is much simpler since here documents are not supported
+    by the built-in shell interpreter (`cmd.exe`). Due to this, I have opted to write
+    the output to a file and just have the shell script print it to the standard output.
+    Here''s what this looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this case, the `%s` placeholder will be replaced with the path to the external
+    file containing the output for the mocked command and, as before, the `%d` placeholder
+    will be replaced with the exit code for the command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In our test file, we will define a helper function called `mockCmdOutput`.
+    Due to space constraints, I will not be including the full listing of the function
+    here but rather a short synopsis of how it works (for the full implementation,
+    you can check out the `Chapter04/pinger` sources). In a nutshell, `mockCmdOutput` does
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creates a temporary folder that will be automatically removed after the test
+    completes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Selects the appropriate shell script template, depending on the operating system
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Writes the shell script to the temporary folder and changes its permissions
+    so that it becomes executable (important for Unix-like systems)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Prepends the temporary folder to the beginning of the `PATH` environment variable
+    for the currently running process (`go test`)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Since `mockCmdOutput` modifies the system path, we *must* ensure that it gets
+    reset to its original value *before* each of our tests runs. We can easily achieve
+    this by grouping our tests into a `gocheck` test suite and providing a test setup
+    function to save the original `PATH` value and a test teardown function to restore
+    it from the saved value. With all the plumbing in place, here is how we can write
+    a test function that mocks the output of `ping`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: To make sure that the command was mocked correctly, we set up our test to do
+    a round-trip measurement to localhost (typically taking 1 ms or less) and mock
+    the `ping` command to return a ridiculously high number (42 seconds). Try running
+    the test on OS X, Linux, or Windows; you will always get consistent results.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing timeouts is easy when you have all the time in the world!
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: I am pretty sure that, at some point, you have written some code that relies
+    on the time-keeping functions provided by the standard library's `time` package.
+    Perhaps it's some code that periodically polls a remote endpoint – a great case
+    for using `time.NewTicker` – or maybe you are using `time.After` to implement
+    a timeout mechanism inside a go-routine that waits for an event to occur. In a
+    slightly different scenario, using `time.NewTimer` to provide your server code
+    with ample time to drain all its connections before shutting down would also be
+    a stellar idea.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, testing code that uses any of these patterns is not a trivial thing.
+    For example, let's say that you are trying to test a piece of code that blocks
+    until an event is received or a specific amount of time elapses without receiving
+    an event. In the latter case, it would return some sort of timeout error to the
+    caller. To verify that the timeout logic works as expected and to avoid locking
+    up the test runner if the blocking code never returns, the typical approach would
+    be to spin up a go-routine that runs the blocking code and then signals (for example, over
+    a channel) when the expected error is returned. The test function that starts
+    the go-routine would then use a `select` block to wait for either a success signal
+    from the go-routine or for a fixed amount of time to elapse, after which it would
+    automatically fail the test.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If we were to apply this approach, how long should such a test wait for before
+    giving up? If the max wait time for the blocking piece of code is known in advance
+    (for example, defined as a *constant*), then things are relatively easy; our test
+    needs to wait for at least that amount of time, *plus* some extra time to account
+    for speed discrepancies when running tests in different environments (for example, locally
+    versus on the CI). Failure to account for these discrepancies can lead to flaky
+    tests – tests that *randomly* fail, making your CI system vehemently complain.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Things are much easier if the timeout is configurable or at least specified
+    as a *global variable* that our tests can patch while they are executing. What
+    if, however, the test time is specified as a constant, but its value is in the
+    order of a couple of seconds. Clearly, having several tests that run for that
+    amount of time literally doing *nothing but waiting* is counter-productive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Similarly, in some cases, timeouts might be calculated via some formula that
+    includes a random component. That would make the timeout much harder to predict
+    in a deterministic way without resorting to hacks such as setting the random number
+    generator's seed to a specific value. Of course, in this scenario, our tests would
+    just break if another engineer even slightly tweaked the formula that's used to
+    calculate the timeouts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `Chapter04/dialer` package is an interesting case for further examination
+    as it exhibits both issues that I''ve described here: long wait times that are
+    calculated via a formula! This package provides a dialing wrapper that overlays
+    an exponential backoff retry mechanism on top of a network dialing function (for
+    example, `net.Dial`).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To create a new retrying dialer, we need to call the `NewRetryingDialer` constructor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The caller provides a `context.Context` instance, which can be used to abort
+    pending dial attempts if, for instance, the application receives a signal to shut
+    down. Now, let''s move on to the meat of the dialer implementation – the `Dial` call:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is a pretty straightforward implementation: each time a dial attempt fails,
+    we invoke the `expBackoff` helper to calculate the wait time for the next attempt.
+    Then, we block until the wait time elapses or the context gets cancelled. Finally,
+    if we happen to exceed the maximum configured number of retry attempts, the code
+    will automatically bail out and return an error to the caller. How about writing
+    a short test to verify that the preceding code handles timeouts as expected? This
+    is what it would look like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Running the preceding test yields the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/a8d7fa75-add5-4684-aae9-153d9ffdff2b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 6: Testing the retrying dialer with a real clock'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Success! The test passed. But hold on a minute; look at the test's runtime! *9
+    seconds*!!! Surely we can do better than this. Wouldn't it be great if we could
+    somehow mock time in Go as we do when writing tests for other programming languages?
+    It turns out that it is indeed possible with the help of packages such as `jonboulle/clockwork` ^([2]) and `juju/clock` ^([8]).
+    We will be using the latter package for our testing purposes as it also supports
+    mock timers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `juju/clock` package exposes a `Clock` interface whose method signatures
+    match the functions that are exported by the built-in `time` package. What's more,
+    it provides a real clock implementation (`juju.WallClock`) that we should be injecting
+    into production code, as well as a fake clock implementation that we can manipulate
+    within our tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we can inject a `clock.Clock` instance into the `RetryingDialer` struct,
+    we can use it as a replacement for the `time.After` call in the retry code. That''s
+    easy: just modify the dialer constructor argument list so that it includes a clock
+    instance.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s create a copy of the previous test but this time inject a fake
+    clock into the dialer. To control the time, we will spin up a go-routine to keep
+    advancing the clock by a fixed amount of time until the test completes. For brevity,
+    the following listing only includes the code for controlling the clock; other
+    than that, the rest of the test''s setup and its expectations are exactly the
+    same as before:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As expected, our new test also passes successfully. However, compared to the
+    previous test run, the new test ran in a fraction of the time – just 0.010s:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ce947238-e5ef-42b5-906b-4a67e19babaf.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 7: Testing the retrying dialer with a fake clock'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Personally speaking, fake clocks are one of my favorite test primitives. If
+    you are not using fake clocks in your tests, I would strongly recommend that you
+    at least experiment with them. I am sure that you will also reach the conclusion
+    that fake clocks are a great tool for writing well-behaved tests for any piece
+    of code that deals with some aspect of time. Moreover, increasing the stability
+    of your test suites is a fair trade-off for the small bit of refactoring that's
+    required to introduce clocks into your existing code base.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'As the old proverb goes: you cannot build a house without good foundations.
+    The same principle also applies to software engineering. Having a solid test infrastructure
+    in place goes a long way to allowing engineers to work on new features while being
+    confident that their changes will not break the existing code.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Through the course of this chapter, we performed a deep dive into the different
+    types of testing that you need to be aware of when working on medium- to large-scale
+    systems. To begin with, we discussed the concept of unit testing, the essential
+    *must-have* type of test for all projects, regardless of size, whose primary role
+    is to ensure that individual units of code work as expected in isolation. Then,
+    we tackled more complex patterns, such as integration and functional testing,
+    which verify that units and, by extension, the complete system work harmoniously
+    together. The last part of this chapter was dedicated to exploring advanced test
+    concepts such as smoke tests and chaos testing and concluded with a list of practical
+    tips and tricks for writing tests in a more efficient manner.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, it's time for you to put on your software engineering hat and put all of
+    the knowledge you have acquired so far to good use. To this end, over the course
+    of the following chapters, we will be speccing out and building, from scratch,
+    a complete end-to-end system using Go. This system will serve as a sandbox for
+    the practical exploration of each of the concepts we will introduce throughout
+    the rest of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What is the difference between a stub and a mock?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Explain how fake objects work and describe an example scenario where you would
+    opt to use a fake object instead of a mock.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What are the main components of a table-driven test?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the difference between a unit test and an integration test?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the difference between an integration test and a functional test?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Describe the *ambassador* pattern and how it can be exploited to safely run
+    tests in production.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**Bash manual**: here documents: [https://www.gnu.org/savannah-checkouts/gnu/bash/manual/bash.html#Here-Documents](https://www.gnu.org/savannah-checkouts/gnu/bash/manual/bash.html#Here-Documents).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`clockwork`: A fake clock for `golang`: [https://github.com/jonboulle/clockwork](https://github.com/jonboulle/clockwork).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`gocheck`: Rich testing for the Go language: [http://labix.org/gocheck](http://labix.org/gocheck).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`gomock`: A mocking framework for the Go programming language: [https://github.com/golang/mock](https://github.com/golang/mock).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Meszaros, Gerard: *XUnit Test Patterns: Refactoring Test Code*. Upper Saddle
+    River, NJ, USA : Prentice Hall PTR, 2006 – ISBN 0131495054 ([https://www.worldcat.org/title/xunit-test-patterns-refactoring-test-code/oclc/935197390](https://www.worldcat.org/title/xunit-test-patterns-refactoring-test-code/oclc/935197390)).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Selenium**: Browser automation: [https://www.seleniumhq.org](https://www.seleniumhq.org).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`testify`: A toolkit with common assertions and mocks that plays nicely with
+    the standard library: [https://github.com/stretchr/testify](https://github.com/stretchr/testify).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`juju/clock`: Clock definition and a testing clock: [https://github.com/juju/clock](https://github.com/juju/clock).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

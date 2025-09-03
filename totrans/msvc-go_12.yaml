@@ -1,0 +1,726 @@
+- en: '12'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Setting Up Service Alerting
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous chapter, we described various types of service telemetry data,
+    such as logs, metrics and traces, and illustrated how to collect them for troubleshooting
+    service performance issues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we will illustrate how to use telemetry data to automatically
+    detect incidents by setting up alerts for our microservices. You will learn which
+    types of service metrics to collect, how to define the conditions for various
+    incidents, and how to establish the complete alerting pipeline for your microservices
+    using a popular monitoring and alerting tool, Prometheus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Alerting basics
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Introduction to Prometheus
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Setting up Prometheus alerting for our microservices
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Alerting best practices
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Now, we are going to proceed to the overview of alerting basics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To complete this chapter, you will need Go 1.11+ or above. You will also need
+    the Docker tool, which you can download at https://www.docker.com/.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can find the code examples for this chapter on GitHub: [https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter12](https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter12).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Alerting basics
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'No microservice operates without incidents; even if you have a stable, highly
+    tested, and well-maintained service, it can still experience various types of
+    issues, such as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Resource constraints**: A host running the service may experience high CPU
+    utilization or insufficient RAM or disk space.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Network congestion**: The service may experience a sudden increase in load
+    or decreased performance in any of its dependencies. This could limit its ability
+    to process incoming requests or operate at the expected performance level.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Dependency failures**: Other services or libraries that your service is depending
+    on may experience various issues, affecting your service execution.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Such issues can be self-resolving. For example, a slower network throughput
+    could be a transient issue caused by temporary maintenance or a network device
+    being restarted. Many other types of issues, which we call incidents, require
+    some actions from the engineers to be mitigated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To mitigate an incident, first, we need to detect it. Once the issue is known,
+    we can notify the engineers or perform automated actions, such as an automated
+    deployment rollback or application restart. In this chapter, we will describe
+    the **alerting technique** that combines incident detection and notification.
+    This technique can be used to automate the incident response to various types
+    of microservice issues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The key principles behind alerting are pretty simple and can be summarized
+    by the following statements:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: To set up alerts, developers define the **alerting conditions.**
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Alerting conditions are based on the telemetry data (most commonly, metrics)
+    and are defined in the form of queries.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Each defined alerting condition is evaluated periodically, such as every minute.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If the alerting condition is met, the associated actions are executed (for example,
+    an email or an SMS is sent to an engineer).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To illustrate how alerting works, imagine that one of your services is emitting
+    a metric called `active_user_count` that reports the number of active users at
+    a particular moment. Let’s assume that we would like to get notified if the number
+    of active users suddenly drops to zero. Such a situation would likely indicate
+    some incident with our service unless we have too few users (for simplicity, we
+    will assume our system should always have some active users).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using pseudocode, we could define the alerting condition for our use case in
+    the following way:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once the alerting condition has been met, the alerting software would check
+    actions that should be triggered based on its configuration. Assuming that we
+    have configured our alerts to trigger email notifications, it would send the emails
+    and include any necessary metadata. The metadata would include information such
+    as which incident just occurred and, if provided, the steps to mitigate it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will provide some examples of alerting configurations later in this chapter.
+    For now, we will focus on some practical use cases, providing you with some ideas
+    for setting up alerting for your services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Alerting use cases
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: There are many use cases for which you would need to set up automated alerts.
+    In this section, we will provide some common examples that can act as a reference
+    point for you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the *Google SRE* book we mentioned earlier in [*Chapter 10*](B18865_10.xhtml#_idTextAnchor139),
+    there was a definition of **The Four Golden Signals** of monitoring, which can
+    be used to monitor various types of applications, from microservices to data processing
+    pipelines. These signals provide a great basis for service alerting, so let’s
+    review them and describe how you can use each one to increase your service reliability:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Latency**: Latency is a measure of processing time, such as the duration
+    of processing an API request, a Kafka message, or any other operation. It is the
+    main indicator of system performance – when it gets too high, the system starts
+    affecting its callers, creating network congestion. You should generally track
+    the latency of your primary operations, such as API endpoints providing the critical
+    functionality.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Traffic**: Traffic measures the load on your system, such as the number of
+    requests your microservices are getting at the current moment. An example of a
+    traffic-based metric is an API request rate, measured as the number of requests
+    per second. Measuring traffic is important for ensuring you have enough capacity
+    to handle the requests to your system.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Errors**: Errors are often measured as the **error rate** or the ratio between
+    the failed and total operations. Measuring the error rate is critical for ensuring
+    your services remain operational.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Saturation**: Saturation generally measures the utilization of your resources,
+    such as RAM or disk usage, CPU, or I/O load. You should keep track of saturation
+    to ensure your services don’t fail unexpectedly due to resource insufficiency.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These Four Golden Signals can help you establish monitoring and alerting for
+    your services and critical operations, such as your primary API endpoints. Let’s
+    provide some practical examples to help you understand some common alerting use
+    cases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, let’s start with the common signals for API alerting that can be measured
+    either across all endpoints or on a per-endpoint basis:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**API client error rate**: The ratio between the requests that fail due to
+    client errors and all requests'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**API server error rate**: The ratio between the requests that fail due to
+    server errors and all requests'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**API latency**: The time it takes to process requests'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Now, let’s provide some examples of signals for measuring system saturation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**CPU utilization**: How much your CPUs are being used on a scale from 0% (unused/idle)
+    to 100% (fully used, no extra capacity).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Memory utilization**: Ratio between the used and total memory.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Disk utilization**: Percentage of used disk space.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Open file descriptors**: File descriptors are often used to handle network
+    requests, file writes and reads, and other I/O operations. There is usually a
+    limit on the number of open file descriptors per process, so if your service reaches
+    a critical limit (based on your OS settings), your service may fail to serve requests.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let’s also provide some examples of other signals to monitor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Service panics**: The general recommendation is not to tolerate any service
+    panics, as they often signal application bugs or issues such as out-of-memory
+    errors.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Failed deployments**: You can automate the detection of failed deployments
+    and emit a metric indicating the failure, using it to create automated alerts.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Now that we have covered some common alerting use cases, let’s proceed to the
+    overview of Prometheus, which we will use to set up our microservice alerts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introduction to Prometheus
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In [*Chapter 11*](B18865_11.xhtml#_idTextAnchor152), we mentioned a popular
+    open source alerting and monitoring tool called Prometheus that can collect service
+    metrics and set up automated alerts based on the metric data. In this section,
+    we will demonstrate how to use Prometheus to set up alerts for our microservices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s summarize our learning about Prometheus from [*Chapter 11*](B18865_11.xhtml#_idTextAnchor152):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Prometheus allows us to collect and store service metrics in the form of a time
+    series.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There are three types of metrics – counters, histograms, and gauges.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To query metrics data, Prometheus offers a query language called PromQL.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Service alerts can be configured using a tool called Alertmanager.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Metrics can be imported from service instances into Prometheus in two different
+    ways:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Scraping**: Prometheus reads metrics from service instances.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Pushing**: The service instance sends metrics to Prometheus using a dedicated
+    service, the Prometheus Pushgateway.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Scraping is the recommended way of setting up metric data ingestion in Prometheus.
+    Each service instance needs to expose an endpoint to provide the metrics, and
+    Prometheus takes care of pulling the data and storing it for further querying,
+    as shown in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.1 – Prometheus scraping model'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_12.1_B18865.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 12.1 – Prometheus scraping model
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s provide an example of a service instance response to a scraping request
+    by Prometheus. Let’s assume you add a separate HTTP API endpoint called `/metrics`
+    and return the newest service instance metrics in the following format:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, the service instance reports three metrics in the form of key-value
+    pairs, where the key defines a time series name and the value defines the value
+    of the time series at the current moment. Once Prometheus calls the `/metrics`
+    endpoint, the service instance should provide a new dataset containing only time
+    series that have not been included in previous responses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once Prometheus collects the metrics, they become available for querying using
+    a Prometheus-specific language called PromQL. PromQL-based queries can be used
+    to analyze the time series data through the Prometheus UI or to set up automated
+    alerts using Alertmanager. For example, the following query returns all values
+    of the `active_user_count` time series, as well as their tags:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can use additional query filters, called `active_user_count` metric, you
+    can only request time series that have a particular tag value:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Alerting conditions are generally defined as expressions that return Boolean
+    results. For example, to define the alerting condition when the active user count
+    drops to zero, you would use the following PromQL query with the `==` operator:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The PromQL language provides some other types of time series matchers, such
+    as `quantile`, which can be used to perform various aggregations. The following
+    query example can be used to check whether the median `api_request_latency` value
+    exceeds `1`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can become familiar with the other aspects of the PromQL language by reading
+    the official documentation on its website: [https://prometheus.io/docs/prometheus/latest/querying/basics/](https://prometheus.io/docs/prometheus/latest/querying/basics/).
+    Now, let’s explore how to set up alerts using the Prometheus alerting tool, Alertmanager.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Alertmanager is a separate component of Prometheus that allows us to configure
+    alerts and notifications to detect various types of incidents. Alertmanager operates
+    by reading the provided configuration and querying Prometheus time series data
+    periodically. Let’s provide an example of Alertmanager’s configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: In our configuration example, we set an alert for when the value of the `service_availability`
+    metric, which has a `service="rating"` tag, is equal to `0` for `3` minutes or
+    more, triggering a PagerDuty incident to notify the on-call engineer about the
+    issue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some other features of Alertmanager include notification grouping, notification
+    retries, and alert suppression. To illustrate how Prometheus and Alertmanager
+    work in practice, let’s describe how to set them up for our example microservices
+    from the previous chapters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up Prometheus alerting for our microservices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we will illustrate how to set up service alerting using Prometheus
+    and its alerting extension, Alertmanager, for the services we created in previous
+    chapters. You will learn how to expose the service metrics for collection, how
+    to set up Prometheus and Alertmanager to aggregate and store the metrics from
+    multiple services, and how to define and process service alerts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Our high-level approach is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Set up Prometheus metric reporting to our services.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Install Prometheus and configure it to scrape the data from the three example
+    services that we created in previous chapters.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Configure service availability alerts using Alertmanager.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Test our alerts by triggering an alerting condition and running Alertmanager.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Let’s start by illustrating how to integrate our services with Prometheus. To
+    do this, we need to add a metric collection to our services by exposing an endpoint
+    that will provide the newest metrics to Prometheus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we need to add Prometheus configuration to our services. In each service
+    directory, update the `cmd/config.go` file to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Our new configuration allows us to specify the service port of the metric collection
+    endpoint. Inside each `configs/base.yaml` file, add the following block:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We are ready to update our services so that they can start reporting the metrics.
+    Update the `main.go` file of each service by adding the following imports:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In any part of the `main` function, add the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the code we just added, we initialized the `tally` library to collect and
+    report the metrics data, which we mentioned in [*Chapter 11*](B18865_11.xhtml#_idTextAnchor152)
+    of this book. We used a built-in Prometheus reporter that implements metric data
+    collection using the Prometheus time series format and exposed an HTTP endpoint
+    to allow Prometheus to collect our data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s test the newly added endpoint. Restart the metadata service and try accessing
+    the new endpoint by opening `http://localhost:8091/metrics` in your browser. You
+    should get a similar response:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: The response of the metrics handler includes the Go runtime data, such as the
+    number of goroutines at the current moment, the Go library version, and many other
+    useful metrics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, we are ready to set up Prometheus alerting. Inside the `src` directory
+    of our project, create a directory called `configs` and add a `prometheus.yaml`
+    file with the following contents:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Additionally, add the following configuration to the file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Let’s describe the configuration that we just added. We set the scraping interval
+    provided to `15` seconds and provided a set of targets to scrape the metrics data,
+    which includes the address of each of our services. You may notice that we are
+    using the `host.docker.internal` network address in each target definition — we
+    will run Prometheus using Docker and the `host.docker.internal` address will allow
+    it to access our newly added endpoints running outside of Docker.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Note that we provided a static list of service addresses inside the `static_configs`
+    block. We did this intentionally to illustrate the simplest scraping approach,
+    which is when Prometheus knows the address of each service instance. In a dynamic
+    environment, where service instances can be added or removed, you would need to
+    use Prometheus with a service registry, such as Consul. Prometheus provides built-in
+    support for scraping metrics from services registered with Consul: instead of
+    `static_configs`, you could define the Consul scraping configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we will demonstrate how to scrape a static list of service instances;
+    you can try setting up Consul-based Prometheus scraping as an additional exercise
+    after reading this chapter. Let’s add alerting rules for our services. Inside
+    the newly added `configs` directory, create the `alerts.rules` file and add the
+    following to it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: The file we just added includes the alert definitions for each of our services.
+    Each alert definition includes the expression Prometheus would check to evaluate
+    whether an associated alert should be fired.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, we are ready to install and run Prometheus to test our alerting. Inside
+    the `src` directory of our project, run the following command to run Prometheus
+    using the newly created configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If everything is successful, you should be able to access the Prometheus UI
+    by opening `http://localhost:9090/`. On the initial screen, you will see the search
+    input you can use to access the Prometheus metrics emitted by our services. Type
+    `up` into the search input and click **Execute** to access the metrics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.2 – Prometheus metrics search'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_12.2_B18865.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 12.2 – Prometheus metrics search
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can go to the `alerts.rules` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.3 – Prometheus Alerts view'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_12.3_B18865.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 12.3 – Prometheus Alerts view
+  prefs: []
+  type: TYPE_NORMAL
+- en: If all three services are running, all three associated alerts should be marked
+    as **inactive**. We will get back to the **Alerts** page shortly; for now, let’s
+    proceed and set up Alertmanager so that we can trigger some alerts for our services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Inside our `configs` directory, including the Prometheus configuration, add
+    a file called `alertmanager.yml` with the following contents:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Update the email configuration in the file we just created so that Alertmanager
+    can send some emails for our alerts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, run the following command to start Alertmanager:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Don’t forget to replace the `<PATH_TO_CONFIGS_DIR>` placeholder with the full
+    local path to the `configs` directory containing the newly added `alertmanager.yml`
+    file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let’s simulate the alerting condition by manually stopping the rating
+    and movie services. Once you do this, open the **Alerts** page in the Prometheus
+    UI; you should see that both alerts are **firing**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.4 – Firing Prometheus alerts'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_12.4_B18865.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 12.4 – Firing Prometheus alerts
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can access the Alertmanager UI by going to `http://localhost:9093`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If alerts are fired in Prometheus, you should also see them in the Alertmanager
+    UI:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 12.5 – The Alertmanager UI'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_12.5_B18865.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 12.5 – The Alertmanager UI
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you configured Alertmanager correctly, you should get an email to the address
+    you provided in the configuration. If you haven’t received an email, check the
+    Docker logs of Alertmanager – users with two-factor email authentication may receive
+    additional instructions for enabling notifications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If everything worked well – congratulations, you have set up service alerting!
+    We intentionally haven’t covered many of Alertmanager’s features – it includes
+    many configurable settings that are outside the scope of this chapter. If you
+    are interested in learning more about it, check the official documentation at
+    [https://prometheus.io/docs](https://prometheus.io/docs).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let’s proceed to the next section, where we will provide some best practices
+    for setting up service alerting that should help you increase your service reliability.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Alerting best practices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The knowledge you will gain by reading this section should be useful for establishing
+    the new alerting process for your services. It will also help you improve existing
+    alerts if you are working with some established alerting processes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Among the most valuable best practices, I would highlight the following ones:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`for` value in the rule configuration).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Include the runbook references**: For each alert, ensure you have a runbook
+    in place that provides clear instructions to the on-call engineers receiving it.
+    Having an accurate and up-to-date runbook for each alert helps reduce the incident
+    mitigation time and share relevant knowledge among all engineers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Ensure the alerting configuration is reviewed periodically**: The best solution
+    for ensuring the alerting configuration is accurate is to make it easy to access
+    and review. One of the easiest solutions is to make the alerting configuration
+    a part of your code base so that all alert configurations are easily reviewable.
+    Perform periodic checks of your alerts to ensure all important scenarios are covered,
+    as well as to ensure no alerts are outdated.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This list contains just a handful of best practices to improve your service
+    alerting. If you are interested in the topic, I strongly suggest that you read
+    the relevant chapters of the *Google SRE* book, including the *Monitoring Distributed
+    Systems* chapter from [https://sre.google/sre-book/monitoring-distributed-systems/](https://sre.google/sre-book/monitoring-distributed-systems/).
+  prefs: []
+  type: TYPE_NORMAL
+- en: This summarizes a brief overview of service alerting. Now, let’s summarize this
+    chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we covered one of the most important aspects of service reliability
+    work – alerting. You learned how to set up the service metric collection using
+    the Prometheus tool and the `tally` library, set up service alerts using the Alertmanager
+    tool, and connect all these components to create an end-to-end service alerting
+    pipeline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The material in this chapter summarizes our learning from the reliability and
+    service telemetry topics from [*Chapter 10*](B18865_10.xhtml#_idTextAnchor139)
+    and [*Chapter 11*](B18865_11.xhtml#_idTextAnchor152). By collecting the telemetry
+    data and establishing the notification mechanisms using the alerting tools, we
+    can quickly detect various service issues and get notified each time we need to
+    mitigate them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will continue covering some advanced aspects of Go development,
+    including system profiling and dashboarding.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To learn more about the topics that were covered in this chapter, take a look
+    at the following resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Practical Alerting from Time-Series* *Data*: [https://sre.google/sre-book/practical-alerting/](https://sre.google/sre-book/practical-alerting/'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: )
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Monitoring Distributed* *Systems*: [https://sre.google/sre-book/monitoring-distributed-systems/](https://sre.google/sre-book/monitoring-distributed-systems/'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: )
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Prometheus documentation: [https://prometheus.io/docs/introduction/overview/](https://prometheus.io/docs/introduction/overview/'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: )
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Eliminating* *Toil*: [https://sre.google/workbook/eliminating-toil/](https://sre.google/workbook/eliminating-toil/'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: )
+  prefs: []
+  type: TYPE_NORMAL

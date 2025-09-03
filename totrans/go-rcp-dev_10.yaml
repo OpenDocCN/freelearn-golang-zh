@@ -1,0 +1,687 @@
+- en: '10'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Working with Large Data
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: There are several ways you can utilize Go concurrency primitives to process
+    large amounts of data efficiently. Unlike threads, goroutines can be created without
+    much overhead. Having thousands of goroutines in a program is common. With that
+    in mind, we will look at some common patterns of dealing with large amounts of
+    data concurrently.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This chapter includes the following recipes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Worker pools
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Connection pools
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Pipelines
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Working with large result sets
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Worker pools
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Let’s say you have large amounts of data elements (for instance, image files)
+    and you want to apply the same logic to each of them. You can write a function
+    that processes one instance of the input, and then call this function in a `for`
+    loop. Such a program will process the input elements sequentially, and if each
+    element takes `t` seconds to process, all inputs will be completed at last at
+    `n.t` seconds, `n` being the number of inputs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you want to increase throughput by using concurrent programming, you can
+    create a pool of worker goroutines. You can feed the next input to an idle member
+    of the worker pool, and while that is being processed, you can assign the subsequent
+    input to another member. If you have `p` logical processors (which can be cores
+    of physical processors) running in parallel, the result can be available in as
+    fast as `n.t/p` seconds (this is a theoretical upper limit because the distribution
+    of load among parallel processes is not always perfect, and there is also synchronization
+    and communication overhead).
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will look at two different ways of implementing worker pools next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Capped worker pools
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: If there is not an expensive initialization (for instance, loading a file or
+    establishing a network connection can be expensive) for each worker, it is best
+    to create workers as necessary with a given limit on the number of workers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Create a new goroutine for each input. Use a channel as a synchronized counter
+    to limit the maximum number of workers (here, the channel is used as a *semaphore*).
+    Use an output channel to collect the results, if any:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'First is initialization. We create two channels:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`outputCh`: The output of the worker pool. Each worker will write the result
+    to this channel.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sem`: The semaphore channel that will be used to limit the number of active
+    workers. It is created with a `maxPoolSize` capacity. When we start a new worker
+    goroutines, we send one element to this channel. Send operations will not block
+    as long as the `sem` channel has fewer than `maxPoolSize` elements in it. When
+    a worker goroutine is done, it receives one element from the channel, freeing
+    capacity. Since this channel has `maxPoolSize` capacity, a `send` operation will
+    block until a goroutine ends and receives from the channel if `maxPoolSize` workers
+    are running.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`outputCh` before starting the process, so the results can be read before all
+    the input is sent to workers. Since the number of workers is limited, the workers
+    will block after creating `maxPoolSize` of them, so we have to start listening
+    for the outputs before creating the worker pool.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`wg` WaitGroup, which will later be used to wait for the workers to finish.
+    Before creating a new worker, we send an element to the semaphore channel. If
+    there are already `maxPoolSize` workers running, this will block until one of
+    them terminates. The worker processes the input, writes the output to the `outputCh`
+    and terminates, receiving one element from the semaphore.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: This goroutine waits for the WaitGroup that keeps track of the workers. When
+    all workers are done, the output channel is closed. That also signals the reader
+    WaitGroup created at *Step 2*.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Wait until output processing is complete. The program has to wait until all
+    outputs are generated. This only happens after the closing of the `outputCh` (which
+    happens at #4), and then releasing of the `readerWg`.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Fixed-size worker pools
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A fixed-size worker pool makes sense if creating a worker is an expensive operation.
+    Simply create the maximum number of workers that read from a common input channel.
+    This input channel deals with distributing work among the available workers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: There are several ways this can be achieved. We will look at two.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following function, a fixed-size worker pool is created with `poolSize`
+    workers. All workers read from the same input channel and write the output to
+    the same output channel. This program uses a reader goroutine to collect the results
+    from the worker pool while providing the inputs in the same goroutine as the caller:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following version uses a goroutine to submit the work to the worker pool,
+    while reading the results in the same goroutine as the caller:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'First is initialization. We create two channels:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`inputCh`: This is the input to the worker pool. Each worker in the pool reads
+    from the same `inputCh` in a `for-range` loop, so when a worker receives an input,
+    it stops listening from the channel, allowing another worker to pick up the next
+    input.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`outputCh`: This is the output of the worker pool. All workers write the output
+    to this channel when they are done.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Create the pool of workers: Since this is a fixed-size pool, we can create
+    the workers in a simple for-loop. A `WaitGroup` is necessary so that we can wait
+    for the processing to complete. Each worker reads from the `inputCh` until it
+    is closed, processes the input, and writes to the `outputCh`.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The rest of the algorithm is different for the two examples. Let’s start by
+    looking at the first case:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`outputCh` is closed. When the `outputCh` is closed, the `readerWg` is signaled.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`inputCh` is closed), it closes the `outputCh`.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'This `for` loop sends inputs to the `inputCh`, and then closes the `inputCh`.
+    This causes all the workers to terminate when they complete their work. When all
+    the workers terminate, the `outputCh` is closed by the goroutine created at #4\.
+    When the output processing is complete, `readerWg` is signaled, terminating computation.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Next, let’s look at the second case:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`inputCh` one by one, and when all inputs are sent, it closes the `inputCh`,
+    causing the worker pool to terminate.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Wait workers**: These work the same as in the preceding case.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`for` loop reads the results from the `outputCh` until it is closed. The `outputCh`
+    will be closed when all workers are completed.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Connection pools
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A connection pool is useful when dealing with multiple users of a scarce resource
+    where establishing an instance of that resource can be expensive, such as a network
+    connection, or database connection. Using a pair of channels, you can implement
+    an efficient thread-safe connection pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Create a connection pool type with two channels with `PoolSize` capacity :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`available` keeps the connections that are already established, but returned
+    to the pool'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`total` keeps the total number of connections, that is, the number of `available`
+    plus the number of connections that are actively in use'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To get a connection from the pool, check the `available` channel. If one is
+    available, return that. Otherwise, check the `total` connection pool , and create
+    a new one if the limit is not exceeded.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Users of this pool should return the connections to the pool after they are
+    done by sending the connection to the `available` channel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following code snippet illustrates such a connection pool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Initialize the connection pool with a `PoolSize`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This will create two channels, both with `PoolSize` capacity. The `available`
+    channel will hold all connections that are returned to the pool while `total`
+    will keep the number of established connections.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'To get a new connection, use the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This implementation of `GetConnection` illustrates how channel priorities can
+    be established. `GetConnection` will return an idle connection if one is available
+    in the `available` channel. Otherwise, it will enter the `default` case where
+    it will either create a new connection or use one that is returned to the `available`
+    channel.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Note the pattern of nested `select` statements in `GetConnection`. This is a
+    common pattern for implementing priority among channels. If there is a connection
+    available, then `case conn := <-pool.available` will be chosen and the connection
+    will be removed from the available connections channel. However, if there are
+    no connections available when the first `select` statement is run, the `default`
+    case will execute, which will execute a `select` between the `conn:=<-pool.available`
+    and `pool.total<-struct{}{}` cases. If the first case becomes available (which
+    happens when some other goroutine returns a connection to the pool), that connection
+    will be returned to the caller. If the second case becomes available (which happens
+    when a connection is closed, thus removing an element from `pool.total`), a new
+    connection is created and returned to the caller.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'When the client of the pool is done with the connection, it should call the
+    following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: This will add the connection to the `available` channel.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'If a connection becomes unresponsive, it can be closed by the client. When
+    this happens, the pool should be notified, and `total` should be decremented but
+    the connection should not be added to `available`. This is done by the following:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Pipelines
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Whenever you have several stages of operations performed on an input, you can
+    construct a pipeline. Goroutines and channels can be used to construct high-throughput
+    processing pipelines with different structures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Simple pipeline without fan-out/fan-in
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A simple pipeline can be constructed by connecting each stage running in its
+    own goroutine using channels. The structure of the pipeline looks like *Figure
+    10**.1*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.1: Simple asynchronous pipeline](img/B21961_10_1.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 10.1: Simple asynchronous pipeline'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'This pipeline uses a separate error channel to report processing errors. We
+    use a custom error type to capture diagnostic information:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Every stage is implemented as a function that creates a new goroutine. The
+    goroutine reads input data from an input channel, and writes the output to an
+    output channel:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: Stages 2 and 3 are implemented using the same pattern.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The pipeline is put together as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For each stage, follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create the output channel for the stage. This will be passed into the next stage
+    as the `input` channel.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The processing goroutine continues running after the stage function returns.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Make sure the output channel of this stage is closed when the processing goroutine
+    terminates.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Read inputs from the previous stage until the input channel is closed.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Process the input.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If there is an error, send the error to the error channel. No output will be
+    generated.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Send the output to the next stage.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Warning
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each stage runs in its own goroutine. That means that once you pass the payload
+    to the next stage, you should not access that payload in the current stage. If
+    the payload contains pointers, or if the payload itself is a pointer, data races
+    may occur.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The pipeline setup is done as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create the input channel and the error channel.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Attach stages to form the pipeline. The output of stage `n` becomes the input
+    of stage `n+1`. The output of the last stage becomes the `output` channel.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Send the inputs to the input channel asynchronously. When all inputs are sent,
+    close the input channel. This will terminate the first stage, closing its output
+    channel, which is also the input channel for stage 2\. This goes on until all
+    stages exit.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Start a goroutine to listen and record errors.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Collect the outputs.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Close the error channel so that the error collecting goroutine terminates.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Pipeline with worker pools as stages
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The previous example used a single worker for each stage. You can increase the
+    throughput of a pipeline by replacing each stage with worker pools. The resulting
+    pipeline is depicted in *Figure 10**.2*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.2: Pipeline with worker pools as stages](img/B21961_10_2.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 10.2: Pipeline with worker pools as stages'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Each stage now creates multiple goroutines, all reading from the same input
+    channel (fan-out). The output of each worker is written to a common output channel
+    (fan-in), which becomes the input for the next stage. We can no longer close the
+    stage output channel whenever the input channel is closed because there are now
+    multiple goroutines writing to that output channel. Instead, we use a wait group
+    and a second goroutine to close the output when all of the processing goroutines
+    terminate:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The pipeline is constructed as in the previous case:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'For each stage, follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Create the output channel, which will become the input channel for the next
+    stage.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: There are multiple goroutines reading from the same input channel in a for-range
+    loop, so when the input channel is closed, all those goroutines will terminate.
+    However, we cannot `defer close` the output channel, because that will result
+    in closing the output channel multiple times (which will panic). So instead, we
+    use a `WaitGroup` to keep track of the worker goroutines. A separate goroutine
+    waits on that wait group, and when all goroutines terminate, it closes the output
+    channel.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Create `nInstances` goroutines that all read from the same input channel, and
+    write to the output channel. In case of an error, the workers send the error to
+    the error channel.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: This is the goroutine that waits for the worker goroutines to finish. When they
+    do, it closes the output channel.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The pipeline setup is identical to the previous section, except that the initialization
+    also sends the worker pool size to stage functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pipeline with fan-out and fan-in
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this setup, stages are wired one after the other using dedicated channels,
+    as shown in *Figure 10**.3*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.3: Pipeline with fan-out and fan-in](img/B21961_10_3.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 10.3: Pipeline with fan-out and fan-in'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Each pipeline stage reads from a given input channel, and writes to an output
+    channel, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'A separate `fanIn` function takes a list of output channels, and combines them
+    using a goroutine listening to each channel:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The pipeline is setup in a for-loop by combining the output of each stage to
+    the input of the next stage. The resulting output channels are all directed to
+    the `fanIn` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The worker stages are identical to the simple pipeline case. The fan-in stage
+    works as follows.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For every output channel, the fan-in function creates a goroutine that reads
+    data from that output channel and writes to a common channel. This common channel
+    becomes the combined output channel of the pipeline. The fan-in function creates
+    another goroutine that waits on a `wait` group that keeps track of all the goroutines.
+    When they are all complete, this goroutine closes the output channel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `main` constructs the pipeline by connecting the output of each stage to
+    the input of the next. The output channels of the last stage are stored in a slice
+    and passed to the fan-in function. The output channel of the fan-in function becomes
+    the combined output of the pipeline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Note that all these pipeline variations use a separate error channel. An alternative
+    approach is to store any error in the payload and pass it to the next stage. If
+    the incoming payload has a non-nil error, all stages pass it to the next one,
+    so the payload can be recorded as an error at the end of the pipeline:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Also note that except for the simple pipeline case, they also return results
+    out of order because multiple inputs go through the pipeline at any given moment,
+    and there is no guarantee on the order they arrive at the output.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Working with large result sets
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When working with potentially large result sets, it may not always be feasible
+    to load all data to memory and work on it. You may need to stream data elements
+    in a controlled manner. This section shows how to deal with such situations using
+    concurrency primitives.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Streaming results using a goroutine
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In this use case, a goroutine sends the results of a query via a channel. A
+    context can be used to cancel the streaming goroutine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Create a data structure that holds the data elements and error information:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `StreamResults` function runs the database query and creates a goroutine
+    that iterates the query results. The goroutine sends each result via a channel:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Use the streaming results as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: How it works...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Even though we looked at a database query example, this pattern is useful any
+    time you are dealing with a function that generates potentially large amounts
+    of data. Instead of loading all data into memory, this pattern loads and processes
+    data items one by one.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `StreamResults` generator function starts a goroutine closure that captures
+    the context and additional information necessary to produce results (in this case,
+    a `sql.Rows` instance). The generator function creates a channel and returns immediately.
+    The goroutine collects results and sends them to the channel. When all results
+    are processed or an error is detected, the channel is closed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is now up to the caller to communicate with the goroutine. The caller collects
+    the results from the channel until the channel is closed, and processes them one
+    by one. The caller also checks the error field in the received message to handle
+    any errors detected by the goroutine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This scheme uses a cancelable context. When the context is canceled, the goroutine
+    sends another message through the channel before closing it, so the caller must
+    drain the channel if context cancellation happens.
+  prefs: []
+  type: TYPE_NORMAL

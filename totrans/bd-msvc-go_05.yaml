@@ -1,0 +1,1192 @@
+- en: Common Patterns
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before we take a look at some frameworks which can help you build microservices
+    in Go, we should first look at some of the design patterns that will help you
+    avoid failure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I am not talking about software design patterns like factories or facades, but
+    architectural designs like load balancing and service discovery. If you have never
+    worked with microservice architecture before, then you may not understand why
+    these are needed, but I hope that by the end of the chapter you will have a solid
+    understanding why these patterns are important and how you can apply them correctly.
+    If you have already successfully deployed a microservice architecture, then this
+    chapter will give you greater knowledge of the underlying patterns which make
+    your system function. If you have not had much success with microservices, then
+    possibly you did not understand that you need the patterns I am going to describe.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In general, there is something for everyone, and we are going to look at not
+    just the core patterns but some of the fantastic open source software which can
+    do most of the heavy lifting for us.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The examples referenced in this chapter can be found at: [https://github.com/building-microservices-with-go/chapter5.git](https://github.com/building-microservices-with-go/chapter5.git)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Design for failure
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Anything that can go wrong will go wrong.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When we are building microservices, we should always be prepared for failure.
+    There are many reasons for this, but the main one is that cloud computing networks
+    can be flakey and you lose the ability to tune switching and routing, which would
+    have given you an optimized system if you were running them in your data center.
+    In addition to this, we tend to build microservice architectures to scale automatically,
+    and this scaling causes services to start and stop in unpredictable ways.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What this means for our software is that we need to think about this failure
+    up front while discussing upcoming features. We then need to design this into
+    the software from the beginning, and as engineers, we need to understand these
+    problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In his book *Designing Data-Intensive Applications*, Martin Kleppman makes
+    the following comment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The bigger a system gets, the more likely it is that one of its components is
+    broken. Over time, broken things get fixed, and new things break, but in a system
+    with thousands of nodes, it is reasonable to assume that something is always broken.
+    If the error handling strategy consists of only giving up such a large system
+    would never work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While this applies to more major systems, I would argue that the situation
+    where you need to start considering failure due to connectivity and dependency
+    begins once your estate reaches the size of *n+1*. This might seem a frighteningly
+    small number, but it is incredibly relevant. Consider the following simplistic
+    system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You have a simple website which allows your users (who are all cat lovers) to
+    register for updates from other cat lovers. The update is in the form of a simple
+    daily e-mail, and you would like to send out a welcome e-mail once the form has
+    been submitted by the user and the data saved into the database. Because you are
+    a good microservice practitioner you have recognized that sending e-mails should
+    not be the responsibility of the registration system, and instead you would like
+    to devolve this to an external system. In the meantime, the service is growing
+    in popularity; you have determined that you can save time and effort by leveraging
+    the e-mail as an API service from MailCo. This has a simple RESTful contract and
+    can support all your current needs, which allows you to get to market that little
+    bit sooner.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram represents that simple microservice:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/4b51cade-e920-46a1-9b70-63a6c227f348.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Being a good software architect, you define an interface for this mail functionality
+    which will serve as an abstraction for the actual implementation. This concept
+    will allow you to replace MailCo quickly at a later date. Sending e-mails is fast,
+    so there is no need to do anything clever. We can make the call to MailCo synchronously
+    during the registration request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This application seems like a simple problem to solve, and you get the work
+    done in record time. The site is hosted on AWS and configured with ElasticScale
+    so, no matter what load you get, you will be sleeping peacefully with no worry
+    that the site could go down.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One evening your CEO is out at an event for tech startups which is being covered
+    by the news network, CNN. She gets talking to the reporter who, also being a cat
+    lover, decides he would like to feature the service in a special report which
+    will air tomorrow evening.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The excitement is unreal; this is the thing that will launch the service into
+    the stratosphere. You and the other engineers check the system just for peace
+    of mind, make sure the auto scale is configured correctly, then kick back with
+    some pizza and beer to watch the program.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When the program airs and your product is shown to the nation, you can see
+    the number of users on the site in Google Analytics. It looks great: request times
+    are small, the cloud infrastructure is doing its job, and this has been a total
+    success. Until of course, it isn''t. After a few minutes, the request queueing
+    starts to climb, and the services are still scaling, but now the alarms are going
+    off due to a high number of errors and transaction processing time. More and more
+    users are entering the site and trying to register but very few are successful,
+    this is the worst kind of disaster you could have ever wished for.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: I won't mention the look on the face of the CEO; you have all probably seen
+    that look at some point in your careers; and if not, when you do you will know
+    what I am talking about. It is a cross between, anger, hatred, and confusion as
+    to how they hired such idiots.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You aren't an idiot; software is complex, and with complexity, it is easy to
+    make mistakes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, you start to investigate the problem, quickly you see that while your service
+    and database have been operating correctly, the bottleneck is MailCo's e-mail
+    API. This started the blockage and, because you were executing a synchronous request,
+    your service started blocking too.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, your moment of glory was taken down by a single bottleneck with a third-party
+    API. Now you understand why you need to plan for failure. Let's take a look at
+    how you can implement failure driven design patterns.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Patterns
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The truth about microservices is that they are not hard you only need to understand
+    the core software architectural patterns which will help you succeed. In this
+    section, we are going to take a look at some of these patterns and how we can
+    implement them in Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Event processing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In our case study, we failed due to a downstream synchronous process failing,
+    and that blocked the upstream. The first question we should ask ourselves is "Does
+    this call need to be synchronous?" In the case of sending an e-mail, the answer
+    is almost always, No. The best way to deal with this is to take a fire and forget
+    approach; we would just add the request with all the details of the mail onto
+    a highly available queue which would guarantee at least once delivery and move
+    on. There would be a separate worker processing the queue records and sending
+    these on to the third-party API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the instance that the third party starts to experience problems, we can happily
+    stop processing the queue without causing any problems for our registration service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Regarding user experience, this potentially means that the when the user clicks
+    the register button they would not instantly receive their welcome e-mail. However,
+    e-mail is not an instantaneous system, so some delay is to be expected. You could
+    enhance your user experience further: what if adding an item to the queue returns
+    the approximate queue length back to the calling system. When you are designing
+    for failure, you may take a call that if the queue is over *n* items, you could
+    present a friendly message to the user letting them know you are busy now but
+    rest assured your welcome e-mail is on its way.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will look at the implementation of this pattern further in [Chapter 9](2952a830-163e-4610-8554-67498ec77e1e.xhtml),
+    *Event-Driven Architecture*, but at the moment there are a few key concepts that
+    we need to cover.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Event processing with at least once delivery
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Event processing is a model which allows you to decouple your microservices
+    by using a message queue. Rather than connect directly to a service which may
+    or may not be at a known location, you broadcast and listen to events which exist
+    on a queue, such as Redis, Amazon SQS, NATS.io, Rabbit, Kafka, and a whole host
+    of other sources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To use our example of sending a welcome e-mail, instead of making a direct call
+    to the downstream service using its REST or RPC interface, we would add an event
+    to a queue containing all the details that the recipient would need to process
+    this message.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Our message may look like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: We add the message to the queue and then wait for an ACK from the queue to let
+    us know that the message has been received. Of course, we would not know if the
+    message has been delivered but receiving the ACK should be enough for us to notify
+    the user and proceed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The message queue is a highly distributed and scalable system, and it should
+    be capable of processing millions of messages so we do not need to worry about
+    it not being available. At the other end of the queue, there will be a worker
+    who is listening for new messages pertaining to it. When it receives such a message,
+    it processes the message and then removes it from the queue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/d6f3bfdc-300c-459f-8841-0ae61cea8b16.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Of course, there is always the possibility that the receiving service can not
+    process the message which could be due to a direct failure or bug in the email
+    service or it could be that the message which was added to the queue is not in
+    a format which can be read by the email service. We need to deal with both of
+    these issues independently, let us start with handing errors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Handling Errors
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'It is not uncommon for things to go wrong with distributed systems and we should
+    factor this into our software design, in the instance that a valid message can
+    not be processed one standard approach is to retry processing the message, normally
+    with a delay. We can add the message back onto the queue augmenting it with the
+    error message which occurred at the time as seen in the following example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: It is important to append the error every time we fail to process a message
+    as it gives us the history of what went wrong, it also provides us with the capability
+    to understand how many times we have tried to process the message because after
+    we exceed this threshold we do not want to continue to retry we need to move this
+    message to a second queue where we can use it for diagnostic information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Dead Letter Queue
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This second queue is commonly called a dead letter queue, a dead letter queue
+    is specific to the queue from where the message originated, if we had a queue
+    named `order_service_emails` then we would create a second queue called `order_service_emails_deadletter`.
+    The purpose of this is so that we can examine the failed messages on this queue
+    to assist us with debugging the system, there is no point in knowing an error
+    has occurred if we do not know what that error is and because we have been appending
+    the error details direct to the message body we have this history right where
+    we need it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can see that the message has failed because we have exceeded our quota in
+    the mail API, we also have the date and time of when the error occurred. In this
+    instance, because we have exceeded our quota with the email provider once we remove
+    the issue with the email provider we can then move all of these messages from
+    the dead letter queue back onto the main queue and they should then process correctly.
+    Having the error information in a machine readable format allows us to handle
+    the dead letter queue programmatically, we can explicitly select messages which
+    relate to quota problem within a particular time window.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the instance that a message can not be processed by the email service due
+    to a bad message payload we typically do not retry processing of the message but
+    add it directly to the dead letter queue. Again having this information allows
+    us to diagnose why this issue might have occurred, it could be due to a contract
+    change in the upstream service which has not been reflected in the downstream
+    service. If this is the reason behind the failure we have the knowledge to correct
+    the contract issue in the email service which is consuming the messages and again
+    move the message back into the main queue for processing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Idempotent transactions and message order
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While many message queues now offer *At Most Once Delivery* in addition to the
+    *At Least Once*, the latter option is still the best for large throughput of messages.
+    To deal with the fact that the downstream service may receive a message twice
+    it needs to be able to handle this in its own logic. One method for ensuring that
+    the same message is not processed twice is to log the message ID in a transactions
+    table. When we receive a message, we will insert a row which contains the message
+    ID and then we can check when we receive a message to see if it has already been
+    processed and if it has to dispose of that message.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The other issue that can occur with messaging is receiving a message out of
+    sequence if for some reason two messages which supersede each other are received
+    in an incorrect order then you may end up with inconsistent data in the database.
+    Consider this simple example, the front end service allows the update of user
+    information a subset of which is forwarded to a second microservice. The user
+    quickly updates their information twice which causes two messages to be dispatched
+    to the second service, providing both messages arrive in the order by which they
+    were dispatched then the second service will process both messages and the data
+    will be in a consistent state. However, if they do not arrive in the correct order
+    then the second service will be inconsistent to the first as it will save the
+    older data as the most recent. Once potential way to avoid this issue is to again
+    leverage the transaction table and to store the message dispatch_date in addition
+    to the id. When the second service receives a message then it can not only check
+    if the current message has been processed it can check that it is the most recent
+    message and if not discard it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unfortunately, there is no one solution fits all with messaging we need to tailor
+    the solution which matches the operating conditions of the service. For you as
+    a microservice practitioner, you need to be aware that these conditions can exist
+    and factor them into your solution designs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Atomic transactions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'While storing data, a database can be ATOMIC: that is, all operations occur
+    or none do. We cannot say the same with distributed transactions in microservices.
+    When we used SOAP as our message protocol a decade or so ago, there was a proposal
+    for a standard called **Web Service-Transactions** (**WS-T**). This aimed to provide
+    the same functionality that you get from a database transaction, but in a distributed
+    system. Thankfully SOAP is long gone unless you work in finance or another industry
+    which deals with legacy systems, but the problem remains. In our previous example,
+    we looked at how we can decouple the saving of the data and the sending of the
+    e-mail by using a message queue with at least once delivery. What if we could
+    solve the problem of atomicity in the same way, consider this example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/e0b953ae-9222-4881-8876-3797cef2fa28.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: We distribute both parts of our order process to the queue, a worker service
+    persists the data to the database, and a service that is responsible for sending
+    the confirmation e-mail. Both these services would subscribe to the same `new_order`
+    message and take action when this is received. Distributed transactions do not
+    give us the same kind of transaction that is found in a database. When part of
+    a database transaction fails, we can roll back the other parts of the transaction.
+    Using this pattern we would only remove the message from the queue if the process
+    succeeded so when something fails, we keep retrying. This gives us a kind of eventually
+    consistent transaction. My opinion on distributed transactions is to avoid them
+    if possible; try to keep your behavior simple. However, when this is not possible
+    then this pattern may just be the right one to apply.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Timeouts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A timeout is an incredibly useful pattern while communicating with other services
+    or data stores. The idea is that you set a limit on the response of a server and,
+    if you do not receive a response in the given time, then you write a business
+    logic to deal with this failure, such as retrying or sending a failure message
+    back to the upstream service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A timeout could be the only way of detecting a fault with a downstream service.
+    However, no reply does not mean the server has not received and processed the
+    message, or that it might not exist. The key feature of a timeout is to fail fast
+    and to notify the caller of this failure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are many reasons why this is a good practice, not only from the perspective
+    of returning early to the client and not keeping them waiting indefinitely but
+    also from the point of view of load and capacity. Every connection that your service
+    currently has active is one which cannot serve an active customer. Also, the capacity
+    of your system is not infinite, it takes many resources to maintain a connection,
+    and this also applies to the upstream service which is making a call to you. Timeouts
+    are an effective hygiene factor in large distributed systems, where many small
+    instances of a service are often clustered to achieve high throughput and redundancy.
+    If one of these instances is malfunctioning and you, unfortunately, connect to
+    it, then this can block an entirely functional service. The correct approach is
+    to wait for a response for a set time and then if there is no response in this
+    period, we should cancel the call, and try the next service in the list. The question
+    of what duration your timeouts are set to do not have a simple answer. We also
+    need to consider the different types of timeout which can occur in a network request,
+    for example, you have:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Connection Timeout - The time it takes to open a network connection to the server
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Request Timeout - The time it takes for a server to process a request
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The request timeout is almost always going to be the longest duration of the
+    two and I recommend the timeout is defined in the configuration of the service.
+    While you might initially set it to an arbitrary value of, say 10 seconds, you
+    can modify this after the system has been running in production, and you have
+    a decent data set of transaction times to look at.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We are going to use the deadline package from eapache ([https://github.com/eapache/go-resiliency/tree/master/deadline](https://github.com/eapache/go-resiliency/tree/master/deadline)),
+    recommended by the go-kit toolkit ([https://gokit.io](https://gokit.io)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The method we are going to run loops from 0-100 and sleeps after each loop.
+    If we let the function continue to the end, it would take 100 seconds.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using the deadline package we can set our own timeout to cancel the long running
+    operation after two seconds:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`timeout/main.go`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Back off
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Typically, once a connection has failed, you do not want to retry immediately
+    to avoid flooding the network or the server with requests. To allow this, it's
+    necessary to implement a back-off approach to your retry strategy. A back-off
+    algorithm waits for a set period before retrying after the first failure, this
+    then increments with subsequent failures up to a maximum duration.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using this strategy inside a client-called API might not be desirable as it
+    contravenes the requirement to fail fast. However, if we have a worker process
+    that is only processing a queue of messages, then this could be exactly the right
+    strategy to add a little protection to your system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will look at the `go-resiliency` package and the `retrier` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To create a new retrier, we use the `New` function which has the signature:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The first parameter is an array of `Duration`. Rather than calculating this
+    by hand, we can use the two built-in methods which will generate this for us:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `ConstantBackoff` function generates a simple back-off strategy of retrying
+    *n* times and waiting for the given amount of time between each retry:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `ExponentialBackoff` function generates a simple back-off strategy of retrying
+    *n* times doubling the time between each retry.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The second parameter is a `Classifier`. This allows us a nice amount of control
+    over what error type is allowed to retry and what will fail immediately.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `DefaultClassifier` type is the simplest form: if there is no error returned
+    then we succeed; if there is any error returned then the retrier enters the retry
+    state.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `BlacklistClassifier` type classifies errors based on a blacklist. If the
+    error is in the given blacklist it immediately fails; otherwise, it will retry.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `WhitelistClassifier` type is the opposite of the blacklist, and it will
+    only retry when an error is in the given white list. Any other errors will fail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The WhitelistClassifier might seem slightly complicated. However, every situation
+    requires a different implementation. The strategy that you implement is tightly
+    coupled to your use case.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Circuit breaking
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We have looked at some patterns like timeouts and back-offs, which help protect
+    our systems from cascading failure in the instance of an outage. However, now
+    it''s time to introduce another pattern which is complementary to this duo. Circuit
+    breaking is all about failing fast, Michael Nygard in his book "Release It" says:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '''''Circuit breakers are a way to automatically degrade functionality when
+    the system is under stress."'
+  prefs: []
+  type: TYPE_NORMAL
+- en: One such example could be our frontend example web application. It is dependent
+    on a downstream service to provide recommendations for kitten memes that match
+    the kitten you are looking at currently. Because this call is synchronous with
+    the main page load, the web server will not return the data until it has successfully
+    returned recommendations. Now you have designed for failure and have introduced
+    a timeout of five seconds for this call. However, since there is an issue with
+    the recommendations system, a call which would ordinarily take 20 milliseconds
+    is now taking 5,000 milliseconds to fail. Every user who looks at a kitten profile
+    is waiting five seconds longer than usual; your application is not processing
+    requests and releasing resources as quickly as normal, and its capacity is significantly
+    reduced. In addition to this, the number of concurrent connections to the main
+    website has increased due to the length of time it is taking to process a single
+    page request; this is adding load to the front end which is starting to slow down.
+    The net effect is going to be that, if the recommendations service does not start
+    responding, then the whole site is headed for an outage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There is a simple solution to this: you should stop attempting to call the
+    recommendations service, return the website back to normal operating speeds, and
+    slightly degrade the functionality of the profile page. This has three effects:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You restore the browsing experience to other users on the site.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You slightly degrade the experience in one area.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You need to have a conversation with your stakeholders before you implement
+    this feature as it has a direct impact on the system's business.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Now in this instance, it should be a relatively simple sell. Let's assume that
+    recommendations increase conversion by 1%; however, slow page loads reduce it
+    by 90%. Then isn't it better to degrade by 1% instead of 90%? This example, is
+    clear cut but what if the downstream service was a stock checking system; should
+    you accept an order if there is a chance you do not have the stock to fulfill
+    it?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Error behaviour is not a question that software engineering can answer on its
+    own; business stakeholders need to be involved in this decision. In fact, I recommend
+    that when you are planning the design of your systems, you talk about failure
+    as part of your non-functional requirements and decide ahead of time what you
+    will do when the downstream service fails.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**So how do they work?**'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Under normal operations, like a circuit breaker in your electricity switch box,
+    the breaker is closed and traffic flows normally. However, once the pre-determined
+    error threshold has been exceeded, the breaker enters the open state, and all
+    requests immediately fail without even being attempted. After a period, a further
+    request would be allowed and the circuit enters a half-open state, in this state
+    a failure immediately returns to the open state regardless of the `errorThreshold`.
+    Once some requests have been processed without any error, then the circuit again
+    returns to the closed state, and only if the number of failures exceeded the error
+    threshold would the circuit open again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That gives us a little more context to why we need circuit breakers, but how
+    can we implement them in Go?
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/553bafb9-1732-478c-976b-45097eb43bb1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Again, we are going to turn to the `go-resilience` package. Creating a circuit
+    breaker is straight forward, the signature for the breaker is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We construct our circuit breaker with three parameters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first `errorThreshold`, is the number of times a request can fail before
+    the circuit opens
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `successThreshold`, is the number of times that we need a successful request
+    in the half-open state before we move back to open
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `timeout`, is the time that the circuit will stay in the open state before
+    changing to half-open
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Run the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you run this code you should see the following output. After three failed
+    requests the breaker enters the open state, then after our five-second interval,
+    we enter the half-open state, and we are allowed to make another request. Unfortunately,
+    this fails, and we again enter the fully open state, and we no longer even attempt
+    to make the call:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: One of the more modern implementations of circuit breaking and timeouts is the
+    Hystix library from Netflix; Netflix is certainly renowned for producing some
+    quality microservice architecture and the Hystrix client is something that has
+    also been copied time and time again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hystrix is described as "a latency and fault tolerance library designed to isolate
+    points of access to remote systems, services, and third-party libraries, stop
+    cascading failure, and enable resilience in complex distributed systems where
+    failure is inevitable."
+  prefs: []
+  type: TYPE_NORMAL
+- en: ([https://github.com/Netflix/Hystrix](https://github.com/Netflix/Hystrix))
+  prefs: []
+  type: TYPE_NORMAL
+- en: For the implementation of this in Golang, check out the excellent package [https://github.com/afex/hystrix-go](https://github.com/afex/hystrix-go).
+    This is a nice clean implementation, which is a little cleaner than implementing
+    `go-resiliency`. Another benefit of `hystrix-go` is that it will automatically
+    export metrics to either the Hystrix dashboard to via StatsD. In [Chapter 7](bcd70598-81c4-4f0c-8319-bc078e854db5.xhtml),
+    *Logging and Monitoring*, we will learn all about this just how important it is.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I hope you can see why this is an incredibly simple but useful pattern. However,
+    there should be questions raised as to what you are going to do when you fail.
+    Well these are microservices, and you will rarely only have a single instance
+    of a service, so why not retry the call, and for that we can use a load balancer
+    pattern.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Health checks
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Health checks should be an essential part of your microservices setup. Every
+    service should expose a health check endpoint which can be accessed by the consul
+    or another server monitor. Health checks are important as they allow the process
+    responsible for running the application to restart or kill it when it starts to
+    misbehave or fail. Of course, you must be incredibly careful with this and not
+    set this too aggressively.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'What you record in your health check is entirely your choice. However, I recommend
+    you look at implementing these features:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data store connection status (general connection state, connection pool status)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Current response time (rolling average)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Current connections
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Bad requests (running average)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How you determine what would cause an unhealthy state needs to be part of the
+    discussion you have when you are designing the service. For example, no connectivity
+    to the database means the service is completely inoperable, it would report unhealthy
+    and would allow the orchestrator to recycle the container. An exhausted connection
+    pool could just mean that the service is under high load, and while it is not
+    completely inoperable it could be suffering degraded performance and should just
+    serve a warning.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The same goes for the current response time. This point I find interesting:
+    when you load test your service once it has been deployed to production, you can
+    build up a picture of the thresholds of operating health. These numbers can be
+    stored in the config and used by the health check. For example, if you know that
+    your service will run an average service request with a 50 milliseconds latency
+    for 4,000 concurrent users; however at 5,000, this time grows to 500 milliseconds
+    as you have exhausted the connection pool. You could set your SLA upper boundary
+    to be 100 milliseconds; then you would start reporting degraded performance from
+    your health check. This should, however, be a rolling average based on the normal
+    distribution. It is always possible for one or two requests to greatly be outside
+    the standard deviation of normal operation, and you do not want to allow this
+    to skew your average which then causes the service to report unhealthy, when in
+    fact the slow response was actually due to the upstream service having slow network
+    connectivity, not your internal state.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: When discussing health checks, Michael Nygard considers the pattern of a handshake,
+    where each client would send a handshake request to the downstream service before
+    connecting to check if it was capable of receiving its request. Under normal operating
+    conditions and most of the time, this adds an enormous amount of chatter into
+    your application, and I think this could be overkill. It also implies that you
+    are using client-side load-balancing, as with a server side approach you would
+    have no guarantees that the service you handshake is the one you connect to. That
+    said Release It was written over 10 years ago and much has changed in technology.
+    The concept however of the downstream service making a decision that it can or
+    can't handle a request is a valid one. Why not instead call your internal health
+    check as the first operation before processing a request? This way you could immediately
+    fail and give the client the opportunity to attempt another endpoint in the cluster.
+    This call would add almost no overhead to your processing time as all you are
+    doing is reading the state from the health endpoint, not processing any data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s look at how we could implement this by looking at the example code in
+    `health/main.go` :'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: We are defining two handlers one which deals with our main request at the path
+    `/` and one used for checking the health at the path `/health`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The handler implements a simple moving average which records the time it takes
+    for the handler to execute. Rather than just allow any request to be handled we
+    are first checking on line **30** if the service is currently healthy which is
+    checking if the current moving average is greater than a defined threshold if
+    the service is not healthy we return the status code `StatusServiceUnavailable`S.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Looking greater in depth to the `respondServiceUnhealty` function, we can see
+    it is doing more than just returning the HTTP status code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: Lines **58** and **59** are obtaining a lock on the `resetMutex`, we need this
+    lock as when the service is unhealthy we need to sleep to give the service time
+    to recover and then reset the average. However, we do not want to call this every
+    time the handler is called or once the service is marked unhealthy it would potentially
+    never recover. The check and variable on line **61** ensures this does not happen
+    however this variable is not safe unless marked with a mutex because we have multiple
+    go routines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: The sleepAndResetAverage function waits for a predetermined length of time before
+    resetting the moving average, during this time no work will be performed by the
+    service which will hopefully give the overloaded service time to recover. Again
+    we need to obtain a lock on the resetMutex before interacting with the resetting
+    variable to avoid any race conditions when multiple go routines are trying to
+    access this variable. Line **69** then resets the moving average back to 0 which
+    will mean work will again be able to be handled by the service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This example is just a simple implementation, as mentioned earlier we could
+    add any metric that the service has available to it such as CPU memory, database
+    connection state should we be using a database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Throttling
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Throttling is a pattern where you restrict the number of connections that a
+    service can handle, returning an HTTP error code when this threshold has been
+    exceeded. The full source code for this example can be found in the file `throttling/limit_handler.go`.
+    The middleware pattern for Go is incredibly useful here: what we are going to
+    do is to wrap the handler we would like to call, but before we call the handler
+    itself, we are going to check to see if the server can honor the request. In this
+    example, for simplicity, we are going only to limit the number of concurrent requests
+    that the handler can serve, and we can do this with a simple buffered channel.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Our `LimitHandler` is quite a simple object:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We have two private fields: one holds the number of connections as a buffered
+    channel, and the second is the handler we are going to call after we have checked
+    that the system is healthy. To create an instance of this object we are going
+    to use the `NewLimitHandler` function. This takes the parameters connection, which
+    is the number of connections we allow to process at any one time and the handler
+    which would be called if successful:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is quite straightforward: we create a buffered channel with the size equal
+    to the number of concurrent connections, and then we fill that ready for use:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we look at the `ServeHTTP` method starting at line **29**, we have a `select`
+    statement. The beauty of channel is that we can write a statement like this: if
+    we cannot retrieve an item from the channel then we should return a busy error
+    message to the client.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another thing worth looking at in this example are the tests, in the test file
+    which corresponds to this example `throttling/limit_handler_test.go`, we have
+    quite a complicated test setup to check that multiple concurrent requests return
+    an error when we hit the limit:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we look at line **87**, we can see that we are constructing our new `LimitHandler`
+    and passing it a mock handler which will be called if the server is capable of
+    accepting the request. You can see that, in line **17** of this handler, we will
+    block until the done channel on the context has an item and that this context
+    is a `WithCancel` context. The reason we need to do this is that, to test that
+    one of our requests will be called and the other will not but `LimitHandler` will
+    return `TooManyRequests`, we need to block the first request. To ensure that our
+    test does eventually complete, we are calling the cancel methods for the contexts
+    in a timer block which will fire after ten milliseconds. Things start to get a
+    little complex as we need to call our handlers in a Go routine to ensure that
+    they execute concurrently. However, before we make our assertion we need to make
+    sure that they have completed. This is why we are setting up `WaitGroup` in line
+    **96**, and decrementing this group after each handler has completed. Finally,
+    we can just block on line **109** until everything is complete and then we can
+    make our assertion. Let''s take a closer look at the flow through this test:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Block at line **109**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Call `handler.ServeHTTP` twice concurrently.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: One `ServeHTTP` method returns immediately with `http.TooManyRequests` and decrements
+    the wait group.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Call cancel context allowing the one blocking `ServeHTTP` call to return and
+    decrement the wait group.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Perform assertion.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'This flow is not the same as reading the code in a linear manner from top to
+    bottom. Three concurrent routines are executing, and the flow of execution is
+    not the same as the order of the statements in the code. Unfortunately, testing
+    concurrent Go routines is always going to be a complicated issue. However, by
+    performing these steps we have 100% coverage for our `LimitHandler`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Rather than just limiting the number of connections in this handler, we could
+    implement anything we like: it would be relatively trivial to implement something
+    which records the average execution time or CPU consumption and fail fast if the
+    condition exceeds our requirements. Determining exactly what these requirements
+    are is a complex topic on its own and your first guess will most likely be wrong.
+    We need to run multiple load tests of our system and spend time looking at logging
+    and performance statistics for the end point before we are in a situation to make
+    an educated guess. However, this action could just save you from a cascading failure,
+    and that is an excellent thing indeed.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Service discovery
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: With monolithic applications, services invoke one another through language level
+    methods or procedure calls. This was relatively straightforward and predictable
+    behavior. However, once we realized that monolithic applications were not suitable
+    for the scale and demand of modern software, we moved towards SOA or service-oriented
+    architecture. We broke down this monolith into smaller chunks that typically served
+    a particular purpose. To solve the problem with inter-service calls, SOA services
+    ran at well-known fixed locations as the servers were large and quite often hosted
+    in your data center or a leased rack in a data center. This meant that they did
+    not change location very often, the IP addresses were often static, and even if
+    a server did have to move, re-configuring of the IPs was always part of the deployment
+    process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With microservices all this changes, the application typically runs in a virtualized
+    or containerized environment where the number of instances of a service and their
+    locations can change dynamically, minute by minute. This gives us the ability
+    to scale our application depending on the forces dynamically applied to it, but
+    this flexibility does not come without its own share of problems. One of the main
+    ones knows where your services are to contact them. A good friend of mine, a fantastic
+    software architect and the author of the foreword of this book made this statement
+    in one of his presentations once:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '"Microservices are easy; building microservice systems is hard."'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Without the right patterns, it can almost be impossible, and one of the first
+    ones you will most likely stumble upon even before you get your service out into
+    production is service discovery.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s suppose you have a setup like this: you have three instances of the
+    same service A, B, and C. Instance A and B are running on the same hardware, but
+    service C is running in an entirely different data center. Because A and B are
+    running on the same machine, they are accessible from the same IP address. However,
+    because of this, they both cannot be bound to the same port. How is your client
+    supposed to figure out all of this to make a simple call?'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The solution is service discovery and the use of a dynamic service registry,
+    like Consul or Etcd. These systems are highly scalable and have strongly consistent
+    methods for storing the location of your services. The services register with
+    the dynamic service registry upon startup, and in addition to the IP address and
+    port they are running on, will also often provide metadata, like service version
+    or other environmental parameters that can be used by a client when querying the
+    registry. In addition to this, the consul has the capability to perform health
+    checks on the service to ensure its availability. If the service fails a health
+    check then it is marked as unavailable in the registry and will not be returned
+    by any queries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are two main patterns for service discovery:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Server-side discovery
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Client-side discovery
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Server-side service discovery
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Server-side service discovery for inter-service calls within the same application,
+    in my opinion, is a microservice anti-pattern. This is the method we used to call
+    services in an SOA environment. Typically, there will be a reverse proxy which
+    acts as a gateway to your services. It contacts the dynamic service registry and
+    forwards your request on to the backend services. The client would access the
+    backend services, implementing a known URI using either a subdomain or a path
+    as a differentiator.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The problem with this approach is that the reverse proxy starts to become a
+    bottleneck. You can scale your backend services quickly enough, but now you need
+    to be monitoring and watching these servers. Also, this pattern introduces latency,
+    even though it may be only one 20ms hop, this could quite easily cost you 10%
+    of your capacity, which means you have 10% increase in cost in addition to the
+    cost of running and maintaining these services. Then what about consistency: you
+    are potentially going to have two different failure patterns in your code for
+    downstream calls, one for internal services and one for external. This is only
+    going to add to the confusion.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The biggest problem for me, however, is that you have to centralize this failure
+    logic. A little later in this chapter, we are going to look at these patterns
+    in depth, but we have already stated that your services will go wrong at some
+    point and you will want to handle this failure. If you put this logic into a reverse
+    proxy, then all services which want to access service A will be treated the same,
+    regardless of whether the call is essential to the success or not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To my mind, the worst implementation of this pattern is the one that abstracts
+    all this knowledge from the client, retrying internally, and never letting the
+    calling client know what is happening until success or catastrophic failure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/54a6c338-15b3-4d37-b5dc-842aa31b5b88.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Client-side service discovery
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While server-side service discovery might be an acceptable choice for your public
+    APIs for any internal inter-service communication, I prefer the client-side pattern.
+    This gives you greater control over what happens when a failure occurs. You can
+    implement the business logic on a retry of a failure on a case-by-case basis,
+    and this will also protect you against cascading failure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In essence, the pattern is similar to its server-side partner. However, the
+    client is responsible for the service discovery and load balancing. You still
+    hook into a dynamic service registry to get the information for the services you
+    are going to call. This logic is localized in each client, so it is possible to
+    handle the failure logic on a case-by-case basis.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3c198550-4409-4ebb-8684-4f87182f1587.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Load balancing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When we discussed service discovery, we examined the concepts of server-side
+    and client-side discovery. My personal preference is to look at client side for
+    any internal calls as it affords you greater control over the logic of retries
+    on a case by case basis. Why do I like client side load balancing? For many years
+    server-side discovery was the only option, and there was also a preference for
+    doing SSL termination on the load balancer due to the performance problems. This
+    is not necessarily true anymore and as we will see when we look at the chapter
+    on security. It is a good idea to use TLS secured connections internally. However,
+    what about being able to do sophisticated traffic distribution? That can only
+    be achieved if you have a central source of knowledge. I am not sure this is necessary:
+    a random distribution will theoretically over time work out the same. However,
+    there could be a benefit to only sending a certain number of connections to a
+    particular host; but then how do you measure health? You can use layer 6 or 7,
+    but as we have seen by using smart health checks, if the service is too busy then
+    it can just reject a connection.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: From the example looking at circuit breaking, I hope you can now start to see
+    the potential this can give your system. So how do we implement load balancing
+    in Go?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we take a look at `loadbalancing/main.go`, I have created a simple implementation
+    of a load balancer. We create it by calling `NewLoadBalancer` which has the following
+    signature:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This function takes two parameters: a `strategy`, an interface that contains
+    the selection logic for the endpoints, and a list of endpoints.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To be able to implement multiple strategies for the load balancer, such as
+    round-robin, random, or more sophisticated strategies like distributed statistics,
+    across multiple instances you can define your own strategy which has the following
+    interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is the method which will return a particular endpoint for the strategy.
+    It is not called directly, but it is called internally by the `LoadBalancer` package
+    when you call the `GetEndpoint` method. This has to be a public method to allow
+    for strategies to be included in packages outside of the `LoadBalancer` package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: This method will update the `Strategy` type with a list of the currently available
+    endpoints. Again, this is not called directly but is called internally by the
+    `LoadBalancer` package when you call the `UpdateEndpoints` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To use the `LoadBalancer` package, you just initialize it with your chosen
+    strategy and a list of endpoints, then by calling `GetEndpoint`, you will receive
+    the next endpoint in the list:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the example code, we have implemented a simple `RandomStrategy`. Why not
+    see if you can build a strategy which applies a `RoundRobinStrategy`?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Caching
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: One way you can improve the performance of your service is by caching results
+    from databases and other downstream calls in an in-memory cache or a side cache
+    like Redis, rather than by hitting a database every time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Caches are designed to deliver massive throughput by storing precompiled objects
+    in a fast-access data store, frequently based around a concept of a hash key.
+    We know from looking at algorithm performance that a hash table has the average
+    performance of O(1); that is as fast as it gets. Without going too in depth into
+    Big O notation, this means it takes one iteration to be able to find the item
+    you want in the collection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'What this means for you is that, not only can you reduce the load on your database,
+    you can also reduce your infrastructure costs. Typically, a database is limited
+    by the amount of data that can be read and written from the disk and the time
+    it takes for the CPU to process this information. With an in-memory cache, this
+    limitation is removed by using pre-aggregated data, which is stored in fast memory,
+    not onto a state-full device like a disk. You also eliminate the problem with
+    locking that many: databases suffer where one write can block many reads for a
+    piece of information. This comes at the cost of consistency because you cannot
+    guarantee that all your clients will have the same information at the same time.
+    However, more often than not strong consistency is a vastly overvalued attribute
+    of a database:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/88b66cf2-d4ce-4def-9898-fcfa701ea7b7.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Consider our list of kittens. If we are receiving a high throughput of users
+    retrieving a list of kittens, and it has to make a call to the database every
+    time just to ensure the list is always up to date, then this will be costly and
+    can fast overwhelm a database when it is already experiencing high load. We first
+    need to ask ourselves is it essential that all these clients receive the updated
+    information at the same time or is a one second delay quite acceptable. More often
+    than not it is acceptable, and the speed and cost benefits you gain are well worth
+    the potential cost that a connecting client does not get the up-to-date information
+    exactly after it has been written to the database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Caching strategies can be calculated based on your requirements for this consistency.
+    In theory, the longer your cache expiry, the greater your cost saving, and the
+    faster your system is at the expense of reduced consistency. We have already talked
+    about designing for failure and how you can implement graceful degradation of
+    a system. In the same way, when you are planning a feature, you should be talking
+    about consistency and the tradeoffs with performance and cost, and documenting
+    this decision, as these decisions will greatly help create a more successful implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Premature optimization
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You have probably heard the phrase, so does that mean you should not implement
+    caching until you need it? No; it means you should be attempting to predict the
+    initial load that your system will be under at design time, and the growth in
+    capacity over time, as you are considering the application lifecycle. When creating
+    this design, you will be putting together this data, and you will not be able
+    to reliably predict the speed at which a service will run at. However, you do
+    know that a cache will be cheaper to operate than a data store; so, if possible,
+    you should be designing to use the smallest and cheapest data store possible,
+    and making provision to be able to extend your service by introducing caching
+    at a later date. This way you only do the actual work necessary to get the service
+    out of the door, but you have done the design up front to be able to extend the
+    service when it needs to scale.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Stale cache in times of database or downstream service failure
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The cache will normally have an end date on it. However, if you implement the
+    cache in a way that the code decides to invalidate it, then you can potentially
+    avoid problems if a downstream service or database disappears. Again, this is
+    back to thinking about failure states and asking what is better: the user seeing
+    slightly out-of-date information or an error page? If your cache has expired,
+    the call to the downstream service fails. However, you can always decide to serve
+    the stale cache back to the calling client. In some instances, this will be better
+    than returning a 50x error.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We have now seen how we can use some rather cool patterns to make our microservices
+    more resilient and to deal with the inevitable failure. We have also looked at
+    how introducing a weak link can save the entire system from a cascading failure.
+    Where and how you apply these patterns should start out with an educated guess,
+    but you need to constantly look at logging and monitoring to ensure that your
+    opinion is still relevant. In the next chapter, we are going to look at some fantastic
+    frameworks for building microservices in Go and then in, [Chapter 7](bcd70598-81c4-4f0c-8319-bc078e854db5.xhtml),
+    *Logging and Monitoring*, we will look at some options and best practice for logging
+    and monitoring your service.
+  prefs: []
+  type: TYPE_NORMAL

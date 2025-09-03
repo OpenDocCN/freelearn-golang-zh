@@ -1,0 +1,1559 @@
+- en: '9'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Challenges of Testing Concurrent Code
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous chapters, we covered all of the essentials knowledge that TDD
+    practitioners will need to test their applications. We learned how to unit test
+    our code in the development phase, how to integration test our larger components,
+    and how to end-to-end test our entire services. These are essential building blocks
+    for building and running any software project. The test suite allows us to verify
+    that our application is functioning according to the client’s requirements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As the system grows and matures, developers then must inevitably consider how
+    to change and evolve their code, ensuring that their system remains performant
+    and scalable. As discussed in [*Chapter 7*](B18371_07.xhtml#_idTextAnchor162),
+    *Refactoring in Go*, there are some common refactoring techniques that we can
+    use to make the code change process easier. One common system refactoring technique
+    is breaking up monolithic applications and replacing them with microservice architectures.
+    In [*Chapter 8*](B18371_08.xhtml#_idTextAnchor179), *Testing Microservice Architectures*,
+    we learned how to split up the `BookSwap` application and test the integrations
+    between microservices with the newly introduced technique of contract testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As we step into the world of microservice architectures, testing gets more
+    difficult due to two crucial aspects: services are changed by teams within the
+    organization without any central oversight and the operation order can no longer
+    be guaranteed. We covered the integration testing aspects in previous chapters,
+    but we are yet to explore the difficulties brought on by the variations in operation
+    order. Most importantly, we need to explore how to handle the different states
+    that varying operation orders can put an application in.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter will explore the implementation and testing of concurrent code.
+    We will begin by discussing Go’s concurrency mechanisms, which are one of the
+    main advantages of the Go programming language. Then, we will explore some common
+    concurrency examples. We will learn how to make use of Go’s race detector, which
+    is part of the Go toolchain. Finally, we will discuss what concurrency conditions
+    cannot be tested and see how we can detect concurrency issues in the `BookSwap`
+    application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go’s concurrency mechanisms – goroutines, channels, and synchronization primitives
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Applied concurrency examples and patterns, including creating thread-safe data
+    structures
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Untestable conditions of concurrent code – race conditions, deadlocks, and starvation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The usage and limitations of the Go race detector
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Detecting and fixing concurrency issues in the `BookSwap` application
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You will need to have **Go version 1.19** or later installed to run the code
+    samples in this chapter. The installation process is described on the official
+    Go documentation at [https://go.dev/doc/install](https://go.dev/doc/install).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The code examples included in this book are publicly available at [https://github.com/PacktPublishing/Test-Driven-Development-in-Go/chapter09](https://github.com/PacktPublishing/Test-Driven-Development-in-Go/chapter09).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Concurrency mechanisms in Go
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Go’s in-built concurrency mechanisms are one of its biggest strengths and are
+    often one of the main reasons developers choose to use Go for their services.
+    Implementing concurrency in Go is easy (and painless!) due to its **goroutines**
+    and **channels**. In this section, we will explore each mechanism and review its
+    behavior so that we can better understand how to use and test them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Concurrency** is a program’s ability to process multiple tasks at the same
+    time. This crucial ability allows us to get the most out of the CPU processing
+    power, allowing us to make optimal use of our resources. This is important in
+    all systems in order to be able to process as many requests as possible, without
+    disrupting other flows in the program and keep computing costs low.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 9**.1* depicts two concurrent tasks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.1 – Concurrent execution flow of two tasks ](img/Figure_9.1_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.1 – Concurrent execution flow of two tasks
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The tasks are divided into functions that form a call stack:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this example, each task is divided into three functions that make up the
+    call stack. The task begins when it receives its input and finishes when it has
+    computed its result or output. **Task A** is divided into three functions: **Function
+    A1**, **Function A2**, and **Function A3**. This separation is the same in **Task
+    B**.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The two tasks, **Task A** and **Task B**, are independent of each other. Each
+    task receives its own input and calculates its own result. As the tasks are not
+    connected, they can be computed in any order. This makes them suitable for executing
+    as part of a **concurrent** **execution flow**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When executing the tasks concurrently, subtasks are **scheduled** and **interrupted**
+    for the most efficient execution. The ability to interrupt the functions in the
+    call stack is a key requirement for the concurrent execution of these two tasks.
+    We will learn how to prevent these interruptions in the following sections.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Each task begins when its input is received. In this example, **Input A** is
+    received before **Input B** and its corresponding **Task A** starts execution
+    first.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The subtasks, or functions, are executed in an interleaving way, with the CPU
+    executing functions from **Task A** and **Task B** in a combined way. We notice
+    that the subtasks are executed in order within the task. This means that **Function
+    A1** is executed before **Function A2**, but there are **no order guarantees**
+    with regard to timing when it comes to the subtasks of **Task B**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Once the task is completed successfully, the output is returned and the CPU
+    is free to execute other tasks. We notice that even though **Input B** arrives
+    second and **Task B** starts second, it completes first and **Result B** is returned
+    first. The scheduling of the functions depends on the availability of resources
+    and other factors. We will explore how scheduling works in Go in later sections.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Since there are no order guarantees between concurrently running tasks, we should
+    be careful that the tasks we allow to run concurrently are independent and do
+    not rely on each other. Otherwise, the concurrent execution of the tasks could
+    lead to slow-running tasks or bugs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Avoid ordering assumptions
+  prefs: []
+  type: TYPE_NORMAL
+- en: Concurrency can be used under the hood in libraries, and it might not always
+    be straightforward to see where it is used. Therefore, we should avoid making
+    assumptions about ordering or execution time. We will learn how to make use of
+    synchronization mechanisms and checks to ensure that conditions are met before
+    execution is started.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Parallelism is often confused with concurrency, but it is a program’s ability
+    to execute tasks simultaneously. Unlike concurrency, which does not guarantee
+    task ordering, we know that the task execution in this pattern will be happening
+    in parallel. Tasks should also be independent of each other, as they cannot wait
+    for each other.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 9**.2* depicts two parallel tasks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.2 – Parallel execution flow of two tasks ](img/Figure_9.2_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.2 – Parallel execution flow of two tasks
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The parallel execution flow of two tasks happens simultaneously:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The tasks begin executing once **Input A** and **Input B** are received.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The tasks are executed simultaneously and independently, without interruption
+    or interleaving.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The tasks are completed at the same time, within a margin of error. There will
+    always be deviations in resource usage and performance regardless of how much
+    we attempt to specify them to be identical.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In order to achieve true parallelism, separate computing resources are required.
+    This increases the cost of our system infrastructure, which is undesirable, if
+    not a dealbreaker, for some engineering teams. Therefore, concurrency is often
+    the preferred way to achieve multitasking in programs. As the system becomes successful,
+    properly implemented concurrency can facilitate a smooth transition to parallelism
+    when the system can handle such increased costs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In Go, the concurrent processing of functions or subtasks is executed using
+    **goroutines**. We will look at what they are, how they are scheduled, and how
+    to synchronize them in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Goroutines
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now that we understand the difference between concurrency and parallelism, we
+    will focus our attention on the implementation of concurrency in Go for the remainder
+    of this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Goroutines** are functions or methods that can run concurrently with other
+    functions or methods. They are often referred to as **lightweight threads**, as
+    they have a small memory allocation and run over a much smaller number of OS threads.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It is easy to instruct the Go runtime to run a function in its own goroutine
+    by using the `go` keyword:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: This code snippet creates a `main` function and a `greet` function, which takes
+    a string as a parameter and then prints it to the terminal. We instruct the runtime
+    to run the function in its own goroutine by adding the `go` keyword in front of
+    its invocation. At the end, we print the “Goodbye, friend!” line to signal that
+    the `main` function has been completed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We run this little program using the usual command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The program does not print the greeting; instead, it only prints the goodbye
+    line. This is due to the behavior of programs and goroutines. *Figure 9**.3* presents
+    a visualization of these properties:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.3 – Goroutine execution of the greeting program ](img/Figure_9.3_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.3 – Goroutine execution of the greeting program
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The program does not print the greeting to the terminal because of the intended
+    **non-blocking behavior** of goroutine creation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The main function starts when we run our program. This function runs in its
+    own goroutine, which we will refer to as the **main goroutine**. The main function
+    has its own **execution time** based on the statements contained inside the body
+    of the main function.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: During main function execution, the main goroutine instructs the Go runtime
+    to `greet` function in this goroutine. This main goroutine has a **parent-child
+    relationship** with the main goroutine. We will refer to this child goroutine
+    as the **greet goroutine**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The creation of the child goroutine, which will run our `greet` function, is
+    a **non-blocking operation**. This allows us to achieve the multitasking aspect
+    of concurrency that we previously discussed.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: As the main goroutine is not blocked, it finishes its own work and completes
+    its execution time. Once the main goroutine has completed, the Go runtime cleans
+    up all of its resources. As the main goroutine has a parent-child relationship
+    with the greet goroutine, the runtime **kills the** **greet goroutine**.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The greet goroutine immediately stops execution and **shuts down**. Depending
+    on how much execution time it has received from the CPU, the greet goroutine may
+    be able to execute its print to the terminal or not.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Due to these properties, the program does not manage to reliably print the greeting
+    to the terminal. We need to stop the main goroutine from shutting down in order
+    to give time for the child goroutine to finish its execution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'One solution is to block the main goroutine from terminating by invoking the
+    `time.Sleep` function for a predetermined amount of time, such as 1 second. Another,
+    more interesting, solution is to signal that the greet goroutine has completed
+    its work by writing a value to a shared variable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The two functions share memory space, so it is possible for them to write and
+    read to shared variables. The code snippet demonstrates this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We create a variable of the `bool` type at the top, named `finished`. The purpose
+    of this variable is to provide a signal to the main function that the `greet`
+    function has completed.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Once the greet function writes its greeting to the terminal, it sets the value
+    of the `finished` variable to `true`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside the body of the main function, we create a `for` loop, which will execute
+    until the value of the `finished` variable is `true`. Using the `time.Sleep` function,
+    we poll the value of the variable every 10 milliseconds.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Once the `for` loop completes, the main goroutine completes its execution and
+    all of the resources of both goroutines are cleaned up.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Running this program will print the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Finally, using this simple approach of writing to a shared variable, we have
+    managed to block the main goroutine until its child goroutine finishes. We are
+    finally able to see the greeting printed in the terminal and the program is executing
+    correctly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This way of sharing information between goroutines is known as **communicating
+    by sharing memory** and it is the traditional way to deal with concurrency in
+    other programming languages. This approach is not without drawbacks. However,
+    Go has another approach, which we will explore in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Channels
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '**Channels** provide another way for goroutines to communicate with one another.
+    We can think of the in-built channel type as a pipe through which we can safely
+    send information between goroutines, without having to use shared variables or
+    memory. In Go, this principle is known as **sharing memory** **by communicating**.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 9**.4* depicts the main operations and syntax of channels:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.4 – Operations and syntax of Go channels ](img/Figure_9.4_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.4 – Operations and syntax of Go channels
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The interaction with the channel demonstrates the syntax of its two main operations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`ch chan bool`: The channel is a built-in type in Go, so it does not require
+    us to import any libraries. A channel is declared using the `chan` keyword followed
+    by a data type, `bool`, which the channel will be able to transport. Only this
+    type of variable can be transported through it. This is compiler enforced.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`ch <- true`: The first operation that channels support is the `<-`, and indicates
+    the way that the data is flowing through the channel. In this case, the arrow
+    points toward the channel where we send a `true` value to it.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`f := <-ch`: The counterpart to the send operation is the receive operation.
+    This operation is performed by pointing the channel operator away from the channel
+    and allocating the receive to a local variable named `f`.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: This is the basic usage of channels, although we will explore some further subtleties
+    in later sections. The send and receive operations are **blocking and synchronous**,
+    so both parties of the transaction need to be available for the operations to
+    complete.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Channels are a great **synchronization and communication mechanism**. We can
+    make use of them to synchronize our main and greeter goroutines using more concise
+    code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This simplified version of the solution makes use of a channel to synchronize
+    the two goroutines:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `greet` function is changed to take in a channel parameter. Similarly, for
+    maps and slices, the channel type has a built-in pointer reference, so we do not
+    need to explicitly pass it by pointer using the `&` operator.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Once the greeting is printed, the `greet` function sends the `true` value to
+    the channel. This will signal to the main goroutine that the `greet` function
+    has successfully completed.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside the main function, we initialize a channel using the `make` function.
+    The zero value of the channel type is `nil`, so we use the `make` function to
+    create a channel that is ready to use. Under the hood, the `make` function will
+    allocate all the resources required.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Once the `greet` function has been started in its own goroutine, the main function
+    invokes the receive operation on the channel. Since the send and receive operations
+    on channels are blocking, this will block the main goroutine until the `greet`
+    goroutine has completed and has been able to send the value through the channel.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The use of channels has simplified the implementation by removing the need to
+    poll for the value of the `finished` variable. We also notice that the channel
+    variable, `ch`, has been initialized inside the main function and been passed
+    as a parameter. Since there is now no global variable, we have removed the need
+    to communicate by sharing memory between the two goroutines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Channels support one final operation, the close operation. Unlike sends and
+    receives, closing a channel changes the state of the channel and indicates the
+    completion of work to the channel’s receivers. It is an operation that can be
+    used for the purpose of synchronization, as opposed to supporting information
+    exchange and communication between goroutines. A closed channel will immediately
+    return the zero value of the channel type to all receive operations and cause
+    a panic on all send operations that are attempted on the channel in the future.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Since the purpose of our channel is to synchronize the `greet` and `main` goroutines,
+    we can make use of the close operation to further simplify our code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: There are a few tweaks we have made to our solution. The data type of the channel
+    is now the empty `struct{}`, which reduces the memory footprint of the channel.
+    Inside the `greet` function, we close the channel immediately after the function
+    prints its greeting. While these changes do not seem significant, this solution
+    will work for signaling to multiple receivers that work has completed, as opposed
+    to having to write multiple values on the channel. This is a powerful mechanism
+    that we can make use of to solve a variety of problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 9**.5* summarizes the behavior of the channels we have studied so far:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.5 – Summary of channel operations and states ](img/Figure_9.5_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.5 – Summary of channel operations and states
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This figure is a useful reference for understanding how channels will behave
+    in our code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`make` function. They cannot be used to send information but are useful for
+    passing to goroutines when those goroutines are started. The nil channel will
+    be initialized for use at a future time:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Send operations will block until the channel is initialized, after which the
+    rules for initialized channels apply.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Receive operations behave identically to send operations.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Close operations panic on nil channels. As nil channels are not ready to send
+    information through, it would not make sense to close them. It is therefore considered
+    a fatal error if we attempt to close nil channels.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Initialized channels** are created using the make function and are ready
+    to be used. They are ready for sending information through:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Send operations will block until a receiver arrives. The sending goroutine will
+    not be able to execute past this point until the operation completes.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Receive operations will block until a value arrives from the sender. As sends
+    and receives are synchronous operations, both goroutines must be ready to complete
+    the operation for the two parts of the transaction to be completed. So, if the
+    sender starts up but the receiver is not yet ready, this will mean the sender
+    halts until the receiver is ready, which can be a helpful property.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Close operations complete immediately. Once the first operation completes, the
+    channel will move into the **Closed Channel** state.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Closed channels are initialized channels that have been successfully closed.
+    Channels in this state signal that they will no longer be able to transport information:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Send operations will panic. There is no easy way to know whether a channel is
+    closed, so the panic lets senders know that they should stop sending values to
+    it, but you should code carefully in order to avoid encountering a panic.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Receive operations will immediately complete with the zero value of the channel’s
+    data type. As we have seen in our greeter example, we can use the receive operation
+    on closed channels as a synchronization mechanism.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Close operations will panic, as channels can only move into the closed state
+    once. Again, defensive coding (for example, the single responsibility principle
+    where only one part of your code is responsible for closing the channel) can help
+    to control this.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: One final aspect to note is that once a channel is closed, it cannot be opened
+    again. This can create some complications when using them when solving more complicated
+    problems. Now that we understand the fundamental behavior of goroutines and channels,
+    we can explore some commonly applied concurrency examples in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Applied concurrency examples
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'So far, we have learned about the main operations and behavior of goroutines
+    and channels. These two concurrency mechanisms are important to understand, as
+    they are pivotal to how Go implements concurrency. However, the Go standard library
+    also includes concurrency primitives in its `sync` package. It contains synchronization
+    primitives with a broad variety of uses:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`sync.Map` is a map implementation that is safe for concurrent use. We will
+    explore how to create other thread-safe data structures in the next section.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sync.Mutex` is an exclusion lock. It allows us to gatekeep resources for usage
+    by one goroutine at a time. It is also possible to take a read-only or a read-write
+    mutex depending on the problem being solved.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sync.Once` is a specialized lock that can only be acquired once. This is useful
+    for wrapping around statements, such as cleanup code, which should only run once.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sync.Pool` is a temporary set of objects that are individually saved and retrieved.
+    It can be seen as a cache of objects, making it easy to create thread-safe lists.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sync.WaitGroup` waits for a collection of goroutines to finish. This primitive
+    has a counter and a lock under the hood, allowing it to keep track of how many
+    goroutines it will need to wait for before completing. This can greatly simplify
+    a main goroutine.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You can read the full documentation of the synchronization primitives of the
+    `sync` package in the official Golang documentation ([https://pkg.go.dev/sync](https://pkg.go.dev/sync)).
+    These well-designed synchronization primitives give us the tools to solve many
+    types of problems. Let us have a look at some of them in action in the next sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Closing once
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As we saw in *Figure 9**.5*, channels panic if we attempt to close a channel
+    multiple times. This is a great candidate for using `sync.Once`, although we can
+    imagine other great uses of this mechanism, such as implementing the **Singleton
+    pattern** or executing clean-up functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This specialized lock is easy to use to ensure that a channel is only closed
+    once:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We implement the safe closing of a channel by wrapping it around the close
+    operation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We create the `safelyClose` function, which takes in a pointer to the `sync.Once`
+    type and the channel created by the main function. Note that unlike the channel
+    type, we need to pass the `Once` type using explicit parameter pointer types.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside the `safelyClose` function, we call the close operation on the channel
+    inside the `once.Do` method. The `Do` method takes a function as a parameter,
+    so we wrap our statement inside an anonymous function.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside the main function, we create a zero-value `sync.Once` instance. There
+    is no special initialization we need to undertake with synchronization primitives,
+    so the zero value is ready for use.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We create multiple goroutines that execute the `safelyClose` function using
+    a `for` loop. These goroutines all share the same `once` and channel instances.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Finally, we block the main goroutine with a receive operation from the channel.
+    This operation will complete as soon as the first goroutine closes the channel.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Running the example program shows that multiple goroutines are started, but
+    the channel is closed only once:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: As we can see from the output, multiple goroutines are started, but the channel
+    is only closed once. `sync.Once` is simple to use, but it can help us build safety
+    around operations that should only be executed once, such as closing a channel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Thread-safe data structures
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Another frequent problem that engineers solve is building **thread-safe data
+    structures**. These types of structures are safe for reading and writing by multiple
+    goroutines. By default, Go’s slices and maps are not safe for concurrent use,
+    so we will need to be mindful of multiple goroutines accessing shared data structures
+    and resources. This is one of the reasons why communicating using channels, which
+    are thread safe, is preferred to communicating via shared memory, represented
+    by data structures or variables.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`sync.Map` ([https://pkg.go.dev/sync#Map](https://pkg.go.dev/sync#Map)) is
+    an implementation of a map that is thread safe. This map uses locks under the
+    hood, so it will not be as performant as the built-in map type. The synchronized
+    map exposes methods providing reading and writing functionality:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We interact with the synchronized map through wrapper methods:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We declare the `workerCount` constant at the top of the program, which will
+    denote the number of goroutines we will be starting.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The `greet` function takes in three parameters: an ID, a pointer to `sync.Map`,
+    and a channel for us to signal that the goroutine has finished its work. We format
+    a greeting string, which makes use of the ID that was passed in. Then, we save
+    it in the map using the `Store` method and write a value to the `done` channel
+    to signal to the main goroutine that this worker goroutine has finished.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside the main function, we initialize the map. The zero value of this map
+    is ready for usage, just as we saw with `sync.Once` earlier. We also initialize
+    a channel, which we will use to signal to the main goroutine that the worker goroutines
+    have completed.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Then, we run through two `for` loops. The first loop starts the `greet` function
+    in its own goroutine, while the second waits until values are received on the
+    `done` channel. This allows us to wait for all goroutines to complete before continuing.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Finally, we read all the values contained in the map using the `Range` method,
+    which takes an anonymous function as a parameter. We print the entries and return
+    `true`, which will allow the `Range` method to continue looping.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The output of this program shows that the greetings can be saved and retrieved
+    concurrently:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The built-in map type will panic when written to by multiple goroutines, so
+    you should make sure to use the synchronized map in this case.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Similar to the approach of `sync.Map`, we can create our own thread-safe custom
+    data structures by using the `sync.Mutex` lock to limit access to the underlying
+    data structure. For example, we can create a thread-safe **Last In First Out**
+    (**LIFO**) stack by following this approach:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The stack implementation makes use of `sync.Mutex`, which exposes two methods,
+    `Lock` and `Unlock`, to limit access to the underlying data slice:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The custom `Stack` struct has two fields, a lock and a data slice. These are
+    unexported fields, as they should only be managed by the stack data structure
+    itself.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`Stack` has two methods. `Push` adds the element to the end of the data slice,
+    while `Pop` removes the last element from the data slice and returns it. If the
+    slice is empty, then the `Pop` method will return an error.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Both functions make use of the lock that is of the `sync.Mutex` type to ensure
+    that both methods are called by one goroutine at a time. We make use of the `defer`
+    keyword to ensure that the lock is released regardless of which execution path
+    the method goes through.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`sync.Mutex` is a versatile locking mechanism that can be used to block access
+    to any code segment that accesses shared resources or requires unique control
+    of a resource. This is known as a **critical** **code section**.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Similarly, the `sync` package also provides `sync.RWMutex`, which provides control
+    of locking reads and writes separately. This level of control may be useful for
+    creating thread-safe data structures that are used by many goroutines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Waiting for completion
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The final synchronization primitive that we will explore in this section is
+    `sync.WaitGroup`. Under the hood, `WaitGroup` manages an inner counter that maintains
+    how many resources are left to complete. This specialized lock allows us to wait
+    for multiple goroutines to complete, allowing us to simplify our synchronized
+    map example from the previous section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We have made a few key changes that greatly simplify our solution:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `greet` function takes in a pointer to `sync.WaitGroup` instead of the done
+    channel. At the top of the function, we defer the `Done` method on `WaitGroup`,
+    which decreases its inner counter by 1, signaling that this goroutine has completed.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside the main function, we initialize `sync.WaitGroup`, which is ready for
+    use. We add `workerCount` to the inner counter, signaling to it how many goroutines
+    we will start. `WaitGroup` will block until this inner counter reaches zero, which
+    will happen as each child goroutine calls the `Done` method once as it finishes.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Finally, we invoke the `Wait` method further down in the `main` function. This
+    method will block until the inner counter of `WaitGroup` reaches 0\. This removes
+    the need to read messages from our channel for each completed goroutine inside
+    a `for` loop.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: This brings us to the end of our exploration of Go concurrency fundamentals
+    and applications. As we have seen, Go concurrency makes use of goroutines, channels,
+    and synchronization primitives. We can easily use locks to create thread-safe
+    data structures and ensure that critical code sections are only accessed one goroutine
+    at a time. In the next section, we will learn what problems the newly introduced
+    aspect of concurrency brings to our programs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Issues with concurrency
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Writing concurrent code in Go is elegant and simple. However, it does make our
+    code more complex. Developers need to be familiar with the behavior of concurrency
+    mechanisms to understand the code they are reading. Furthermore, as timing plays
+    a crucial part in how goroutines behave, we might have a hard time reproducing
+    potential bugs. In this section, we look at three common concurrency issues. As
+    we deep dive into each example, we will also have the opportunity to understand
+    the behavior of Go’s concurrency mechanisms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data races
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A **data race** is the most common concurrency issue. This issue occurs when
+    multiple goroutines access and modify the same shared resource concurrently. This
+    is one of the reasons why we should avoid sharing the state between goroutines,
+    preferring to share information between goroutines using channels.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We modify our previous greeting example by saving the formatted greetings into
+    a slice, instead of immediately printing the greeting to the terminal:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'At first glance, the code example hasn’t been modified very much:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: At the top of the program, we declare the `greetings` string slice that we will
+    be saving the greetings into. We also declare the `workerCount` constant as `3`,
+    which is how many goroutines we will be running.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The `greet` function takes in two parameters, the goroutine ID and a pointer
+    to `sync.WaitGroup`. At the end of the function, we append the formatted greeting,
+    `g`, to the `greetings` slice.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In the `main` function, we create `sync.WaitGroup` and run the `greet` function
+    in multiple goroutines. `WaitGroup` is used to ensure that the main goroutine
+    waits for all of its worker goroutines to complete. At the end of the `main` function,
+    once all the `greet` goroutines have completed, we loop over the `greetings` slice
+    and print each entry to the terminal.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'As the `main` function waits for all the goroutines to complete, we expect
+    that all goroutines will have their greeting saved correctly. As `workerCount`
+    is equal to `3`, we expect three lines to be printed to the terminal. Let us run
+    this program in the usual way and see its output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Looking at the output, we see only two goroutines have had their results recorded.
+    We can see that something has gone wrong with the code changes we have made.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This code example suffers from a data race. *Figure 9**.6* depicts the sequence
+    of events happening in this example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.6 – The data race events ](img/Figure_9.6_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.6 – The data race events
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As multiple goroutines attempt to append their results to the `greetings` slice,
+    they actually perform a few operations under the hood:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`greetings` **reference**: **Goroutine 1** begins its execution by reading
+    the reference to the greetings slice. It will complete its operations based on
+    this value.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`greetings` **reference**: At a later time, **Goroutine 2** begins its execution
+    by reading the reference to the greetings slice. This may or may not be the same
+    value that **Goroutine 1** has read.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**(3) Write changed version**: During its execution, **Goroutine 1** is ready
+    to write its changes and complete its execution. If there is space in the underlying
+    array, the element is appended to it. Otherwise, a new, larger array is created
+    and the elements are copied to it. A new slice is created with a reference to
+    the updated underlying array.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**(4) Write changed version**: Finally, **Goroutine 2** is ready to write its
+    changes as well. However, it is unaware of any changes that **Goroutine 1** has
+    made up to this point. It is still working based on the reference that it has
+    read at point **2**. **Goroutine 2** writes its changes, overwriting all the work
+    that **Goroutine 1** will have saved at point **3**.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: As the `greetings` slice is not protected by locks, goroutines can be interrupted
+    at any point in this process. As these changes interleave, the goroutines can
+    end up overwriting each other’s changes, leading to an inconsistent result. Depending
+    on timing, your output may well look different from the preceding result. Also
+    depending on the timing, we might see all of the greetings printed to the terminal
+    and assume the program is functioning correctly, or we might see the inconsistent
+    behavior we saw during our test run. Data races are commonly occurring issues
+    in the world of concurrency and they can be hard to find and replicate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deadlocks
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '**Deadlocks** are another common concurrency issue. This issue occurs when
+    goroutines are blocked waiting for a resource that never becomes available. The
+    goroutines will never be able to proceed. The Go runtime will detect when your
+    program becomes blocked and trigger a panic, shutting down and cleaning up resources.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To fix our data race from the previous section, we’ll modify the code to make
+    use of a channel to allow only one goroutine at a time to append to the greetings
+    slice:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'At first glance, the example seems reasonable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `greet` function takes in three parameters: an ID, a channel, and a pointer
+    to `WaitGroup`. Inside the function, we read from the channel, append our greeting
+    to the `greetings` slice, then write to the channel.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside the `main` function, we initialize the channel and `WaitGroup`. These
+    are the synchronization mechanisms that our goroutines will use.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We then write a `for` loop, which will start as many goroutines running the
+    `greet` function as `workerCount`, which is three.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: After the loop, we send a value to the channel to get the first goroutine started.
+    It also signals to the worker goroutines that the main goroutine is ready to process
+    their results.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'This seems like a reasonable technical solution that could ensure our data
+    races are fixed. Let us run this program in the usual way and see its output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This program suffers from a deadlock, which is detected by the Go runtime.
+    The stack trace indicates that two goroutines are blocked:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The main goroutine cannot complete the `Wait` method of `WaitGroup`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: One of the worker goroutines cannot complete its channel send operation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This deadlock is caused by the synchronous nature of channel operations. The
+    last worker goroutine tries to send to the channel and signal that its work has
+    completed, but there is no remaining receiver on the channel. Due to this, the
+    worker remains blocked, `WaitGroup` never unblocks, and the whole program freezes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Common causes for goroutines becoming blocked are waiting to complete channel
+    operations or waiting for one of the locks in the `sync` package to become available.
+    Understanding the behavior of the concurrency mechanisms we are using is the best
+    tool for avoiding issues and bugs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Buffered channels
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: By default, channels are **unbuffered**, meaning that they have no capacity
+    to store or buffer values. This is why all the channel operations that we have
+    seen so far have been **synchronous**. However, this can be limiting for senders
+    and receivers that operate at different speeds. A special kind of channel addresses
+    this limitation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Buffered channels have the capacity to accept a predefined, limited number
+    of values without a receiver. This allows us to process a limited number of `make`
+    function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: The capacity is an integer, which has a default value of `0` for unbuffered
+    channels. This parameter defines the size of the backing array that will save
+    the channel’s values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 9**.7* depicts the send and receive operations on the two types of
+    channels:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.7 – Send and receive operations on channels ](img/Figure_9.7_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.7 – Send and receive operations on channels
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The timing of operations is the key difference between the channels:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: On **unbuffered channels**, both the send and receive operations happen at the
+    same time. The channel does not store any values and can only complete the operation
+    once both the sender and receiver are available.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: On **buffered channels**, the channel has a limited capacity buffer that can
+    save values, if it has the capacity to do so. The send and receive operations
+    complete at different times, as the channel saves the sender’s value in its buffer.
+    Once the receiver is ready, it can read the available value from its buffer and
+    pass it on to the receiver.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When the buffer is at capacity, buffered channels will block send operations,
+    behaving like an unbuffered channel until the buffer starts to be emptied by the
+    receiver.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We can make use of buffered channels to allow the `greet` workers to complete
+    as soon as they write their value, instead of waiting for the main goroutine to
+    be available to receive their values:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This simple example demonstrates the usage of buffered channels:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `greet` function takes in two parameters again: an ID and channel with
+    the `string` data type. The buffered channel has the same type as the unbuffered
+    channel, so the `greet` function cannot detect whether it is using a buffered
+    or unbuffered channel.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside the `greet` function, we format the greeting and send it to the channel.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: At the top of the `main` function, we initialize the buffered channel by passing
+    `workerCount` as the capacity of the channel. Then, we start the greet function
+    in its own goroutine inside the `for` loop, passing the index and the channel
+    as the parameters of the function.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Finally, we print and receive two values from the channel and terminate the
+    program.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'We run the program in the usual way to see how it behaves:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The program functions as intended: the worker goroutines complete immediately
+    and the main goroutine prints two messages to the terminal, then completes successfully.
+    However, this program does have an issue. The third greeting of the greeter goroutine
+    is successfully sent to the channel but is never received. From the point of view
+    of the greeter, its result was correctly sent and processed, when in fact the
+    main goroutine never processed it.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since the receiver is only ready twice, our program has a **leaked resource**,
+    which is a resource that has not been released correctly. While the Go garbage
+    collector will collect unused memory, we should avoid writing this kind of code,
+    as it can cause issues and bugs if these operations are performed at scale.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Buffered channels have a limited capacity to ensure that these types of resource
+    leaks are avoided. They are often used to implement the **worker pool concurrency
+    pattern**, which is the implementation of a collection of goroutines waiting to
+    repeatedly process jobs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So far, we have discussed the behavior and issues of concurrency mechanisms
+    by studying code examples and reasoning around the problems that we are able to
+    reproduce. In the next section, we will discuss how to make use of the Go tools
+    to detect concurrency issues in our programs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Go race detector
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In [*Chapter 8*](B18371_08.xhtml#_idTextAnchor179), *Testing Microservice Architectures*,
+    we explored how to use the `pprof` tool to profile the CPU and memory usage of
+    Go applications. One of the essential tools that can help us find issues with
+    concurrency is the Go race detector. It is a powerful tool that analyzes our code
+    to find concurrency problems when an application is running.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go’s race detector was added to the toolchain in Go 1.1, released in 2012\.
+    This tool was designed to help developers find race conditions in their code.
+    As we have seen in the previous examples, writing concurrent code in Go is easy,
+    but bugs can appear in even the most readable and well-designed code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The race detector is enabled using the `–race` command-line flag, alongside
+    the `go` command. For example, we can instruct it to run alongside our program:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: The race detector can be used with other commands as well, including the `build`
+    and `test` commands. This makes it easy to use the detector to find data races
+    in your application at any stage in the development process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once the detector is enabled, the compiler records memory access and the Go
+    runtime analyzes these records for data races. As we know, data races are typically
+    caused by multiple goroutines accessing and modifying one shared resource without
+    making use of synchronization mechanisms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When a data race occurs, the detector will print a report with details of the
+    problem, pinpointing the problem and guiding an observant developer toward the
+    fix for the detected issue. Let us try it out with our data race example from
+    the previous section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As expected, the race detector finds some issues with our data race example.
+    The output points out the problem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first data race is detected in the `greet` function at `main.go:15`. One
+    goroutine reads a variable, while another goroutine writes to it.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The second data race is happening as the slice grows during append, which is
+    indicated by the call to `runtime.growslice()`. This function copies the slice
+    and handles the allocation of a larger backing array, if it is required. The modifications
+    to this slice are also happening in an interleaving manner, with reads and writes
+    happening in different goroutines.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Finally, the output of the program is printed and the race detector summarizes
+    that two data races have been found.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'As we already suspected, the concurrent changes made to the shared slice without
+    synchronization mechanisms have caused a data race. The code block identified
+    by the race detector is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: The line highlighted by the detector is the read and write to the greetings
+    slice during the append function. As we discussed in previous sections, the append
+    function consists of multiple operations, which can cause data races if they are
+    interleaving across multiple goroutines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Due to the instrumentation that the race detector requires, it is only able
+    to find data races as they are triggered. Therefore, our application should be
+    subjected to realistic workloads and user journeys in order to detect issues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: According to the official Go documentation ([https://go.dev/blog/race-detector](https://go.dev/blog/race-detector)),
+    race-enabled applications use 10 times the CPU and memory, so we should avoid
+    running them in production. Instead, we should run our load tests and integration
+    tests with the race detector enabled, since these tests usually exercise the most
+    important parts of the program.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Limitations of the race detector
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the race detector is a very useful tool, we should remember that it can
+    only check for race conditions. While it does not flag any false positives, the
+    code can contain other concurrency issues. We should bear in mind that the race
+    detector is simply an indicator.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Untestable conditions
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: While the Go race detector is a useful tool, concurrency testing is difficult
+    to perform and prove to be correct. The race detector only focuses on finding
+    data races, but we have already seen that there are other concurrency issues in
+    the previous section, *Issues with concurrency*, where we explored deadlocks and
+    leaked resources.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Due to the dependency on timing, there are four essentially untestable concurrency
+    problems:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Race conditions**: Unstable or inconsistent behavior due to multiple goroutines
+    that read and modify a shared resource without the correct usage of synchronization
+    mechanisms. For example, goroutines reading and incrementing a common counter.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Deadlocks**: Goroutines becoming blocked waiting for resources that never
+    become available, either because they never reach the required state or because
+    another goroutine has locked the resources and never released them. For example,
+    a goroutine is waiting to receive from a nil channel, which never becomes initialized.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Livelocks**: Similar to deadlocks, goroutines become livelocked when they
+    continue to attempt to acquire resources that never become available, either because
+    they never reach the required state or because another resource has locked the
+    resources and never released them. In this case, goroutines will waste CPU continuing
+    to retry impossible operations. For example, a goroutine periodically polls to
+    write to a variable that has been locked by another goroutine, which is waiting
+    for a resource that the first goroutine has locked and never received.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Starvation**: Similar to livelocks, goroutines cannot get all the resources
+    needed to continue processing. One or more goroutines are prevented from doing
+    meaningful work by greedy goroutines that do not release resources. For example,
+    a goroutine locks a resource and then proceeds to execute a very long-running
+    operation, preventing other goroutines from gaining access to the resource in
+    the meantime.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '*Figure 9**.8* depicts a common scenario of where deadlocks commonly occur:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.8 – A common deadlock problem ](img/Figure_9.8_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.8 – A common deadlock problem
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this scenario, both goroutines need two resources to complete their work.
+    Each of the goroutines is holding onto a resource while it is waiting for the
+    second resource. Neither goroutine can complete its work and a deadlock occurs.
+    This same scenario can also lead to a livelock, if each goroutine is polling to
+    check the state of a resource or another goroutine. In this case, each goroutine
+    is using CPU cycles but never finishes executing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: These four untestable conditions are actually a result of **poorly designed
+    code** or a **faulty understanding of the behavior of concurrency mechanisms**.
+    This is the main reason that we have started this chapter by thoroughly discussing
+    and exploring the fundamentals and behavior of Go’s concurrency mechanisms. These
+    conditions can be detected by using good linters and a code review, but the best
+    defense is to be aware of the problems when you are writing your code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 9**.9* presents a summary of three rules of thumb when it comes to
+    using concurrency:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 9.9 – Concurrency rules of thumb ](img/Figure_9.9_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9.9 – Concurrency rules of thumb
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'These three rules of thumb will help you minimize the difficult-to-detect concurrency
+    issues we have discussed so far:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Share values with channels**: As discussed previously, we should avoid sharing
+    results using variables and pointers. Even when correctly protected by locks,
+    channels are much more efficient and can simplify your code.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`defer` keyword as soon as you acquire it. This will ensure that your function
+    releases the lock, regardless of the completion logic branch or any potential
+    errors. You should also consider whether you need a read-write lock, or whether
+    you can avoid starvation by acquiring read mutexes, where possible.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Wait for all children to complete**: As we have discussed, goroutines have
+    a parent-child relationship with the goroutines they create. You should make use
+    of synchronization mechanisms to ensure that the parent goroutine waits for all
+    the goroutines it has created before shutting down to ensure that operations are
+    completed correctly and resources are cleaned up correctly.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Testing alone **cannot prove the absence** of the four untestable conditions,
+    but it can give us statistical confidence that these errors will not occur in
+    production, for the scenarios that are important to our systems. Therefore, writing
+    tests that cover the concurrent parts of our code is an important part of our
+    testing strategy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will look at how we can make use of the race detector
+    to test the `BookSwap` application under concurrent conditions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Use case – testing concurrency in the BookSwap application
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The last section of this chapter is dedicated to the detection of concurrency
+    issues in the `BookSwap` web application. We will make use of Go’s race detector,
+    alongside the testing strategies we have learned so far, to see what issues we
+    can discover in the `BookSwap` application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You might be wondering why we would worry about the concurrency aspects of the
+    `BookSwap` application, since we have not used any locks, channels, or goroutines
+    in the code base we have seen so far. Go’s `net/http` library uses goroutines
+    under the hood to serve HTTP requests, so the application can still have concurrency
+    issues, even though it does not explicitly create its own goroutines and channels.
+    This effect will be further amplified once the `BookSwap` application gets converted
+    from a monolithic application to running in the microservice architecture we discussed
+    in [*Chapter 8*](B18371_08.xhtml#_idTextAnchor179), *Testing* *Microservice Architectures*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We already have all the tools available for writing tests that can simulate
+    and verify the concurrent behavior of our application. We will write a test that
+    creates `BookSwap` users concurrently:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This benchmark test sends requests concurrently to the `POST /users` endpoint
+    of the `BookSwap` application:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We declare a new test with the usual signature, which takes in a single `*testing.T`
+    parameter.This test will run only when the `LONG` argument is passed to the test
+    runner, as it required the `BookSwap` application to be up. The `userEndpoint`
+    is returned by the `getTestEndpoint` helper function based on environment variables.
+    For brevity, we have not included the implementation of this function here.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In the setup of the test, we marshal a map with the string key and value type,
+    which contains all the JSON fields that we require to create a new user. We use
+    the `json.Marshal` function in the standard library to do this. This function
+    will return a slice of bytes, `[]byte`, which we will use as the request body
+    for our HTTP POST calls.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We repeat the same test in a `for` loop up to a `LOAD_AMOUNT` constant. The
+    test runner will run the test in parallel according to the configuration that
+    it has available. It’s important to include this `for` loop; otherwise, our goroutine
+    will only make a single call.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We set up the test to run in parallel using the `t.Parallel` method. Under the
+    hood, this creates multiple goroutines and distributes the test iterations across
+    them. This method takes in a function as a parameter, which will set up any local
+    state and be run in each of the goroutines of the test.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In the loop, we convert the JSON byte slice into a buffer, which is required
+    for the invocation of the `http.Post` function. This function takes in `usersEndpoint`,
+    which will contain the URL to test against.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Once the HTTP request completes, it will return a response, against which we
+    can make our assertions. We ensure that we close the body of the response in order
+    to allow the same connection to be reused by another goroutine.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The simple configuration of the test will allow us to test our endpoint using
+    a fixed number of concurrent requests. As we have seen in previous chapters, this
+    function constructs the URL based on the environment variables specified for the
+    application. If you want to run with the default values, set the `BOOKSWAP_BASE_URL`
+    environment variable to http://localhost and the `BOOKSWAP_PORT` environment variable
+    to `3000` to your terminal session.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By default, the number of goroutines that will be used by the benchmark is
+    equal to the `GOMAXPROCS` variable. This variable will be equal to the number
+    of CPUs on the machine it is running. Your OS decides what counts as a CPU, so
+    for a four-core machine with hyperthreading, `GOMAXPROCS` will be `8`. If you
+    would like to adjust the number of goroutines, you can easily configure this by
+    changing this environment variable. Just as we have done with the `pprof` tool
+    in [*Chapter 8*](B18371_08.xhtml#_idTextAnchor179), *Testing Microservice Architectures*,
+    we run the `BookSwap` application with the race detector enabled:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: The modification of resources and goroutines is happening in the `BookSwap`
+    application itself, not the test code, so this is why we instrument the application
+    and not the test code. Remember that the `BookSwap` application relies on a database
+    now, we need to have PostgreSQL running and set the `BOOKSWAP_DB_URL` environment
+    variable to the PostgreSQL connection string.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In a separate terminal window, we run the benchmark in the usual way, as running
+    the benchmark in parallel is not visible outside the test configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: We can then issue a `SIGINT` with *Ctrl* + *C* in the first console window in
+    order to halt the race detector. If any data races are detected, they will be
+    printed to the terminal, alongside the logs of `BookSwap`. Since the race detector
+    is running separately from the test code, we cannot fail the test when data races
+    are detected. We must therefore monitor the logs to see whether data races have
+    been detected.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This simple technique can be used for end-to-end testing and integration testing
+    of our application. You can use it to implement any user journey or sequence of
+    requests. However, we should always bear in mind that the race detector is a limited
+    tool and that no amount of testing can definitively and conclusively prove the
+    absence of untestable concurrency issues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we discussed the important and uniquely challenging topic of
+    concurrency. As a good understanding of concurrency mechanisms is important to
+    avoid issues, we started by learning the fundamentals of two of Go’s most central
+    concurrency mechanisms, goroutines and channels. Then, we looked at three applied
+    concurrency examples, which helped us further explore their behavior.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once we were familiar with how concurrency works, we started looking at some
+    commonly occurring issues with concurrency. The Go race detector is a tool that
+    can help us detect data races and provide pinpoint guidance to engineers to help
+    them to resolve the issue. However, due to the importance of timing, it is not
+    possible to conclusively prove the absence of concurrency issues, so careful design
+    is always the first defense. Finally, we looked at an applied example of how to
+    use benchmarks to make concurrent calls to the `BookSwap` application and detect
+    issues with Go’s race detector.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In [*Chapter 10*](B18371_10.xhtml#_idTextAnchor218), *Testing Edge Cases*, we
+    will explore how to extend tests and ensure that our code is robust with Go’s
+    fuzzing capability.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What is the difference between concurrency and parallelism?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What operations do unbuffered channels support and how do they behave?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the difference between `sync.Mutex` and `sync.WaitGroup`?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is a data race? What is a deadlock?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How do you use Go’s race detector?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '*Concurrency in Go: Tools and Techniques for Developers*, by Katherine Cox-Buday,
+    published by O’Reilly'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Network Programming with Go: Learn to Code Secure and Reliable Network Services
+    from Scratch*, by Adam Woodbeck, published by No Starch Press'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Introduction to Concurrency in Programming Languages*, by Matthew J. Sottile
+    et al., published by Chapman & Hall'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

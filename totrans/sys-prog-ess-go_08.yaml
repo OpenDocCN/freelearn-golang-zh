@@ -1,0 +1,825 @@
+- en: '8'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Memory Management
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we’ll dive into the world of memory management in Go, focusing
+    on the mechanisms and strategies underpinning garbage collection. As we navigate
+    the garbage collection concepts, including its evolution within Go, the distinctions
+    between stack and heap memory allocations, and the advanced techniques employed
+    to manage memory efficiently, you will understand the inner workings of Go’s memory
+    management system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we’re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Garbage collection
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Memory arenas
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: By the end of the chapter, you should be able to optimize your code to reduce
+    memory usage, minimize garbage collection overhead, and ultimately improve the
+    scalability and responsiveness of your applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: All the code shown in this chapter can be found in the `ch8` directory of our
+    GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Garbage collection
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before garbage-collected languages, we needed to handle memory management ourselves.
+    Despite the focused attention that this discipline craves, the main problems we
+    ran in circles to avoid were memory leaks, dangling pointers, and double frees.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The garbage collector in Go has some jobs to avoid common mistakes and accidents:
+    it tracks allocations on the heap, frees unneeded allocations, and keeps the allocations
+    in use. These jobs are commonly referred to in academia as memory inference, or
+    “What memory should I free?”. The two main strategies for dealing with memory
+    inference are tracing and reference counting..'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Go uses a tracing garbage collector (GC for short), which means the GC will
+    trace objects reachable by a chain of references from “root” objects, consider
+    the rest as “garbage,” and collect them. Go’s garbage collector has a long journey
+    of optimization and learning. You can find the whole path to today’s state of
+    the art in this blog post from Go’s dev team: [https://go.dev/blog/ismmkeynote](https://go.dev/blog/ismmkeynote).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this very blog post, the Go team reports enormous gains. For instance, one
+    garbage collection cycle dropped from 300 ms (Go 1.0) to, shockingly, 0.5 ms in
+    the latest version.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You must have heard this at least once in the tech community: “Garbage collection
+    in Go is automatic, so you can forget about memory management.” Yeah, and I’ve
+    got some prime real estate on the moon to sell you. Believing this is like thinking
+    your house cleans itself because you’ve got a Roomba. In Go, understanding garbage
+    collection is not just a nice-to-have; it’s your ticket to writing efficient,
+    high-performance code. So, buckle up, we’re diving into a world where “automatic”
+    doesn’t mean “magical.”'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Imagine, if you will, a software development team that never reviews code because,
+    hey, they have a linter. That’s similar to how some approach Go’s garbage collector.
+    It’s like entrusting your entire code base quality to a program that checks for
+    extra whitespaces. Sure, the GC in Go is a neat little janitor, tirelessly tidying
+    up your memory mess. But misunderstanding its *modus operandi* is like thinking
+    your linter will refactor your spaghetti code into a Michelin-star-worthy dish.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To pave the terrain to more advanced knowledge regarding GC, first, we need
+    to understand two areas of memory: stack and heap.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Stack and heap allocation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Stack allocation in Go is used for variables whose lifetimes are predictable
+    and tied to the function calls that create them. These are your local variables,
+    function parameters, and return values. The stack is remarkably efficient because
+    of its **Last In, First Out** (**LIFO**) nature. Allocating and deallocating memory
+    here is just a matter of moving the stack pointer up or down. This simplicity
+    makes stack allocation fast, but it’s not without its limitations. The size of
+    the stack is relatively small, and trying to put too much stuff on the stack can
+    lead to the dreaded stack overflow.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Contrastingly, heap allocation is for variables whose lifetimes are less predictable
+    and not strictly tied to where they were created. These are typically variables
+    that must live beyond the scope of the function they were created in. The heap
+    is a more flexible, dynamic space, and variables here can be accessed globally.
+    However, this flexibility comes at a cost. Allocating memory on the heap is slower
+    due to the need for more complex bookkeeping, and the responsibility of managing
+    this memory falls to the garbage collector, which adds overhead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go’s compiler performs a neat trick called “escape analysis” (more on this topic
+    in [*Chapter 9*](B21662_09.xhtml#_idTextAnchor193), *Analyzing Performance*) to
+    decide whether a variable should live on the stack or the heap. If the compiler
+    determines that the lifetime of a variable doesn’t escape the function it’s in,
+    to the stack it goes. But if the variable’s reference is passed around or returned
+    from the function, then it “escapes” to the heap.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This automatic decision-making process is a boon for developers, as it optimizes
+    memory usage and performance without manual intervention. The distinction between
+    stack and heap allocation has significant performance implications. Stack-allocated
+    memory tends to lead to better performance due to its straightforward allocation
+    and deallocation mechanism.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Heap-allocated memory, while necessary for more complex and dynamic data, incurs
+    a performance cost due to the overhead of garbage collection. As a Go developer,
+    being mindful of how your variables are allocated can help in writing more efficient
+    code. While Go abstracts much of the memory management complexity, having a good
+    understanding of how heap and stack allocations work can greatly impact the performance
+    of your applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As a rule of thumb, keep your variables in the scope as narrow as possible,
+    and be cautious with pointers and references that might cause unnecessary heap
+    allocations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: OK, let’s get technical. Go’s garbage collection is based on a concurrent, tri-color
+    mark-and-sweep algorithm. Now, before your eyes glaze over like a donut, let’s
+    break that down.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The GC algorithm
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '*Concurrent* means it runs alongside your program, not halting everything to
+    clean up. This is crucial for performance, especially in real-time systems where
+    pausing for housekeeping is as welcome as a screen freeze on launch day.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The *tri-color* bit is about how the GC views objects. Think of it as a traffic
+    light for memory: green for “in use,” red for “ready to delete,” and yellow for
+    “maybe, maybe not.”'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The last part, *mark and sweep*, is the definition of the two main phases of
+    the process. The quick version of the story is: during the “mark” phase, the GC
+    scans your objects, flipping their colors based on accessibility. In the “sweep”
+    phase, it takes out the trash – the red objects. This two-step process helps in
+    managing memory efficiently without stepping on the toes of your running program.
+    Once we have the big picture, we can explore the details of these two phases with
+    ease.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Marking phase
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The “mark” phase is split into two parts. In the initial part, the GC pauses
+    the program briefly (less than 0.3 milliseconds) – think of it as a quick inhale
+    before diving underwater. During this pause, known as the **stop-the-world** (**STW**)
+    phase, the GC identifies the root set. These roots are essentially variables directly
+    accessible from the stack, globals, and other special locations. In other words,
+    it is the moment when the GC will start its search to identify what’s in use and
+    what’s not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After identifying the root set, the GC proceeds to the actual marking, *which
+    happens concurrently with the program’s execution*. This is where the “tri-color”
+    metaphor shines. Objects are initially marked “white,” meaning their fate is undecided.
+    As the GC encounters these objects from the roots, it marks them “gray,” indicating
+    they need to be explored further, and eventually turns them “black” once fully
+    processed, signifying they are in use. This color-coded system ensures that the
+    GC comprehensively assesses each object’s accessibility.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are more crucial details to expand on in this process. Since we want to
+    create highly performant systems, we need to master our GC knowledge instead of
+    keeping things theoretical.
+  prefs: []
+  type: TYPE_NORMAL
+- en: During the marking phase, the Go runtime deliberately allocates about **25%**
+    of the available CPU resources. This allocation is a calculated decision, ensuring
+    that the GC is efficient enough to keep memory usage in check while not overwhelming
+    the system. It’s a balancing act, similar to a juggler who ensures each ball gets
+    enough airtime but doesn’t hog the spotlight. This 25% allocation is crucial for
+    keeping the GC’s work steady and unobtrusive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In addition to the standard CPU allocation, there’s a provision for an extra
+    **5%** of CPU to be used via mark assists. These mark assists are triggered when
+    the program makes memory allocations during the GC cycle. If the GC is lagging
+    behind, allocating goroutines lends a hand (or in this case, some CPU cycles)
+    to assist in the marking process. This additional 5% can be viewed as a reserve
+    force, called into action when the situation demands it, ensuring that the GC
+    keeps pace with the memory allocation rate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sweep
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Moving to the sweep phase, this is where deallocations come into play. After
+    the marking phase has identified which objects are no longer needed (those still
+    marked as “white”), the sweep phase begins the process of deallocating this memory.
+    This phase is crucial because it’s where the actual memory reclamation occurs,
+    freeing up space for future allocations. The efficiency of this phase directly
+    impacts the application’s memory footprint and overall performance. But it’s not
+    all rainbows and butterflies. The GC can still lead to performance issues, such
+    as latency spikes, especially when dealing with large heaps or memory-hungry applications.
+    Understanding how to optimize your code to play nice with the GC is an art. It
+    involves deep dives into pointer management, avoiding memory leaks, and sometimes
+    just knowing when to say, “Hey, GC, you can take a break; I’ve got this.”
+  prefs: []
+  type: TYPE_NORMAL
+- en: GOGC
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `GOGC` environment variable in Go is the tuning knob of the garbage collector.
+    It’s like the thermostat of your home’s heating system, controlling how hot or
+    cold you want in the room. In Go’s context, `GOGC` dictates the aggressiveness
+    of the garbage collection process. It determines how much newly allocated memory
+    is allowed before the garbage collector triggers another cycle. Understanding
+    and adjusting this variable can significantly impact your Go application’s memory
+    usage and performance. The default value is `100`, which means that the GC tries
+    to leave at least 100% of the initial heap memory available after a new GC cycle.
+    Adjusting the `GOGC` value allows you to tailor the garbage collection to the
+    specific needs of your application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go env
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: '`GOGC` is an environment variable that affects the GC, but it is not a configuration
+    option specific to the Go toolchain or compiler.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting `GOGC` to a lower value, say `50`, means the GC will run more frequently,
+    keeping the heap size smaller but using more CPU time. On the flip side, setting
+    it higher, such as `200`, means the GC will run less frequently, allowing more
+    memory allocation but potentially leading to an undesired increased memory usage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `GOGC` variable can take *any integer value greater than 0*. Setting it
+    to a very low value can lead to a performance hit due to the GC running too often,
+    like a cleaner who’s constantly tidying up to the point of being a nuisance. Conversely,
+    setting it too high can cause your application to use more memory than necessary,
+    which might not be ideal in memory-constrained environments. It’s important to
+    find the sweet spot specific to your application’s memory and performance characteristics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are also special values for `GOGC`. Setting it to `off` disables automatic
+    garbage collection entirely. This might be useful in scenarios where the short-lived
+    nature of the program doesn’t warrant the overhead of GC. However, with great
+    power comes great responsibility; disabling GC can lead to unchecked memory growth.
+    It’s a bit like turning off your house’s automatic thermostat – it can be beneficial
+    in the right circumstances but requires much more attention to prevent problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In practice, tuning `GOGC` is a matter of understanding your application’s memory
+    profile and performance requirements. It requires careful experimentation and
+    monitoring. Adjusting this variable can yield significant performance improvements,
+    especially in systems with large heaps or real-time constraints.
+  prefs: []
+  type: TYPE_NORMAL
+- en: GC pacer
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The GC pacer in Go can be likened to a conductor of an orchestra, ensuring every
+    section comes in at the right time to create a harmonious symphony. Its job is
+    to regulate the timing of garbage collection cycles, balancing the need to reclaim
+    memory with the need to keep the program running efficiently. The pacer’s decisions
+    are based on the current heap size, the allocation rate, and the goal of maintaining
+    program performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The primary role of the pacer is to determine when to start a new garbage collection
+    cycle. It does this by monitoring the rate of memory allocation and the size of
+    the live heap (hinted by GOGC) – the memory in use that can’t be reclaimed. The
+    pacer’s strategy is to trigger a GC cycle before the program allocates too much
+    memory, which could lead to increased latency or memory pressure. It’s a preventive
+    measure, similar to changing the oil in your car before it turns into a bigger
+    problem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of the key features of the GC pacer is its adaptive nature. It continuously
+    adjusts its thresholds based on the application’s behavior. If an application
+    allocates memory rapidly, the pacer responds by triggering GC cycles more frequently
+    to keep up. Conversely, if the application’s allocation rate slows down, the pacer
+    will allow more memory to be allocated before initiating a GC cycle. This adaptiveness
+    ensures that the pacer’s behavior aligns with the application’s current needs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The pacer works in tandem with the `GOGC` environment variable. `GOGC` sets
+    the percentage growth of the heap allowed before a GC cycle is triggered. The
+    pacer uses this value as a guideline to determine its thresholds.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The effectiveness of the GC pacer has a direct impact on application performance.
+    A well-tuned pacer ensures that garbage collection happens smoothly, without causing
+    significant pauses or latency spikes. However, if the pacer’s thresholds are not
+    well aligned with the application’s behavior, it could lead to either excessive
+    GC cycles, which can degrade performance, or delayed collections, which can increase
+    memory usage. It’s like finding the right speed for cruise control – too fast
+    or too slow can lead to an uncomfortable ride.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The GC pacer in Go is a critical component that ensures the efficiency of the
+    garbage collection process. It’s not just about writing code; it’s about understanding
+    the environment in which your code runs, and the GC pacer is a significant part
+    of that environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: GODEBUG
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `GODEBUG` environment variable in Go is a powerful tool for developers,
+    offering insights into the inner workings of the Go runtime. Specifically, the
+    `GODEBUG=gctrace=1` setting is often used to gain detailed information about garbage
+    collection processes. Let’s explore this in depth.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`GODEBUG` in Go is like a diagnostic toolkit for your car. Just as you might
+    plug in a diagnostic tool to understand what’s happening under the hood of your
+    car, `GODEBUG` provides insights into the Go runtime. Among its various capabilities,
+    one of the most used is `gctrace`. When set to `1` (`GODEBUG=gctrace=1`), it enables
+    the tracing of GC activities, offering a window into how and when garbage collection
+    occurs in your Go application.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Enabling `gctrace` to `1` outputs detailed information for each GC cycle, including
+    the time it starts, its duration, the heap size before and after collection, and
+    the amount of memory reclaimed. This data is invaluable for understanding the
+    GC’s impact on your application’s performance. It’s like getting a play-by-play
+    commentary on how the GC is managing memory, which can be critical for performance
+    tuning.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The output from `gctrace=1` can be quite dense and may seem intimidating at
+    first. It includes several metrics, such as STW times, which indicate how long
+    your application pauses during GC. Other details include the number of goroutines
+    running, heap sizes, and the number of GC cycles. Reading this output is like
+    decoding a treasure map; once you understand the symbols and numbers, it reveals
+    valuable information about where your application’s performance can be improved.
+    Take this output as an example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s break down this output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`gc 1`: This indicates the sequence number of the garbage collection cycle'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`@0.019s`: The time (in seconds) since the program started when this GC cycle
+    began'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`2%`: Percentage of the total program runtime spent on GC'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`0.015+2.5+0.003 ms clock`: Breakdown of the GC cycle time'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`0.015 ms`: STW sweep termination phase time'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`2.5 ms`: Concurrent mark and scan phase time'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`0.003 ms`: STW mark termination phase time'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`0.061+0.5/2.0/3.0+0.012 ms cpu`: CPU time for the GC cycle'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`0.061 ms`: CPU time for STW sweep termination'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`0.5/2.0/3.0`: CPU time for concurrent phases (mark/scan, assist, background)'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`0.012 ms`: CPU time for STW mark termination'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`4->4->1 MB`: Heap size at the start, midpoint, and end of the GC'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`5 MB goal`: Next GC cycle’s target heap size'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`4 P`: Number of processors used'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We can observe the following with this data:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Frequent high percentage**: If the percentage of time spent on GC is high
+    and frequent, it could signal performance issues'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**STW times**: Longer STW times can indicate that optimizations are needed
+    to reduce GC pauses'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Heap size trends**: Growing heap size without similar decreases after GC
+    cycles might point to memory leaks'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**CPU time**: Higher CPU times might suggest that the GC is working harder
+    than expected, potentially due to inefficient memory usage'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Setting `GODEBUG=gctrace=1` is particularly useful in scenarios where you suspect
+    memory leaks, or when you’re trying to optimize memory usage and GC overhead.
+    For instance, if you observe longer STW times, it might indicate that your application
+    is spending too much time on garbage collection, leading to performance bottlenecks.
+    Similarly, if the heap size grows continuously, it might be a sign of a memory
+    leak. This level of insight is crucial for making informed decisions about code
+    optimizations and memory management. However, like any powerful tool, it should
+    be used with understanding and care. By leveraging `gctrace`, developers can significantly
+    enhance the efficiency and performance of their Go applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Memory ballast
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Memory ballast in Go, at its core, is like putting a heavy suitcase in the trunk
+    of a car to prevent it from being too light and skidding on ice. In Go’s context,
+    a memory ballast is a large allocation of memory that is never used but serves
+    to influence the behavior of the garbage collector.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Traditionally, Go’s GC would trigger based on the heap size doubling from the
+    size at the end of the last collection (`GOGC=100`). In applications with large
+    heap sizes, this could lead to long periods between GC cycles, followed by large,
+    disruptive collections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Developers used memory ballast as a buffer, artificially increasing the heap
+    size to prompt more frequent, but smaller and less disruptive, GC cycles. It was
+    a manual tuning method to optimize performance, particularly in high-throughput,
+    low-latency systems. This technique was developed by the streaming company Twitch
+    in 2019 in their post *How I learnt to stop worrying and love the* *heap* ([https://blog.twitch.tv/en/2019/04/10/go-memory-ballast-how-i-learnt-to-stop-worrying-and-love-the-heap/](https://blog.twitch.tv/en/2019/04/10/go-memory-ballast-how-i-learnt-to-stop-worrying-and-love-the-heap/)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Twitch has a service called Visage that acts as the API frontend and is the
+    central gateway for all externally originating API traffic. It’s built with Go
+    and runs on AWS EC2\. They faced challenges with handling large traffic spikes,
+    notably during “refresh storms” when a popular broadcaster’s stream drops and
+    restarts, causing viewers to refresh their pages repeatedly. The Visage application
+    was triggering a high number of garbage collection cycles per second, which was
+    consuming a significant portion of CPU cycles and increasing API latency during
+    peak loads. The heap size of the application was relatively small, and during
+    traffic spikes, the number of GC cycles would increase, further degrading performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When they introduced a memory ballast, it increased the base size of the heap,
+    delaying GC triggers and reducing the number of GC cycles over time. This was
+    achieved by allocating a very large byte array, which doesn’t get swept as garbage
+    since it’s still referenced by the application. This array was created as the
+    following snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Very simple yet powerful, right? The results for them were as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The introduction of the memory ballast led to a ~99% reduction in GC cycles
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: CPU utilization of the API frontend servers reduced by ~30%, and the overall
+    99th-percentile API latency during peak load reduced by ~45%
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The ballast effectively allowed the heap to grow larger before triggering GC,
+    which improved per-host throughput and provided more reliable per-request handling
+    under load
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The ballast allocation resides mostly in virtual memory, making it a cost-effective
+    solution
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The memory ballast technique, while powerful in certain contexts like Twitch’s,
+    is not universally applicable and should be avoided or used with caution in several
+    scenarios:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Memory-sensitive applications**: In environments where memory is a scarce
+    resource, allocating a large chunk of memory as a ballast might not be feasible.
+    This is especially true for applications running on hardware with limited memory
+    or in dense containerized environments where memory overhead is a critical factor.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Applications with dynamic memory usage**: If an application’s memory usage
+    is highly dynamic and unpredictable, setting a fixed-size memory ballast could
+    lead to inefficient memory utilization.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Low-latency systems**: While the memory ballast can reduce the frequency
+    of garbage collection and thus improve throughput, it might not always benefit
+    low-latency systems where the predictability of GC pauses is more critical. The
+    ballast technique primarily optimizes throughput at the potential cost of increased
+    latency due to larger heap sizes before GC triggers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Small heap footprint applications**: Applications that naturally maintain
+    a small heap footprint might not benefit from a memory ballast. In such cases,
+    the overhead of managing a large, unused memory allocation might outweigh the
+    benefits of reduced GC frequency.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`GOGC` environment variable) can achieve the desired performance improvements
+    without the need for a memory ballast. This approach should be considered first,
+    as it’s a less invasive way to optimize GC behavior.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**When it masks underlying performance issues**: Using a memory ballast to
+    improve performance might mask underlying inefficiencies in the application code
+    or architecture. It’s important to address these fundamental issues directly rather
+    than relying on a memory ballast as a workaround.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The memory ballast is an excellent choice for managing these critical scenarios,
+    but it’s only relevant up to Go version 1.19\. Starting from version 1.20 and
+    onward, there’s a standardized method to set the application’s “soft” memory limits
+    using the `GOMEMLIMIT` environment variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: GOMEMLIMIT
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: With `GOMEMLIMIT`, you set a soft cap on the memory usage of the Go runtime,
+    encompassing the heap and other runtime-managed memory. This cap is like telling
+    your application, “Here’s your memory budget; spend it wisely.”
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since Go 1.20, the strategic focus has shifted from manual tweaks such as memory
+    ballast to leveraging built-in runtime features for memory management. `GOMEMLIMIT`
+    offers a more straightforward and manageable approach to limiting memory usage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `GOMEMLIMIT` variable is used to set a soft memory limit for the runtime.
+    This limit encompasses the Go heap and all other memory managed by the runtime,
+    but it doesn’t include external memory sources such as mappings of the binary,
+    memory managed in other languages, or memory held by the operating system on behalf
+    of the Go program. `GOMEMLIMIT` is a numeric value measured in bytes, with the
+    option to add a unit suffix for clarity. The supported suffixes include B, KiB,
+    MiB, GiB, and TiB, following the IEC 80000-13 standard. These suffixes denote
+    quantities of bytes based on powers of 2; for instance, KiB means 2^10 bytes,
+    MiB means 2^20 bytes, and so on. By default, GOMEMLIMIT is set to `math.MaxInt64`,
+    effectively disabling the memory limit. However, you can change this limit during
+    runtime using `runtime/debug.SetMemoryLimit`.The key aspect to understand about
+    `GOMEMLIMIT` is its “soft cap” nature. Unlike a hard limit, which would act as
+    a strict ceiling on memory usage, a soft cap is more flexible. `GOMEMLIMIT` influences
+    the garbage collector’s behavior, prompting it to run more aggressively as memory
+    usage approaches the set limit. However, this doesn’t equate to an absolute prevention
+    of going over the limit. It’s like a speed warning sign on a road; it suggests
+    a safe speed but can’t physically slow down your car.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Why not both?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using memory ballast alongside `GOMEMLIMIT` can be redundant, like wearing two
+    watches to tell the same time. Ballast is used to artificially inflate the heap
+    size to alter GC behavior, but with `GOMEMLIMIT`, you’re already defining the
+    heap’s upper limit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Memory arenas
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Go 1.20 release introduced an experimental arena package that offers memory
+    arenas. These arenas can enhance performance by decreasing the number of allocations
+    and deallocations that need to be done during runtime.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Memory arenas are a useful tool for allocating objects from a contiguous region
+    of memory and freeing them all at once with minimal memory management or garbage
+    collection overhead. They are especially helpful in functions that require the
+    allocation of many objects, processing them for a significant amount of time,
+    and then freeing all the objects at the end. It’s important to note that memory
+    arenas are an experimental feature, available in Go 1.20 only when the `GOEXPERIMENT=arenas`
+    environment variable is set.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Warning
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Go team does not provide support or guarantee compatibility for the API
+    and implementation of memory arenas, and it may not exist in future releases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using memory arenas
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Once we’ve set the `GOEXPERIMENT=arenas` environment variable, we can import
+    the `arena` package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To create a new arena, we can use the `NewArena()` function, which returns
+    the new arena reference:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once we have an arena to use, we can ask for new references for our types.
+    In the next snippet, we are creating a new reference in our arena for a `Person`
+    struct type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is an important distinction from the normal flow of allocation. We aren’t
+    creating new references and putting them in the arena. We ask the arena for new
+    references.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are some new APIs introduced in the arena package, such as `MakeSlice`,
+    that ask for a predetermined capacity slice for an arena. If we want to ask for
+    a new arena-bounded slice, we can use code as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can repeat this process and manipulate the objects normally, but when we’re
+    done with our arena, we can call `Free()`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Remember, freeing the arena will deallocate all objects at once instead of scattered
+    deallocations made during the sweep phase in the normal flow of Go’s GC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Sometimes we want to send some objects created in the arena to heap (garbage
+    collected) before freeing all objects in the arena. This can be achieved by using
+    the `Clone` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this snippet, `p1` is arena-allocated while `p2` is heap-allocated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: New solutions, old problems
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Since we need to actively free our arena. This new step in our development can
+    be error-prone. The most common problem is using arena objects after the arena
+    is freed. To make things easier, the Go toolchain has a flag during the program
+    execution to activate the **address** **sanitizer** (**asan**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Consider this program:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, we can execute the program using the address sanitizer:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output will show the problem as intended:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Opportunities
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: There are several areas of Go development that could be positively affected
+    by memory arenas. The most prevalent example is gRPC. Every time the program handles
+    an RPC request, many objects are allocated during the process of encoding and
+    decoding the messages. As we saw before, it tends to put more pressure on the
+    GC. This strategy is somewhat the proof of how it affects the performance since
+    the C++ implementation of gRPC already uses the concept of memory arenas ([https://protobuf.dev/reference/cpp/arenas/](https://protobuf.dev/reference/cpp/arenas/)).
+    Another example of arenas (as a concept) being used for performance gains is in
+    the JSON serialization process. The fastjson project ([https://github.com/valyala/fastjson](https://github.com/valyala/fastjson))
+    uses memory arenas to deal with marshaling and is allegedly 15x faster than the
+    Go standard library.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Guidelines
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: There are some questions that you can ask yourself before introducing arenas
+    in your project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Do I have the data about the issue* *I suspect?*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you don’t have the data, you’re guessing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Do I have several allocations or just* *a few?*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you don’t have many allocations, your program will use more memory by introducing
+    arenas. You can use the rule of thumb that an arena is 8 MB in size.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Does it have the same* *small structure?*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Maybe you’re looking for the wrong tool. Consider using `sync.Pool`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Is it the hot path of* *my program?*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is probably a premature optimization. Experiment with several combinations
+    of GC and `GOMEMLIMIT` before considering memory arenas.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s time to wrap up our knowledge of memory management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We’ve explored GC, the difference between stack and heap allocation, and ways
+    to optimize memory usage for better performance. Also, we’ve uncovered the evolution
+    of Go’s garbage collector and its methods, including advanced topics such as its
+    algorithm (tri-color/concurrent/mark and sweep).
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ve also discussed practical approaches including using environmental variables
+    such as `GOGC` to fine-tune garbage collection and employing techniques such as
+    memory ballast and `GOMEMLIMIT` to help the GC manage the program memory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'During this chapter, you probably ask yourself: How much performance are we
+    gaining, tinkering, and tweaking the GC and runtime parameters, and combining
+    these techniques?'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The answer is simple: *Performance is not a guessing game. We should* *measure
+    it.*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter (on analyzing performance), we’ll explore how to profile
+    our application in terms of memory, CPU, allocations, and much more.
+  prefs: []
+  type: TYPE_NORMAL

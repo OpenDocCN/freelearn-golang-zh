@@ -1,0 +1,2039 @@
+- en: '12'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Code Testing and Profiling
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Programming is both an art and a science, and as such, it needs tools that help
+    the developer generate better software and understand why some aspects of their
+    code do not work as expected. This chapter primarily addresses code testing and
+    code profiling with the Go programming language. The provided code profiling tools
+    are about improving the performance of Go programs by finding and understanding
+    bottlenecks and discovering bugs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Code optimization* is the process where one or more developers try to make
+    certain parts of a program run faster, be more efficient, or use fewer resources.
+    Put simply, code optimization is about eliminating the bottlenecks of a program
+    where and when it matters. The discussion about code optimization is going to
+    continue in *Chapter 14*, *Efficiency and Performance*, where we talk about benchmarking
+    code.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Code testing* is about making sure that your code does what you want it to
+    do. In this chapter, we are experiencing the Go way of code testing. The best
+    time to write test code is during development, as this can help to reveal bugs
+    in the code as early as possible. *Code profiling* relates to measuring certain
+    aspects of a program to get a detailed understanding of the way the code works.
+    The results of code profiling may help you to decide which parts of your code
+    need to change.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Keep in mind that when writing code, we should focus on its correctness as well
+    as other desirable properties, such as readability, simplicity, and maintainability,
+    not its performance. Once we are sure that the code is correct, then we might
+    need to focus on its performance. A good trick for performance is to execute the
+    code on machines that are a bit slower than the ones that are going to be used
+    in production.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This chapter covers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Optimizing code
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Rewriting the `main()` function for better testing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Profiling code
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `go tool trace` utility
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Tracing a web server
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Testing Go code
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `govulncheck` tool
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Cross-compilation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using `go:generate`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating example functions
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Optimizing code
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Code optimization is both an art and a science. This means that there is no
+    deterministic way to help you optimize your code and that you should use your
+    brain and try many things, algorithms and techniques, if you want to make your
+    code faster. However, the general principle regarding code optimization is **first
+    make it correct, then make it fast**. Always remember what Donald Knuth said about
+    optimization:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: ”The real problem is that programmers have spent far too much time worrying
+    about efficiency in the wrong places and at the wrong times; premature optimization
+    is the root of all evil (or at least most of it) in programming.”
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: 'Also, remember what the late Joe Armstrong, one of the developers of Erlang,
+    said about optimization:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: ”Make it work, then make it beautiful, then if you really, really have to, make
+    it fast. 90 percent of the time, if you make it beautiful, it will already be
+    fast. So really, just make it beautiful!”
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: Code testing helps you make your program work correctly and code profiling reveals
+    bottlenecks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you are really into code optimization, you might want to read *Compilers:
+    Principles, Techniques, and Tools,* by Alfred V. Aho, Monica S. Lam, Ravi Sethi,
+    and Jeffrey D. Ullman (Pearson Education Limited, 2014), which focuses on compiler
+    construction. Additionally, all volumes in the *The Art of Computer Programming*
+    series by Donald Knuth (Addison-Wesley Professional, 1998) are great resources
+    for all aspects of programming if you have the time to read them.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next section shows a technique for rewriting `main()` to make testing easier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Rewriting the main() function for better testing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: There exists a clever way that you can rewrite each `main()` function in order
+    to make testing (and benchmarking) a lot easier. The `main()` function has a restriction,
+    which is that you cannot call it from test code—this technique presents a solution
+    to that problem using the code found in `main.go`. The `import` block is omitted
+    to save space.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As we cannot have an executable program without a `main()` function, we have
+    to create a minimalistic one. What `main()` does is call `run()`, which is our
+    own customized version of `main()`, send the desired `os.Args` to it, and collect
+    the return value of `run()`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: As discussed before, the `run()` function, or any other function that is called
+    by `main()` in the same way, provides a new top-level, root-type function like
+    `main()` with the additional benefit of being able to be called by test functions.
+    Put simply, the `run()` function contains the code that would have been located
+    in `main()`—the only difference is that `run()` returns an `error` variable, which
+    is not possible with `main()`, which can only return exit codes to the operating
+    system when used with `os.Exit()`. You might say that this creates a slightly
+    bigger stack because of the extra function call but the benefits are far more
+    important than the added memory usage. Although, technically, both parameters
+    of `run()` can be removed as they are globally available by default, passing these
+    two parameters explicitly allows the programmer to pass other values during testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running `main.go` produces the next output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: There is nothing special in the way `main.go` operates. The good thing is that
+    you can call `run()` from anywhere you want, including the code you write for
+    testing, and pass the desired parameters to `run()`! It is good to have that technique
+    in mind because it might save you when you want to write tests for a program with
+    certain command line arguments or other input.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next section is about profiling Go code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Profiling code
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Profiling is a process of dynamic program analysis that measures various values
+    related to program execution to give you a better understanding of the program
+    behavior. In this section, we are going to learn how to profile Go code to understand
+    it better, which can be used to improve its performance. Sometimes, code profiling
+    can even reveal bugs in the code, such as endless loops or functions that never
+    return. However, profiling would be better for memory leak bugs and things of
+    that nature.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `runtime/pprof` standard Go package is used for profiling all kinds of applications
+    apart from HTTP servers. The high-level `net/http/pprof` package should be used
+    when you want to profile a web application. What `net/http/pprof` does is provide
+    HTTP endpoints for profiling data, which means that it can also be used for any
+    long-running application. You can see the help page of the `pprof` tool by executing
+    `go tool pprof -help`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This next subsection is going to illustrate how to profile a command line application,
+    and the following subsection shows the profiling of an HTTP server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Profiling a command line application
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The code of the application is saved as `profileCla.go` and collects CPU and
+    memory profiling data. What is interesting is the implementation of `main()` because
+    this is where the collection of the profiling data takes place:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous code is about collecting CPU profiling data. `pprof.StartCPUProfile()`
+    starts collecting data, which is stopped with the `pprof.StopCPUProfile()` call.
+    All data is saved into a file named `cpuProfileCla.out` under the `os.TempDir()`
+    directory—the value returned by `os.TempDir()` depends on the OS used and makes
+    the code portable. The use of `defer` means that `pprof.StopCPUProfile()` is going
+    to get called just before `main()` exits—if you want to stop data collection at
+    another point, you should put the `pprof.StopCPUProfile()` call at the desired
+    place.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: All the previous code performs lots of CPU-intensive calculations for the CPU
+    profiler to have data to collect—this is where your actual code usually goes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: After the CPU-intensive code, we are going to put code that uses lots of memory.
+    For that, we create a second file named `memoryFilename` for collecting memory-related
+    profiling data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `pprof.WriteHeapProfile()` function writes the memory data into the specified
+    file. Once again, we allocate lots of memory for the memory profiler to have data
+    to collect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running `profileCla.go` using `go run` is going to create two files in the folder
+    returned by `os.TempDir()`—usually, we move them into a different folder. Feel
+    free to change the code of `profileCla.go` and put the profiling files in a different
+    place.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In my case, running on a macOS Sonoma machine, the temporary directory is going
+    to be `/var/folders/sk/ltk8cnw50lzdtr2hxcj5sv2m0000gn/T/`. So, I am going to move
+    the `cpuProfileCla.out` and `memoryProfileCla.out` files from there into the `ch12`
+    directory—you are not going to be able to find them because the `.gitignore` file
+    of the GitHub repository of the book ignores both of them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, what do we do next? We should use `go tool pprof` to process these two
+    files:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `top` command returns a summary of the top 10 entries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `top10 –cum` command returns the cumulative time for each function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: Last, the `list` command shows information about a given function. The previous
+    output shows that the `if (n % i) == 0` statement is responsible for all the time
+    it takes `N1()` to run!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Try the profile commands on your own in your own code to see their full output.
+    Visit [https://go.dev/blog/pprof](https://go.dev/blog/pprof) from the Go blog
+    to learn more about profiling.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can also create PDF output of the profiling data from the shell of the Go
+    profiler using the `pdf` command. Personally, most of the time, I begin with this
+    command because it gives me a rich and clear overview of the collected data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let us discuss how to profile an HTTP server, which is the subject of the
+    next subsection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Profiling an HTTP server
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As discussed, the `net/http/pprof` package should be used when you want to collect
+    profiling data for a Go application that runs an HTTP server or any other long-running
+    program where you want to periodically collect profiling data. To that end, importing
+    `net/http/pprof` installs various handlers under the `/debug/pprof/` path. You
+    are going to see more on this in a short while.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The technique is illustrated in `profileHTTP.go`, which comes with the following
+    code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: As discussed earlier, you should import the `net/http/pprof` package. However,
+    although `net/http/pprof` is imported, it is not used directly. The import is
+    for the side effects of registering the HTTP handlers, as explained in [https://pkg.go.dev/net/http/pprof](https://pkg.go.dev/net/http/pprof).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous two functions implement two handlers that are going to be used
+    in our naïve HTTP server. `myHandler()` is the default handler function, whereas
+    `timeHandler()` returns the current time and date on the server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: Up to this point, there is nothing special as we just register the handler functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All of the previous statements install the handlers for the HTTP profiler—you
+    can access them using the hostname and port number of the web server. You do not
+    have to use all handlers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Last, you start the HTTP server as usual.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'What is next? First, you run the HTTP server (`go run profileHTTP.go`). After
+    that, you run the next command **in a different terminal window** to collect profiling
+    data while interacting with the HTTP server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous output shows the initial screen of the HTTP profiler—the available
+    commands are the same as when profiling a command line application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can either exit the shell and analyze your data later using `go tool pprof`
+    or continue giving profiler commands. This is the general idea behind profiling
+    HTTP servers in Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next subsection discusses the web interface of the Go profiler.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The web interface of the Go profiler
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The good news is that, starting with Go version 1.10, `go tool pprof` comes
+    with a web interface that you can start as `go tool pprof -http=[host]:[port]
+    aProfile.out`—do not forget to set your desired values to `-http`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I have executed the previous command as `go tool pprof -http=127.0.0.1:1234
+    cpuProfileCla.out`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A part of the web interface of the profiler is seen in the next figure, which
+    shows how the program execution time was spent—it is now the job of the developer
+    to find out whether there is something wrong with the performance or not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![A screenshot of a computer  Description automatically generated](img/B21003_12_01.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 12.1: The web interface of the Go profiler'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Feel free to browse the web interface and see the various options and menus
+    that are offered. Unfortunately, talking more about profiling is beyond the scope
+    of this chapter. As always, if you are really interested in code profiling, experiment
+    with it as much as possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next section is about code tracing, which gives you information about the
+    operation of the Go internals.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The go tool trace utility
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Code tracing is a process that allows you to learn information such as the
+    operation of the garbage collector, the lifetime of goroutines, the activity of
+    each logical processor, and the number of operating system threads used. The `go
+    tool trace` utility is a tool for viewing the data stored in trace files, which
+    can be generated in any one of the following three ways:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: With the `runtime/trace` package
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With the `net/http/pprof` package
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With the `go test -trace` command
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'This section illustrates the use of the first technique using the code of `traceCLA.go`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `runtime/trace` package is required for collecting all kinds of tracing
+    data—there is no point in selecting specific tracing data as all tracing data
+    is interconnected.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: As we did for profiling, we need to create a file to store tracing data. In
+    this case, the file is called `traceCLA.out` and is stored inside the temporary
+    directory of your operating system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: This part is all about acquiring data for `go tool trace`, and it has nothing
+    to do with the purpose of the program. We start the tracing process using `trace.Start()`.
+    When we are done, we call the `trace.Stop()` function. The `defer` call means
+    that we want to terminate tracing when the `main()` function returns.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'All the previous code is about allocating memory to trigger the operation of
+    the garbage collector and generate more tracing data—you can learn more about
+    the Go garbage collector in *Appendix A*, *Go Garbage Collector*. The program
+    is executed as usual. However, when it finishes, it populates `traceCLA.out` with
+    tracing data. After that, we should process the tracing data as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: The last command automatically starts a web server (`http://127.0.0.1:52829`)
+    and opens the web interface of the trace tool on your default web browser—you
+    can run it on your own computer to play with the web interface of the trace tool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `View trace` link shows information about the goroutines of your program
+    and the operation of the garbage collector—if your code uses multiple goroutines,
+    this is the best place to understand their behavior.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Keep in mind that although `go tool trace` is very handy and powerful, it cannot
+    solve every kind of performance problem. There are times when `go tool pprof`
+    is more appropriate, especially when we want to reveal where our code spends most
+    of its time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As with profiling, collecting tracing data for an HTTP server is a slightly
+    different process, which is explained in the next subsection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tracing a web server from a client
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'This section shows how to trace a web server application using `net/http/httptrace`.
+    The package allows you to trace the phases of an HTTP request from a client. The
+    code of `traceHTTP.go` that interacts with web servers is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: As expected, we need to import `net/http/httptrace` before being able to enable
+    HTTP tracing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: Up to this point, we have prepared the client request to the web server as usual.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding code is all about tracing HTTP requests. The `httptrace.ClientTrace`
+    structure defines the events that interest us, which are `GotFirstResponseByte`,
+    `GotConn`, `DNSDone`, `ConnectStart`, `ConnectDone`, and `WroteHeaders`. When
+    such an event occurs, the relevant code is executed. You can find more information
+    about the supported events and their purpose in the documentation of the `net/http/httptrace`
+    package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `httptrace.WithClientTrace()` function returns a new context value based
+    on the given parent context, while `http.DefaultTransport.RoundTrip()` wraps the
+    request with the context value in order to keep track of the request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Keep in mind that Go HTTP tracing has been designed to trace the events of a
+    single `http.Transport.RoundTrip`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: The last part sends the client request to the server for the tracing to begin.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running `traceHTTP.go` generates the next output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous output helps you understand the progress of the connection in more
+    detail and is handy when troubleshooting. Unfortunately, talking more about tracing
+    is beyond the scope of this book. The next subsection shows how to visit all the
+    routes of a web server to make sure that they are properly defined.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Visiting all routes of a web server
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `gorilla/mux` package offers a `Walk()` function that can be used to visit
+    all the registered routes of a router—this can be very handy when you want to
+    make sure that every route is registered and is working.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The code of `walkAll.go`, which contains lots of empty handler functions because
+    its purpose is not to test handling functions but to visit them, is as follows
+    (nothing prohibits you from using the same technique on a fully implemented web
+    server):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: As we are using an external package, the running of `walkAll.go` should take
+    place somewhere under `~/go/src`—in our case, under `./ch12/walkAll`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: This empty handler function is shared by all endpoints for reasons of simplicity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `notAllowedHandler` handler also calls the `handler()` function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous part is about defining the routes and the HTTP methods that we
+    want to support.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous statements illustrate how we call the `Walk()` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: For each visited route, the program collects the desired information. Feel free
+    to remove some of the `fmt.Println()` calls if it does not help your purpose.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, the general idea behind `walkAll.go` is that you assign an empty handler
+    to each route that you have in your server and then you call `mux.Walk()` to visit
+    all routes. Enabling Go modules and running `walkAll.go` generates the next output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: The output shows the HTTP methods that each route supports as well as the format
+    of the path. So, the `/time` endpoint works with `GET` and its path is `/time`
+    because the value of `Path` `regexp` means that `/time` is between the beginning
+    (`^`) and the end of the path (`$`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the case of `/username`, the output includes the regular expressions associated
+    with the endpoint that is used for selecting the value of the id variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: Although visiting the routes of a web server is a kind of testing, it is not
+    the official Go way of testing. The main thing to look for in such output is the
+    absence of an endpoint, the use of the wrong HTTP method, or the absence of a
+    parameter from an endpoint.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next section discusses the testing of Go code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing Go code
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The subject of this section is the testing of Go code by **writing test functions**.
+    Software testing is a very large subject and cannot be covered in a single section
+    of a chapter in a book. So, this section tries to present as much practical information
+    as possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go allows you to write tests for your Go code to detect bugs. However, software
+    testing can only show the presence of one or more bugs, not the absence of bugs.
+    This means that you can never be 100% sure that your code contains no bugs!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Strictly speaking, this section is about automated testing, which involves writing
+    extra code to verify whether the real code—that is, the production code—works
+    as expected or not. Thus, the result of a test function is either `PASS` or `FAIL`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You will see how this works shortly. Although the Go approach to testing might
+    look simple at first, especially if you compare it with the testing practices
+    of other programming languages, it is very efficient and effective because it
+    does not require too much of the developer’s time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go follows certain conventions regarding testing (and benchmarking). The most
+    important convention is that the name of a test function must begin with `Test`.
+    After the `Test` word, we must put an underscore or an uppercase letter. Therefore,
+    both `TestFunctionName()` and `Test_functionName()` are valid test functions,
+    whereas `Testfunctionname()` is not. If you prefer idiomatic Go, then use `TestFunctionName()`.
+    All such functions are put in files that end with `_test.go`. All test functions
+    must have a `t *testing.T` parameter and return no values. Lastly, packages that
+    contain testing code should include the `testing` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once the testing code is correct, the `go test` subcommand does all the dirty
+    work for you, which includes scanning all `*_test.go` files for special functions,
+    generating a proper temporary `main` package, calling these special functions,
+    getting the results, and generating the final output.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let us present testing by revisiting the `matchInt()` function from *Chapter
+    3*, *Composite Data Types*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Writing tests for ./ch03/intRE.go
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In this subsection, we write tests for the `matchInt()` function, which was
+    implemented in `intRE.go` back in *Chapter 3*, *Composite Data Types*. First,
+    we create a new file named `intRE_test.go`, which is going to contain all tests.
+    Then, we rename the package from `main` to `testRE` and remove the `main()` function—this
+    is an optional step. After that, we must decide what we are going to test and
+    how. The main steps in testing include writing tests for expected input, unexpected
+    input, empty input, and edge cases. All these are going to be seen in the code.
+    Additionally, we are going to generate random integers, convert them into strings,
+    and use them as input for `matchInt()`. Generally speaking, a good way to test
+    functions that work with numeric values is by using random numbers, or random
+    values in general, as input and see how your code behaves and handles these values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The relevant code, which includes the original version of `intRE.go`, can be
+    found inside `~/go/src/github.com/mactsouk/mGo4th/ch12/intRE` and is composed
+    of two test functions. The two test functions of `intRE_test.go` are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `matchInt("")` call should return `false`, so if it returns `true`, it means
+    that the function does not work as expected.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `matchInt("00")` call should return `true` because `00` is a valid integer,
+    so if it returns `false`, it means that the function does not work as expected.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: This first test function uses static input to test the correctness of `matchInt()`.
+    As discussed earlier, a testing function requires a single `*testing.T` parameter
+    and returns no values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The second test function uses a random but valid input to test `matchInt()`—that
+    random input is generated by the `random()` function, which is also implemented
+    in `intRE_test.go`. Therefore, the given input should always pass the test. Running
+    the two test functions with `go test` creates the next output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, all tests passed, which means that everything is fine with `matchInt()`—in
+    general, the simpler the operation of a function is, the easier it is to test
+    it. The `-v` parameter creates verbose output and can be omitted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next subsection shows how to test UNIX signals.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing UNIX signals
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: There exists a technique for testing UNIX signals. Why do system signals need
+    special treatment? The main reason is that it is difficult to send a UNIX signal
+    to a running UNIX process, which means that it is also difficult to manually test
+    a process that handles UNIX signals. The other tricky reason is that there is
+    a possibility that you exit your running tests by accident when you receive a
+    signal that is defined to do so.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The relevant code can be found inside `ch12/testSignals`, which contains two
+    files named `signalsTest.go` and `signalsTest_test.go`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The structure of `signalsTest.go` is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, `signalsTest.go` does not include a `main()` function as it does not implement
+    the `main` package. This happens because such an implementation makes testing
+    easier. After you make sure that your code works as expected, you can either include
+    it in the `main` package or convert the existing file into the `main` package.
+    In that case, you just need to change the `package` statement and rename the `Listener()`
+    function to `main()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The code of `signalsTest_test.go` is presented in two parts. The first part
+    contains the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `TestAll()` function is the only testing function found in `signalsTest_test.go`,
+    which means that it is the only one that is going to get executed by `go test`.
+    Therefore, it would be responsible for calling the other functions `signalsTest_test.go`
+    as well as the `Listener()` function from `signalsTest.go`, which is responsible
+    for the handling of the UNIX signals. If you forget to call the `Listener()` function,
+    all tests will fail. Additionally, `Listener()` needs to be called as a goroutine
+    because, otherwise, all tests will stall as `Listener()` never returns.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bear in mind that if the `Listener()` goroutine stops handling signals for some
+    reason and the program continues to run, the test will still return `PASS` when
+    it actually failed to handle the signal. One possible way for this to happen is
+    if the anonymous function in `Listener()` returns prematurely. However, normally,
+    this should never happen.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `time.Sleep()` calls give enough time to the `test_SIGUSR1()`, `test_SIGUSR2()`,
+    and `test_SIGHUP()` functions to send the UNIX signal and the `Listener()` function
+    to handle them sequentially. The purpose of the last `time.Sleep()` call is to
+    give `Listener()` time to process the last signal before all tests end.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The second part of `signalsTest_test.go` comes with the next code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: Each one of the `test_SIGUSR1()`, `test_SIGUSR2()`, and `test_SIGHUP()` functions
+    sends a different signal to the running UNIX process—the process ID of the running
+    UNIX process is discovered using a call to `syscall.Getpid()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running the tests produces the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: All tests finish successfully, which means that all signals are handled successfully
+    without the `Listener()` function exiting prematurely.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you run the previous test multiple times, you might get a last line that
+    looks like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: The word `cached` in the output tells us that Go used existing testing results
+    to make running the tests faster and did not execute the testing functions, which
+    is not always the desired behavior. The next subsection shows how to clear or
+    disable the cache when testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Disabling test caching
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Testing and caching are not always a good combination, mainly because you get
+    the same results all the time. However, it has its benefits if the test inputs
+    and the test subject do not change—this makes it a completely valid condition
+    in several situations. There exist two ways to avoid getting results using test
+    caching. The first one requires running `go clean -testcache`, which cleans the
+    entire testing cache, whereas the second one requires running your tests using
+    `-count=1`, which prevents Go from saving any testing cache for the given testing
+    execution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next subsection discusses the use of the `TempDir()` method, which is handy
+    when you want to create a temporary place for data during testing or benchmarking.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The testing.TempDir() function
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `testing.TempDir()` method works with both testing and benchmarking. Its
+    purpose is to create a temporary directory that will be used during testing (or
+    benchmarking). Each call to `testing.TempDir()` returns a unique directory. Go
+    **automatically removes** that temporary directory when the test and its subtests
+    or the benchmarks are about to finish with the help of the `CleanUp()` method—this
+    is arranged by Go and you do not need to use and implement `CleanUp()` on your
+    own.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You should not confuse `testing.TempDir()` with `os.TempDir()`. We already saw
+    the use of the `os.TempDir()` method in `profileCla.go` and `traceCLA.go` at the
+    beginning of this chapter. `os.TempDir()` returns the default directory to use
+    for temporary files, whereas `testing.TempDir()` returns a temporary directory
+    for the current test to use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The exact place where the temporary directory is going to be created depends
+    on the operating system used. On macOS, it is under `/var/folders`, whereas on
+    Linux, it is under `/tmp`. We are going to illustrate `testing.TempDir()` in the
+    next subsection, where we also talk about `Cleanup()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Cleanup() function
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Although we present the `Cleanup()` method in a testing scenario, `Cleanup()`
+    works for both testing and benchmarking. Its name reveals its purpose, which is
+    to clean up some things that we have created when testing or benchmarking a package.
+    However, it is we who need to tell `Cleanup()` what to do—the parameter of `Cleanup()`
+    is a function that does the cleaning up.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That function is usually implemented inline as an anonymous function, but you
+    can also create it elsewhere and call it by its name.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `cleanup.go` file contains a dummy function named `Foo()`—as it contains
+    no real code, there is no point in presenting it. On the other hand, all important
+    code can be found in `cleanup_test.go`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `myCleanUp()` function is going to be used as a parameter to `CleanUp()`
+    and should have that specific signature. Apart from the signature, you can put
+    any kind of code in the implementation of `myCleanUp()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `t1` and `t2` variables hold the paths of two directories that we are going
+    to create.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous code creates a directory using `os.Mkdir()`—we manually specify
+    its path. Therefore, it is our duty to delete that directory when it is no longer
+    needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: After `TestFoo()` finishes, `t1` is deleted by the code of the anonymous function
+    that is passed as a parameter to `t.CleanUp()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: We create another directory with `os.Mkdir()`—however, in this case, we are
+    not deleting that directory. Therefore, after `TestFoo()` finishes, `t2` is not
+    going to be deleted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: Because of the use of the `testing.TempDir()` method, the value (directory path)
+    of `t1` is assigned by the operating system. Additionally, that directory path
+    is **automatically deleted** when the test function is about to finish.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here we use `myCleanUp()` as the parameter to `Cleanup()`. This is handy when
+    you want to perform the same cleanup multiple times. Running the tests creates
+    the next output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the temporary directory that was created with `TempDir()` on a macOS
+    machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Checking whether the directories created by `TempDir()` are there shows that
+    they have been successfully deleted. On the other hand, the directory stored in
+    the `t2` variable of `TestFoo()` has not been deleted. Running the same tests
+    again (remember to disable caching) is going to fail because the `test02` file
+    already exists and cannot be created:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `/var/folders/sk/ltk8cnw50lzdtr2hxcj5sv2m0000gn/T/test02: file exists`
+    error message reveals the root of the problem. So, **clean up your tests properly**.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next subsection discusses the use of the `testing/quick` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The testing/quick package
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: There are times when you need to create testing data without human intervention.
+    The Go standard library offers the `testing/quick` package, which can be used
+    for *black-box testing* (a software testing method that checks the functionality
+    of an application or function without any prior knowledge of its internal working)
+    and is somewhat related to the `QuickCheck` package found in the Haskell programming
+    language—both packages implement utility functions to help you with black-box
+    testing. With the help of `testing/quick`, Go generates random values of built-in
+    types that you can use for testing, which saves you from having to generate all
+    these values manually.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The code of `quickT.go` is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous code implements a single function that adds two `Point2D` variables—this
+    is the function that we are going to test.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The code of `quickT_test.go` is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: The call to `quick.Check()` automatically generates random numbers based on
+    the signature of its first argument, which is a function defined earlier. There
+    is no need to create these random numbers on your own, which makes the code easy
+    to read and write. The actual tests happen in the `condition` function. Put simply,
+    we start by defining a property function that represents a condition that we want
+    to hold true for a range of inputs. This function takes the input values and returns
+    a Boolean value indicating whether the property holds for those values or not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: This implementation is wrong on purpose. To correct the implementation, we should
+    replace `Add(Add(a, b), c) == Add(a, b)` with `Add(Add(a, b), c) == Add(c, Add(a,
+    b))`. We did that to see the output that is generated when a test fails.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Running the created tests generates the next output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: As expected, the first test was successful.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: However, as expected, the second test generated an error. The good thing is
+    that the input that caused the error is presented onscreen so that you can see
+    the input that caused your function to fail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next subsection tells us how to time out tests that take too long to finish.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Timing out tests
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: If the `go test` tool takes too long to finish or, for some reason, never ends,
+    the `-timeout` parameter can help you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To illustrate that, we are using the code from the previous subsection as well
+    as the `-timeout` and `-count` command line flags. While the former specifies
+    the maximum allowed time duration for the tests, the latter specifies the number
+    of times the tests are going to be executed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running `go test -v *.go -timeout 1s` tells `go test` that all tests should
+    take at most one second to finish—on my machine, the tests did take less than
+    a second to finish.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, running the following generates a different output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE
+- en: The actual output is longer than the presented one—the rest of the output has
+    to do with goroutines being terminated before they have finished. The key thing
+    here is that the `go test` command timed out the process due to the use of `-timeout
+    1s`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So far, we have seen the use of `Errorf()` when a test fails. The next subsection
+    discusses the use of `testing.T.Fatalf()` and `testing.T.Fatal()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing using testing.T.Fatal() and testing.T.Fatalf()
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: This subsection discusses the use of `testing.T.Fatalf()` and `testing.T.Fatal()`.
+    The core idea behind the use of `T.Fatal()` and `T.Fatalf()` instead of `T.Error()`
+    and `T.Errorf()` is that you should use `T.Fatal()` or `T.Fatalf()` when it makes
+    sense to stop testing the code that comes because the previous failure is going
+    to cause more failures. On the other hand, you should use the appropriate `T.Error()`
+    variant when a condition failure is not going to cause more failures due to various
+    dependencies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Two real-world cases for using `t.Fatalf()` are when a database connection required
+    for testing fails or when a network connection required for testing cannot be
+    established.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The relevant code can be found in `code.go` and `code_test.go`, which are both
+    located inside `ch12/testFatal`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The contents of `code.go` are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `server` package initializes the `DATA` map using the `init()` function
+    by defining the value for the `"server"` key.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The contents of `code_test.go` are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE64]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this case, there is no point in executing the `t.Log()` call as the `"port"`
+    key is not defined in the `DATA` map. In this case, we use `t.Fatalf()`, which
+    terminates the testing process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running the tests generates the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE65]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, as expected, `t.Log()` is never executed and the test fails.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next subsection talks about table-driven testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Table-driven tests
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Table-driven tests are tests that have many input scenarios. The main advantage
+    of table-driven testing is that a developer can cover lots of testing cases by
+    reusing existing code, which saves time and energy. In order to have the parameters
+    of the various tests in the same place, we usually use a slice of structures and
+    iterate over its elements to run the tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All relevant code of the example can be found in the `ch12/table` directory,
+    which contains two files. The first file is called `table.go`, whereas the source
+    code file that is used for testing is called `table_test.go`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `table.go` file contains the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE66]'
+  prefs: []
+  type: TYPE_PRE
+- en: The Go package that we are going to test contains two functions that implement
+    integer division (`intDiv()`) and floating-point division between two integers
+    (`floatDiv()`), respectively. As you might recall from your mathematics classes,
+    integer division between two integers gives different results from regular division.
+    As an example, dividing 2 by 4 gives 0 as a result in integer division and 0.5
+    in regular division. This means that integer division ignores the remainder and
+    produces integer results only, hence the function signature of `intDiv()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `table_test.go` file is going to be presented in two parts. The first part
+    comes with the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE67]'
+  prefs: []
+  type: TYPE_PRE
+- en: The number of entries in the `tests` structure, which can have any name you
+    want, signifies the number of tests that we are going to perform. The last entry
+    has an intentional error in it as `5` divided by `4` equals `1.25` instead of
+    `1.2`, which means that the respective test is going to fail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The biggest advantage of table-driven testing is that adding a new test is just
+    as simple as adding an entry to the structure that holds the existing tests. In
+    a different case, you would need to add an additional test function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The second part of `table_test.go` is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE68]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Test_all()` testing function iterates over the contents of the `tests`
+    structure and runs the tests. The `t.Parallel()` statement allows the tests to
+    run in parallel, which makes the process faster. Execute `go doc testing.T.Parallel`
+    in the shell for more information about its usage. However, in this case, `t.Parallel()`
+    has no effect since no other tests are marked as parallel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In general, float comparison like the one presented here is, generally, unreliable.
+    For the purposes of the book, it is fine, but you should not rely on float comparison
+    in your test functions. More about that can be found at [https://medium.com/p/9872fe6de17f](https://medium.com/p/9872fe6de17f).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running the tests produces the following results:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE69]'
+  prefs: []
+  type: TYPE_PRE
+- en: All tests were successful apart from the last one. The next subsection shows
+    how to find information about the code coverage of your software.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing code coverage
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In this section, we are going to learn how to find information about the code
+    coverage of our programs to discover blocks of code or single code statements
+    that are not being executed by testing functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Among other things, seeing the code coverage of programs can reveal logical
+    issues and bugs in the code, so do not underestimate its usefulness. However,
+    the code coverage test complements unit testing without replacing it. The only
+    thing to remember is that you should make sure that the testing functions try
+    to cover all cases and, therefore, try to run all available code. If the testing
+    functions do not try to cover all cases, then the issue might be with them, not
+    the code that is being tested.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'All relevant files can be found in `ch12/coverage`. The code of `coverage.go`,
+    which has some intentional issues in order to show how unreachable code is identified,
+    is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE70]'
+  prefs: []
+  type: TYPE_PRE
+- en: The issue with this function is that the first branch of `if` is always true
+    and, therefore, the `else` branch is never going to get executed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE71]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There exist two issues with `f2()`. The first one is that it does not work
+    well with negative integers and the second one is that all positive integers are
+    handled by the first `if` branch. Code coverage can only help you with the second
+    issue. The code of `coverage_test.go` is the following—these are regular test
+    functions that try to run all available code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE72]'
+  prefs: []
+  type: TYPE_PRE
+- en: This test function naively tests the operation of `f1()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE73]'
+  prefs: []
+  type: TYPE_PRE
+- en: The second test function checks the operation of `f2()` by running `f2(123)`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we should run `go test` as follows—the code coverage task is done by
+    the `s` flag:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE74]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The previous output shows that we have `50%` code coverage, which is not a
+    good thing! However, we are not done yet as we can generate a test coverage report.
+    The next command generates the code coverage report:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE75]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The contents of `coverage.out` are as follows—yours might vary a little depending
+    on your username and the folder used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE76]'
+  prefs: []
+  type: TYPE_PRE
+- en: The format and the fields in each line of the coverage file are `name.go:line.column,line.column
+    numberOfStatements count`. The last field is a flag that tells you whether the
+    statements specified by `line.column,line.column` are covered or not. So, when
+    you see `0` in the last field, it means that the code is not covered.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Lastly, the HTML output can be seen in your favorite web browser by running
+    `go tool cover -html=coverage.out`. If you used a different filename than `coverage.out`,
+    modify the command accordingly. The next figure shows the generated output—if
+    you are reading the printed version of the book, you might not be able to see
+    the colors. Red lines denote code that is not being executed, whereas green lines
+    show code that was executed by the tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![A screenshot of a computer  Description automatically generated](img/B21003_12_02.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 12.2: Code coverage report'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some of the code is marked as not tracked (gray in color) because this is code
+    that cannot be processed by the code coverage tool. The generated output clearly
+    shows the code issues with both `f1()` and `f2()`. You just have to correct them
+    now!
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next subsection discusses unreachable code and how to discover it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finding unreachable Go code
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Sometimes, a wrongly implemented `if` or a misplaced `return` statement can
+    create blocks of code that are unreachable, that is, blocks of code that are not
+    going to be executed at all. As this is a logical kind of error, which means that
+    it is not going to get caught by the compiler, we need to find a way of discovering
+    it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Fortunately, the `go vet` tool, which examines Go source code and reports suspicious
+    constructs, can help with that—the use of `go vet` is illustrated with the help
+    of the `cannotReach.go` source code file, which contains the next two functions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE77]'
+  prefs: []
+  type: TYPE_PRE
+- en: There is a logical error here because `S2()` returns before printing the desired
+    message.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE78]'
+  prefs: []
+  type: TYPE_PRE
+- en: Similarly, `S1()` returns without giving the `fmt.Println("Leaving S1()")` statement
+    a chance to be executed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running `go vet` on `cannotReach.go` creates the next output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE79]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first message points to the `fmt.Println()` statement of `S2()` and the
+    second one to the second `fmt.Println()` statement of `S1()`. In this case, `go
+    vet` did a great job. However, `go vet` is not particularly sophisticated and
+    cannot catch every possible type of logical error. If you need a more advanced
+    tool, have a look at `staticcheck` ([https://staticcheck.io/](https://staticcheck.io/)),
+    which can also be integrated with Microsoft Visual Studio Code ([https://code.visualstudio.com/](https://code.visualstudio.com/)),
+    Neovim (!), and Zed ([https://zed.dev/](https://zed.dev/))—the next figure shows
+    that Zed underlines the unreachable code. Visual Studio Code works in a similar
+    way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![A screen shot of a computer program  Description automatically generated](img/B21003_12_03.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 12.3: Viewing unreachable code in Zed'
+  prefs: []
+  type: TYPE_NORMAL
+- en: As a rule of thumb, it does not hurt to include `go vet` in your workflow. You
+    can find more information about the capabilities of `go vet` by running `go doc
+    cmd/vet`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next subsection illustrates how to test an HTTP server with a database backend.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing an HTTP server with a database backend
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: An HTTP server is a different kind of animal because it should already run for
+    tests to get executed. Thankfully, the `net/http/httptest` package can help—you
+    do not need to run the HTTP server on your own as the `net/http/httptest` package
+    does the work for you, but you need to have the database server up and running.
+    We are going to test the REST API server we developed in *Chapter 11*, *Working
+    with REST APIs*. All relevant files are located inside `ch12/testHTTP`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The code of `server_test.go`, which holds the test functions for the HTTP service,
+    is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE80]'
+  prefs: []
+  type: TYPE_PRE
+- en: The only reason for including `github.com/gorilla/mux` is the use of `mux.SetURLVars()`
+    later on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE81]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `http.NewRequest()` function is used to define the HTTP request method and
+    the endpoint and to send data to the endpoint when needed. The `http.HandlerFunc(TimeHandler)`
+    call specifies the handler function that is being tested.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE82]'
+  prefs: []
+  type: TYPE_PRE
+- en: We are testing `MethodNotAllowedHandler` in this test function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE83]'
+  prefs: []
+  type: TYPE_PRE
+- en: We know that this interaction is going to fail as we are testing `MethodNotAllowedHandler`.
+    Therefore, we expect to get an `http.StatusNotFound` response code back—if we
+    get a different code, the test function is going to fail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE84]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here we store the desired fields of a `User` structure in a byte slice. For
+    the tests to work, the `admin` user should have `admin` as the password because
+    this is what is used in the code—modify `server_test.go` in order to have the
+    correct password for the `admin` user, or any other user with admin privileges,
+    of your installation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In general, and mainly for critical applications or projects that involve more
+    than a single developer, this is not a good practice. Ideally, everything needed
+    for the tests should be contained within the tests. One possible solution is to
+    provide a separate database or a separate machine used just for testing purposes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE85]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous lines of code construct the desired request, which is about logging
+    in to the service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE86]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`NewRecorder()` returns an initialized `ResponseRecorder` that is used in `ServeHTTP()`—`ServeHTTP()`
+    is the method that performs the request. The response is saved in the `rr` variable.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is also a test function for the `/logout` endpoint, which is not presented
+    here as it is almost identical to `TestLogin()`. In this case, running the tests
+    in a random order might create issues with testing because `TestLogin()` should
+    always get executed before `TestLogout()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE87]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the status code is `http.StatusOK`, it means that the interaction worked
+    as expected.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE88]'
+  prefs: []
+  type: TYPE_PRE
+- en: For the `Add()` handler, we need to pass an array of JSON records, which is
+    constructed here. As we do not want to create the same username every time, we
+    append the current timestamp to the `_test` string.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE89]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is where we construct the slice of JSON records (`UserPass`) and create
+    the request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE90]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the server response is `http.StatusOK`, then the request is successful and
+    the test passes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE91]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Although we use `/username/1` in the request, this does not add any value to
+    the `Vars` map. Therefore, we need to use the `SetURLVars()` function to change
+    the values in the `Vars` map—this is illustrated next:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE92]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `gorilla/mux` package provides the `SetURLVars()` function for testing purposes—this
+    function allows you to add elements to the `Vars` map. In this case, we need to
+    set the value of the `id` key to `1`. You can add as many key/value pairs as you
+    want.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE93]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `expected` variable holds the record we expect to get back from our request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the same value for `lastlogin` does not make any sense. Therefore, we
+    might be dealing with a bug here. Additionally, if we cannot guess the value of
+    `lastlogin` in the server response, we might need to replace it with `0` in both
+    `expected` and `serverResponse`. An alternative would have been to marshal the
+    result into a structure and only compare what is relevant for the test.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE94]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous statement removes any spaces from the HTTP server response.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE95]'
+  prefs: []
+  type: TYPE_PRE
+- en: The last part of the code contains the standard Go way of checking whether we
+    have received the expected answer or not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating tests for HTTP services is easy once you understand the presented examples.
+    This mainly happens because most of the code is repeated among test functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running the tests generates the next output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE96]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the output from visiting the `/time` endpoint with the `DELETE` HTTP
+    method. Its result is `PASS` because we were expecting this request to fail as
+    it uses the wrong HTTP method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE97]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the output from `TestLogin()` that tests the `/login` endpoint. All
+    lines beginning with the date and time are generated by the REST API server and
+    show the progress of the request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE98]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the output from `TestLogout()` that tests the `/logout` endpoint, which
+    also has the `PASS` result.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE99]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the output from the `TestAdd()` test function. The name of the new user
+    that is created is `test_1702577728` and it should be different each time the
+    test is executed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE100]'
+  prefs: []
+  type: TYPE_PRE
+- en: Lastly, this is the output from the `TestGetUserDataHandler()` test function
+    that was also executed without any issues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next section presents the `govulncheck` tool, which is used to find vulnerabilities
+    in project dependencies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The govulncheck tool
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The purpose of the `govulncheck` tool is to find vulnerabilities in project
+    dependencies. This means that it is there to make your Go binaries and Go modules
+    more secure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing the tool
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You can install `govulncheck` by running the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE101]'
+  prefs: []
+  type: TYPE_PRE
+- en: As expected, the `govulncheck` binary is going to be installed in `~/go/bin`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The relevant Go code can be found inside `ch12/vulcheck`—the source code file
+    is called `vul.go` and contains the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE102]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Running `vul.go` requires executing the following commands first:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE103]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Based on the previous output of `go mod tidy`, the contents of `go.mod` are
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE104]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, we are using version `v0.14.0` of the `golang.org/x/text` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running `govulncheck` against `vul.go` produces the following results:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE105]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let us change the contents of `go.mod` to include a package version with
+    known vulnerabilities **on purpose**. This requires executing the following commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE106]'
+  prefs: []
+  type: TYPE_PRE
+- en: The purpose of the previous command is to download an older version of the `golang.org/x/text`
+    package with known vulnerabilities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The contents of `go.mod` are now the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE107]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, we are now using version `v0.3.5` of the `golang.org/x/text` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This time, running `govulncheck` against `vul.go` produces the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE108]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This time, **we found vulnerabilities in the modules that we are using**. The
+    solution to that is to upgrade to the latest version of the `golang.org/x/text`
+    package by running the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE109]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you want to get the output in JSON format, you can run `govulncheck` with
+    the `-json` flag, which is illustrated in the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE110]'
+  prefs: []
+  type: TYPE_PRE
+- en: You should definitely make a habit of using `govulncheck` in your projects.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next section discusses a handy Go feature, cross-compilation, because after
+    testing your code, you usually want to distribute it!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cross-compilation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Cross-compilation is the process of generating a binary executable file for
+    a different architecture than the one that we are working on without having access
+    to other machines. The main benefit that we receive from cross-compilation is
+    that we do not need a second or third machine to create and distribute executable
+    files for different architectures. This means that we basically need just a single
+    machine for our development. Fortunately, Go has built-in support for cross-compilation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To cross-compile a Go source file, we need to set the `GOOS` and `GOARCH` environment
+    variables to the target operating system and architecture, respectively, which
+    is not as difficult as it sounds.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can find a list of available values for the `GOOS` and `GOARCH` environment
+    variables at [https://go.dev/doc/install/source](https://go.dev/doc/install/source).
+    Keep in mind, however, that not all `GOOS` and `GOARCH` combinations are valid.
+    You can find a list of all valid combinations using `go tool dist list`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The code of `crossCompile.go` is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE111]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Running it on a macOS machine with Go version 1.21.5 generates the next output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE112]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Compiling `crossCompile.go` for the Linux OS that runs on a machine with an
+    amd64 processor is as simple as running the next command on a macOS machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE113]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Transferring that file to an Arch Linux machine and running it generates the
+    next output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE114]'
+  prefs: []
+  type: TYPE_PRE
+- en: One thing to notice here is that the cross-compiled binary file of `crossCompile.go`
+    prints the Go version of the machine used for compiling it—this makes perfect
+    sense as the target machine might not even have Go installed on it!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Cross-compilation is a great Go feature that can come in handy when you want
+    to generate multiple versions of your executables through a CI/CD system and distribute
+    them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next subsection discusses `go:generate`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using go:generate
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Although `go:generate` is not directly connected to testing or profiling, it
+    is a handy and advanced Go feature, and I believe that this chapter is the perfect
+    place for discussing it as it can also help you with testing. The `go:generate`
+    directive is associated with the `go generate` command, which was added in Go
+    1.4 in order to help with automation, and allows you to run commands described
+    by directives within existing files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `go generate` command supports the `-v`, `-n`, and `-x` flags. The `-v`
+    flag prints the names of packages and files as they are processed, whereas the
+    `-n` flag prints the commands that would be executed. Lastly, the `-x` flag prints
+    commands as they are executed—this is great for debugging `go:generate` commands.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The main reasons that you might need to use `go:generate` are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You want to download dynamic data from the internet or some other source prior
+    to the execution of the Go code.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You want to execute some code prior to running the Go code.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You want to generate a version number or other unique data before code execution.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You want to make sure that you have sample data to work with. For example, you
+    can put data into a database using `go:generate`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As using `go:generate` is not considered a good practice because it hides things
+    from the developer and creates additional dependencies, I try to avoid it when
+    I can, and I usually can. On the other hand, if you really need it, you will know
+    it!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The use of `go:generate` is illustrated in `goGenerate.go`, which is found
+    in `./ch12/generate` and has the following content:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE115]'
+  prefs: []
+  type: TYPE_PRE
+- en: This executes the `echo.sh` script, which should be available in the current
+    directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE116]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`$GOFILE`, `$GOARCH`, `$GOOS`, `$GOLINE`, and `$GOPACKAGE` are special variables
+    and are translated at the time of execution.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE117]'
+  prefs: []
+  type: TYPE_PRE
+- en: This executes the hello.py Python script, which should be available in the current
+    directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE118]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `go generate` command is not going to run the `fmt.Println()` statement
+    or any other statements found in a Go source file. Lastly, keep in mind that `go
+    generate` is not executed automatically and must be run explicitly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Working with `goGenerate.go` from within `./ch12/generate` generates the next
+    output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE119]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the output of the `$GOFILE`, `$GOARCH`, `$GOOS`, `$GOLINE`, and `$GOPACKAGE`
+    variables, which shows the values of these variables defined at runtime.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE120]'
+  prefs: []
+  type: TYPE_PRE
+- en: There is also a special variable named `$DOLLAR` for printing a dollar character
+    in the output because `$` has a special meaning in the OS environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE121]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the output of the `ls -l` command, which shows the files found in the
+    current directory at the time of the code execution. This can be used to test
+    whether some necessary files are present at the time of execution or not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE122]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Running `go generate` with `-n` shows the commands that are going to be executed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE123]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, `go:generate` can help you work with the OS **before program execution**.
+    However, as it hides things from the developer, its usage should be limited.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The last section of this chapter talks about example functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating example functions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Part of the documentation process is generating example code that showcases
+    the use of some or all the functions and data types of a package. Example functions
+    have many benefits, including the fact that they are executable tests that are
+    executed by `go test`. Therefore, if an example function contains an `// Output:`
+    line, the `go test` tool checks whether the calculated output matches the values
+    found after the `// Output:` line. Although we should include example functions
+    in Go files that end with `_test.go`, we do not need to import the testing Go
+    package for example functions. Moreover, the name of each example function must
+    begin with `Example`. Lastly, example functions take no input parameters and return
+    no results.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We are going to illustrate example functions using the code of `exampleFunctions.go`
+    and `exampleFunctions_test.go`. The content of `exampleFunctions.go` is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE124]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The previous code presents a regular package that contains a single function
+    named `LengthRange()`. The contents of `exampleFunctions_test.go`, which includes
+    the example functions, are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE125]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'What the comment lines say is that the expected output is `7` and `7`, which
+    is obviously wrong. This is going to be seen after we run `go test`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE126]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As expected, there is an error in the generated output—the second generated
+    value is `26` instead of the expected `7`. If we make the necessary corrections,
+    the output is going to look as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE127]'
+  prefs: []
+  type: TYPE_PRE
+- en: Example functions can be a great tool both for learning the capabilities of
+    a package and for testing the correctness of functions, so I suggest that you
+    include both test code and example functions in your Go packages. As a bonus,
+    your test functions appear in the documentation of the package, if you decide
+    to generate package documentation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This chapter discussed `go:generate`, code profiling and tracing, and testing
+    Go code. You might find the Go way of testing boring, but this happens because
+    Go is boring and predictable in general and that is a good thing! Remember that
+    writing bug-free code is important, whereas writing the fastest code possible
+    is not always that important.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Most of the time, you need to be able to write fast-enough code. So, spend more
+    time writing tests than benchmarks, unless your code runs really slowly. You have
+    also learned how to find unreachable code and how to cross-compile Go code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although the discussions of the Go profiler and `go tool trace` are far from
+    complete, you should understand that with topics such as profiling and code tracing,
+    nothing can replace experimenting and trying new techniques on your own!
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next chapter is about fuzz testing, which is a modern way of testing Go
+    code in addition to the testing techniques presented in this chapter. We will
+    also look at observability in Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exercises
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Create test functions for a package that calculates numbers in the Fibonacci
+    sequence. Do not forget to implement the package.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The code in `testHTTP/server_test.go` uses the same value for `lastlogin` in
+    the `expected` variable. This is clearly a bug in `restdb.go` as the value of
+    `lastlogin` should be updated. After correcting the bug, modify `testHTTP/server_test.go`
+    to take into account the different values of the `lastlogin` field.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Try to find the value of `os.TempDir()` in various operating systems.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Type `go doc os/signal.NotifyContext` to see that you can handle signals in
+    a `context.Context` environment. Try to create an example that uses `signal.NotifyContext`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Additional resources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The `generate` package: [https://pkg.go.dev/cmd/go/internal/generate](https://pkg.go.dev/cmd/go/internal/generate)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Generating code: [https://go.dev/blog/generate](https://go.dev/blog/generate)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The code of `testing`: [https://go.dev/src/testing/testing.go](https://go.dev/src/testing/testing.go)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'About `net/http/httptrace`: [https://pkg.go.dev/net/http/httptrace](https://pkg.go.dev/net/http/httptrace)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Profile-guided optimization in Go 1.21: [https://go.dev/blog/pgo](https://go.dev/blog/pgo)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Govulncheck v1.0.0 is released: [https://go.dev/blog/govulncheck](https://go.dev/blog/govulncheck)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `govulncheck` tool: [https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'A `govulncheck` tutorial: [https://go.dev/doc/tutorial/govulncheck](https://go.dev/doc/tutorial/govulncheck)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Build more secure apps with Go and Google: [https://www.youtube.com/watch?v=HSt6FhsPT8c](https://www.youtube.com/watch?v=HSt6FhsPT8c)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Introducing HTTP Tracing by Jaana Dogan: [https://go.dev/blog/http-tracing](https://go.dev/blog/http-tracing)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'GopherCon 2019: Dave Cheney—Two Go Programs, Three Different Profiling Techniques:
+    [https://youtu.be/nok0aYiGiYA](https://youtu.be/nok0aYiGiYA )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Join our community on Discord
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Join our community’s Discord space for discussions with the authors and other
+    readers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://discord.gg/FzuQbc8zd6](https://discord.gg/FzuQbc8zd6 )'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[![](img/QR_Code2286825896190168453.png)](https://discord.gg/FzuQbc8zd6 )'
+  prefs: []
+  type: TYPE_NORMAL

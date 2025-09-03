@@ -1,0 +1,301 @@
+- en: Unit test
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We have mentioned previously that testing concurrent applications can be difficult.
+    With the correct mechanism, it still can be done, so let's see how much we can
+    test without big headaches.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing subscriber
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Starting with subscribers, which seem to have a more encapsulated functionality,
+    the first subscriber must print incoming messages from the publisher to an `io.Writer`
+    interface. We have mentioned that the subscriber has an interface with two methods,
+    `Notify(interface{}) error` and the `Close()` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'OK. This is going to be our `writer_sub.go` file. Create the corresponding
+    test file, called the `writer_sub_test.go` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, the first problem we have is that the functionality prints to the `stdout`,
+    so there''s no return value to check. We can solve it in three ways:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Capturing the `stdout` method.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Injecting an `io.Writer` interface to print to it. This is the preferred solution,
+    as it makes the code more manageable.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Redirecting the `stdout` method to a different file.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We''ll take the second approach. Redirection is also a possibility. The `os.Stdout`
+    is a pointer to an `os.File` type, so it involves replacing this file with one
+    we control, and reading from it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `NewWriterSubscriber` subscriber isn''t defined yet. It must help in the
+    creation of this particular subscriber, returning a type that satisfies the `Subscriber`
+    interface, so let''s quickly declare it on the `writer_sub.go` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Ideally, it must accept an ID and an `io.Writer` interface as the destination
+    for its writes. In this case, we need a custom `io.Writer` interface for our test,
+    so we''ll create a `mockWriter` on the `writer_sub_test.go` file for it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `mockWriter` structure will accept a `testingFunc` as one of its fields.
+    This `testingFunc` field accepts a string that represents the bytes written to
+    the `mockWriter` structure. To implement an `io.Writer` interface, we need to
+    define a `Write([]byte) (int, error)` method. In our definition, we pass the contents
+    of `p` as a string (remember that we always need to return the bytes read and
+    an error, or not, on every `Write` method). This approach delegates the definition
+    of `testingFunc` to the scope of the test.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We are going to call the `Notify` method on the `Subcriber` interface, which
+    must write on the `io.Writer` interface like the `mockWriter` structure. So, we''ll
+    define the `testingFunc` of a `mockWriter` structure before calling the `Notify`
+    method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: We will send the `Hello` message. This also means that whatever the `Subscriber`
+    interface does, it must eventually print the `Hello` message on the provided `io.Writer`
+    interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So if, eventually, we receive a string on the testing function, we'll need to
+    synchronize with the `Subscriber` interface to avoid race conditions on tests.
+    That's why we use so much `WaitGroup`. It's a very handy and easy-to-use type
+    to handle this scenario. One `Notify` method call will need to wait for one call
+    to the `Done()` method, so we call the `Add(1)` method (with one unit).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ideally, the `NewWriterSubscriber` function must return an interface, so we
+    need to type assert it to the type we are working with during the test, in this
+    case, the `stdoutPrinter` method. I have omitted error checking when doing the
+    casting on purpose, just to make things easier. Once we have a `writerSubscriber`
+    type, we can access its `Write` field to replace it with the `mockWriter` structure.
+    We could have directly passed an `io.Writer` interface on the `NewWriterSubscriber`
+    function, but we wouldn't cover the scenario where a nil object is passed and
+    it sets the `os.Stdout` instance to a default value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, the testing function will eventually receive a string containing what was
+    written by the subscriber. We just need to check if the received string, the one
+    that the `Subscriber` interface will receive, prints the word `Hello` at some
+    point and nothing better that `strings.Contains` function for it. Everything is
+    defined under the scope of the testing function, so we can use the value of the
+    `t` object to also signal that the test has failed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once we have done the checking, we must call to the `Done()` method to signal
+    that we have already tested the expected result:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: We must actually call the `Notify` and `Wait` methods for the call to the `Done`
+    method to check that everything was correct.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Did you realize that we have defined the behavior on tests more or less in reverse?
+    This is very common in concurrent apps. It can be confusing sometimes, as it becomes
+    difficult to know what a function could be doing if we can't follow calls linearly,
+    but you get used to it quite quickly. Instead of thinking "it does this, then
+    this, then that," it's more like "this will be called when executing that." This
+    is also because the order of execution in a concurrent application is unknown
+    until some point, unless we use synchronization primitives (such as WaitGroups
+    and channels) to pause execution at certain moments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s execute the test for this type now:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It has exited fast but it has failed. Actually, the call to the `Done()` method
+    has not been executed, so it would be nice to change the last part of our test
+    to this instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, it doesn't stop execution because we are calling the `Error` function instead
+    of the `Fatal` function, but we call the `Done()` method and the test ends where
+    we prefer it to end, after the `Wait()` method is called. You can try to run the
+    tests again, but the output will be the same.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing publisher
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'We have already seen a `Publisher` interface and the type that will satisfy
+    which was the `publisher` type. The only thing we know for sure is that it will
+    need some way to store subscribers, so it will at least have a `Subscribers` slice:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To test the `publisher` type, we will also need a mock for the `Subscriber`
+    interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `mockSubscriber` type must implement the `Subscriber` interface, so it must
+    have a `Close()` and a `Notify(interface{}) error` method. We can embed an existing
+    type that implements it, such as,  the `writerSubscriber`, and override just the
+    method that is interesting for us, but we will need to define both, so we won't
+    embed anything.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, we need to override the `Notify` and `Close` methods in this case to call
+    the testing functions stored on the fields of the `mockSubscriber` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'First of all, we will be sending messages through channels directly, this could
+    lead to potential unwanted deadlocks so the first thing to define is a panic handler
+    for cases such as, sending to close channels or no Goroutines listening on a channel.
+    The message we will send to subscribers is `Hello`. So, each subscriber that has
+    been received using the channel returned by the `AddSubscriberCh` method must
+    receive this message. We will also use a *New* function to create Publishers,
+    called `NewPublisher`. Change the `publisher.go` file now to write it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now we''ll define the `mockSubscriber` to add it to the publisher list of known
+    subscribers. Back to the `publisher_test.go` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: As usual, we start with a WaitGroup. First, testing the function in our subscriber
+    defers a call to the `Done()` method at the end of its execution. Then it needs
+    to type cast `msg` variable because it's coming as an interface. Remember that
+    this way, we can use the `Publisher` interface with many types by introducing
+    the overhead of the type assertion. This is done on line `s, ok := msg.(string)`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once we have type cast `msg` to a string, `s`, we just need to check if the
+    value received in the subscriber is the same as the value we sent, or fail the
+    test if not:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: We add the `mockSubscriber` type using the `AddSubscriberCh` method. We publish
+    our message just after getting ready, by adding one to the `WaitGroup`, and just
+    before setting the `WaitGroup` to wait so that the test doesn't continue until
+    the `mockSubscriber` type calls the `Done()` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Also, we need to check if the number of the `Subscriber` interface has grown
+    after calling the `AddSubscriberCh` method, so we''ll need to get the concrete
+    instance of publisher on the test:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Type assertion is our friend today! Once we have the concrete type, we can
+    access the underlying slice of subscribers for the `Publisher` interface. The
+    number of subscribers must be 1 after calling the `AddSubscriberCh` method once,
+    or the test will fail. The next step is to check just the opposite--when we remove
+    a `Subscriber` interface, it must be taken from this list:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: The final step in our test is to stop the publisher so no more messages can
+    be sent and all the Goroutines are stopped.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The test is finished, but we can''t run tests until the `publisher` type has
+    all the methods implemented; this must be the final result:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With this empty implementation, nothing good can happen when running the tests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Yes it has failed but, it's not a controlled fail at all. This was done on purpose
+    to show a couple of things to be careful of in Go. First of all, the error produced
+    in this test is a **fatal** error, which usually points to a bug in the code.
+    This is important because while a **panic** error can be recovered, you cannot
+    do the same with a fatal error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this case, the error is telling us the problem: `goroutine 5 [chan send
+    (nil chan)]`, a nil channel so it''s actually a bug in our code. How can we solve
+    this? Well, this is also interesting.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The fact that we have a `nil` channel is caused by the code we wrote to compile
+    unit tests but this particular error won't be raised once the appropriate code
+    is written (because we'll never return a nil channel in this case). We could return
+    a channel that is never use we cause a fatal error with a deadlock, which wouldn't
+    be any progress at all either.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An idiomatic way to solve it would be to return a channel and an error so that
+    you can have an error package with a type implementing the `Error` interface that
+    returns a specific error such as `NoGoroutinesListening` or `ChannelNotCreated`.
+    We have already seen many of this implementations so we'll leave these as an exercise
+    to the reader and we will move forward to maintain focus on the concurrent nature
+    of the chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Nothing surprising there, so we can move to the implementation phase.
+  prefs: []
+  type: TYPE_NORMAL

@@ -1,0 +1,124 @@
+- en: Implementation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We needed to define a package variable called `timeoutMilliseconds`. Let''s
+    start from there:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: The initial timeout delay is 5 seconds (5,000 milliseconds) and we will need
+    those packages in our code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: OK, so we need a function that launches a Goroutine for each endpoint URL. Do
+    you remember how we achieve the communication between Goroutines? Exactly--channels!
+    So we will need a channel to handle responses and a channel to handle errors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'But we can simplify it a bit more. We will receive two correct responses, two
+    errors, or a response and an error; in any case, there are always two responses,
+    so we can join errors and responses in a merged type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, each Goroutine will send back a value of the `barrierResp` type. This value
+    will have a value for `Err` or a value for the `Resp` field.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The procedure is simple: we create a channel of size 2, the one that will receive
+    responses of the `barrierResp` type, we launch both requests and wait for two
+    responses, and then check to see if there is any error:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Following the previous description, we created a buffered channel called `in`,
+    making it the size of the incoming endpoints, and we deferred channel closing.
+    Then, we launched a function called `makeRequest` with each endpoint and the response
+    channel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now we will loop  twice, once for each endpoint. In the loop, we block the execution
+    waiting for data from the `in` channel. If we find an error, we print it prefixed
+    with the word *ERROR* as we expect in our tests, and set `hasErrorvar` to true.
+    After two responses, if we don't find any error (`hasError== false`) we print
+    every response and the channel will be closed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We still lack the `makeRequest` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `makeRequest` function is a very straightforward functions that accepts
+    a channel to output `barrierResp` values to and a URL to request. We create an
+    `http.Client` and set its timeout field to the value of the `timeoutMilliseconds`
+    package variable. This is how we can change the timeout delay before the `in`
+    function tests. Then, we simply make the `GET` call, take the response, parse
+    it to a byte slice, and send it through the `out` channel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We do all this by filling a variable called `res` of the `barrierResp` type.
+    If we find an error while performing a `GET` request or parsing the body of the
+    result, we fill the `res.Err` field, send it to the `out` channel (which has the
+    opposite side connected to the original Goroutine), and exit the function (so
+    we don't send two values through the `out` channel by mistake).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Time to run the tests. Remember that you need an Internet connection, or the
+    first two tests will fail. We will first try the test that has two endpoints that
+    are correct:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Perfect. We have a JSON response with a key, `headers`, and another JSON response
+    with a key `User-Agent`. In our integration tests, we were looking for the strings, `User-Agent`
+    and `Accept-Encoding`, which are present, so the test has passed successfully.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now we will run the test that has an incorrect endpoint:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: We can see that we have had an error where `http://malformed-url` has returned
+    a *no such host* error. A request to this URL must return a text with the word
+    `ERROR:` prefixed, as we stated during the acceptance criteria, that's why this
+    test is correct (we don't have a false positive).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'In testing, it''s very important to understand the concepts of "false positive"
+    and "false negative" tests. A false positive test is roughly described as a test
+    that passes a condition when it shouldn''t (result: all passed) while the false
+    negative is just the reverse (result: test failed). For example, we could be testing
+    that a string is returned when doing the requests but, the returned string could
+    be completely empty! This will lead to a false negative, a test that doesn''t
+    fail even when we are checking a behavior that is incorrect on purpose (a request
+    to `http://malformed-url`).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The last test reduced the timeout time to 1 ms:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Again, the test passed successfully and we have got two timeout errors. The
+    URLs were correct, but we didn't have a response in less than one millisecond,
+    so the client has returned a timeout error.
+  prefs: []
+  type: TYPE_NORMAL

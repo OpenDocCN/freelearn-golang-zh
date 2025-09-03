@@ -1,0 +1,905 @@
+- en: '6'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Configuration Management
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Configuration management is a process that helps us enforce the desired configuration
+    state on an IT system. It’s a way to make sure a network device, in our context,
+    performs as expected as we roll out new settings. As this becomes a mundane task
+    we perform repeatedly, it’s no surprise network configuration management is the
+    most common network automation use case according to the NetDevOps 2020 Survey
+    (*Further reading*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the previous chapter, we discussed common configuration management tasks,
+    along with some helpful tools and libraries that can help you write programs to
+    automate those tasks in Go. In this chapter, we will focus on a few concrete examples,
+    taking a closer look at how Go can help us connect and interact with network devices
+    from different networking vendors using standard protocols. We will cover four
+    areas in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before we introduce any new examples, we will define a three-node multi-vendor
+    virtual network lab to test the code examples in this chapter and later chapters
+    of this book.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Next, we will explore how we can use Go and SSH to interact with network devices.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Then, we will repeat the exercise following the same program structure as with
+    SSH but using HTTP to contrast these different options.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Finally, we will extract and parse the resulting operational state to verify
+    that our configuration changes have been successful.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Note that we have deliberately avoided talking about YANG-based APIs here as
+    we will cover them extensively in the last few chapters of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Environment setup
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Interacting with network devices via SSH
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Interacting with network devices via HTTP
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: State validation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'You can find the code examples for this chapter in the book’s GitHub repository:
+    [https://github.com/PacktPublishing/Network-Automation-with-Go](https://github.com/PacktPublishing/Network-Automation-with-Go),
+    under the `ch06` folder.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: We recommend that you execute the Go programs in this chapter in a virtual lab
+    environment. Refer to the *Appendix* for prerequisites and instructions on how
+    to build it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Environment setup
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: One of the easiest and safest ways to learn and experiment with network automation
+    is to build a lab environment. Thanks to the progress we’ve had in the last decade,
+    today, we have access to virtualized and containerized network devices from different
+    networking vendors and plenty of tools that can help us build a virtual topology
+    from them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this book, we will use one of those tools: **Containerlab**. This tool,
+    which is written in Go, allows you to build arbitrary network topologies from
+    container images. The fact that you can create and run topologies based on a plain
+    YAML file in a matter of seconds makes it a strong choice to run quick tests.
+    Please refer to the *Appendix* for installation instructions and recommendations
+    for host operating systems.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating the topology
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Throughout the rest of this book, we will work with a base network topology
+    consisting of three containerized network devices running different **network
+    operating** **systems** (**NOSes**):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`srl`: Running Nokia’s **Service Router Linux** (**SR Linux**)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`cvx`: Running NVIDIA’s Cumulus Linux'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ceos`: Running Arista’s EOS'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following diagram depicts the device interconnections. They all come up
+    with their default (blank) configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.1 – Test topology](img/B16971_06_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.1 – Test topology
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can describe this topology with the following YAML file, which is a representation
+    that **Containerlab** can interpret and translate into a running topology:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can find this YAML file, like the rest of the code examples, in this book’s
+    GitHub repository, specifically in the `topo-base` directory. If you go through
+    the *Appendix* to learn more about Containerlab or you have it running already,
+    you can bring up the entire lab with the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once the lab is up, you can access each device by its hostname using the credentials
+    shown in the following table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| Device | Username | Password |'
+  prefs: []
+  type: TYPE_TB
+- en: '| clab-netgo-srl | admin | admin |'
+  prefs: []
+  type: TYPE_TB
+- en: '| clab-netgo-ceos | admin | admin |'
+  prefs: []
+  type: TYPE_TB
+- en: '| clab-netgo-cvx | cumulus | cumulus |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 6.1 – Containerlab access credentials
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, to access NVIDIA’s device via SSH, you would execute `ssh cumulus@clab-netgo-cvx`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you want to learn more about Containerlab or run this lab setup in the cloud,
+    check out the instructions in the *Appendix* of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Interacting with network devices via SSH
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**Secure Shell** (**SSH**) is the predominant protocol that network engineers
+    use to securely access and configure network devices via a **command-line interface**
+    (**CLI**) that transports unstructured data to display to end users. This interface
+    simulates a computer terminal, so we’ve used it traditionally for human interactions.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of the first steps network engineers take when they embark on the journey
+    of automating mundane tasks is to create scripts that run a set of CLI commands
+    for them in sequence to achieve an outcome. Otherwise, they would run the commands
+    themselves interactively via an SSH pseudo-terminal.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While this gives us speed, this is not the only benefit of network automation.
+    As we cover different technologies through the rest of this book, other benefits,
+    such as reliability, repeatability, and consistency, to name a few, become a common
+    theme. For now, we will start by crafting an SSH connection to a network device
+    in Go and send configuration commands line by line, to then take advantage of
+    a higher-level package in Go that abstracts away the connection details of the
+    different networking vendors, making the development experience simpler for network
+    engineers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Describing the network device configurations
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The first task we want to do with Go is to configure each of the devices of
+    the three-node topology we defined in the preceding section. As a learning exercise,
+    we will create three different Go programs to configure each device independently
+    so that you can contrast the different approaches. While each program is unique,
+    they all follow the same design structure. One program uses SSH to connect and
+    configure a device, another one uses Scrapligo, and the last one uses HTTP, as
+    we’ll cover in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To make the code examples meaningful, but at the same time not overly complicated,
+    we have limited the device configurations to apply to the following sections:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A unique IPv4 address on each of the transit links
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A **Border Gateway Protocol** (**BGP**) peering established between those IPs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A unique loopback address that is also redistributed into BGP
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The goal of these settings is to establish reachability between all three loopback
+    interfaces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In real-life automation systems, developers strive to find a common data model
+    you can use to represent device configurations for any vendor. The two main examples
+    of this are IETF and OpenConfig YANG models. We will do the same in this case
+    by defining a standard schema for the input data we will use for all three network
+    devices but using Go directly to define the data structures instead of the YANG
+    modeling language. This schema has just enough information to meet the goal of
+    establishing end-to-end reachability:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In each of the programs, we supply the parameters to the data model to generate
+    the device’s configuration via the `input.yml` file, which is available in the
+    program’s folder. For the first example, this file looks as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After we open this file for reading, we deserialize this information into an
+    instance of a `Model` type – which represents the data model – with the `Decode`
+    method. The following output represents these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Then, we pass the input variable (of the `Model` type) to a config generator
+    function (`devConfig`), which transforms this information into syntax that the
+    target device can understand. The result of this transformation is a vendor-specific
+    configuration serialized into bytes that you can transfer to the remote device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A transport library establishes the connection to the remote device using default
+    credentials, which you can overwrite via command-line flags. The session we have
+    created has an `io.Writer` element that we can use to send the configuration to
+    the remote device:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.2 – Program structure](img/B16971_06_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.2 – Program structure
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we’re familiar with the structure of the program, let’s explore different
+    implementations of it to learn more about the Go packages that are available to
+    communicate with network devices, starting with SSH and Scrapligo.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Go’s SSH package to access network devices
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The first device from the topology that we are configuring is the containerized
+    Nokia `text/template` template package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go’s SSH package, `golang.org/x/crypto/ssh`, belongs to a set of packages that
+    are still part of the Go project but developed outside the main Go tree under
+    looser compatibility requirements. Although this is not the only SSH Go client,
+    other packages tend to reuse parts of this package, so they become higher-level
+    abstractions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As described in the general program design, we use the `Model` data structure
+    to hold the device configuration inputs and merge them with the `srlTemplate`
+    template to produce a valid device configuration as a buffer of bytes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `srlTemplate` constant has a template that starts by looping (using the
+    `range` keyword) over the uplinks of a `Model` instance. For each `Link`, it takes
+    the `Name` and `Prefix` properties of it to create a couple of CLI commands we
+    can place in a buffer. In the following code, we are running the `Execute` method
+    to pass the inputs via the `in` variable and put the binary representation of
+    interactive CLI commands on `b`, which we later expect to send to the remote device
+    (`cfg`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We have hardcoded the authentication credentials to the correct values to fit
+    the lab, but you can override them if necessary. We use these arguments to establish
+    initial connectivity with the `srl` network device:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the authentication credentials are correct and there are no connectivity
+    problems, the `ssh.Dial` function returns a connection handler (`conn`), representing
+    a single SSH connection. This connection acts as a single transport for potentially
+    various channels. One such channel is a pseudo-terminal session used for interactive
+    communication with the remote device, but it may also include extra channels that
+    you can use for port forwarding.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following code snippet spawns a new terminal session and sets the expected
+    terminal parameters, such as terminal height, width, and `ssh.Session` type provides
+    functions to retrieve standard input and standard output pipes that connect to
+    the remote terminal:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In conformance with the rest of the Go packages, standard input and standard
+    output pipes implement the `io.Writer` and `io.Reader` interfaces, respectively.
+    This means you can use them to write data in to and read output from the remote
+    network device. We will go back to the `cfg` buffer with the CLI config and use
+    the `WriteTo` method to send this config over to the target node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is the expected output of this program:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can find the complete example in the `ch06/ssh` folder (*Further reading*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Automating routine SSH tasks
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Common network elements, such as routers and switches, display data for people
+    rather than computers via the CLI. We rely on screen scraping to let our programs
+    consume this human-readable data. One popular screen-scraping Python library,
+    whose name comes from *scrape cli*, is Scrapli.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Scrapli has a version in Go, which we will explore in the following example,
+    called Scrapligo. The goal of this package is to offer the next layer of abstraction
+    on top of SSH and hide away some transport complexities while providing several
+    convenient functions and supporting the CLI flavors of different networking vendors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To show `scrapligo` in action, we will configure another network device in
+    the topology: Arista’s cEOS (`ceos`). Just like we did with `srl`, we will use
+    a list of CLI commands to push the desired network state so that the initial steps
+    of parsing and instantiating a string from a template are the same. What changes
+    is the template, which uses Arista EOS’s syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The difference starts when we get to the SSH connection setup. We create a
+    device driver (`GetNetworkDriver`) to connect to the remote device with the device
+    hostname and authentication credentials. The platform definition comes from the
+    `platform` package of `scrapligo`. From then on, it only takes a single method
+    call on this driver to open an SSH connection to the remote device:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'One of the extra features that `scrapli` offers is the `cscrapligocfg` package,
+    which defines a high-level API to work with a remote network device’s configuration.
+    This API understands different CLI flavors, it can sanitize a configuration before
+    sending it to the device, and it can generate configuration diffs for us. But,
+    most importantly, this package allows for a single function call to load the entire
+    device configuration as a string, taking care of things such as privilege escalation
+    and configuration merging or replacement. We will do this here with the `LoadConfig`
+    method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'These are all the steps you need to configure the device in this case. After
+    you run the program with `go run`, you can `ssh` to the device to check that the
+    configuration is now there:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Normally, to get a response coming back from a device, we need to read the response
+    buffer carefully until we see a command-line prompt, as it normally ends with
+    an `scrapligo` can do this for us by reading the received buffer and converting
+    the response into a string.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another popular Go SSH package that provides a high-level API to execute commands
+    at scale is `yahoo/vssh`. We won’t cover it here, but you can find an example
+    in the `ch06/vssh` directory of this book’s repository (*Further reading*) to
+    configure the network devices of the topology.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Interacting with network devices via HTTP
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Over the last decade, networking vendors have begun to include **application
+    programming interfaces** (**APIs**) to manage their devices as a supplement to
+    the CLI. It’s not uncommon to find network devices with a robust RESTful API that
+    gives you read and write access to it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A RESTful API is a stateless client-server communication architecture that runs
+    over HTTP. The request and responses generally transport structured data (JSON,
+    XML, and so on), but they might as well carry plain text. This makes the RESTful
+    API a better-suited interface for machine-to-machine interactions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Go’s HTTP package to access network devices
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The remaining device to configure is NVIDIA’s Cumulus Linux (`cvx`). We will
+    use its OpenAPI-based RESTful API to configure it. We will encode the configuration
+    in a JSON message and send it over an HTTP connection with Go’s `net/http` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As in the SSH examples, we normally load the input data and transform it into
+    the shape the target device expects with the `devConfig` function, but in this
+    case, it’s a JSON payload. Because of this, we no longer need templates to build
+    the network device configuration, as we can now use data structures in Go to encode
+    and decode data from JSON or any other encoding format.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The data structures represent the configuration data model of the target device.
+    Ideally, this data model would match the one we defined previously, so we don’t
+    need to define anything else. But that’s not what we see in the field, where all
+    the network vendors have proprietary data models. The good news is that both IETF
+    and OpenConfig offer vendor-agnostic models; we’ll explore these later in [*Chapter
+    8*](B16971_08.xhtml#_idTextAnchor182), *Network APIs*. For now, these are some
+    of the data structures we will use for this device’s configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Inside the main function, we parse the program flags and use them to store
+    the HTTP connection settings inside a data structure with all the details required
+    to build an HTTP request, including any non-default transport settings for an
+    HTTP client. We do this entirely for convenience purposes as we want to pass these
+    details to different functions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, we can send the configuration over and make it a candidate config on the
+    target device. We can later apply this configuration on the device by referencing
+    the revision ID we associate our desired configuration with. Let’s look at the
+    steps to do this that showcase different attributes to consider when working with
+    HTTP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we will create a new revision ID, which we include as a query parameter
+    `(?rev=<revisionID>`) in the URL to connect to the device API. Now, the `addr`
+    is variable the target device URL that contains `device hostname` and `revisionID`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With the URL linked to the revision ID, we put together the PATCH request for
+    the configuration change. This points to `addr` and `cfg`, which is the JSON device
+    configuration that the `devConfig` function returns. We also add an HTTP `Authorization`
+    header with the encoded username and password and signal that the payload is a
+    JSON message:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once we have the HTTP request built, we can pass it to the device HTTP client’s
+    method, `Do`, which serializes everything into a binary format, sets up a TCP
+    session, and sends the HTTP request over it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, to apply the candidate configuration changes, we must make another
+    PATCH request inside the `applyRevision` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can find the code for this example in the `ch06/http` directory of this
+    book’s GitHub repository (*Further reading*). This is what you should see when
+    you run this program:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: Just like with SSH, we rarely use `net/http` directly in our programs to interact
+    with a REST API and normally use a higher-level package instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting config inputs from other systems via HTTP
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Until this point, the data to generate a particular device configuration has
+    come from a static file that is present in the program’s folder. These values
+    are network device vendor-agnostic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In real-world network automation systems, these values can come from other systems.
+    For example, an **IP address management** (**IPAM**) tool can allocate IP addresses
+    dynamically via a REST API call for a particular device, which you can use to
+    build its configuration. The collection of systems that supply these parameters
+    becomes what some refer to as the *source of truth*. Nautobot is an infrastructure
+    resource modeling application that falls into this category.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This also highlights the fact that to automate networks, we not only need to
+    interact with network devices but also integrate with other systems such as Nautobot.
+    This is why we are dedicating this example to exploring how to Go use to interact
+    with a free public instance of Nautobot available for anyone at [https://demo.nautobot.com/](https://demo.nautobot.com/).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Go client package for Nautobot is automatically generated from its OpenAPI
+    specification, which means its structure might be familiar to you if you have
+    already worked with other OpenAPI-derived packages, which is an advantage of machine-generated
+    code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following example, we are using the auto-generated Nautobot Go package
+    to define a Nautobot API client pointing to [https://demo.nautobot.com/](https://demo.nautobot.com/)
+    with an API token:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `c` client allows us to interact with the remote Nautobot instance. In
+    this example, we want to add one of the lab topology nodes (`ceos`) to the `device.json`
+    file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Before we can add the device to Nautobot, we must make sure the device type,
+    device role, and site we are referencing in the `device.json` file exist by name
+    already in Nautobot. The `createResources` function takes care of this. Then,
+    we get the IDs of these resources (device type, device role, and site) with the
+    `getDeviceIDs` function, to associate the new device with its type, role, and
+    site:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If the device is not already in Nautobot, we can create it with the auto-generated
+    `DcimDevicesCreateWithResponse` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After running the program with `go run nautobot` from the `ch06/nautobot` folder,
+    you should see the following in the Nautobot graphical interface at [https://demo.nautobot.com/](https://demo.nautobot.com/):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.3 – Nautobot screenshot](img/B16971_06_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.3 – Nautobot screenshot
+  prefs: []
+  type: TYPE_NORMAL
+- en: The data that we pass to these Dcim functions ends up in HTTP requests, just
+    like the ones we built manually earlier in this chapter. Here, we don’t deal with
+    URL queries, HTTP paths, or JSON payloads directly as the package abstracts away
+    all that from us. This allows the developers to focus more on business value and
+    less on implementation details. It makes the API easier to consume.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The focus of this chapter so far has been more on pushing configurations down
+    to network devices and less on reading the state of the network after this operation.
+    While configuration management’s primary focus is on producing and deploying configurations
+    in the correct format, state validation can play a key role in verifying your
+    configuration changes have been successful. In the next section, we will learn
+    how to retrieve and parse operational data from a remote device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: State validation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The way network devices model and store their state internally is often different
+    from their configuration data model. Traditional CLI-first network devices display
+    the state in a tabular format to the end user, making it easier for network operators
+    to interpret and reason about it. In API-enabled network operating systems, they
+    can present the state in a structured format, making the data friendlier for automation,
+    but we still need to prepare the right data model for deserialization.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this section, we will look at three different methods you could use to read
+    the state from a network device through a code example that gathers operational
+    data from the devices we just configured with `crypto/ssh`, `net/http`, and `scrapligo`
+    in the preceding sections of this chapter. For each network device, we will use
+    one of these resources to get the data in the format we need:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**RESTful API calls**: To retrieve and parse data from an HTTP interface'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Regular expressions**: To parse plain text received via SSH'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**TextFSM templates**: To simplify parsing tabular data'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Checking routing information
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: At this point, you should have a three-node topology running. Each network device
+    has a loopback address we redistribute into BGP. Arista cEOS’s loopback address
+    is `198.51.100.1/32`, for example. The goal of the next program is to verify the
+    setup. We retrieve the routing table information from every device to check whether
+    all three IPv4 loopback addresses are present. This way, we can verify our configuration
+    intent – established end-to-end reachability between all devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The program has two building blocks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`GetRoutes`: A method that connects to the network device, gets the information
+    we need, and puts it in a common format'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`checkRoutes`: A function that reads the routes from `GetRoutes` and compares
+    them to the list of loopback addresses we expect to see (`expectedRoutes`)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'One caveat is that the API type a network device supports to access its operational
+    data remotely may vary, from the transport protocol to the format of the textual
+    representation of the data. In our example, this translates into different implementation
+    details of `GetRoutes` per networking vendor. Here, we take it a bit to the extreme
+    for educational purposes and make the implementation per vendor completely different
+    from one another to showcase REST APIs, regular expressions, and TextFSM independently:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.4 – Checking routing information](img/B16971_06_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6.4 – Checking routing information
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each network device has its own data structure. For example, we create SRL for
+    SR Linux. The `SRL`, `CVX`, and `CEOS` types implement the `Router` interface,
+    as each one has a `GetRoutes` method that contains the implementation details
+    for that specific vendor.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the main program, a user only needs to initialize the devices with the authentication
+    details, so it creates a variable of the type we created for that device. Then,
+    it can run the route collection tasks concurrently by firing off a goroutine for
+    each device that runs the device type’s `GetRoutes` method. The `Router` interface
+    successfully hides away the implementation details of a particular vendor from
+    the user, as the call is always the same `router.GetRoutes`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: Because all `GetRoutes` instances run in the background in their own goroutine,
+    we added a `wg` wait group to make sure we don’t finish the main goroutine until
+    we have collected and verified all the devices. Before the end of each `GetRoutes`
+    method, we call the `expectedRoutes` function to process the routes we get from
+    that device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We verify the parsed state (routes) by checking that each `expectedRoutes`,
+    which contains a unique set of loopback addresses, is present in each device’s
+    routing table. For every IPv4 prefix received, we check whether it’s present in
+    `expectedRoutes` and change a boolean flag to signal this. If, by the end of this,
+    we have prefixes in `expectedRoutes` with a Boolean value of `false`, it means
+    they were not present in the device’s routing table, and we create a log message:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: Following this, we examine each of the `GetRoutes` method implementations. As
+    with the rest of the examples, you can find the complete program in the `ch06/state`
+    folder of this book’s GitHub repository (*Further reading*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Parsing command outputs with regular expressions
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: We use regular expressions to parse and extract information from unstructured
+    data. The Go standard library includes the `regexp` package, which understands
+    the RE2 syntax. This is a regular expression library designed with safety as one
+    of its primary goals. One of the main consequences of that decision is the lack
+    of back-references and look-around operations, which are unsafe and can lead to
+    denial of service exploits.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this case, the `GetRoutes` method uses `scrapligo` to connect and sends
+    a `show` command to extract the routing table information from an SRL device type
+    in this case. One way to parse this information is to iterate over the output
+    line by line while matching expected patterns with regular expressions, close
+    to what we did for the `ch05/closed-loop` example (*Further reading*):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: To make things a bit simpler, we assume that anything that matches the IPv4
+    address pattern in the entire output is a prefix installed in the routing table.
+    This way, instead of reading and parsing a tabular data structure, we tell our
+    program to find all text occurrences that match the IPv4 route pattern and put
+    them on a string slice (`out`) that we pass to the `checkRoutes` function for
+    further processing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Parsing semi-formatted command outputs with templates
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Parsing various output formats with regular expressions can be tedious and error-prone.
+    This is why Google created `TextFSM`, initially as a Python library, to implement
+    a template-based parsing of semi-formatted text. They designed it specifically
+    to parse information from network devices and it has a wide range of community-developed
+    templates maintained in **ntc-templates** (*Further reading*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will use one of these community templates to parse the `ip` route command’s
+    output in the implementation of `GetRoutes` for Arista cEOS. Scrapligo embeds
+    a Go port of TextFSM and can conveniently parse the response using the `TextFsmParse`
+    function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `parsed` variable that stores the parsed data is a slice that contains `map[string]interface{}`
+    values, where keys correspond to the TextFSM values defined in a template. Thus,
+    just by looking at the `show ip route` template, we can extract the network and
+    mask (prefix length) information and append it to a string slice (`out`) that
+    we pass to the `checkRoutes` function for further processing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting JSON-formatted data with REST API requests
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Thus far in this chapter, we’ve seen two different ways of interacting with
+    a REST API – one using the `net/http` package and another using an auto-generated
+    high-level package (`nautobot`). But you also have other options, such as `go-resty`,
+    which builds on top of `net/http` to offer an improved user experience when interacting
+    with REST API endpoints.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following implementation of `GetRoutes`, we are taking advantage of
+    `go-resty` to build the required HTTP headers for authentication, extend the URL
+    with query parameters, and unmarshal a response into a user-defined data structure
+    (`routes`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: We have created a REST API client to request the routing table information (`...rib/ipv4/route`)
+    from the target device (type CVX). We decoded the JSON payload response with the
+    routing table prefixes as keys into the `routes` variable of the `map[string]interface{}`
+    type. Next, we looped through `routes` to append all keys to a string slice (`out`)
+    we can pass to the `checkRoutes` function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Validating end-to-end reachability
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'You can run this program to check whether all three routers in the topology
+    can reach one another from the `ch06/state` folder (*Further reading*). Make sure
+    all the devices have the configs from the examples that used `crypto/ssh`, `net/http`,
+    and `scrapligo` to configure them earlier in this chapter. The expected output
+    should look as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If any of the routes were not present on any of the devices, we would’ve seen
+    messages such as these:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Configuration generation, deployment, reporting, and compliance remain the most
+    popular network automation operations. This is where the immediate benefits of
+    introducing automation are greatest and most visible, making it the first logical
+    step into the world of automation and DevOps. Configuration management is one
+    of those repetitive tasks network engineers spend most of their time on, so it’s
+    a natural fit for automation. But sending a new configuration to a device is just
+    part of a broader process that should consider failure handling, from syntax errors
+    in the configuration to how to recover properly if the connection to a remote
+    device drops. In this context, you can abstract some repetitive tasks with reusable
+    code that offers generic functionality to reduce the time and effort to automate
+    your use cases. This is what automation frameworks offer, which we will discuss
+    in the next chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To learn more about the topics that were covered in this chapter, take a look
+    at the following resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'NetDevOps 2020 Survey: [https://dgarros.github.io/netdevops-survey/reports/2020](https://dgarros.github.io/netdevops-survey/reports/2020)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`topo` directory: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/topo-base/topo.yml](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/topo-base/topo.yml)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch06/ssh` folder: [https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch06/ssh](https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch06/ssh)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch06/vssh` directory: [https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch06/vssh](https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch06/vssh)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch06/http` directory: [https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch06/http](https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch06/http)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'demo.nautobot.com: [https://demo.nautobot.com/](https://demo.nautobot.com/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch06/state` directory: https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch06/ssh'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch05/closed-loop` example: https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch05/closed-loop/main.go#L138'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'ntc-templates: [https://github.com/networktocode/ntc-templates](https://github.com/networktocode/ntc-templates)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

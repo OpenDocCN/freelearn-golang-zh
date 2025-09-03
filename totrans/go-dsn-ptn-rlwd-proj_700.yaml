@@ -1,0 +1,87 @@
+- en: Gracefully starting and stopping programs
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When our program is terminated, we want to do a few things before actually exiting,
+    namely closing our connection to Twitter and stopping the NSQ publisher (which
+    actually deregisters its interest in the queue). To achieve this, we have to override
+    the default *Ctrl + C* behavior.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The upcoming code blocks all go inside the `main` function; they are broken
+    up so that we can discuss each section before continuing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Add the following code inside the `main` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we create a stop `bool` with an associated `sync.Mutex` function so that
+    we can access it from many goroutines at the same time. We then create two more
+    signal channels, `stopChan` and `signalChan`, and use `signal.Notify` to ask Go
+    to send the signal down `signalChan` when someone tries to halt the program (either
+    with the `SIGINT` interrupt or the `SIGTERM` termination POSIX signals). The `stopChan`
+    function is how we indicate that we want our processes to terminate, and we pass
+    it as an argument to `startTwitterStream` later.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We then run a goroutine that blocks waiting for the signal by trying to read
+    from `signalChan`; this is what the `<-` operator does in this case (it's trying
+    to read from the channel). Since we don't care about the type of signal, we don't
+    bother capturing the object returned on the channel. Once a signal is received,
+    we set `stop` to `true` and close the connection. Only when one of the specified
+    signals is sent will the rest of the goroutine code run, which is how we are able
+    to perform teardown code before exiting the program.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Add the following piece of code (inside the main function) to open and defer
+    the closing of the database connection:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Since the `readFromTwitter` method reloads the options from the database each
+    time and because we want to keep our program updated without having to restart
+    it, we are going to introduce one final goroutine. This goroutine will simply
+    call `closeConn` every minute, causing the connection to die and cause `readFromTwitter`
+    to be called all over again. Insert the following code at the bottom of the `main`
+    function to start all of these processes and then wait for them to gracefully
+    stop:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: First, we make the `votes` channel that we have been talking about throughout
+    this section, which is a simple channel of strings. Note that it is neither a
+    send (`chan<-`) nor a receive (`<-chan`) channel; in fact, making such channels
+    makes little sense. We then call `publishVotes`, passing in the `votes` channel
+    for it to receive from and capturing the returned stop signal channel as `publisherStoppedChan`.
+    Similarly, we call `startTwitterStream`, passing in our `stopChan` function from
+    the beginning of the `main` function and the `votes` channel for it to send to
+    while capturing the resulting stop signal channel as `twitterStoppedChan`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We then start our refresher goroutine, which immediately enters an infinite
+    `for` loop before sleeping for a minute and closing the connection via the call
+    to `closeConn`. If the stop `bool` has been set to true (in that previous goroutine),
+    we will break the loop and exit; otherwise, we will loop around and wait another
+    minute before closing the connection again. The use of `stoplock` is important
+    because we have two goroutines that might try to access the stop variable at the
+    same time, but we want to avoid collisions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once the goroutine has started, we block `twitterStoppedChan` by attempting
+    to read from it. When successful (which means the signal was sent on `stopChan`),
+    we close the `votes` channel, which will cause the publisher's `for...range` loop
+    to exit and the publisher itself to stop, after which the signal will be sent
+    on `publisherStoppedChan`, which we wait for before exiting.
+  prefs: []
+  type: TYPE_NORMAL

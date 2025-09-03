@@ -1,0 +1,1467 @@
+- en: '13'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Fuzz Testing and Observability
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The subject of this chapter is twofold. First, we are going to talk about *fuzz
+    testing*, which is a recent Go feature that improves the testing process, and
+    second, we are going to talk about *observability*, which can help you understand
+    what is going on when everything is working as expected but slower than desired.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With fuzz testing, we bring the unexpected to testing. The main benefit is that
+    you get to test your code using random and unpredicted values and data, which
+    might lead to detecting unknown vulnerabilities. This also leads to improved test
+    coverage, better automation and efficiency in testing, better continuous testing,
+    improved software quality, and cost-effective security testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Observability refers to the ability to understand, measure, and analyze the
+    internal state and behavior of a system based on its external outputs or observable
+    signals. In the context of computer systems and software applications, observability
+    is crucial for monitoring, troubleshooting, and maintaining the health and performance
+    of the system. So, observability helps us find out more about the unseen sides
+    of a program.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first rule of observability is **knowing what you are looking for**. This
+    means that if you do not know what to look for, you might end up collecting the
+    wrong data, overlook the useful metrics, and concentrate on the irrelevant ones!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Additionally, reading metrics without storing and visualizing them is not effective.
+    Therefore, this chapter also illustrates how to expose your metrics to Prometheus
+    and how to visualize data stored in Prometheus using Grafana. Keep in mind that
+    Prometheus is not the only software for storing time series data. One alternative
+    to Prometheus is Elasticsearch. In that case, you might need to use Kibana instead
+    of Grafana. What is important is that the key ideas remain the same.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fuzz testing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Observability
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Exposing metrics to Prometheus
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We begin this chapter with fuzz testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fuzz testing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As software engineers, we worry , not when things go as expected, but when unexpected
+    things happen. One way to deal with the unexpected is fuzzing. Fuzzing (or fuzz
+    testing) is a testing technique that generates invalid, unexpected, or random
+    data on **programs that require input**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fuzz testing is good at discovering security and vulnerability issues with code—manual
+    testing is not always ideal as those tests may not account for all potential untrusted
+    inputs, specifically invalid inputs that may break a system. However, fuzz testing
+    cannot replace unit testing. This means that fuzz testing is not a panacea and
+    cannot replace all other testing techniques. So, fuzz testing is more suitable
+    for **testing code that parses input**, which includes cases such as buffer overflow
+    and SQL injection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The main advantages of fuzzing include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can make sure that the code can handle invalid or random input.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Bugs that are discovered with fuzzing may be severe and might indicate security
+    risks.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Malicious attackers often use fuzzing to locate vulnerabilities, so it is good
+    to be prepared.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With fuzzing comes the `testing.F` data type in the same way that we use `testing.T`
+    for testing and `testing.B` for benchmarking—benchmarking Go code is covered in
+    *Chapter 14*, *Efficiency and Performance*. Additionally, fuzz testing functions
+    begin with `Fuzz` just like testing functions begin with `Test`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When a fuzz testing run fails, the data that generated the issue is saved on
+    disk under the `testdata` directory, and after that, even regular tests are going
+    to fail—because they are going to use that data automatically—until we correct
+    the relevant issues or bugs. Feel free to delete that `testdata` directory if
+    you need to rerun your regular tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next subsection presents a simple example of fuzz testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A simple fuzz testing example
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In this subsection, we are going to create a simple example that uses fuzz testing
+    in order to better understand it. The relevant code is found under `ch13/fuzz`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For the purposes of this simple example, we are going to see code that tests
+    a simple Go function that is found in `code.go`. The contents of `code.go` are
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There is an issue here: `AddInt()` is not implemented properly because the
+    `for` loop is not going to work when the `x` parameter has a negative value.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `code_test.go` file with the tests is going to be presented in two parts.
+    The first part comes with the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: This first part implements a testing function in the usual way. However, in
+    this case, we are only testing `AddInt()` using positive integers (natural numbers),
+    which means that it is going to work without any issues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The second part of `code_test.go` contains the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: This part implements a fuzz testing function named `FuzzAddInt()`, which can
+    be verified by the use of the `testing.F` data type as well as its name beginning
+    with `Fuzz`. The `testing.F` data type provides the `Add()` and `Fuzz()` methods,
+    which are used for providing the (optional) starting input and for running the
+    actual fuzz tests, respectively.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The *corpus* is a collection of inputs that guide the fuzz testing process and
+    is composed of two parts. The first part is the *seed corpus*, and the second
+    part is the *generated corpus*. The *seed corpus* can be provided by `Add()` function
+    calls and/or data in the `testdata/fuzz` directory. The *generated corpus* is
+    completely machine generated. It is not mandatory to have a seed corpus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `Add()` function adds data to the *seed corpus* and can be called as many
+    times as you want—in this case, we call `Add()` two times.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: After the (optional) `Add()` function, we need to call `Fuzz()`, which requires
+    a `*testing.T` variable as well as a list of fuzzing arguments, which should be
+    the same number and have the same data type as the ones used in `Add()`, which
+    are usually the same as the number of arguments in the function that is being
+    tested.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Put simply, we embed regular testing functions in fuzz testing functions—it
+    is the input for those regular testing functions that are provided by the fuzz
+    testing process based on the generated corpus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, we tell `f.Fuzz()` that we need two additional `int` parameters apart from
+    the compulsory `*testing.T`, which are named `x` and `y`. These two parameters
+    are the input of the tests. Because of that, the `f.Add()` call should also have
+    two parameters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running the regular tests is as simple as executing the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, the testing function revealed no issues with `AddInt()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running the fuzz test requires the use of the `-fuzz` command line parameter
+    followed by the name of the fuzz function. So, we need to execute the following
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, the fuzz test caught the error with `AddInt()`. Put simply, the fuzz testing
+    process included negative integers in the testing and caught a logical error generated
+    by the use of the `for` loop—we did not!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The contents of `testdata/fuzz/FuzzAddInt/b403d5353f8afe03` are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Fixing `AddInt()` is left as an exercise for you—as a hint, consider using different
+    code when the parameter used in the `for` loop is negative. In our case, the function
+    parameter that causes the error condition is `x`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next subsection presents a more practical fuzz testing example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An advanced fuzz testing example
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this subsection, we present a more advanced fuzz testing example. The relevant
+    code is found under `ch13/reverse`. The code in `reverse.go` is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this first part, we implement a function named `R1()` that reverses a string.
+    Internally, the function converts the input `string` value into a byte slice and
+    returns a byte slice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this part, we implement a function named `R2()` that also reverses a string.
+    Internally, the function works with a byte slice but returns a `string` value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `main()` function calls both `R1()` and `R2()` in order to reverse the `"1234567890"`
+    string—this is a naive way of testing the implemented functionality.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running `reverse.go` generates the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, at first, the code looks correct and produces the expected output. Now,
+    let us write some tests for the two functions in `reverse.go`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The code in `reverse_test.go` is presented in three parts. The first part is
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding is a test function for `R1()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding is a test function for `R2()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Both `TestR1()` and `TestR2()` are regular testing functions that use user-defined
+    tests, which are stored in the `testCases` structure. The first field is the original
+    string, whereas the second field is the reversed string.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The second part contains the fuzz testing functions and is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is a fuzz testing function for testing `R1()`. We add three strings to
+    the seed corpus, which are saved in the `testCases` slice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The last part of `reverse_test.go` contains the code for testing `R2()`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is a fuzz testing function for testing `R2()`. As before, we add three
+    strings to the seed corpus using the values stored in the `testCases` slice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Both fuzz testing functions reverse the given string two times and compare it
+    with `orig` itself to make sure that they are the same. This happens because,
+    when you reverse a string twice, you should get the original string back.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running tests without fuzzing produces the following results:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, it looks like everything is working as expected. But is this the case?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let us run tests with fuzzing. First, we are going to run `FuzzR1()` as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, in this case, the fuzz test found an issue with the code. The failing input
+    is saved in `testdata/fuzz/FuzzR1/42f418307d5ef745`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The contents of `testdata/fuzz/FuzzR1/a256ceb5e3bf582f` are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Put simply, the string stored in `testdata/fuzz/FuzzR1/a256ceb5e3bf582f` is
+    not being reversed successfully.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we are going to run `FuzzR2()` with fuzzing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: As there exists a `testdata` directory from the failure of `FuzzR1()`, the second
+    fuzz testing fails because of the data found in the `testdata` directory. In the
+    subsection that follows, we are going to correct the bug.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Correcting the bug
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'What we should do now is **correct the bug**. The improved version of `reverse.go`
+    is called `correct.go` and is found in `ch13/reverse/correct`. Its code is as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice that in the implementation of `R2()`, we now work with **runes instead
+    of bytes**. Additionally, both `R1()` and `R2()` verify that we are dealing with
+    a valid UTF-8 string using the functionality of `utf8.ValidString()` prior to
+    doing any processing. When the input is an invalid UTF-8 string, an `error` message
+    is returned—we did not do that in `reverse.go`, which is what caused the bug.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The remaining code is about the implementation of `main()`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: As explained earlier, the main difference in this improved version is that the
+    two functions also return an `error` variable to make sure that we are dealing
+    with valid UTF-8 strings. However, this also means that the test functions as
+    well as the fuzz testing functions should be modified in order to adjust to the
+    change in the function signatures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running `correct.go` produces the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, it looks like the basic functionality is still implemented correctly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The improved test version is called `correct_test.go` and is also found in
+    `ch13/reverse/correct`—it is going to be presented in two parts. The first part
+    of `correct_test.go` contains the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The logic of both `TestR1()` and `TestR2()` is the same as before: we use the
+    values stored in a slice of structures (`testCases`) to verify the correctness
+    of `R1()` and `R2()`. However, this time, we take into consideration the `error`
+    value returned by `R1()` and `R2()`. If there is an error with `R1()` or `R2()`,
+    both test functions return immediately, which makes the test successful.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The second part of `correct_test.go` is the implementation of the fuzz testing
+    functions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`FuzzR1()` uses the `error` value returned by `R1()` to make sure that we are
+    dealing with a valid string. If the string is not valid, then it returns. Additionally,
+    it reverses the given string—which is stored in the automatically generated `orig`
+    parameter—two times and compares it with `orig` itself to make sure that they
+    are the same.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`FuzzR2()` also uses the `error` value returned by `R2()` to make sure that
+    we are dealing with a valid string. If the string is not valid, then it also returns.
+    The remaining implementation follows the logic of `FuzzR1()`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running the regular tests produces the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Performing the fuzzing test for `R1()` generates the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: The use of `-fuzztime 10s` makes sure that the tests are going to stop after
+    they exceed the given time limit or when there is an error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running the fuzzing test for `R2()` generates the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, everything works as expected and the bug was corrected!
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next section is about observability, which is a systematic way of collecting
+    data related to the efficiency and the internals of a system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Observability
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Observability is the measurement of the internal state of a system in relation
+    to external operations. In practical terms, observability is about understanding
+    how well the resources of a computer system are being utilized while a given software
+    or application is being executed on a system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In Go terminology, and in relation to the content of this book, observability
+    is about learning **how Go uses the available resources and how an application
+    performs while the application is executed** in order to understand the efficiency
+    of the Go application as well as the Go runtime itself. The purpose of this process
+    is to improve the efficiency of a Go application and maybe modify the resources
+    available to that particular Go application in order to improve its overall operation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If it is still unclear, let me explain it in a more practical way. Let us say
+    that a Go application runs slow. We need to discover why this happens. For that,
+    we measure the appropriate internal Go metrics as well as application-specific
+    metrics and try to make sense of them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The key components of observability include:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Logs**: Recording events, activities, and messages generated by a system.
+    Logs provide a historical record of what has happened and are useful for debugging
+    and auditing.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Metrics**: Quantitative measurements that provide insight into the system’s
+    performance and behavior. Metrics examples include response times, error rates,
+    and resource utilization.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Traces**: Sequences of events or transactions that allow you to trace the
+    flow of a request through a system. Tracing helps in understanding the latency
+    and dependencies between different components.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Monitoring**: Continuous tracking of metrics and logs to identify patterns,
+    anomalies, and potential issues. Monitoring systems can generate alerts when predefined
+    thresholds are exceeded. This is a complex task, especially when having to deal
+    with a large number of metrics.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Alerting**: Notification mechanisms that inform administrators or operators
+    about potential issues or irregularities in the system. Alerts help in responding
+    quickly to problems and minimizing downtime.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Distributed tracing**: Tracking and visualizing requests as they traverse
+    through various components in a distributed system. This is particularly important
+    in microservices architectures and is extremely challenging.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This chapter is going to deal with metrics. Code profiling and tracing were
+    covered in *Chapter 12*, *Code Testing and Profiling*. Additionally, logging was
+    covered in *Chapter 1*, *A Quick Introduction to Go*, and *Chapter 7*, *Telling
+    a UNIX System What to Do*. Dealing with the remaining components is beyond the
+    scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We begin by explaining the use of the `runtime/metrics` package, which provides
+    Go runtime-related metrics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The runtime/metrics package
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `runtime/metrics` package makes metrics exported by the Go runtime available
+    to the developer. Each metric name is specified by a path. As an example, the
+    number of live goroutines is accessed as `/sched/goroutines:goroutines`. However,
+    if you want to collect all available metrics, you should use `metrics.All()`—this
+    saves you from having to write lots of code in order to collect each individual
+    metric.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Metrics are saved using the `metrics.Sample` data type. The definition of the
+    `metrics.Sample` data structure is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Name` value must correspond to the name of one of the metric descriptions
+    returned by `metrics.All()`. If you already know the metric description, there
+    is no need to use `metrics.All()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The use of the `runtime/metrics` package is illustrated in `metrics.go`. The
+    presented code gets the value of `/sched/goroutines:goroutines` and prints it
+    on screen:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `nGo` variable holds the path of the metric we want to collect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: After that, we create a slice of type `metrics.Sample` in order to keep the
+    metric value. The initial size of the slice is `1` because we are only collecting
+    values for a single metric. We set the `Name` value to `/sched/goroutines:goroutines`
+    as stored in `nGo`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we manually create three goroutines so that the program has relevant data
+    to collect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `metrics.Read()` function collects the desired metrics based on the data
+    in the `getMetric` slice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: After reading the desired metric, we convert it into a numeric value (unsigned
+    `int64` here) in order to use it in our program.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: The last lines of the code verify that, after all goroutines have finished,
+    the value of the metric is going to be `1`, which is the goroutine used for running
+    the `main()` function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running `metrics.go` produces the next output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: We have created three goroutines and we already have a goroutine for running
+    the `main()` function. Therefore, the maximum number of goroutines is indeed four.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The following subsection presents a technique for measuring the execution time
+    of a Go function, which is not something that is directly supported by Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Measuring the execution time of a function
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `runtime/metrics` package provides a list of metrics that you can find on
+    the help page of the package. However, there are times when we want to measure
+    the time of a specific operation, which is a request not supported by the `runtime/metrics`
+    package. In our example, we are going to do exactly that and store the information
+    in a log entry.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this example, we are going to use the `log/slog` package of the standard
+    library. You can use any logging package you want as long as it is simple and
+    readable, but most importantly, as long as it is efficient and does not introduce
+    extra load to the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The code of `functionTime.go` is presented in two parts. The first part is
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is where we define the function that we want to measure—this can be any
+    function or operation you want.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The second part of `functionTime.go` comes with the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: The use of `time.Now()` and `time.Since()` calls that surround the execution
+    of `myFunction()` is how we measure the execution time of `myFunction()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Remember that the `time.Duration` data type holds nanoseconds and is, in reality,
+    an `int64` value, hence the use of `slog.Int64()` as well as the `int64(elapsed)`
+    cast for converting the `time.Duration` value into an `int64` one.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running `functionTime.go` generates the following kind of output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: Keep in mind that on a busy system, the `time_taken` values are not going to
+    be so similar because of the OS scheduler as well as the Go scheduler operations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next subsection is a handy introduction to the `expvar` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The expvar package
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `expvar` package allows you to expose variables and functions to servers,
+    which includes custom metrics. The `expvar` package exposes these variables via
+    HTTP at `/debug/vars` in JSON format.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The code of `expvarUse.go` is presented in two parts. The first part is the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous code does two things. First, it registers an integer variable named
+    `intVar` to be exposed and, second, it registers a function named `customFunction`
+    to be exposed using `expvar.NewInt()` and `expvar.Publish()`, respectively. The
+    `Publish()` function takes two arguments in its signature, which are the name
+    of the variable that the function is going to expose and the function that we
+    want to expose. In this case, we use an anonymous function that is implemented
+    inline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The second part of `expvarUse.go` is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `http.Handle()` function allows us to install an additional handler in a
+    non-standard location, which, in this case, is `/debug/expvars`. So, we use the
+    `/debug/expvars` path to also access the registered variable and function, we
+    start the HTTP server that listens on port number `8080`, we modify `intVar` using
+    `intVar.Add()`, and we use `select {}` to prevent the program from terminating
+    because it blocks the program.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this case, we mimic the application logic, which we should replace with our
+    own logic, by updating the value of `intVar` manually using `intVar.Add(10)`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running `expvarUse.go` is not going to produce any output but it is going to
+    start the HTTP server. We can access the exposed variable and function by visiting
+    `http://localhost:8080/debug/vars` or `http://localhost:8080/debug/expvars` in
+    a web browser or by making an HTTP `GET` request using a tool such as `curl(1)`
+    or `wget(1)`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In our case, we are going to use `curl(1)` and we are going to get the following
+    kind of output (some output is omitted for brevity):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: The next subsection covers learning about the CPU of a machine and its characteristics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Learning about CPU characteristics
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: There are times when we need to learn about the details of the CPU at runtime
+    and maybe expose them in order to collect the relevant metrics. For such times,
+    the [https://github.com/klauspost/cpuid](https://github.com/klauspost/cpuid) package
+    can really come in handy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We are going to put all relevant code inside `~/go/src/github.com/mactsouk/mGo4th/ch13/cpuid`
+    because we are going to utilize an external package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Go code of `cpuid.go` is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: The code is standard, and you should not need to make any changes to it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running `cpuid.go` on my macOS machine with a M1 Max CPU produces the following
+    output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Running `cpuid.go` on a Linux machine with an Intel i7 processor produces the
+    following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: By comparing the outputs, we can see that `cpuid` works better on the Linux
+    machine with the Intel CPU as it displays the frequency of the CPU, which is not
+    the case for the MacBook Pro machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next section is about how to expose metrics to Prometheus and how to plot
+    the metrics in Grafana.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exposing metrics to Prometheus
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Imagine that you have an application that writes files to disk and you want
+    to get metrics for that application to better understand how the writing of multiple
+    files influences the general performance—you need to gather performance data to
+    understand the behavior of your application. A good way to store such metrics
+    is by using Prometheus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The list of supported data types for metrics by Prometheus is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Counter**: This is a cumulative value that is used for representing increasing
+    counters—the value of a counter can stay the same, go up, or be reset to zero,
+    but it cannot decrease. Counters are usually used for representing cumulative
+    values such as the number of requests served so far, the total number of errors,
+    and so on.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Gauge**: This is a single numerical value that is allowed to increase or
+    decrease. Gauges are usually used for representing values that can go up or down
+    such as the number of requests and time durations.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Histogram**: A histogram is used for sampling observations and creating counts
+    and buckets. Histograms are usually used for counting request durations, response
+    times, and so on.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Summary**: A summary is like a histogram but can also calculate quantiles
+    over sliding windows that work with times.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Both histograms and summaries are useful for performing statistical calculations
+    and properties. Usually, a counter or a gauge is all that you need for storing
+    your system metrics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The subsections that follow illustrate how to make any metric you collect available
+    to Prometheus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exposing metrics
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Collecting metrics is a totally different task from exposing them for Prometheus
+    to collect them. This subsection shows how to make the metrics available to Prometheus
+    for collection. For reasons of simplicity, the presented application is going
+    to generate random values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The code of `samplePro.go` is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: We need to use two external packages for communicating with Prometheus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: Bear in mind that I use global variables here to denote important settings and
+    that is a personal preference and my way of easily finding those settings. The
+    same applies for the use of all caps for naming the `PORT` variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is how we define a new `counter` variable and specify the desired options.
+    The `Namespace` field is very important as it allows you to group metrics in sets.
+    The name of the first metric is `my_counter`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is how we define a new `gauge` variable and specify the desired options—the
+    name of the metric is `my_gauge`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is how we define a new `histogram` variable and specify the desired options.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is how we define a new `summary` variable and specify the desired options.
+    However, as you are going to see, defining a metric variable is not enough. You
+    also need to register it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: In these four `prometheus.MustRegister()` statements, you register the four
+    metric variables. Now, when Prometheus connects to the server and the namespace,
+    it is going to know about them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: This goroutine runs for as long as the web server runs with the help of the
+    endless `for` loop. In this goroutine, the metrics are updated every 2 seconds
+    due to the use of the `time.Sleep(2 * time.Second)` statement.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you already know, each URL is handled by a handler function that you usually
+    implement on your own. However, in this case, we are using the `promhttp.Handler()`
+    handler function that comes with the [github.com/prometheus/client_golang/prometheus/promhttp](https://github.com/prometheus/client_golang/prometheus/promhttp)
+    package—this saves us from having to write our own code. However, we still need
+    to register the `promhttp.Handler()` handler function using `http.Handle()` before
+    we start the web server. Note that the metrics are found under the `/metrics`
+    path—Prometheus knows how to find that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With `samplePro.go` running, getting the list of metrics that belong to the
+    `mtsouk` namespace is as simple as running the next `curl(1)` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the output from a `counter` variable. If the `| grep mtsouk` part is
+    omitted, then you are going to get the list of all available metrics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the output from a `gauge` variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the output from a `histogram` variable. Histograms contain buckets,
+    hence the large number of output lines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: The last lines of the output are for the `summary` data type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, the metrics are there and ready to be pulled by Prometheus—in practice,
+    this means that every production Go application can export metrics that can be
+    used for measuring its performance and discovering its bottlenecks. However, we
+    are not done yet as we need to learn about building Docker images for Go applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a Docker image for a Go server
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: This subsection shows how to create a Docker image for a Go application. The
+    main benefit you get from this is that you can deploy it in a Docker environment
+    without worrying about compiling it and having the required resources—everything
+    is included in the Docker image.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Still, you might ask, “Why not use a normal Go binary instead of a Docker image?”
+    The answer is simple: Docker images can be put in `docker-compose.yml` files and
+    can be deployed using Kubernetes. The same is not true for Go binaries. Additionally,
+    Docker images can provide consistent shared libraries when this is needed.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: When creating a new Docker image, you usually start with a base Docker image
+    that already includes Go and create the desired binary in there. The key point
+    here is that `samplePro.go` uses an external package that should be downloaded
+    in the Docker image before building the executable binary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The process must start with `go mod init` and `go mod tidy`. The contents of
+    the relevant Docker file, which is named `dFilev2`, are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: As `golang:alpine` uses the latest Go version, which does not come with `git`,
+    we install `git` manually.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you want to use Go modules, you should put your code in `$GOPATH/src`, which
+    is what we do here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: We download the required dependencies using various `go mod` commands. The building
+    of the binary file is the same as before.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this second stage, we put the binary file into the desired location `(/pro`)
+    and expose the desired port, which, in this case, is port number `1234`. The port
+    number depends on the code in `samplePro.go`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The previous process is a **two-step process that makes the final Docker image
+    smaller in size**, hence the use of the second `FROM` command with a Docker image
+    that does not include the Go tools and is just used for running the generated
+    Go binary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Building a Docker image using `dFilev2` is as simple as running the next command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: Although previous versions of Docker used the `docker build` command for building
+    images, recent versions of Docker also support the use of `buildx` for the same
+    task. You might need to install the `buildkit` and `docker-buildx` packages to
+    enable the `buildx` command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, if you want to go the `docker buildx` way, you should execute the following
+    command instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE
+- en: The results from both `docker build` and `docker buildx` are exactly the same.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the Docker image has been successfully created, there is no difference
+    in the way you should use it in a `docker-compose.yml` file—a relevant entry in
+    a `docker-compose.yml` file would look as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: The name of the Docker image is `go-app122`, whereas the internal name of the
+    container would be `goapp-int`. So, if a different container from the `monitoring`
+    network wants to access that container, it should use the `goapp-int` hostname.
+    Last, the only open port is port number `1234`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next subsection illustrates how you can expose the chosen metrics to Prometheus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Specifying the metrics to expose
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: This section illustrates how to expose the desired metrics from the `runtime/metrics`
+    package to Prometheus. In our case, we use `/sched/goroutines:goroutines` and
+    `/memory/classes/total:bytes`. You already know about the former, which is the
+    total number of goroutines. The latter metric is the amount of memory mapped by
+    the Go runtime into the current process as read-write.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As the presented code uses external packages, it should be put inside `~/go/src`
+    and Go modules should be enabled using `go mod init`. In our case, the code can
+    be found in `ch13/prom/`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The Go code of `prometheus.go` is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE64]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first external package is the Go client library for Prometheus and the second
+    package is for using the default handler function (`promhttp.Handler()`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE65]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we define the two Prometheus metrics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE66]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is where you register the variables for the metrics in Prometheus and define
+    the metrics you want to read from the `runtime/metrics` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE67]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is where you register the handler function for the `/metrics` path. We
+    use `promhttp.Handler()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE68]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Note that such a program should definitely have at least two goroutines: one
+    for running the HTTP server and another one for collecting the metrics. Usually,
+    the HTTP server is on the goroutine that runs the `main()` function and the metric
+    collection happens in a user-defined goroutine.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The outer `for` loop makes sure that the goroutine runs forever, whereas the
+    inner `for` loop creates additional goroutines so that the value of the `/sched/goroutines:goroutines`
+    metric changes all the time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE69]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `runtime.GC()` function tells the Go garbage collector to run and is called
+    for changing the `/memory/classes/heap/free:bytes` metric. The two `Set()` calls
+    update the values of the metrics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can read more about the operation of the Go garbage collector in *Appendix
+    A*, *Go Garbage Collector*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE70]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The last statement runs the web server using the default Go router. Running
+    `prometheus.go` from the `ch13/prom` directory requires executing the next commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE71]'
+  prefs: []
+  type: TYPE_PRE
+- en: Although `prometheus.go` generates no output apart from the previous line, the
+    next subsection illustrates how to read the desired metrics from it using `curl(1)`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Getting the metrics
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: You can get a list of the available metrics from `prometheus.go` using `curl(1)`
+    in order to make sure that the application works as expected. I always test the
+    operation of such an application with `curl(1)` or some other similar utility
+    such as `wget(1)` before trying to get the metrics with Prometheus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE72]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous command assumes that `curl(1)` is executed on the same machine
+    as the HTTP server and that the server listens to TCP port number `1234`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we must enable Prometheus to pull the metrics—it is much easier to run
+    Prometheus from a Docker image. The easiest way for a Prometheus Docker image
+    to be able to see the Go application with the metrics is to execute both as Docker
+    images. We are going to use the following Dockerfile (which is similar to `dFilev2`
+    used previously) to convert `prometheus.go` into a Docker image:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE73]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the name of the base Docker image that is used for building the binary.
+    `golang:alpine` always contains the latest Go version as long as you update it
+    regularly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE74]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous commands download the required dependencies before trying to build
+    the binary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE75]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Building the desired Docker image, which is going to be named `goapp`, is as
+    simple as running the next command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE76]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you prefer to use `docker buildx`, you should execute the following command
+    instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE77]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As usual, the output of `docker images` verifies the successful creation of
+    the `goapp` Docker image—in my case, the relevant entry looks as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE78]'
+  prefs: []
+  type: TYPE_PRE
+- en: Let us now discuss how to configure Prometheus to pull the desired metrics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Putting the metrics in Prometheus
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To be able to pull the metrics, Prometheus needs a proper configuration file
+    that specifies the source of the metrics. The configuration file that is going
+    to be used is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE79]'
+  prefs: []
+  type: TYPE_PRE
+- en: We tell Prometheus to connect to a host named `goapp` using port number `1234`.
+    Prometheus pulls data every five seconds, according to the value of the `scrape_interval`
+    field. You should put `prometheus.yml` in the `prometheus` directory, which should
+    be under the same root directory as the `docker-compose.yml` file that is presented
+    next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Prometheus, as well as Grafana and the Go application, are going to run as
+    Docker containers using the next `docker-compose.yml` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE80]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the part that deals with the Go application that collects the metrics.
+    The Docker image name, as well as the internal hostname of the Docker container,
+    is `goapp`. You should define the port number that is going to be open for connections.
+    In this case, both the internal and external port numbers are `1234`. The internal
+    one is mapped to the external one. Additionally, you should put all Docker images
+    under the same network, which, in this case, is called `monitoring` and is defined
+    in a while.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE81]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is how you pass your own copy of `prometheus.yml` to the Docker image to
+    be used by Prometheus. So, `./prometheus/prometheus.yml` from the local machine
+    can be accessed as `/etc/prometheus/prometheus.yml` from within the Docker image.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE82]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is where you tell Prometheus which configuration file to use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE83]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is where the definition of the Prometheus part of the scenario ends. The
+    Docker image used is called `prom/prometheus:latest` and the internal name of
+    it is `prometheus`. Prometheus listens to port number `9090`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Last, we present the Grafana part. Grafana listens to port number `3000`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE84]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the current password of the admin user (`helloThere`)—you need that
+    for connecting to Grafana.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE85]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding two lines in combination with the two `volumes` fields allow both
+    Grafana and Prometheus to save their data locally so that data is not lost each
+    time you restart the Docker images.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE86]'
+  prefs: []
+  type: TYPE_PRE
+- en: Internally, all three containers are known by the value of their `container_name`
+    field. However, externally, you can connect to the open ports from your local
+    machine as `http://localhost:port` or from another machine using `http://hostname:port`—the
+    second way is not very secure and should be blocked by a firewall. Lastly, you
+    need to run `docker-compose up` and you are done! The Go application begins exposing
+    data and Prometheus begins collecting it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next figure shows the Prometheus UI (`http://hostname:9090`) displaying
+    a simple plot of `packt_n_goroutines`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![A screenshot of a graph  Description automatically generated](img/B21003_13_01.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 13.1: The Prometheus UI when displaying packt_n_goroutines'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This output, which shows the values of the metrics in a graphical way, is very
+    handy for debugging purposes, but it is far from being truly professional as Prometheus
+    is not a visualization tool. The next subsection shows how you can connect Prometheus
+    with Grafana and use Grafana to create impressive plots.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Visualizing Prometheus metrics in Grafana
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: There is no point in collecting metrics without doing something with them, and
+    by something, I mean visualizing them. Prometheus and Grafana work very well together,
+    so we are going to use Grafana for the visualization part. The single most important
+    task that you should perform in Grafana is connecting it with your Prometheus
+    instance. In Grafana terminology, you should create a Grafana data source that
+    allows Grafana to get data from Prometheus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The steps for creating a data source with our Prometheus installation are the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, go to `http://localhost:3000` to connect to Grafana, because Grafana
+    needs to learn about the data stored in Prometheus.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The username of the administrator is `admin`, whereas the password is defined
+    in the value of the `GF_SECURITY_ADMIN_PASSWORD` parameter of the `docker-compose.yml`
+    file.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Then, select **Add your first data source**. From the list of data sources,
+    select **Prometheus**, which is usually at the top of the list.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Put `http://prometheus:9090` in the **URL** field and then press the **Save
+    & Test** button. Due to the internal network that exists between the Docker images,
+    the Grafana container knows the Prometheus container by the `prometheus` hostname—this
+    is the value of the `container_name` field. As you already know, you can also
+    connect to Prometheus from your local machine using `http://localhost:9090`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We are done! The name of the data source is `Prometheus`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After these steps, create a new dashboard from the initial Grafana screen and
+    put a new visualization on it. Select **Prometheus** as the data source of the
+    panel if it is not already selected. Then, go to the **Metrics** drop-down menu
+    and select the desired metrics. Click **Save** and you are done. Create as many
+    panels as you want.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next figure shows Grafana visualizing two metrics from Prometheus as exposed
+    by `prometheus.go`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![A screenshot of a computer screen  Description automatically generated](img/B21003_13_02.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 13.2: Visualizing metrics in Grafana'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Grafana has many more capabilities than the ones presented here—if you are working
+    with system metrics and want to check the performance of your Go applications,
+    Prometheus and Grafana are good and popular choices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we learned how to send metrics to Prometheus from a Go application
+    and how to visualize the metrics in Grafana. However, nothing is going to make
+    sense if we do not know what metrics to collect, what a metric means, or how to
+    collect metrics without sacrificing the overall performance of an application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This chapter was about a recent addition to Go testing, which is fuzz testing.
+    Fuzz testing can help you find bugs in your code by generating test data on its
+    own. While fuzz testing offers several benefits, it is important to note that
+    it is not a silver bullet. This means that it should be used in conjunction with
+    other testing techniques and security practices to ensure comprehensive coverage
+    and robust security measures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You might say that after making sure that your software has no bugs, you may
+    need to make it faster. In such cases, you need to understand how your resources
+    are being used—observability is about collecting performance-related information
+    that helps you identify the behavior of your application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Observability is crucial in modern, complex systems where traditional monitoring
+    methods may fall short. It enables engineers and operators to gain insights into
+    the inner workings of a system, diagnose problems, and improve the overall system
+    reliability and performance. The concept is closely related to DevOps and **Site
+    Reliability Engineering** (**SRE**) practices, emphasizing the importance of understanding,
+    and managing systems in real-world, production environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, which is about efficiency and performance, we are going
+    to learn how to avoid memory leaks, how to benchmark Go code, and about Go memory
+    management.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exercises
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Try to do the following exercises on your own:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Run `cpuid.go` on your own machine and see the capabilities and features of
+    your hardware.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create a version of `cpuid.go` that writes the desired information in logs.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Fix the `AddInt()` function from `fuzz``/code.go`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create a function for integer multiplication that uses a `for` loop in its implementation.
+    Write testing functions and fuzz testing functions for it.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Additional resources
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The `runtime/metrics` package: [https://pkg.go.dev/runtime/metrics](https://pkg.go.dev/runtime/metrics)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `expvar` package: [https://pkg.go.dev/expvar](https://pkg.go.dev/expvar)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Prometheus: [https://prometheus.io/](https://prometheus.io/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Grafana: [https://grafana.com/](https://grafana.com/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Kibana: [https://www.elastic.co/kibana/](https://www.elastic.co/kibana/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Elasticsearch: [https://www.elastic.co/](https://www.elastic.co/ )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Leave a review!
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Enjoying this book? Help readers like you by leaving an Amazon review. Scan
+    the QR code below to get a free eBook of your choice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/Review_QR_Code.png)'
+  prefs: []
+  type: TYPE_IMG

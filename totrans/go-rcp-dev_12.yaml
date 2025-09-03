@@ -1,0 +1,485 @@
+- en: '12'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Processes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'This chapter has recipes that show how to run external programs, how to interact
+    with them, and how to terminate a process gracefully. There are some key points
+    to keep in mind when dealing with external processes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: When you start an external process, it runs concurrently with your program.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If you need to communicate with a child process, you have to use an interprocess
+    communication mechanism, such as pipes.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When you run a child process, its standard input and standard output streams
+    appear to the parent process as independent concurrent streams. You cannot rely
+    on the ordering of data you receive from these streams.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'This section covers the following main recipes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running external programs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Passing arguments to a process
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Processing output from a child process using a pipe
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Providing input to a child process
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Changing environment variables of a child process
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Graceful termination using signals
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Running external programs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: There are many use cases where you want to execute an external program to perform
+    a task. Usually, this is because performing the same task within your own program
+    is not possible or not easy. For example, you may choose to execute several instances
+    of an external image processing program to modify a group of images. Another use
+    case is when you want to configure some device using programs provided by its
+    manufacturer. This recipe includes several ways to execute external programs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Use `exec.Command` or `exec.CommandContext` to run another program from your
+    program. `exec.Command` is appropriate if you do not need to cancel (kill) the
+    child process or impose a timeout. Otherwise, use `exec.CommandContext`, and cancel
+    or time out the context to kill the child process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create the `exec.Command` (or `exec.CommandContext`) object using the name
+    of the program and its arguments:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: If you need to search the program in the platform’s executable commands path,
+    do not include any path separators
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If you use path separators in the program name, it must be a path relative to
+    `exec.Command.Dir`, or if `exec.Command.Dir` is empty, it must be a path relative
+    to the current working directory
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Use an absolute path if you know where the executable is
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Prepare the input and output streams to capture program output, or to send input
+    via the standard input stream.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Start the program.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Wait for the program to end.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The following example builds a Go program using the `go` command under the
+    `sub/` directory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: The above example will collect the process output as a combined string. The
+    standard output and standard error from the program will be returned as a single
+    string, so you have no way of identifying what parts of the output string came
+    from standard output and what parts from standard error. Make sure you can parse
+    the output correctly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Warning
+  prefs: []
+  type: TYPE_NORMAL
+- en: The standard output and standard error streams of a process are independent
+    concurrent streams. In general, there is no portable way to determine which stream
+    produced output first. This may have serious implications. For example, suppose
+    you executed a program that produces a stream of lines on stdout, but whenever
+    it detects an error, it prints a message to standard error that is something like
+    “`last printed line has problems`.” But when you read the error in your program,
+    the last printed line may not have arrived in your program yet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following program demonstrates the use of `exec.CommandContext` and pipes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: The previous example taps into the standard output and standard error outputs
+    of the child process. Note that the program starts reading from the `stderr` stream
+    before the program starts. That goroutine will block until the child process outputs
+    an error or until the child process terminates, at which point, the `stderr` pipe
+    will be closed and the goroutine will terminate. The part that reads from the
+    standard output runs in the main goroutine, before `cmd.Wait`. This ordering is
+    important. If the child process starts producing output on `stdout` but the parent
+    program is not listening, the child process will block. Calling `cmd.Wait` at
+    this point would create a deadlock, but the runtime cannot detect this as such
+    because the parent program is reliant on the behavior of the child.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can assign the same stream to `stdout` and `stderr` of the child process,
+    as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding approach is similar to running the child process with `CombinedOutput`.
+    Assigning `cmd.Stdout` and `cmd.Stderr` to the same stream has the same effect
+    as combining both outputs of the child process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Passing arguments to a process
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The mechanics of passing arguments to a child process can be confusing. Shell
+    environments parse and expand process arguments. For example, a `*.txt` argument
+    is replaced by a list of filenames matching that pattern, and each of those filenames
+    becomes a separate argument. This recipe talks about how to pass such arguments
+    to child processes correctly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are two options to pass arguments to a child process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Expanding arguments
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The first option is to perform the shell argument processing manually.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'To manually perform shell processing, follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Remove shell-specific quoting from arguments, such as the shell command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The `./prog "test` `directory"` shell command becomes `cmd:=exec.Command("./prog","test
+    directory")`.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `./prog dir1 "long dir name" '"quoted name"'` Bash command becomes `cmd:=exec.Command("./prog",
+    "long dir name", "'\"quoted name\"'")`. Note the Bash-specific treatment of quotes.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Expand the patterns. `./prog *.txt` becomes `cmd:=exec.Command("./prog",listFiles("*.txt")...)`,
+    where `listFiles` is a function that returns a slice of filenames.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Tip
+  prefs: []
+  type: TYPE_NORMAL
+- en: Passing a list of files separated by a space will pass them as a single argument.
+    That is, `cmd:=exec.Command("./prog","file1.txt file2.txt")` will pass a single
+    argument to the process, which is `file1.txt file2.txt`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Substitute the environment variables. `/.prog $HOME` becomes `cmd:=exec.Command("./prog",
+    os.Getenv("HOME"))`. Running `cmd:=exec.Command("./prog", "$HOME")` will pass
+    the string `$HOME` to the program, not its value from the environment.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Finally, you have to manually process pipelines. That is, for a `./prog >output.txt`
+    shell command, you have to run `cmd:=exec.Command("./prog")`, create an `output.txt`
+    file, and set `cmd.Stdout=outputFile`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Running the command via the shell
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The second option is to run the program via a shell.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Use the platform-specific shell and its syntax to run a command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: This example selects `cmd` for Windows platforms, `/bin/sh` for Darwin (Mac),
+    `/bin/bash` for Linux, and `/bin/sh` for anything else. The command passed to
+    the shell contains a redirection, which is handled by the shell. The output of
+    the command will be written to `test.txt`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Processing output from a child process using a pipe
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Remember that the standard output and standard error streams of a process are
+    concurrent streams. If the output generated by the child process is potentially
+    unbounded, you can work with it in a separate goroutine. This recipe shows how.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'A few words about pipes. A pipe is a stream-based analog of a Go channel. It
+    is a **first-in, first-out** (**FIFO**) communication mechanism with two ends:
+    a writer and a reader. The reader side blocks until the writer writes something,
+    and the writer side blocks until the reader reads from it. When you are done with
+    a pipe, you close the writer side, which also closes the reader side of the pipe.
+    This happens when a child process terminates. If you close the reader side of
+    a pipe and then write to it, the program will receive a signal and possibly terminate.
+    This happens if the parent program terminates before the child does.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create the command, and get its `StdoutPipe`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Create a new goroutine and read from the stdout of the child process. Work
+    with the output of the child process in this goroutine:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Start the process:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Wait for the process to end:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Providing input to a child process
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'There are two methods you can use to provide input to a child process: set
+    `cmd.Stdin` to a stream or use `cmd.StdinPipe` to obtain a writer to send the
+    input to the child process.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Create the command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Provide the input to the process by setting the `Stdin` stream:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Run the program and wait for it to end:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Alternatively, you can provide a streaming input using a pipe.
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'Create the command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Get the input pipe:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Send the input to the program through the pipe. When done, close the pipe:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Run the program and wait for it to end:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Changing environment variables of a child process
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Environment variables are key-value pairs associated with a process. They are
+    useful for passing information specific to the environment, such as the current
+    user’s home directory, executable search path, configuration options, and more.
+    In containerized deployments, environment variables are a convenient way to pass
+    the credentials a program needs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The environment variables for a process are provided by its parent process,
+    but once the process starts, a copy of those provided environment variables is
+    assigned to the child process. Because of this, a parent process cannot change
+    the environment variables of its child process after the child starts running.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To use the same environment variables as the current process when launching
+    a child process, set `Command.Env` to `nil`. That will copy the current process
+    environment variables to the child.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To start the child process using additional environment variables, append those
+    new variables to the current process variables:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Graceful termination using signals
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To gracefully terminate a program, you should do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: No longer accept new requests
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Finish any requests that are accepted but not completed
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Allow a certain amount of time for any long-running processes to finish, and
+    terminate them if they cannot be completed in the given time
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Graceful termination is especially important in cloud-based service development
+    because most cloud services are ephemeral and they get replaced by new instances
+    often. This recipe shows how it can be done.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to do it...
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Handle interrupt and termination signals. An interrupt signal (`SIGINT`) is
+    usually initiated by the user (for instance, by pressing *Ctrl* + *C*), and a
+    termination signal (`SIGTERM`) is usually initiated by the host operating system,
+    or for a containerized environment, the container orchestration system.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Disable acceptance of any new requests.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Wait for existing requests to complete with a timeout
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Terminate the process.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'An example is shown next. This is a simple HTTP echo server. When the program
+    starts, it creates a goroutine that listens to a channel responding to `SIGINT`
+    and `SIGTERM` signals. When any one of these signals is received, it shuts down
+    the server (which first disables the acceptance of new requests, and then waits
+    for the existing requests to complete up to a timeout), which then terminates
+    the program:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE

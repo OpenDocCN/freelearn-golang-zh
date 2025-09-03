@@ -1,0 +1,1243 @@
+- en: '10'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Reliability Overview
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We have made a long journey through all previous chapters of this book and completed
+    the part of the book dedicated to microservice development basics. So far, you
+    have learned how to bootstrap microservices, write tests, set up service discovery,
+    use synchronous and asynchronous communication between your microservices, and
+    serialize the data between them using different formats, as well as how to deploy
+    the services and verify that their APIs work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter begins the third part of the book, dedicated to more advanced concepts
+    of microservice development, including reliability, observability, maintainability,
+    and scalability. In this chapter, we will cover some practical aspects of microservice
+    development that are important for ensuring your services can operate well under
+    many conditions, including failure scenarios, changes in network traffic, and
+    unexpected service shutdowns.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover various techniques and processes that can help
+    you increase the reliability of your services. We will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reliability basics
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Achieving reliability through automation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Achieving reliability through development processes and culture
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let’s proceed to the first section of the chapter, which will help you to understand
+    service reliability concepts better.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To complete this chapter, you need Go 1.11+ or above.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can find the GitHub code for this chapter here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter](https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter10)10'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reliability basics
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While implementing new applications, services, or features, engineers often
+    focus first on meeting various system requirements, such as implementing specific
+    application features. The initial result of such work is usually some working
+    code that correctly performs its job, such as handling some data processing task
+    or serving network requests as an API endpoint. We can say that such code initially
+    performs well in isolation—the implemented code produces expected outputs for
+    the inputs we provide.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Things usually get more complex when we add more components to the system. Let’s
+    take our movie service from [*Chapter 2*](B18865_02.xhtml#_idTextAnchor027) and
+    assume that its API gets used by some external service that has millions of users.
+    Our service can be implemented perfectly fine and produce the right results for
+    various test inputs. Still, once we get requests from an external service, we
+    may notice various issues. One of them is called **denial of service** (**DoS**)—an
+    external service can overload our service by asking to process too many requests,
+    to the extent that our service stops serving new requests. The outcome of such
+    an issue can vary from minor system performance degradation to service crashes
+    due to reaching CPU, file, or memory limits.
+  prefs: []
+  type: TYPE_NORMAL
+- en: DoS is just one of the examples of things that can go wrong in a microservice
+    environment. Assume that you performed a fix that limits the number of incoming
+    requests to your service, but the fix broke the services calling your API because
+    they did not expect a sudden DoS on their requests. An alternative scenario is
+    a change in a service API that introduces a **backward-incompatible change**.
+    This change is incompatible with one or multiple previously released versions
+    of callers of your service API. As a result, services calling your API could experience
+    various negative effects, up to the point that they would be unable to process
+    any requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s define the quality of a service that can be resilient in the face of unexpected
+    failures as **reliability**—the quality of operating expectedly and having explicitly
+    defined limitations. The last clause in our definition of reliability makes a
+    big difference to its meaning—it’s not enough to perform a certain function well.
+    It is equally important to be explicit about the service’s limitations and what
+    happens when these limitations are breached.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In our movie service example, we would need to be explicit about multiple things,
+    such as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**System throughput**: How many requests the service can process (for example,
+    maximal requests per second)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Congestion policy**: How we would handle scenarios when our service is overloaded'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For example, if our service can’t process more than 100 simultaneous requests
+    per service instance, we could explicitly state this in the documentation to our
+    API and reject all extra incoming requests by returning a special error code,
+    such as `HTTP 429 Too Many Requests`. Such indication of system limits and explicit
+    communication of congestion issues would be a great step toward improving overall
+    system reliability by making its behavior more deterministic and, hence, reliable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In general, achieving a high degree of reliability is a continuous process
+    and requires constant improvements in the following three categories:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Prevention**: An ability to prevent possible issues whenever possible'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Detection**: An ability to detect possible issues as early as possible'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Mitigation**: An ability to mitigate any issues as early as possible'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Prevention, detection, and mitigation improvements can be made by performing
+    two types of actions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Automating service responses to various types of failures
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Changing and improving service development processes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We will divide the rest of the chapter into two sections, describing these two
+    types of actions. Let’s proceed to the first section, covering the automation-related
+    reliability work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Achieving reliability through automation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we will talk about various automation techniques that can help
+    you improve the reliability of your services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, let’s get back to communication error handling, which we briefly covered
+    earlier in [*Chapter 5*](B18865_05.xhtml#_idTextAnchor076). Having the right communication
+    error-handling logic in place is the first step toward achieving higher reliability
+    of your services, so we will focus on multiple aspects of error handling that
+    are equally important in microservice development.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Communication error handling
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'As we discussed in [*Chapter 5*](B18865_05.xhtml#_idTextAnchor076) of this
+    book, when two components—such as a client and a server—communicate with each
+    other, there are three possible resulting scenarios:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Successful response**: The server receives and successfully processes a request.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Client error**: An error occurs, and it is not caused by the server (for
+    example, the client sends an invalid request).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Server error**: An error occurs, and it is caused by the server (for example,
+    due to an application crash or an unexpected error on the server side).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'From the perspective of a client, there are two different classes of errors:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Retriable errors**: A client may retry the original request (for example,
+    when a server is temporarily unavailable).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Non-retriable errors**: A client should not retry the request (for example,
+    when the request itself is incorrect due to failing validation).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Differentiating between retriable and non-retriable errors is the responsibility
+    of the client. However, it is a good practice to indicate this explicitly whenever
+    possible. For example, a server can return specific codes, indicating the types
+    of errors (such as `HTTP 404 Not Found`) so that a client can recognize retriable
+    errors and perform retries. Differentiation between client and server errors also
+    helps to ensure that requests are not retried for non-retriable errors. It is
+    important from the server’s perspective because handling duplicate, invalid requests
+    increases its load.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s illustrate how to handle retriable communication errors by implementing
+    client request retries. Setting up automated responses to potential issues, such
+    as communication errors, helps to make the system more resilient to transient
+    failures, resulting in a better experience for all components in the system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing request retries
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Let’s illustrate how to implement request retries in microservice code. For
+    this, let’s review the metadata gRPC gateway code we implemented earlier in [*Chapter
+    5*](B18865_05.xhtml#_idTextAnchor076). The `Get` function includes the actual
+    call to the `metadata` service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s now look at the implementation of the `GetMetadata` endpoint in the metadata
+    service gRPC handler. The `GetMetadata` function includes the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As we can see, the implementation of the `GetMetadata` endpoint includes three
+    error cases, each having its own gRPC error code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`InvalidArgument`: The incoming request fails the validation.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`NotFound`: The record with the provided identifier is not found.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Internal`: Internal server error.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `InvalidArgument` and `NotFound` errors are non-retriable—there is no point
+    in retrying requests failing validation or trying to retrieve records that are
+    not found. `Internal` errors may indicate a wide range of issues, such as bugs
+    in the service code, so we can’t certainly state that you should perform retries
+    on them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are, however, some other types of gRPC error codes that indicate potentially
+    retriable errors. Let’s list some of them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`DeadlineExceeded`: Indicates a problem with processing a request within the
+    configured interval of time.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ResourceExhausted`: The service processing the request is exhausted. This
+    can indicate a problem with a lack of available resources (for example, the CPU,
+    memory, or disk reaching its limit) or the client reaching its quota for accessing
+    the service (for example, when a service does not allow more than a certain number
+    of parallel requests).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Unavailable`: The service is currently unavailable.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let’s first implement some simple retry logic inside the metadata gRPC gateway
+    by replacing the `Get` function with the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Add a function that should help us to check whether a communication error is
+    retriable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that we also need to import two extra packages for checking for specific
+    gRPC error codes—`google.golang.org/grpc/codes` for accessing a list of error
+    codes and `google.golang.org/grpc/status` for checking whether the communication
+    error is a valid gRPC error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, our metadata gRPC gateway can perform up to five retries of requests to
+    the metadata service. The retry logic that we just added should help us minimize
+    the impact of occasional errors, such as temporary server unavailability (for
+    example, during an unexpected outage or temporary network issues). However, it
+    introduces some additional challenges:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`Get` function, the metadata service gRPC gateway now performs up to five calls
+    instead of one for retriable errors.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Request bursts**: The metadata gRPC gateway performs immediate retries on
+    errors, which will generate bursts of requests to the server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The latter scenario may be especially challenging to the server due to uneven
+    load distribution. Imagine that you are doing some work and getting some phone
+    calls with extra tasks. If you responded to such calls and said that you were
+    busy, you wouldn’t want to get called again immediately and asked to perform the
+    same tasks again—instead, you would want the caller to call back after some time.
+    Similarly, immediate retries would be suboptimal to servers experiencing congestion
+    issues, so we would need to perform additional modifications to our retry logic
+    to introduce extra delays between the retries so that our server does not get
+    overloaded with immediate retries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The technique of adding extra delays between client request retries is called
+    **backoff**. Different types of backoff are implemented by using different delay
+    intervals between the retry requests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Constant backoff**: Each retry is performed after a constant delay.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Exponential backoff**: Each retry is performed after a delay that is exponentially
+    higher than the previous one.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An example of exponential backoff would be a sequence of calls where the first
+    retry would be done after a 100 ms delay, the second one would take a 400 ms wait,
+    and the third retry delay would be 900 ms. Exponential backoff is usually a better
+    solution than constant, because it performs the next retry much slower than the
+    previous ones, allowing the server to recover in case of overloading. A popular
+    Go library at [https://github.com/cenkalti/backoff](https://github.com/cenkalti/backoff)
+    provides an implementation of exponential and other types of backoff algorithms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Backoff delay can also be modified by introducing small random changes to its
+    duration. For example, the retry delay value on each step could be increased or
+    decreased by up to 10% to better spread the load on the server. This optimization
+    is called **jittering**. To illustrate the usefulness of jittering, assume multiple
+    clients start calling the server simultaneously. If retries are performed with
+    the same delays for each client, they will keep calling the server simultaneously,
+    generating bursts of server requests. Adding pseudo-random offsets to retry delay
+    intervals helps to distribute the load on a server more evenly, preventing possible
+    traffic bursts from request retries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deadlines and timeouts
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Let’s now talk about another class of communication issues related to time.
+    When a client performs a request to a server, multiple possible failures may result
+    in either a client or a server not receiving enough data to consider the request
+    successful. Possible failure scenarios include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The client request does not reach the server due to network issues.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The server gets overloaded and takes longer to respond to the client.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The server processes the request, but the response does not reach the client
+    due to network issues.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These failures can result in longer waiting times for a client. Imagine you
+    are sending a letter to your relative and not getting a response back. Without
+    additional information, you would continue waiting without knowing whether the
+    letter got lost at any step or the relative simply hasn’t responded.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For synchronous requests, there is a way to improve the client experience by
+    setting a **request timeout**—an interval after which the request is considered
+    as failed in case of not receiving a successful response. Setting request timeouts
+    is a good practice due to multiple reasons:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Elimination of unexpected waits**: If a request takes an unexpectedly long
+    time, the client can stop it earlier and perform an optional retry.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Ability to estimate maximum request processing time**: When requests are
+    performed with explicit timeouts, it is easier to calculate how long it will take
+    until the operation returns a response or an error to the caller.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Ability to set longer timeouts for long-running operations**: Libraries used
+    for performing network calls often set default request timeouts (for example,
+    30 seconds). Sometimes the clients want to set a higher value, knowing that the
+    request may take longer to complete (for example, when uploading a large file
+    to a server). Explicitly setting a higher timeout helps to prevent the situation
+    of a request getting canceled due to exceeding the default timeout.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In Go, timeouts are usually propagated via the `context.Context` object. As
+    we mentioned in [*Chapter 1*](B18865_01.xhtml#_idTextAnchor015), each I/O operation,
+    such as a network call, accepts the `context` object as an argument, and we can
+    set a timeout by calling the `context.WithTimeout` function, as shown in the following
+    code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding example, we set the timeout for the `SomeOperation` function
+    to `10` seconds, so it should not take more than 10 seconds to complete the operation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Setting a timeout is not the only way to limit request processing time. An
+    alternative solution to this is setting a `time.Duration` structure (for example,
+    having the value of 10 seconds), a deadline indicates the exact instance of time
+    (for example, January 1, 2074, 00:00:00). Here’s an example of using a deadline
+    for the same operation as in the previous code example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Technically, both a timeout and a deadline help us achieve the same goal—set
+    a time limit for a target operation. You are free to use either format, depending
+    on your preferences.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fallbacks
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Let’s now talk about another client-server communication failure scenario—when
+    a client tries to operate and doesn’t get a successful response even after a set
+    of retries. In such a case, there are three possible options for the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Return an error to the caller, if any
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Panic, in case an error is fatal to the system
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Perform an alternative backup operation, if it is possible
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The last option is called a **fallback**—an alternative logic that can get executed
+    if some operation can’t be performed as expected.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s take our rating service as an example. In our service, we implemented
+    the `GetAggregatedRating` endpoint by reading all ratings for a provided record
+    from the rating repository. Now, let’s consider a failure scenario when we can’t
+    retrieve the ratings due to some problem, such as MySQL database unavailability.
+    Without a fallback logic, we would not be able to process an incoming request
+    and would need to return an error to our caller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'An example of a fallback would be to use a `map` structure) and return them
+    on database-read errors. The following code snippet provides an example of such
+    a fallback logic:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using fallbacks is an example of **graceful degradation**—a practice of handling
+    application failures in a way that an application still performs its operations
+    in a limited mode. In our example, the movie service would continue processing
+    requests for getting movie details even if the recommendation feature is unavailable,
+    providing a limited but working functionality to its users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When designing new services or features, ask yourself which operations could
+    be replaced with fallbacks in case of failures. Additionally, check which features
+    and operations are absolutely necessary and which ones can be turned off in case
+    of any failure, such as system overload or losing a part of a system due to an
+    outage. Also, a good practice is to emit additional useful information related
+    to failures, such as logs and metrics, and make it explicit in the code that the
+    fallback is intentional, as in the preceding example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Rate limiting and throttling
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: As we discussed at the beginning of this chapter, there may be a situation when
+    a microservice is overloaded and can’t handle incoming requests anymore. How can
+    we prevent or mitigate such issues?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A popular way of preventing such issues is setting a hard limit on the number
+    of requests to be processed in parallel. Such a technique is called **rate limiting**
+    and can be applied on multiple levels:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Client level**: A client limits the number of simultaneous outgoing requests.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Server level**: A server limits the number of simultaneous incoming requests.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Network/intermediate level**: The number of requests between a server and
+    its clients is controlled by some logic or an intermediate component between them
+    (for example, by a load balancer).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When a client or a server exceeds the configured number of requests, the result
+    of a request would be an error that should include a special code or message,
+    indicating that a request has been rate limited.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An example of a rate-limiting indication in the HTTP protocol is a built-in
+    status code, `429 Too Many Requests`. When a client receives a response with such
+    a code, it should take this into account by either reducing the call rate or waiting
+    some time until the server can process requests again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Client- and server-level rate limiting are often done by each service instance
+    separately: each instance keeps track of the current number of outgoing or incoming
+    requests. The downside of these models is the inability to configure the limits
+    on a global-service level. If you configure each service client instance to send
+    no more than 100 requests per second, you may still receive 100,000 simultaneous
+    requests if there are 1,000 client instances. Such a high number of simultaneous
+    requests could easily overload your service.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Network-level rate limiting can potentially solve this problem: if rate limiting
+    is performed in a centralized way (for example, by a load balancer that handles
+    requests between the services), the component performing rate limiting can keep
+    track of the total number of requests across all service instances.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: While network-level rate limiters provide more flexibility to configure the
+    settings, they often require additional centralized components (such as load balancers).
+    Because of this, we are going to demonstrate how to use a simpler approach, based
+    on the client level.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is a popular package implementing rate limiting in Go, called `golang.org/x/time/rate`.
+    The package implements the `b`, decrements its value by 1 on each request, and
+    refills it at a configured rate of `r` elements per second. For example, for b
+    = 100 and r = 50, the token bucket algorithm creates a bucket of size 100 and
+    refills it at a rate of 50 per second. At any moment in time, it doesn’t allow
+    more than 100 simultaneous requests (the maximal number is controlled by the current
+    bucket size).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is an example of using a token bucket-based rate limiter in Go:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: This code prints `allowed` 3 times and then keeps printing `not allowed` 97
+    times unless it takes more than 1 second to run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s illustrate how to use such a rate limiter in combination with a gRPC
+    API handler, which we implemented in [*Chapter 5*](B18865_05.xhtml#_idTextAnchor076).
+    The gRPC protocol allows us to define **interceptors**—operations that are performed
+    on each request and can modify the gRPC server’s response to it. To add a gRPC
+    rate limiter to the movie service gRPC handler, perform the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Open the `movie/cmd/main.go` file and add the following code to its imports:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Replace the line with a `grpc.NewServer` call with the following code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE10]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE11]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Then, add the following structure definition to the file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE16]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE17]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE19]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE20]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE21]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Our rate limiter is using a rate-limiting gRPC server interceptor from the `github.com/grpc-ecosystem/go-grpc-middleware/ratelimit`
+    package. Its interface is slightly different from our limiter from `golang.org/x/time/rate`,
+    so we added a structure that links them together. Now, our gRPC server allows
+    up to 100 requests per second and returns an error with a `codes.ResourceExhausted`
+    special code in case the limit is exceeded. This allows us to make sure the service
+    does not get overloaded with a sudden spike of a large number of requests—if somebody
+    requests 1 million movie details at once from it, we are not going to make 1 million
+    calls to our metadata service and overload its database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Keep in mind that rate limiting is a powerful technique; however, it needs to
+    be used with caution because setting the limit too low would make your system
+    unnecessarily too restrictive for users by rejecting too many requests. To calculate
+    fair rate-limiting settings for your services, you need to periodically perform
+    benchmarking, understanding the maximum throughput of their logic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s move to the next topic of automation-based reliability techniques, describing
+    how to gracefully terminate the execution of your services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Graceful shutdown
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In this section, we are going to talk about the graceful handling of service
+    shutdown events. Service shutdowns can be triggered by multiple events:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Manual interruption of execution (for example, when a user types *Ctrl* + *C*/*Cmd*
+    + *C* in a terminal that runs the service process, and the process receives a
+    `SIGINT` signal from the operating system)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Termination of execution by the operating system (for example, by `SIGTERM`
+    or `SIGKILL` signals)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Panic in service code
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Generally, sudden termination of the execution of a service may result in the
+    following negative consequences:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Dropped requests**: Incoming API requests may be dropped before they get
+    fully processed, resulting in errors for the callers of the service.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Connection issues**: Service network connections may not be properly closed
+    during a shutdown, resulting in multiple negative effects. For example, not closing
+    a database connection may result in a situation called a **connection leak**,
+    when the database keeps the connection allocated to the service instead of allowing
+    it to be reused by another instance.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To prevent these issues, you need to ensure that your service shuts down gracefully
+    by performing a set of operations that minimize any negative consequences for
+    the service and its components. Performing a **graceful shutdown**, the service
+    would run some extra logic before the termination, such as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Completing as many unfinished operations, such as unprocessed requests, as possible
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Closing all open network connections and yielding any shared resources, such
+    as network sockets
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Graceful shutdown logic for Go services is usually implemented in the following
+    way:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The service subscribes to shutdown events by calling a `Notify` function of
+    an `os/signal` package.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When a service receives a `SIGINT` or `SIGTERM` event from the operating system,
+    indicating that the service is about to be terminated, it performs a set of required
+    operations for closing all open connections and completing all pending tasks.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Once all operations are completed, the service finishes the execution.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Here is a code example that you can add to the `main` function of any Go service,
+    such as the ones that we implemented in [*Chapter 2*](B18865_02.xhtml#_idTextAnchor027):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There is also a way to gracefully handle panics in Go code by using the built-in
+    `recover` function. The following code snippet demonstrates how to handle a panic
+    inside the `main` function and execute any custom logic, such as closing any open
+    connections:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: In our code, we check whether there is a service panic by calling the `recover`
+    function and checking whether it returns a non-nil error. In case of a panic,
+    we can perform any additional operations, such as saving any unsaved data or terminating
+    any open connections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To gracefully terminate the execution of a Go gRPC server, you need to call
+    the `GracefulStop` function instead of `Stop`. Unlike the `Stop` function, `GracefulStop`
+    would wait until all requests are processed, helping to reduce the negative impact
+    of the shutdown on the clients.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you have some long-running components, such as Kafka consumers or any background
+    goroutines executing long-running tasks, you can communicate the service termination
+    signal using the built-in `context.Context` structure. The `context.Context` structure
+    provides a feature called **context cancellation**—an ability to notify different
+    components about the cancellation of an execution by sending a specific event
+    through the channel associated with the context.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s update our rating service code to illustrate how to implement context
+    cancellation and a graceful shutdown of a gRPC server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Open the `main.go` file of the rating service and find the line that performs
+    a call to the `context.Background()` function. Replace it with the following code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: Our code creates an instance of a context and the `cancel` function, which we
+    will be calling on service shutdown to notify our components, such as the service
+    registry, about upcoming termination.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Immediately before the call to the `srv.Serve` function, add the following
+    code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: In our code, we let the rating service listen for process interruption and termination
+    signals and start the background goroutine, which keeps listening for the relevant
+    notifications. Once it receives either signal, it calls the `cancel` function
+    that we obtained in the previous step. The result of calling this function would
+    be a notification that would be sent to the components initialized with our context,
+    such as the service registry.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s add the final touch by adding the following line to the end of our `main`
+    function:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s now test the code that we just implemented. Run the rating service and
+    then terminate it by pressing *Ctrl + C*/*Cmd + C* (depending on your OS). You
+    should see the following messages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: Communication of termination and interruption events is a common practice in
+    Go microservice development and is an elegant way of implementing graceful shutdown
+    logic. When designing and implementing your services, think in advance about possible
+    resources that need to be closed or de-initialized upon the service termination,
+    such as any network clients and connections. A graceful shutdown logic can prevent
+    the negative effects of sudden service termination. It can also reduce the number
+    of possible errors in your services and improve your operating experience.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, we have reviewed some automation techniques to improve the reliability
+    of our services and reduce the symptoms of various failure scenarios. Now, we
+    can proceed to the next section of the chapter, covering another aspect of reliability
+    work related to development processes and culture. Improvements to your development
+    processes are essential to achieving high reliability in the long term, and the
+    section should be useful to you by providing some valuable tips and ideas that
+    you can utilize in microservice development.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Achieving reliability through development processes and culture
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we are going to describe some techniques for achieving higher
+    service reliability based on changes in the development processes and culture.
+    You will learn how to establish the processes for improving and reviewing your
+    service reliability, how to learn from any service-related issues and incidents
+    efficiently, and how to measure your service reliability. We will cover the processes
+    and practices that are widely used across the industry, outlining the most important
+    ideas from each one. The section is going to be more theoretical than the previous
+    one; however, it should be equally useful.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, we are going to provide an overview of the on-call process essential
+    for setting up a mechanism for monitoring issues with your services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On-call process
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When your services start handling production traffic or start serving user requests,
+    one of your first reliability goals should be to detect any issues, or incidents,
+    as early as possible. Efficient detection should be automatic—a program will always
+    be much more efficient than a human in detecting most issues. Each automatic detection
+    should notify one or more engineers about the incident so that the engineers can
+    perform work in order to mitigate an incident.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The process for establishing such a mechanism for notifying engineers about
+    service incidents is called **on-call**. This process helps ensure that at any
+    moment in time, service incidents are acknowledged and addressed by the engineers
+    responsible for the service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The main ideas behind the on-call process are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Engineers can get grouped into **on-call rotations**. Each engineer participating
+    in the on-call process repeatedly gets assigned a continuous *shift* (often taking
+    1 week), during which they take responsibility for periodically handling notifications
+    regarding service-level incidents.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: On-call rotation can have an *escalation policy*—a process of escalating incidents
+    in case they remain unresolved. First, an incident gets reported to the *primary*
+    on-call engineer of the rotation. If the primary engineer is unavailable, the
+    incident gets reported to the *secondary* engineer, and so on.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There can be a *shadow* role, commonly assigned to new engineers. This role
+    does not require any response to the incident, but it can be used for getting
+    familiar with the on-call process and subscribing to real-time incident notifications.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Each incident triggers one or multiple notifications, notifying the on-call
+    engineers about the issue. Each notification must be acknowledged by the responsible
+    on-call engineer unless the incident self-resolves (for example, if a service
+    stops receiving too many requests and starts operating normally).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You can also set up an *escalation policy* for a rotation—a mechanism for escalating
+    the incident notifications if the responsible on-call engineers don’t acknowledge
+    them within the configured time. Usually, escalation policy follows the reporting
+    chain of the engineering hierarchy—if no engineer acknowledges the incident, the
+    incident first triggers a notification to the closest engineering manager, then
+    to the person the manager is reporting to, and so on until it reaches the highest
+    level (this can even be a CTO at some companies).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Having an on-call process is common to most technology companies and teams,
+    and the on-call process is pretty similar in most companies across the industry.
+    Some popular solutions provide mechanisms for triggering various types of notifications,
+    such as SMS, emails, and even phone calls. You can also configure on-call rotations
+    and assign them to different services. One of the most popular solutions to on-call
+    management is **PagerDuty**—a platform providing a set of tools for automating
+    on-call operations, as well as integrations with hundreds of services, including
+    Slack, Zoom, and many more. PagerDuty provides all the features we listed earlier,
+    allowing engineers to configure on-call rotations for their services and notifying
+    them about incidents in different ways. Additionally, it provides an API that
+    can be used for both accessing the incident data and triggering new incidents
+    from the code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We are not going to dive into the details of PagerDuty's features and integrations
+    in this chapter—I suggest you check the official PagerDuty documentation on their
+    website, [https://developer.pagerduty.com/docs](https://developer.pagerduty.com/docs).
+    I also suggest you read [*Chapter 12*](B18865_12.xhtml#_idTextAnchor171) before
+    establishing an on-call process for your services. It will help you to learn more
+    about possible incident detection mechanisms and tools you can utilize in your
+    projects.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s discuss the common challenges of establishing an on-call process in a
+    microservice environment:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Rotation ownership**: Different services may be maintained by different teams,
+    so there may be multiple on-call rotations inside a single company. A good practice
+    is to have an explicit mapping between each production service and the associated
+    on-call rotation so that it is clear which rotation each incident should be reported
+    to. In [*Chapter 13*](B18865_13.xhtml#_idTextAnchor181), we will cover the ownership
+    aspect of this.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Cross-service issues**: Some issues, such as database or network failures,
+    can span multiple services, so it becomes important to have some centralized team(s)
+    that will be able to help with any issues crossing the boundaries of individual
+    services.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Some companies may have thousands of microservices, so centralized incident
+    response teams become crucial. For example, Uber has a dedicated team of engineers
+    called *Ring0* that is able to address any widespread incidents and coordinate
+    the mitigation of issues that span multiple teams. Having such a team helps to
+    dramatically reduce incident mitigation time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To better understand what happens next after incidents are detected and acknowledged
+    by the engineers, we are going to move now to the next topic: incident management.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Incident management
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Once incidents are detected and acknowledged by the engineers, there are two
+    other types of work necessary for improving the service or system reliability—mitigation
+    and prevention. Mitigation is required for resolving an open issue unless it gets
+    resolved by itself or due to some external changes (for example, an external API
+    getting fixed by the owning team). Prevention work is useful for ensuring the
+    issue does not happen again. Without a proper prevention response to the incident,
+    you may keep fixing the same issue over and over again, spending your time and
+    affecting the experience of your system’s users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To make the incident mitigation process quick and efficient, especially in a
+    large team where engineers may have different levels of understanding of the system,
+    there should be enough documentation describing which actions to perform in case
+    of an incident. Such documentation is called a **runbook** and should be prepared
+    for as many types of detectable incidents as possible. Whenever an on-call engineer
+    gets an incident notification, it should be clear from the runbook which steps
+    to take to mitigate it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A good runbook should be short and concise and provide clear actionable steps
+    that are easy to understand for any engineer. Let’s take this example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the incident mitigation requires further investigation, include any useful
+    links, such as links to the relevant application logs and dashboards. You should
+    aim for the lowest possible incident mitigation time—also called **time to repair**
+    (**TTR**)—to increase the availability of your service and improve its overall
+    health.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the incident is mitigated, focus on prevention work to ensure you take
+    all actions to eliminate its causes, as well as to improve detection and mitigation
+    mechanisms, if needed. Multiple companies across the industry use the process
+    of writing documents called **incident postmortems** to organize the learnings
+    around incidents and make sure each incident involves enough work related to its
+    future prevention. An incident postmortem generally consists of the following
+    data:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Incident title and summary
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Authors
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When and how the incident was detected and mitigated
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Incident context, in the form of a text or a set of diagrams that can help to
+    understand it
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Root cause
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Incident impact
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Incident timeline
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Lessons learned
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Action items
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'A great example of a postmortem document is provided in the famous Google *Site
+    Reliability Engineering (SRE)* book, and you can get familiar with it at the following
+    link: [https://sre.google/sre-book/example-postmortem/](https://sre.google/sre-book/example-postmortem/).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To get to the root cause of the incident, you can use a technique called **Five
+    whys**. The idea of the technique is to keep asking what caused the previously
+    mentioned problem until the root cause is found. Let’s take the following **root
+    cause analysis** (**RCA**) as an example to understand the technique:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Incident**: Rating service returns internal errors to its API callers'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Root cause analysis**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The rating service started returning internal errors to its API callers due
+    to the rating database’s unavailability.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The rating database became unavailable because of an unexpectedly high request
+    load to it.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The unexpectedly high request load to the rating service was caused by an application
+    bug in the movie service.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In this example, we kept finding the underlying cause of each previous issue
+    by using the Five whys technique, until we got to the root cause of the incident
+    in just three steps. The technique is very powerful and easy to use, and it can
+    help you get to the root cause of even complex issues quite quickly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Make sure you include and track action items for your incidents. Capturing the
+    incident details and identifying the causes isn’t enough for making sure incidents
+    are prevented. Prioritizing the action items helps ensure that the most critical
+    ones get addressed as early as possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let’s move to the next reliability process based on periodic testing of
+    your possible service failure scenarios.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reliability drills
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As many system administrators know, it is not enough to have backups of your
+    data to guarantee its durability. You also need to ensure that you can restore
+    the data from the backups in case of any failure. The same principle applies to
+    any part of your service infrastructure—to know that your services are resilient
+    to particular failures, you need to perform periodic exercises, called **drills**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can perform many possible types of drills. As in the example with the database
+    backups, if you have any persistent data stored in a database, you can periodically
+    test the ability to back up and restore the data, verifying that your services
+    are tolerable to database availability issues. Another example would be network
+    drills. You can simulate network issues, such as connectivity loss, by updating
+    service routing configuration or any other network settings to check how your
+    services behave in case of network unavailability.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are multiple benefits of performing reliability drills:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Detect unexpected service failures**: By performing failure drills, you can
+    detect some unexpected service errors and panics, that don’t happen in the regular
+    mode. Such issues will present themselves in a controlled environment, where engineers
+    are ready to stop the drill at any moment and address the detected errors as early
+    as possible.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Detect unexpected service dependencies**: Reliability drills often uncover
+    unexpected dependencies between the services, such as **transitive dependencies**
+    (service A depends on service B, which depends on service C) or even **circular
+    dependencies** (two services require each other in order to operate).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Ability to mitigate future incidents quicker**: By knowing how the services
+    operate in case of a failure and how they resolve related issues, you invest in
+    improving future incident mitigation.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Drills are often performed as **planned incidents**—incidents that get announced
+    in advance and follow the regular incident management process, including the work
+    on the postmortem document. The drill postmortem document should include the same
+    items as a regular incident, with a focus on improving the mitigation and prevention
+    experience. Additionally, engineers should focus on reviewing and updating the
+    service runbooks, making sure that the incident mitigation instructions are accurate
+    and up to date.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At this point, we have discussed the most important service reliability techniques.
+    There are many more interesting topics to cover that are related to service reliability—some
+    of them, related to incident detection, we are going to cover in [*Chapter 12*](B18865_12.xhtml#_idTextAnchor171)
+    of the book. If you are interested in the topic, I strongly encourage you to read
+    the Google *Site Reliability Engineering (SRE)* book, which provides a comprehensive
+    guide to various reliability-related techniques. You can find the online version
+    of the book by going to the following link: [https://sre.google/sre-book/table-of-contents](https://sre.google/sre-book/table-of-contents).
+    The practices that are described in the book are applicable to any microservice,
+    so you can always use it as a reference while working on building any type of
+    system.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we covered the topic of reliability, describing a set of techniques
+    and practices that can help you to make your microservices more resilient to various
+    types of failures. You have learned some useful techniques for automating error
+    responses of your services and reducing the negative impact of various types of
+    issues, such as service overloading and unexpected service shutdowns.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the final part of the chapter, we discussed various reliability techniques
+    based on changes in engineering processes and culture, such as introducing the
+    on-call and incident management processes, as well as performing periodic reliability
+    drills. The knowledge that you gained from reading this chapter should help you
+    to establish a solid foundation for writing reliable microservices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we are going to continue our journey into the reliability
+    topic and focus on collecting service telemetry data, such as logs, metrics, and
+    traces. Service telemetry data is the primary instrument for setting up service
+    incident detection, and we will illustrate how to work with each type of telemetry
+    data in your microservice code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'If you’d like to learn more, refer to the following resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Timeouts, retries, and backoff with jitter*: https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Token bucket rate-limiting algorithm*: [https://en.wikipedia.org/wiki/Token_bucket](https://en.wikipedia.org/wiki/Token_bucket)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*PagerDuty documentation*: [https://developer.pagerduty.com/docs](https://developer.pagerduty.com/docs)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Incident postmortems*: [https://www.pagerduty.com/resources/learn/incident-postmortem/](https://www.pagerduty.com/resources/learn/incident-postmortem/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Google Site Reliability Engineering (SRE)* website: [https://sre.google/](https://sre.google/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Google Site Reliability Engineering (SRE)*  book: [https://sre.google/sre-book/table-of-contents](https://sre.google/sre-book/table-of-contents)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

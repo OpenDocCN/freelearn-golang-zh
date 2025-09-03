@@ -1,0 +1,852 @@
+- en: '5'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Immutability
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we will look at immutability. We are going to cover what exactly
+    it means to be immutable, and how the Go language helps preserve immutability
+    at the struct-level. To understand how this works, we will take a look at how
+    Go handles pointers and references to objects, what the performance implications
+    are, and how to decide between the pointer-reference trade-offs. We will also
+    dive into the implications of garbage collection, unit testing, and *pure* functional
+    programming.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'These are the main topics that we will cover in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: What is immutability?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to write immutable code
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How do pointers and references work in Go?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Analyzing the performance of mutable and immutable code
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Examples of concurrency and testing with immutable code
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For this chapter, you can use any Go version at or above Go 1.18 as we will
+    be using generics in some of the later examples. You can find all the code on
+    GitHub at [https://github.com/PacktPublishing/Functional-Programming-in-Go./tree/main/Chapter5](https://github.com/PacktPublishing/Functional-Programming-in-Go./tree/main/Chapter5).
+  prefs: []
+  type: TYPE_NORMAL
+- en: What is immutability?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When we talk about immutability in this chapter, we are talking about structs
+    that have a state that does not change over time. In other words, when a struct
+    is created, that is how that specific struct will be represented during its lifetime.
+    We can still create new structs and delete old ones. So, the state at the system
+    level will effectively change by new structs being created and old structs being
+    deleted. This has several advantages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, because our structs are not changing, we can safely pass data to a function
+    and know that, whatever happens, the copy that we passed to the function will
+    remain intact.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Secondly, immutable structs make it easier to write correct, concurrent code.
+    As the state of the struct cannot be changed by any function calling it, we can
+    safely parallelize execution and call multiple functions using the same struct
+    as input data.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: And third, this makes our code easier to reason about. At each step of the way,
+    the state of our struct is more predictable.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Immutability is not just something that we strive for when writing functional
+    code. In many object-oriented programming languages, it is preferred to write
+    immutable code. The reason it deserves mention in this book is that it ties in
+    nicely with pure functions, which we saw in the previous chapter. If you want
+    to write true *pure* functional code, you need immutable structs. If you make
+    a change to a struct in a function, that would count as having a side effect.
+    Recall from the previous chapter that we will try to eliminate side effects as
+    much as possible. That said, almost everything in this chapter can still be applied
+    to traditional object-oriented languages as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Immutability at the data layer
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Immutability is a powerful concept that we can apply to the programs we write.
+    But it also appears as a concept for the data that we store. If we are writing
+    software that deals with extremely sensitive data, such as an **Electronic Health
+    Record** (**EHR**), we likely want the data to be immutable. That is to say, whenever
+    some information in our EHR changes, we want this change to be completely traceable.
+    That way, the entire history of your EHR is visible at any time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By having the medical data immutable, you can always look at what the file looked
+    like in the past. For example, you can look at any blood test the patient has
+    done or any notes that were previously taken. It also helps to serve as an auditable
+    log – each change to the record is traceable. Imagine that a doctor accidentally
+    deletes the result of a blood test. If your data storage is immutable, the blood
+    test will not be deleted at the data layer (but rather marked as “deleted” so
+    that the application layer can choose not to display it to a user). It also protects
+    against ill intent – if a bad actor gained access to the application and decided
+    to start changing the text of the doctors’ notes, this would show up as *new*
+    notes. The original notes would still be there, at least in the data layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Imagine what would happen if we did not have immutability, and the actual information
+    updated each time new data became available. This would be less than ideal. Imagine
+    that each blood test overrides the past results – this would obfuscate any trends
+    in your medical history, erasing valuable information to medical practitioners.
+    Or worse, once a medical image is deleted, it would stay deleted, and the patient
+    would have to undergo the same series of tests. Not only is this bad for the patient’s
+    experience, but in some countries it is also costly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This idea of traceability and immutability at the data layer, in some ways,
+    culminated in what is now called **the blockchain**. While I don’t know of any
+    mainstream EHR systems implemented on top of blockchain databases, there are at
+    least some efforts being made by companies around the world to make this a reality.
+    And it would make some sense to do so.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Blockchain databases are immutable by default. Apart from being suitable for
+    the EHR examples mentioned previously, it is currently being used for trading
+    currency. In a blockchain database, the entire history of the block is visible.
+    When an update is made to a block, a new block is added to the chain with the
+    updated information, rather than it overriding the existing block. This is how
+    cryptocurrencies can model financial transactions. There is more depth to it than
+    what I’ve explained here, as I’ve omitted a concrete explanation of how a blockchain
+    can guarantee immutability and provide tamper mechanisms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A deep dive into immutability at the data layer is beyond the scope of this
+    book, but hopefully, this short overview served as a good starting point to explore
+    these ideas further.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to write immutable code in Go
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When we talk about immutability in Go, we are specifically focusing on how to
+    have immutable structs in our code. At the core of this, we have to take a look
+    at how Go uses pointers and the difference between pass-by-value and pass-by-reference.
+    This is something that trips up new Go programmers, and there is a sufficient
+    amount of edge cases where even more seasoned Go programmers will occasionally
+    shoot themselves in the foot.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In essence, it comes down to whether or not we are using pointers in our code
+    when passing around structs to functions. If our code is entirely free of pointers,
+    then we would also be writing immutable code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To demonstrate this, take a look at the following piece of code. We have a
+    struct to define a person, and a function to change the name of this person:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The outcome of this function, perhaps contrary to expectation, is `Benny`.
+    The `setName` function has not changed the name of the `Person` object. Eventually,
+    we all get used to the idea that to update structs in a function, we need to use
+    a pointer instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, when we run this code, the output is `Bjorn`, as we expected. The difference
+    between these two examples is that in the first example, we are using pass-by-value,
+    while in the second, we are using pass-by-reference.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If we look at what is happening in the first function, we will see that our
+    `Person` object is being copied and that this copy is then passed to the `setName`
+    function. Thus, every operation that we do on this struct is happening on the
+    copy itself, and not on the actual object. However, in the second example, by
+    using a pointer, we have access to the actual `Person` object and not just a copy.
+    Under the hood, the second example passes an address (pointer) to the struct.
+    The syntax of Go obfuscates some of the pointer referencing and dereferencing
+    for us, which makes it seem like a rather small change.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In general, we want to keep our code immutable. Hence, we want to avoid using
+    pointers in our code. How, then, do we update our structs? The `setName` function
+    provides useful functionality to our system. Recall that although we cannot change
+    the state of the objects we are using, we are still free to create and destroy
+    them. The solution is to create a new object that has all the properties of our
+    original object, with some changes applied. To continue our previous example,
+    let’s refactor the `setName` function to achieve the desired functionality:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding example, you can see the core change in which we need to update
+    structs without breaking our immutability concern. We achieve this by having functions
+    accept copies (pass-by-value) as input and return a new struct with the changes
+    applied. In our calling function, we now have the choice of whether or not to
+    keep both objects or discard the original and keep only the newly returned object.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This syntax should be quite familiar to Go programmers, as this is similar
+    to what we do when working with slices. For example, if we wanted to add a value
+    to a slice, we would write code like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: This code would return `[Miranda Paula Yvonne]`. When working with immutable
+    structs, our syntax will look similar to this.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Writing immutable code for collection data types
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Earlier, we saw how easy it is to change functions from immutable to mutable.
+    We simply replace a function that takes a pointer with a function that accepts
+    a value and returns a new value. The story changes a bit when working with the
+    collection `Map` data type, as becomes apparent in the following example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: The output of this code is `[red 10]`. Although we are not using a pointer in
+    the `addValue` function, the function is not operating on a copy of the map but
+    is operating on the map itself. **Maps always act like pass-by-reference** **in
+    Go**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we try a similar setup with slices, another collection data type, it works
+    as expected:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output here is `Miranda`. Using pointers, we can once again make the function
+    mutable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: If we run the preceding code, the output will be `[Miranda Yvonne]`. It is common
+    enough in Go that seasoned programmers are used to this, but it can trip up the
+    more novice Go programmer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Measuring performance in mutable and immutable code
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A common complaint about immutable code is that it is less performant than its
+    mutable counterpart. Even without doing a deep dive into the performance characteristics
+    of the Go runtime, this seems like a reasonable statement. After all, in the immutable
+    variant, a new copy of an object is spawned for each function call. In practice,
+    however, these differences in performance are often negligible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Still, even if there would be a significant performance impact, you need to
+    question if the performance sacrifices make sense in your context. In return for
+    some performance, you are getting thread-safe, easy-to-maintain, understand, and
+    test code. As engineers, it is often extremely tempting to go for the most optimal
+    solution, using as little memory and CPU time as possible. However, for many real-world
+    applications, the performance impact is small enough that this is not something
+    the end user would notice. And for other engineers maintaining your code, they’d
+    often want something more understandable rather than something faster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unlike other languages, Go will take somewhat of a performance hit due to being
+    garbage collected. If you want to squeeze every ounce of performance out of your
+    system, perhaps Go is not the right tool for the job either. With this out of
+    the way, we should take a look at actual benchmarks and dive a bit deeper into
+    the performance implications of immutable code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Benchmarking functions
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: While we can reason about the performance of a function in abstract terms, such
+    as space-time complexity, to get a real sense of performance, we should do performance
+    testing. After all, the runtime complexity of mutable and immutable functions
+    can be quasi-identical. Caring about the implementation of pointers is too low-level
+    to be considered. So, for that reason, we will set up a test to determine which
+    performance is worse. As a reminder, the assumption here is that the mutable code,
+    using pointers, will be faster than our immutable variant. The underlying reason
+    for that assumption is that copying structs is a more costly operation than passing
+    pointers to a function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s set up two constructor-like functions, one for an immutable version and
+    the other for a mutable version. The first function creates a `Person` object,
+    and then passes that function to a function to set a name for the person, and
+    subsequently to another function that sets an age for the person:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we can see that the `Person` object first gets copied to `immutableSetName`
+    and afterward is copied again to `immutableSetAge`. Finally, we return this `Person`
+    to the calling function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let’s also set up a mutable version of this code. In the mutable version,
+    we are creating a `Person` object. But, when passing it to the mutable functions
+    to set a name and an age, we are going to pass a pointer to our object instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, we can see that pointers are used to avoid copying the `Person` object
+    between functions. One thing to point out in these examples is that these two
+    functions are identical in Go:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And with the function bound to an object instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: There are some practical differences in how we call these functions and implications
+    for function name collisions. That said, their performance characteristics are
+    identical for both the mutable and immutable examples.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With that out of the way, let’s write our benchmark. Go has built-in benchmarking
+    support, just like it has built-in testing support. That makes our job of writing
+    benchmarks rather easy since the entire code to benchmark fits on a single page:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With this built-in benchmarking support, we can run our benchmark with the
+    following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Averaged out over a couple of runs, on my **Amazon Web Service** (**AWS**)
+    EC2 instance, I get the following result:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: The concrete values for these `ns/op` properties are going to be different on
+    your machine, so don’t focus too much on the concrete values. What should be surprising
+    here is that our immutable code outperforms our mutable code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To understand what’s going on, we need to take a look at garbage collection,
+    and stack versus heap allocation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding stacks, heaps, and garbage collection
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Garbage collection is a topic that is complex enough that it probably deserves
+    a full chapter in its entirety. We will take some shortcuts here and look at a
+    sufficiently deep understanding of this process but will simplify some steps.
+    Go itself is open source and has good documentation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reclaiming memory through garbage collection
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Go is a garbage-collected language, which means that memory management is taken
+    care of by the Go runtime. This reduces the effort required on the programmer’s
+    side as it takes away from the need to manually manage memory. This can eliminate
+    or reduce the odds of having certain types of bugs in your code, such as memory
+    leaks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With automatic garbage collection, we, the programmers, don’t have to think
+    about managing the memory of our application. Memory will be reserved for us,
+    and later given back to the system, without our intervention. To make this work,
+    the Go runtime needs to do some behind-the-scenes work. Essentially, the runtime
+    will trigger a “garbage collection” process to free up memory. It does so by temporarily
+    freezing our application, checking which objects are no longer required, and removing
+    them from the working memory of our application. There are different ways of figuring
+    out which objects are no longer required, and some mechanisms to delete them throughout
+    our program’s lifetime. Typically, a garbage collector will try to figure out
+    if there are still any references to a piece of data. If there’s a reference to
+    the data, it is still accessible by your program and thus should not be deleted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To understand how this process impacts performance, it helps to think of garbage
+    collection as a *stop-the-world* process. This means it completely stops all execution,
+    identifies garbage, and removes it to free up memory. In practice, Go uses multiple
+    threads to identify the garbage objects. This approach is called the *concurrent
+    mark-and-sweep garbage collector*. Regardless of this being concurrent, there
+    is still performance overhead. When people are deciding on which language to use
+    for their application, the garbage collection overhead pops up surprisingly often
+    in conversation. This is most apparent when the decision has to be made between
+    Go, C/C++, or Rust.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the performance impact of garbage collection has been reduced in the more
+    recent Go version, the impact cannot be completely erased. There are ways of tweaking
+    the garbage collector’s behavior in Go, but in general, that would not be a recommended
+    approach. Often, a suboptimal implementation of an algorithm would outweigh the
+    negative impact felt by garbage collection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Stacks and heaps
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Our next topics to discuss are stacks and heaps. There are two types of memory
+    available at runtime, namely a stack and a heap. A stack is a **Last-In, First-Out**
+    (**LIFO**) data structure. This means that when data is removed from the stack,
+    the last item to have been inserted will be deleted. Go uses a stack to store
+    data in a chain of function calls, this includes local variables, the function’s
+    input parameters, and more.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When a function is called, the data of this function is pushed to the top of
+    the stack. When the function is done executing, this data is removed from the
+    stack. Thus, the stack is continuously growing and shrinking while functions are
+    being called in your application. There is a limited amount of space available
+    for the stack; exceeding this leads to an error well known as a *stack overflow*.
+    The elements on the stack can be thought of as having a limited lifetime as they
+    are removed from memory quickly (at the end of a function).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The heap, on the other hand, is shared memory for the lifetime of your application.
+    The data that is stored here is not limited to the lifetime of a function. This
+    means that this data can be referenced (pointed to) from multiple places in your
+    application. To avoid the heap from continuously expanding, the heap memory is
+    managed by the garbage collector. The garbage collector will scan the memory in
+    the heap to figure out if it’s still needed or not. If the data is no longer needed,
+    it is deleted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the stack and heap implementation, it is cheaper to reclaim memory from a
+    stack than it is from a heap. The stack does not need a garbage collector that
+    “stops the world” to scan for objects to delete. Thus, if we could allocate as
+    much as possible on the stack instead of the heap, our programs would run faster.
+    This is not always possible as there is data that we want to keep alive outside
+    of the context of a single function. In addition to this, heap allocations tend
+    to be slower than stack allocations, as the memory required for a heap allocation
+    needs to be reclaimed from a memory pool – a set of memory that Go has claimed
+    from the operating system. This is a potentially slow operation as your program
+    waits for the memory to become available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To understand how this impacts the performance of the immutable and mutable
+    example we looked at previously, we need to understand how Go chooses where to
+    store a variable. In theory, this sounds simple – if data is needed only in a
+    single function it is a stack variable; otherwise, we have to store it on the
+    heap. In practice, though, there are a few more things to consider.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, the compiler will try to prove that a variable is local to a single function.
+    The compiler does this through a process called *escape analysis*, where it looks
+    for variables that escape the context of a single function. If a variable is not
+    local to a single function, it stores it on the heap. Another piece of information
+    the Go runtime will look at is the size of the data. It makes more sense to store
+    large data on the heap rather than on the stack, as the stack is typically more
+    limited in space. Stack space is a real issue that we will explore in some more
+    depth when we discuss recursion in the next chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How does this tie into our conversations of mutability with pointers? In the
+    example code, which we used to benchmark the two functions, the immutable code
+    can allocate all memory on the stack. The mutable example is not so lucky and
+    will allocate data on the heap since we are using pointers, which is the context
+    that escapes a single function. Thus, the impact we are seeing in performance
+    is caused by the garbage collector reclaiming memory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s important to note that the concrete implementation of the garbage collector,
+    and even the algorithms for escape analysis, can and do change over time. To understand
+    how garbage collection works in the latest version of Go, it’s best to read the
+    documentation of that version.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Seeing escape analysis in action
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Let’s explore the behavior of escape analysis in Go to show that our reasoning
+    makes sense. First, we will change our code slightly by adding a pragma to avoid
+    the compiler from in-lining our function. A pragma is a special comment in Go
+    that gives some instructions to the compiler. We will add this to each function
+    so that they will all have the comment present, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: This means the functions are not erased by the compiler. Function inlining is
+    a compiler optimization process that occurs behind the scenes to speed up the
+    execution of our programs. Once again, this deserves a chapter on its own but
+    is outside the scope of this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once we have added the pragma to each function, we can build our application
+    with the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This tells the Go compiler to explain to us where escape analysis decisions
+    are being made, and what the outcome of these decisions is. When we look at the
+    output, we get this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: What this shows us is that, on line 30, our `Person` is escaping to the heap.
+    And when an object escapes to the heap, this eventually has to be picked up by
+    the garbage collector so that our memory space can be reclaimed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Many things are happening behind the scenes, and we simplified some of how garbage
+    collection works in Go. But overall, this should serve as an example of why the
+    assumption that pointers and mutable code are faster than immutable code without
+    pointers is invalid.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When to write mutable functions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: So far, this chapter has indexed heavily on why we prefer to write immutable
+    functions. But there are some instances in which it makes sense to write mutable
+    functions either way. The only real reason is performance. As we saw earlier,
+    the performance implications can often be ignored, but not always. If you are
+    using structs that contain a lot of data, copying that over to each function can
+    negatively impact the performance sufficiently to cripple your application. The
+    only real way of knowing whether this is the case is by adding performance metrics
+    to your application. Even so, a trade-off must be made between more performant
+    code and more maintainable code. Oftentimes, trying to squeeze more performance
+    out of your application hinders long-term maintainability.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another possible reason to write mutable code using pointers is for resources
+    that need to be singularly unique within your application. If you’re implementing
+    traditional object-oriented patterns in your code, you might have implemented
+    the singleton pattern. If you want to have a true singleton, you should be using
+    a pointer rather than copying over the singleton. Otherwise, you will have multiple
+    copies of your singleton available in different functions, potentially each with
+    a different state. Whether or not having singletons in your code is a good idea
+    is a discussion for a different book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What are functors and monads?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous chapter, we discussed the concept of function purity. A function
+    should not produce any side effects and should be idempotent. In this chapter,
+    we have seen how structs can be made immutable, and how this ties into function
+    purity. As mentioned earlier, even in a purely functional language, in which side
+    effects are eliminated as much as possible, you still have desirable side effect
+    behavior. For example, getting input from a user, or writing data to a database,
+    are both side effects that add value to a program.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we will try to build an understanding of how pure functional
+    languages can achieve this. We’ll also look at an implementation in Go to achieve
+    the same results, building on top of our knowledge about immutable structs and
+    pure functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To preface this section, it is commonly said that there are too many monad explanations
+    already and all of them are wrong or lacking in some manner. There are many books
+    about functional programming, or blog posts and videos, that try to offer a good
+    explanation. The fact that new explanations are being offered so frequently should
+    give you an idea as to the complexity of the topic. I don’t have the lofty goal
+    of offering the “final monad explanation that is ever needed.” Rather, I will
+    try to cut it down to the core idea and keep it as close to what’s practical as
+    possible. As such, we will stay away from the deeper theoretical layers of category
+    theory. What follows is, hopefully, a *good enough* explanation of the idea rather
+    than a perfectly holistic explanation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What’s a functor?
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Before we can demonstrate what a monad is, we need to understand what a functor
+    is. A functor, simply put, is a function that can apply an operation to each element
+    contained in a data structure. In Haskell, the implementation of this function
+    is called `fmap`. In Go, this function might look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding type signature, we are using slices. A slice is a data type
+    that contains other data elements. The `fmap` implementation does not have to
+    operate on slices – any data structure that holds data elements will do, such
+    as pointers (they optionally hold a data element), functions themselves, trees,
+    or as we will see in the next few pages, a monad.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we were to write an implementation of `fmap` in Go to operate on slices,
+    as shown in the function signature previously, we would simply call the provided
+    `mapFunc` for each element in `sliceA`. The result of this would be stored in
+    the new slice, `sliceB`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice the use of generics in the preceding example, which we can use to map
+    between two `any` types. But the input is `A` and the output is `B`. The map function
+    thus **changes the type** of our data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s take a look at how we would use this function. Imagine that we have a
+    slice of integers, and we want to transform this into a slice of strings. We could
+    use our `fmap` function to do exactly this. All we need to do is provide `fmap`
+    with a function that takes an integer and returns a string:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When we run the preceding function, we get the following output (recall that
+    `%T` prints the type of the variable):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: This tells us that our int, `slice`, was transformed into a string slice, and
+    the values contained are, to no surprise, `[1,` `2, 3]`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is pretty much what a functor is. It’s a function that transforms all data
+    in a given data structure into data of a different type. The `fmap` implementation
+    is a pure, higher-order function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: From functor to monad
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The next step is getting from a functor to a monad. So, what exactly is a monad?
+    When we aim for a somewhat theoretical description of the monad, we might get
+    something such as the following.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A monad is a software design pattern. It is a data type that can combine functions
+    of similar types and wrap the results of a non-monad type into a new monadic type
+    offering additional functions. For a type to be a monad, it needs to have two
+    functions defined:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**A function to wrap a value of the T type** **into Monad[T]**'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**A function to combine the function of the** **Monad[T] type**'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We will demonstrate the monad with a practical example. A `String`). A popular
+    monad is the `Maybe` monad, also known as `Optional` in some programming languages.
+    The `Maybe` monad is a type that *potentially* contains a concrete value, but
+    also might be empty.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To model the `Maybe` monad in Go, we will use an interface that defines the
+    operations on our struct. Next, we will also create two implementations, one for
+    when a value is present, and one for when the value is absent:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the preceding interface implementation, we have defined two functions: `Get`
+    and `GetOrElse`. More can be defined; the concrete functions don’t matter as much.
+    What’s important is that we have a way to model values that might or might not
+    be present.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Notice that we are not using pointers here, we’re only using concrete types.
+    The `Maybe` monad is often introduced to avoid pointers. By avoiding pointers,
+    we can eliminate a class of errors that happen at runtime when functions are called
+    on *null pointers*. The `null`, or `nil` in Go, also does not make real sense
+    from a type taxonomy perspective. The `nil` pointer belongs to every type, meaning
+    there’s no real useful information in there, and we want our type system to be
+    as declarative as possible. (Go does have a `typed nil`, on which functions can
+    be called safely. Still, exercise caution whenever using this. It’s not common
+    behavior in programming languages and can trip up even seasoned Go programmers.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: George Hoar, who first introduced the null pointer concept, called this his
+    “*billion-dollar mistake*.”
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The two implementations that we will use for modeling the presence and absence
+    of a value are `Just` and `Nothing`, respectively. These names have been borrowed
+    from Haskell; you’ll find different names for these values in different programming
+    languages. `Just` signals a concrete value is present, while `Nothing` signals
+    the absence thereof. We will start by implementing the value present use case,
+    with the `JustMaybe` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding code adheres to the `Maybe` interface. As such, we can use a
+    `JustMaybe` as an instance of `Maybe`. To implement the absence of a value, we’ll
+    implement the analogous `NothingMaybe`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The implementations are rather straightforward for each function. Perhaps the
+    most surprising thing is the `return` statement in `Get` for a `NothingMonad`,
+    where we wrote:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: This statement returns a new instance of `A`, but `A` is an unknown value at
+    compile time. By using `new`, we can instance it, but it’ll return a pointer value,
+    which we will dereference to return a concrete value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, let’s also create constructor-like functions for these two implementations,
+    which are functions that can wrap a value of a given type into the monadic representation.
+    Recall that this is a requirement for our monad pattern:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'These two implementations will let us implement both the presence and absence
+    of a given value. For example, we could now use these in a function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding function, we are getting a value from a map by looking up a
+    given key. If a value is present, we return the `JustMaybe` implementation of
+    our monad; otherwise, we return the `NothingMaybe` implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Convenience functions can be written, such as `fromNullable(*value)`, which
+    would return either a `JustMaybe` or a `NothingMaybe` by checking if the value
+    passed to the function is present.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Remember that our monad type is a data structure that holds underlying elements.
+    As such, we can implement the `fmap` function on this type as well. In this implementation,
+    we will turn a `Maybe` of type `A` into a `Maybe` of type `B`. We need to provide
+    a function to map from the underlying type `A` to the underlying type `B` to accomplish
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding code, we are using a type switch to determine what type our
+    `Maybe` monad is to figure out if it represents the `JustMaybe` or `NothingMaybe`
+    implementation. If the type matches `JustMaybe`, we will map the underlying value
+    from type `A` to type `B`, and return this wrapped in a new monad.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is an incomplete definition of a monad, but a practical implementation
+    of one such instance. This concept can be pushed further, but Go does not provide
+    a convenient way of exploring this further, so it would not often be used in the
+    real world.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we touched upon immutability in Go. We took a small refresher
+    on how immutability works in Go, by either pass-by-value or pass-by-reference.
+    We learned that pointers do not guarantee that your code will be more performant
+    than if you avoid them. We also discussed some of the benefits of immutable code,
+    such as improving the readability and understandability of the code base. We also
+    touched on how this makes concurrency easier to implement correctly, as the state
+    is not mutated between functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we wrapped up the discussion of pure functions that we started in the
+    previous chapter by looking at monads and a practical implementation thereof with
+    the `Maybe` monad.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will explore some must-have functions for writing code
+    functionally.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Part 2: Using Functional Programming Techniques'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: After we have established the basic ideas of functional programming and see
+    how they relate to the object-oriented paradigm, we will move on to this part.
+    Here, we will look at how functional programming can be leveraged to compose larger
+    programs while still at the class level. We’ll learn about solving problems iteratively
+    versus recursively, the three important categories of function types, and how
+    to chain functions together for more readable code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part has the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 6*](B18771_06.xhtml#_idTextAnchor101)*, Three Common Categories of
+    Functions*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 7*](B18771_07.xhtml#_idTextAnchor113)*, Recursion*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 8*](B18771_08.xhtml#_idTextAnchor126)*, Readable Function Composition
+    with Fluent Programming*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

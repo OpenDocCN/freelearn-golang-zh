@@ -1,0 +1,1047 @@
+- en: Working with PostgreSQL, JSON, and Go
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we are going to take a bird's-eye view of SQL. In the previous
+    chapters, we discussed SQLite3, which is a lightweight database for quick prototyping.
+    But when it comes to developing an enterprise-grade application, MySQL or PostgreSQL
+    is the preferred choice. Both are well-proven, heavy-duty databases that are open
+    source. In this chapter, we'll pick PostgreSQL as our main subject.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, we'll discuss the internals of PostgreSQL, and then move on to use the
+    database with Go. The goal of this chapter is to make the reader comfortable working
+    with PostgreSQL and Go. We'll also build a URL-shortening service that requires
+    a database layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Discussing PostgreSQL installation options
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Introducing `pq`, a pure PostgreSQL database driver for Go
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Implementing a URL-shortening service using PostgreSQL and `pq`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Exploring the JSONStore feature in PostgreSQL
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The following software should be pre-installed in order to run the code samples:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Operating system: Linux (Ubuntu 18.04)/Windows 10/MacOS X >= 10.13'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Software: Docker >= 18 (Docker Desktop for Windows and MacOS X)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Go compiler: stable version >= 1.13.5'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'PostgreSQL: stable version >= 10.8'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You can download the code for this chapter from [https://github.com/PacktPublishing/Hands-On-Restful-Web-services-with-Go/tree/master/chapter7](https://github.com/PacktPublishing/Hands-On-Restful-Web-services-with-Go/tree/master/chapter7).
+    Clone the code, and use the code samples in the `chapter7` directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Discussing PostgreSQL installation options
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'PostgreSQL is an open source database that can be installed on multiple platforms.
+    There are two standard options to install PostgreSQL:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Manual server installation on a machine
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Installation in a Docker container
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Manual installation on an operating system can be a universal installation.
+    You can find instructions for installation at this official PostgreSQL link: [https://www.postgresql.org/download/](https://www.postgresql.org/download/).
+  prefs: []
+  type: TYPE_NORMAL
+- en: For MacOS X and Windows, you get straightforward installers. For the varieties
+    of Linux, the PostgreSQL website has nice documentation with detailed instructions.
+    The only drawback with universal installation is you are bound to install/uninstall
+    the PostgreSQL database whenever you change the version. In container-based systems,
+    the execution environment is isolated from the host system. Docker is one such
+    popular container system. In the upcoming subsection, we'll look at the installation
+    of PostgreSQL inside a Docker container.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Installing via Docker
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We can also install PostgreSQL via Docker. This is the most common approach
+    these days because of reduced complexity and an easy installation process. Assuming
+    Docker is set up on your machine, proceed as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The latest stable version is `10.8`. Pull a Docker image with the version as
+    a tag, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'See a list of all the images available with the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Start a PostgreSQL server on port `5432` inside a container by mapping the
+    database file to a local file, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: This starts the PostgreSQL server on `localhost:5432`. It also mounts the PostgreSQL
+    database's data directory to a local directory named `postgres-data`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Replace `YOUR_PASSWORD` with an actual password while running the preceding
+    command. The `-d` option is used in the command to run the container as a daemon
+    process. Now, the PostgreSQL server is running on our machine. It uses the `postgres:10.8` Docker
+    image we pulled previously.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can also use the `docker run` command without pulling the image. The `docker
+    pull` command is to explicitly show that we are using the `postgres` image.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once we have installed PostgreSQL, we have to create default users to access
+    the database. We'll look at this in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding users and databases in PostgreSQL
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Now, we can create a new user and database. For this, we are going to use Ubuntu/MacOS
+    X as a general example. We do this in a shell called the `psql` shell. We can
+    see all available commands in `psql` using the `\?` command. In order to enter
+    the `psql` shell, first, change to the `postgres` user. On Ubuntu, for universal
+    installation, you can enter the `psql` shell using the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, it turns us into a user called `postgres`. Then, launch the `psql` shell
+    using the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the case of PostgreSQL running in a Docker container, use this command to
+    launch the `psql` shell directly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once you are in the `psql` shell, type the `\?` help command in there, and
+    you will see the output of all available commands, as shown in the following screenshot:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/f2f8467d-50d8-4b0d-94a8-fa961bdefab4.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'To list all available users and their privileges, you will find the following
+    command in the `Informational` section of the help shell:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'A role is the access permission given to a user. With the `\du` command, you
+    can see that the default user is `postgres`, with the following roles attached:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We need a new user to work with PostgreSQL. To add a new user, just type this
+    `SQL` command in the `psql` shell:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This creates a new user with the name `gituser` and the password `YOUR_PASSWORD`.
+    Now, give permission to the user to create databases and further roles, using
+    the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In order to delete a user, use the `DROP` command in the same context, like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Don't try to change the password for the default `postgres` user.It is intended
+    to be a superuser account, and should not be kept as a normal user. Instead, create
+    a new role and give the required permissions for it. Use strong passwords.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you don't use a **command-line interface** (**CLI**), you can install a **graphical
+    user interface** (**GUI**) client such as **pgAdmin 4** for accessing the database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can find more details about installing **pgAdmin 4** as a Docker application
+    here: [https://hub.docker.com/r/dpage/pgadmin4/](https://hub.docker.com/r/dpage/pgadmin4/).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now we know how to create a role, let''s see a few more **create**, **read**,
+    **update**, and **delete** (**CRUD**) SQL commands that are common in most relational
+    databases. Take a look at the following table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Action** | **SQL command** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| Create a database |'
+  prefs: []
+  type: TYPE_TB
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: '|'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| Create a table |'
+  prefs: []
+  type: TYPE_TB
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: '|'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| Insert into table |'
+  prefs: []
+  type: TYPE_TB
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: '|'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| Update table |'
+  prefs: []
+  type: TYPE_TB
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: '|'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| Delete from table |'
+  prefs: []
+  type: TYPE_TB
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: '|'
+  prefs: []
+  type: TYPE_NORMAL
+- en: These basic commands can be supported by many advanced SQL operators, such as
+    `LIMIT`, `ORDER BY`, and `GROUP BY`. SQL has many other concepts, such as joining
+    relations over tables.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can find more details about SQL queries that are supported by PostgreSQL
+    here: [https://www.postgresql.org/docs/10/sql.html](https://www.postgresql.org/docs/10/sql.html).
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we'll see how Go programs communicate with the PostgreSQL
+    server. We'll try to leverage a database driver called `pq`. Using that driver
+    package, we'll see an example of how to insert a web URL into PostgreSQL.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing pq, a pure PostgreSQL database driver for Go
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In [Chapter 4](08db4c3a-536c-4f0c-bedc-fcb802c3306a.xhtml), *Simplifying RESTful
+    Services with Popular Go Frameworks*, we used a driver package called `go-sqlite3` to
+    work with SQLite3\. In the same way, `pq` is a database driver package available
+    for Go.We can install that library system-wide by using the `go get` command,
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can also use the `dep` tool to install this package. We''ll use it in this
+    example. Let''s look at the steps for installation here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a new project directory called `basicExample` in `GOPATH`, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, traverse to the `basicExample` directory and use `dep` to install the `pq`
+    package in the directory, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: This creates a few configuration files and adds a package to the vendor in the
+    same directory. Now, we can create our program and use that `pq` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In order to create a new table, we should create a new database in the PostgreSQL
+    server. To create a new database, enter the `psql` shell or use **pgAdmin 4**,
+    as shown in the following command (you only have to do this once):'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s look at  a short example that explains the usage of the `pq` driver.
+    In the later sections, we''ll implement a URL-shortening service. This a pre-step
+    for that service. We''ll create a table called `web_url` for our purpose by following
+    these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a directory called `helper` in the project, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: This helps in initiating database operations such as creating a table.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, add a file called `models.go`.This file is going to have the table creation
+    logic. We use `sql.Open` to make a connection to PostgreSQL. That function takes
+    a database type and a database string as arguments. We can prepare a SQL statement
+    using the `db.Prepare` command.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Import the necessary packages in the program, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, create a few constants that hold database-connection information. A database
+    connection needs a hostname, a port, a username, a password, and a database name,
+    as shown in the following code block:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: The password should be the one you passed when creating the user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, create a function called `InitDB`. It uses a connection string to open
+    a new database connection to PostgreSQL. After a successful connection, it should
+    prepare a SQL statement to create a table called `web_url`. The code for the function
+    looks like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `sql.Open` method opens the connection string. It then prepares and executes
+    a `CREATE TABLE` query to create a `web_url` table if this does not already exist. `InitDB`
+    returns an error if any operation fails on the database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s create a `main.go` program to use the `helper` package, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the `main` block, we can import an `InitDB` helper function and use it like
+    this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: This program imports the `helper` package and uses the `InitDB`function from
+    it. We log a successful initialization message if the table was successfully created;
+    otherwise, we log an error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you run the program, you will see this message printed:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: This creates a `web_url` tablein the `mydb` database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can cross-check that by entering into the `psql` shell and typing the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This connects the user to the `mydb` database and lists all available tables,
+    as shown in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: In PostgreSQL, the `AUTO_INCREMENT` type needs to be replaced by `SERIAL` while
+    providing a schema for table creation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we promised earlier, in the next section, we will try to implement a URL-shortening
+    service. We'll initially lay out the basics required for building such a service.
+    Then, we'll move  on to the implementation. The URL-shortening service will give
+    you a clear understanding of how PostgreSQL can be used to solve problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing a URL-shortening service using PostgreSQL and pq
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Let's code the URL-shortening service to explain all the concepts we discussed
+    in the preceding section. We need a few basics before writing an API for our service.
+    First, we need to design a package that implements the `Base62` algorithm with
+    encoding/decoding functions. The URL-shortening technique needs the `Base62` algorithm
+    to convert a long URL to a short one, and vice versa. After designing the package,
+    we'll write an example to show how this encoding works.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining the Base62 algorithm
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The `Base62` algorithm is a number encoder that converts a given number to
+    a string. How does it do that? The input number is mapped from 62 characters.
+    The beauty of this algorithm is that it creates unique, shorter strings for every
+    given number. It can generate memorable short strings, even when the inputs are
+    big. We use this technique to pass a database ID into the `ToBase62` function—which
+    we are going to create shortly—and get a short string out. Let''s write an example
+    for implementing the `Base62` algorithm. The logic is purely mathematical and
+    can be implemented in different ways. Proceed as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a project called `base62Example`, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Create a package called `base62` and add a file called `encodeutils.go`, like
+    this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Define two functions called `ToBase62` and `ToBase10`.The first one takes an
+    integer and generates a `base62` string, and the latter one reverses the effect,
+    which means it takes a `base62` string and returns the original number. The program
+    for encoding/decoding is as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Create another program that uses these utility functions, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This program uses the imported functions from `encodeutils.go` and calculates
+    an encoded string. Then, it decodes back again to the original number and prints
+    both the number and the string, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we are using the `encode/decode` functions from the `base62` packageand
+    trying to print the conversion.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can run the program using the following command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It prints the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Base62` encoding of `100` is `1C`. This is because the number `100` shrunk
+    to `1C` in our `base62` logic.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After learning the basics of `Base62` encoding, let''s implement a URL-shortening
+    service, whereby we''ll leverage a `Base62` algorithm to generate a short URL.
+    The implementation strategy looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Design an API route to collect a long URL from the client.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Insert that long URL in the database and get the ID of that record.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Use that ID to generate a `Base62` string and pass it along with the API server
+    hostname as a shortened URL in the response.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Whenever a client uses that shortened URL, it hits our API server.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The API server then decodes the `Base62` string back to the database ID and
+    fetches the original URL.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Finally, the client can use this URL to redirect to the original site.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Remember that we are building a service to support URL shorteners. These leverage
+    our API to `encode/decode` logic to ask for a shortened URL.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We are going to write a Go API service that implements the preceding strategy.
+    We will reuse the following files:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`encodeutils.go` from the `base62Example` project for encoding/decoding'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`base62` and `models.go` from the `basicExample` project for database logic'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We will use the `gorilla/mux` package for multiplexing the URL and `pq` for
+    storing and retrieving results in the PostgreSQL database. Let''s create the project
+    structure, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The directory structure looks like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: Copy `encodeutils.go`and `models.go`from the preceding examples to the directories
+    shown in the preceding code block.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'We need two data structures in the main program: one to hold the database connection
+    and the other one for the URL-shortener service response. Let''s call the response
+    as a `Record` type. Create two structs, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, create the `main` function, where we define two URLs to handler functions.
+    These application routes are required to shorten the URL and retrieve the original
+    URL respectively. The main block should create a new database connection and two
+    `mux` routes. We attach `GenerateShortURL` and `GetOriginalURL` function handlers
+    to those two mux routes.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Finally, we run the HTTP server, serving the API. See the following code for
+    the `main` block:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'See the `POST` operation. The `GenerateShortURL` function handler takes an
+    HTTP request and performs the following actions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inserts the URL coming from the HTTP request body into the database and fetches
+    the ID of a new record.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Uses `base62` to convert the ID to a string and send it back in the HTTP response,
+    as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: The client thinks the original URL is shortened, but in reality, the ID is mapped
+    to a shorter string using the `base62` algorithm.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now comes the `GET` operation. The `GetOriginalURL` function handler takes
+    the shortened URL and converts it back to the original one. The logic is to convert
+    a `base62` string (a shortened string) to a number and use that number to fetch
+    records from the PostgreSQL database. We parse the input request and collect the
+    `encoded_string` parameter. We use that to retrieve the original URL from the
+    database. See the following code for the `GetOriginalURL` function handler:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `DBClient` struct is needed in order to pass the database driver between
+    various functions. Run the program, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Another option is to install a binary. If your `$GOPATH/bin` is already in
+    the system `PATH` variable, we can first install the binary and run it like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Use the binary name, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: It is a best practice to install the binary because it is available system-wide.
+    But for smaller programs, we can run `main.go` from the directory of the program.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, it runs the HTTP server on port `8000` and starts collecting requests
+    for the URL-shortening service. Open the console and type these `curl` commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It returns the shortened string, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The encoded string is just `"1"`. The `Base62` algorithm starts allocating
+    shorter strings, starting from `"1"` up to a combination of alphanumeric letters.
+    Now, if we need to retrieve the original URL, we can perform a `GET` request,
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It returns the following JSON code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: So, the service can use this result to redirect the user to the original URL
+    (site). Here, the generated string doesn't depend on the length of the URL because 
+    the database ID is the only criterion for encoding.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The package imports in `urlshortener` are left out, for brevity. Please refer
+    to the project code from the `chapter7` GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `RETURNING` keyword needs to be added to the `INSERT` SQL command in PostgreSQL
+    to fetch the last inserted database ID. This is not the case with the MySQL or
+    SQLite3 `INSERT INTO web_url( ) VALUES($1) RETURNING id, record.URL` query. This
+    database query returns the last inserted record's ID. If we drop that `RETURNING` keyword,
+    the query returns nothing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we'll look at an important feature of PostgreSQL called
+    JSONStore. PostgreSQL, unlike other relational databases, can allow JSON to be
+    stored in the form of fields. It also provides a query language for JSON.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exploring the JSONStore feature in PostgreSQL
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**PostgreSQL >9.2** has a prominent feature called JSONStore. PostgreSQL introduced
+    two new data types for 9.2">storing JSON data. PostgreSQL allows users to insert
+    JSON data as a `json` field or a `jsonb` field. It is quite useful for modeling
+    real-world data that has to be more flexible in its structure. PostgreSQL draws
+    on the best of both worlds by allowing us to store JSON strings as well as relational
+    types.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The main difference between `json` and `jsonb` is that the `json` field stores
+    data as plaintext whereas `jsonb` stores that same data as a binary field. Each
+    has its own benefits. For example, the `json` field commonly takes up less space
+    than `jsonb` because it is a straightforward insert, but the `jsonb` field indexes
+    JSON for better querying. You should choose the right field depending on whether
+    the JSON document is fetched as a whole or queried on internal keys.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we will try to understand a few of the JSON models that we
+    defined for the logistics use case in the previous chapter, but here, we'll use
+    the `jsonb` field to store and retrieve items in PostgreSQL. For accessing PostgreSQL's
+    JSONStore, the normal `pq` library is very tedious. So, in order to handle that
+    better, we can use an **Object Relational Mapper** (**ORM**) called **Grails Object
+    Relational Mapping** (**GORM**). In the next section, we will discuss this briefly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing GORM, a powerful ORM for Go
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**GORM** provides methods for all operations that can be done in the `database/sql` package.
+    We can install GORM using the `dep` tool. In this section, we will look at with
+    examples of how to insert, retrieve, and query PostgreSQL `JSON` using the `GORM`
+    package.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For the full documentation about this ORM, visit [http://jinzhu.me/gorm/](http://jinzhu.me/gorm/).
+    Let''s write a program that implements the `Shipment` and `Package` types as JSON
+    models. We''ll use the same models that we defined in the previous chapter for
+    logistics. Let''s look at the steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a new directory called `jsonstore` in `$GOPATH/src/github.com/git-user/chapter7` and
+    create the files, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Install all dependencies via `dep` in the `jsonstore` directory, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, edit the `helper.go` file to add `Shipment` and `Package` models. Every
+    model (table) we create should be represented as a struct in `gorm`. That is the
+    reason we created two structs: `Package` and `Shipment`. The first line should
+    be `gorm.Model`. The other fields are the fields of the table. By default, an
+    auto-increment ID will be created in the documents inserted into the database.
+    See the following code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you notice, in the preceding code block, `Data` is the `jsonb` field created
+    for the `Shipment` and `Package` tables.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After finishing the definitions of structs, we can write a table initialization
+    logic that migrates these structs into tables in the PostgreSQL database. In order
+    to do that, utilize the `Open` method from the GORM package to get the database
+    connection. We can then run the `AutoMigrate` method with the structs we created
+    previously, to save them to the database. See the following code for migration:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: This `InitDB` logic looks similar to the logic we defined using the `pq` library.
+    This helper file migrates the tables and returns the database connection back
+    to whoever calls the `InitDB` function. In the next section, we'll leverage this
+    connection to interact with the `Shipment` and `Package` tables.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing the logistics REST API
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Before jumping in, let''s design the API specification table that shows the
+    REST API signatures for various URL endpoints. Refer to the following table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Endpoint** | **Method** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `/v1/shipment/id` | `GET` | Get a shipment from ID |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `/v1/package/id` | `GET` | Get a package from ID |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `/v1/package?weight=n` | `GET` | Get a package with a given weight in grams
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `/v1/shipment` | `POST` | Create a new shipment |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `/v1/package` | `POST` | Create a new package |'
+  prefs: []
+  type: TYPE_TB
+- en: 'To implement the preceding API, we need a main program that registers API routes
+    to handler functions. Add one more file to our `jsonstore`project, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In this program, we will try to implement the `POST` and `GET` endpoints for
+    `Package`. We suggest implementing the remaining two endpoints of `Shipment` as
+    an assignment for the reader. Follow these steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The program structure follows the same style as all the programs we have seen
+    until now. We collect the database connection from the helper package and use
+    it to create `DBClient`. We use `gorilla/mux` as our HTTP router and the `gorm`
+    package for database operations. We should have these routes and handlers in our
+    program, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `POST` handler function saves a package object into the database. It returns
+    an ID of the inserted record. The code for the `PostPackage` handler looks like
+    this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This function is reading the `POST` body from the response and making an ORM
+    function call to save the package data, like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: After saving the package successfully to the database, the preceding function
+    is returning the ID as part of the response.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s write the code for the `GetPackage` handler function. It is similar
+    to the preceding handler except that it uses a different database function. In
+    this code, instead of reading the request body, we have to read the `PATH` variable
+    and use that for querying data. See the following code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In this case, the query is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now comes another `GET` operation. The `GetPackagebyWeight` handler function
+    queries the database for a package with a given weight. Here, we use a JSON query
+    on the `data` field. We use a special syntax of `column ->> field`, as shown in
+    the following handler code:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: There are many other variations for querying JSON in PostgreSQL. You can find
+    them here: [https://www.postgresql.org/docs/10/functions-json.html](https://www.postgresql.org/docs/10/functions-json.html).
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the `GetPackagesbyWeight` handler function, we are making a raw query to
+    the database by using the `db.Raw` method. It returns all packages as a list of
+    those matching the weight criteria . For this `GET` API, the weight criteria list
+    is being sent by the client as a query parameter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are four important aspects in this JSONStore example, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We replaced the traditional driver, `pq`, with the `GORM` driver.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We used GORM functions for CRUD operations.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We inserted JSON into PostgreSQL and retrieved results.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We executed raw SQL and filtered fields on JSON.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This completes the important logic for our program. Please refer to the `chapter7`
+    repository for the complete code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, run the program using the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It runs a Go server. Make a few `curl` commands to see the API response, as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create the package (`POST`), as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It returns the inserted record in the database, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we need to `GET` the details of the inserted package, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It returns all the details about a package with `ID:1`, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s test our second `GET` API, as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE64]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This returns all the packages with a weight of `10` gms, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE65]'
+  prefs: []
+  type: TYPE_PRE
+- en: The goal of this project is to show how JSON can be stored in and retrieved
+    from PostgreSQL. This concludes our journey through PostgreSQL. There is a lot
+    more to explore in PostgreSQL, but it is out of the scope of this book. PostgreSQL
+    brings together the best of both worlds by allowing us to store relational as
+    well as JSON data in the same table. It also allows us to query JSON data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we started our journey by introducing PostgreSQL. We saw how
+    to run PostgreSQL in Docker, and then listed out a few basic SQL queries for CRUD
+    operations. We learned how to add new users and roles in PostgreSQL. We then discussed `pq`,
+    a PostgreSQL driver package for Go, with an example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We designed a URL-shortening service using the Base62 algorithm. We leveraged
+    `pq` and `gorilla/mux` for implementing that service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: PostgreSQL also allows **JSON storage** (**JSONStore**) from version 9.2 onward.
+    It allows developers to insert and retrieve JSON documents in a database. It combines
+    the power of both relational and non-relational databases with JSONStore.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We also introduced GORM, a well-known ORM for Go. Using an ORM, database operations
+    can be easily managed. GORM provides a few useful functions—such as `AutoMigrate` (creating
+    a table if one doesn't exist)—for writing intuitive Go code over the traditional
+    `database/sql` driver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we implemented a REST API for logistics using GORM. PostgreSQL is a
+    well-established, open source relational database that can be a good storage backend
+    for Go. With `pq` and `GORM`, driver support for Go is exceptional. The primary
+    goal of this chapter was to make you feel comfortable working with PostgreSQL
+    and Go for REST API development.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So far, we have looked at about building servers that provide REST APIs. Sometimes,
+    developers need client-side tools to consume a REST API. It is also useful to
+    understand how clients can consume a REST API to create a better API. In the next
+    chapter, we will learn generally about how client software is built in Go. There,
+    we also develop API clients for a GitHub REST API.
+  prefs: []
+  type: TYPE_NORMAL

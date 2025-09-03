@@ -1,0 +1,760 @@
+- en: '6'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Asynchronous Communication
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous chapter, we illustrated how services can communicate with each
+    other using a synchronous request-response model. There are other communication
+    models that provide various benefits to the application developer, such as asynchronous
+    communication, which we are going to cover in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, you are going to learn the basics of asynchronous communication
+    and some common techniques for using it, as well as some benefits and challenges
+    it brings to microservice developers. We will cover a popular piece of asynchronous
+    communication software, Apache Kafka, and illustrate how to use it for establishing
+    communication between our microservices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we are going to cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Asynchronous communication basics
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using Apache Kafka for messaging
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Asynchronous communication best practices
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Let’s proceed to the basics of asynchronous communication.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To complete this chapter, you need Go 1.11+ or above, similar to the previous
+    chapters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can find the GitHub code for this chapter here: [https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter06](https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter06)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Asynchronous communication basics
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we are going to cover some theoretical aspects of asynchronous
+    communication. You will learn the benefits and the common issues of an asynchronous
+    communication model, and the common ways of using it, as well as getting some
+    real-world examples of asynchronous communication.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Asynchronous communication is communication between a sender and one or multiple
+    receivers, where a sender does not necessarily expect an immediate response to
+    their messages. In the synchronous communication model, which we covered in [*Chapter
+    5*](B18865_05.xhtml#_idTextAnchor076), the caller sending the request would expect
+    an immediate (or nearly immediate, taking into account network latency) response
+    to it. In asynchronous communication, it may take an arbitrary amount of time
+    for the receiver to respond to the request, or to not respond at all (for example,
+    when receiving a no-reply notification).
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can illustrate the differences between the two models using two examples.
+    An example of synchronous communication is a phone call – two people having a
+    phone conversation are in direct and immediate communication with each other,
+    and they expect to hear the responses in real time. An example of asynchronous
+    communication is sending mail to people. It can take time to respond to such mail,
+    and the sender does not expect an immediate response to their messages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It does not mean, however, that asynchronous communication is necessarily slower
+    than the synchronous model. In most cases, asynchronous processing is as quick
+    as synchronous processing and often can be even faster: asynchronous processing
+    is often much less interruptive and leads to higher processing efficiency. It’s
+    like replying to 10 emails, one by one, compared to switching between 10 parallel
+    phone calls — the latter example of synchronous processing can sometimes be way
+    slower due to context switching and frequent interruptions.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Benefits and challenges of asynchronous communication
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The asynchronous communication model comes with its own benefits and challenges.
+    Developers need to consider both in order to make a decision on whether to use
+    this model. What are the benefits of using asynchronous communication? Let’s find
+    out:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first benefit is a more streamlined approach to processing messages. Imagine
+    you have a service whose purpose is to process data and report the status to another
+    service. The reporting service does not necessarily need to wait for any response
+    back from the service it is reporting to, as it would do in the synchronous model.
+    In asynchronous mode, it just needs confirmation that the status message was sent
+    successfully. This is similar to sending a large number of postcards to your relatives
+    – if you send a dozen postcards, you don’t want to wait until each card gets delivered
+    before sending the next one!
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The second benefit of an asynchronous communication model is the ability to
+    de-couple the sending and processing of requests. Imagine a caller requesting
+    to download a large video and a remote server that needs to perform such a task.
+    In a synchronous model, the caller would be waiting in real time until the entire
+    video is processed. This could easily take minutes and sometimes even hours, making
+    such waiting very inefficient. Instead, such a task could be performed in an asynchronous
+    way, where the caller would send the task to a server, get an acknowledgment that
+    the task was received, and perform any other activity until an eventual notification
+    of completion (or processing failure) is received.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The third benefit of asynchronous communication is better load balancing. Certain
+    applications can have uneven request loads and are prone to sudden spikes of requests.
+    If communication is synchronous, the server needs to answer every request in real
+    time, and this can easily overload it. Imagine a waiter in a restaurant receiving
+    a thousand dinner orders – such a high number of requests would completely overwhelm
+    the worker, and also affect the clients.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The benefits that we just described are quite significant, and in many cases,
+    asynchronous communication is the only way to perform certain types of tasks or
+    to provide better system performance. Examples of problems for which asynchronous
+    communication is a good fit include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Long-running processing tasks**: Long-running tasks, such as video processing,
+    are often better done asynchronously. The caller requesting such processing would
+    not necessarily need to wait until it is completed and would eventually get notified
+    of the final result.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Send once, processed by multiple components**: Certain types of messages,
+    such as status reports, can be processed by multiple independent components. Imagine
+    a system where multiple employees need to receive the same message – instead of
+    sending it to each one independently, the message can get published to a component
+    that can be consumed by everyone interested.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**High-performance sequential processing**: Certain types of operations are
+    more efficient when performed sequentially and/or in batches. For example, some
+    operations, such as writes to HDD are often more performant when done sequentially
+    (an example would be writing a very large file sequentially, without any interruptions).
+    For such scenarios, asynchronous processing offers great performance improvements
+    compared to more interactive and interruptive synchronous communication because
+    the receiver of such requests can control the processing speed and process tasks
+    one after another.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'While the described benefits of asynchronous communication may seem appealing,
+    it is important to note that it often brings some difficult challenges to developers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**More complex error handling**: Imagine sending a message to your friend and
+    not receiving a response back. Was it because the friend did not receive the message?
+    Did something happen during this time? Did the response get lost? In synchronous
+    communication, such as a phone call, we would immediately know if the friend is
+    not available and would be able to call back. In the case of an asynchronous scenario,
+    we would need to think about more possible issues, such as the ones we described.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Reliance on additional components for message delivery**: Certain asynchronous
+    communication use cases, such as the publisher-subscriber or message broker models
+    described in the next section, require additional software for delivering messages.
+    Such software often performs additional operations, such as message batching and
+    storing, bringing additional complexity to the system in exchange for additional
+    features it provides.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Asynchronous data flow may seem non-intuitive to many developers and be more
+    complex**: Unlike the synchronous request-response model, where each request is
+    logically followed by a response to it, asynchronous communication may be **unidirectional**
+    (no responses are received at all) or may require the caller to perform additional
+    steps in order to receive a response (for example, when the response is sent as
+    a separate notification). Because of this, data flow in asynchronous systems may
+    be more complex than in synchronous request-response interactions.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Now, let’s cover some asynchronous communication techniques and patterns that
+    can help you in organizing your services and establishing asynchronous communication
+    between them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Techniques and patterns of asynchronous communication
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: There are various techniques that help to make the asynchronous interaction
+    between multiple services more efficient in various scenarios, such as sending
+    a message to multiple recipients. In this section, we are going to describe multiple
+    patterns that help to facilitate such interactions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Message broker
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'A **message broker** is an intermediary component in the communication chain
+    that can play multiple roles:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Message delivery**: It performs the delivery of a message to one or multiple
+    receivers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Message transformation**: It transforms an incoming message into another
+    format that can be later consumed by receivers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Message aggregation**: It aggregates multiple messages into a single one
+    for more efficient delivery or processing.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Message routing**: It routes incoming messages to the appropriate destination
+    based on pre-defined rules.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'When you send a postcard to your friend or a relative, the post office plays
+    the role of a message broker, playing an intermediary role in delivering it to
+    the destination. In this example, the main benefit of using the message broker
+    would be the convenience of sending the message (postcard, in our example) without
+    any need to think about how to deliver it. Another benefit of using message brokers
+    is delivery guarantees. A message broker can provide various levels of guarantees
+    for message delivery. Examples of these guarantees include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**At-least-once**: The message gets delivered at least once, but may be delivered
+    multiple times in case of failures.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Exactly-once**: The message broker guarantees that the message gets delivered
+    and it will be delivered exactly once.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**At-most-once**: The message can be delivered 0 or 1 time.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The exactly-once guarantee is often harder to achieve in practice than at-least-once
+    and at-most-once. In the at-least-once model, a message broker can just re-send
+    the message in case of any failure (such as a sudden power loss or a restart).
+    In the exactly-once model, the message broker needs to perform additional checks
+    or store extra metadata to ensure the message is never re-sent to the receiver
+    in any possible case.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another classification of message brokers is based on the possibility of them
+    losing messages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Lossy**: A message broker that can occasionally (for example, in case of
+    failures) lose messages'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Lossless**: A message broker that provides a guarantee of not losing any
+    messages'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The at-most-once guarantee is an example of a lossy message broker, and at-least-once
+    and exactly-once brokers are examples of lossless ones. Lossy message brokers
+    are faster than lossless ones because they don’t need to handle extra logic for
+    guaranteeing message delivery, such as persisting messages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The publisher-subscriber model
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The **publisher-subscriber model** is a model of communication between multiple
+    components (such as microservices) where every component can publish messages
+    and subscribe to the relevant ones.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s take Twitter as an example. Any user can publish messages to their feeds,
+    and other users can subscribe to them. Similarly, microservices can communicate
+    by publishing the data that other services can consume. Imagine that we have a
+    set of services that process various types of user data, such as user photos,
+    videos, and text messages. If a user deleted their profile, we would need to notify
+    all services about this. Instead of notifying each service one by one, we could
+    publish a single event that would indicate that a user profile is deleted, and
+    all services could consume it and perform any relevant actions, such as archiving
+    user data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The relationship between the publishers, the subscribers, and the data produced
+    by the publisher is illustrated in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.1 – The publisher-subscriber model'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_6.1_B18865.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 6.1 – The publisher-subscriber model
+  prefs: []
+  type: TYPE_NORMAL
+- en: The publisher-subscriber model provides a flexible solution for sending and
+    delivering data in a system where messages can be processed by multiple components.
+    Each publisher can publish their messages without caring about the delivery process
+    and any difficulties in delivering messages to an arbitrary number (even a very
+    large one) of receivers. Each subscriber can subscribe to the relevant messages
+    and get them delivered without needing to contact the publisher directly and check
+    if there is any new data to consume. The latter feature is especially useful for
+    scenarios with low message rates, such as occasional notification delivery.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, as we have covered some high-level asynchronous communication models, let’s
+    move on to the practical side of the chapter and illustrate how you can implement
+    asynchronous communication in your microservices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Apache Kafka for messaging
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In this section, we are going to introduce you to Apache Kafka, a popular message
+    broker system that we are going to use to establish asynchronous communication
+    between our microservices. You will learn the basics of Kafka, how to publish
+    messages to it, and how to consume such messages from the microservices we created
+    in the previous chapters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Apache Kafka basics
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Apache Kafka is an open source message broker system that provides the ability
+    to publish and subscribe to messages containing arbitrary data. Originally developed
+    at LinkedIn, Kafka has become perhaps the most popular open source message broker
+    software and is used by thousands of companies around the world.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the Kafka model, a component that publishes messages is called a **producer**.
+    Messages are published in sequential order to objects called **topics**. Each
+    message in a topic has a unique numerical **offset** in it. Kafka provides APIs
+    for consuming messages (the component for consuming messages is called a **consumer**)
+    for the existing topics. Topics can also be partitioned to allow multiple consumers
+    to consume from them (for example, for parallel data processing).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can illustrate the Kafka data model in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.2 – The Apache Kafka data model'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_6.2_B18865.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 6.2 – The Apache Kafka data model
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Having such a seemingly simple data model, Kafka is a powerful system that
+    offers lots of benefits to its users:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**High write and read throughput**: Kafka is optimized for highly performant
+    write and read operations. It achieves this by doing as many sequential writes
+    and reads as possible, allowing it to efficiently make use of hardware such as
+    hard disk drives, as well as sequentially sending large amounts of data over the
+    network.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Scalability**: Developers can leverage topic partitioning provided by Kafka
+    to achieve more performant parallel processing of their data.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Flexible durability**: Kafka allows users to configure the policies for storing
+    data, such as message retention. Messages can be stored for a fixed amount of
+    time (for example, for 7 days) or indefinitely until there is enough space on
+    the data storage.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: While Kafka provides many benefits for developers, it is important to note that
+    it is a fairly complex infrastructure component that may be nontrivial to manage
+    and maintain. We are going to use it in this chapter for illustrative purposes,
+    especially taking into account its wide adoption and popularity in the developer
+    community. In this chapter, we will avoid the difficulties of setting up a Kafka
+    cluster by using its Docker version, but for production use cases you may need
+    to get familiar with the relevant Kafka maintenance documentation, available at
+    [https://kafka.apache.org/documentation/](https://kafka.apache.org/documentation/)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s explore how we can leverage the benefits offered by Kafka for the microservices
+    we developed in the previous chapters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adopting Kafka for our microservices
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Let’s get back to the rating service example from the previous chapters. The
+    service provided a synchronous API for inserting rating records, allowing its
+    callers to call an endpoint and get an immediate response from the service. Such
+    an API would be useful in many practical use cases, including one where the user
+    submits a rating from a user interface or a web form.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now consider a scenario where we work with a data provider who frequently publishes
+    rating records (for example, movie ratings from a popular movie database, such
+    as IMDb) that we can use in our rating service. Here, we would need to consume
+    such records and ingest them into our system, so we could use them in addition
+    to the data that was created through our API. The publisher-subscriber model that
+    we described earlier in this chapter would be a great fit for this use case –
+    the publisher would be the data provider that provides the rating data, and the
+    subscriber would be a part of our application (such as a rating service), which
+    would consume the data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can illustrate the described model using the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.3 – The publisher-subscriber model of rating ingestion from a data
+    provider'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_6.3_B18865.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 6.3 – The publisher-subscriber model of rating ingestion from a data
+    provider
+  prefs: []
+  type: TYPE_NORMAL
+- en: The model of interaction between the data provider and the rating service is
+    a perfect example of asynchronous communication – the rating service does not
+    necessarily need to process the provider’s data immediately. It is up to us when
+    and how to consume this data – our rating service could do this periodically (for
+    example, once an hour, or once a day), or handle the new rating data as soon as
+    it gets published. Let’s choose the second approach in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The only missing piece in our model is the component that allows us to publish
+    the rating data from the data provider and subscribe to it from our rating service.
+    Apache Kafka, which we described earlier, is a great fit for this use case – it
+    provides a performant, scalable, and durable solution for producing and consuming
+    arbitrary data, allowing us to use it as a rating data message broker.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To illustrate the model that we have just described, let’s implement the following
+    logic:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A new example application that will produce rating data for Apache Kafka
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Logic in the rating service to consume the rating data from Apache Kafka and
+    save it to our rating database
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Before we proceed to implement both components, we need to decide which data
+    serialization format to use between them. For simplicity, let’s assume the data
+    provider provides us with the rating data in JSON format. An example of the provided
+    rating data would be as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s define a Go structure for such rating records. In the `src/rating/pkg/model/rating.go`
+    file, add the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let’s implement the example application that reads rating data from a
+    provided file and produces it in Kafka. Create a `cmd/ratingingester` directory
+    and add a `main.go` file, containing the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the code that we just added, we initialize a Kafka producer by calling `kafka.NewProducer`,
+    read the rating data from a file, and produce rating events containing the rating
+    data in Kafka. Note that we import the `github.com/confluentinc/confluent-kafka-go`
+    Kafka library — a Kafka client made by Confluent, a company founded by the creators
+    of Kafka. There are multiple popular open source Kafka libraries for Go, including
+    `github.com/Shopify/sarama`, which is well maintained and is widely used across
+    many Go projects. You can use either library in your projects depending on your
+    preference.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let’s add a function for reading rating events to the file we just created:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, add a function for producing rating events:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s describe some parts of the code that we just wrote:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We created a Kafka producer by calling a `kafka.NewProducer` function and providing
+    `localhost` as the Kafka address for testing it locally.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The program that we created is expected to read rating data from the `ratingsdata.json`
+    file.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When we produce events to Kafka using a `Produce` function, we specify a topic
+    partition using a `kafka.TopicPartition` structure. In the structure, we provide
+    the topic name (in our example, we call it `ratings`) and the topic partition
+    (in our example, we use `kafka.PartitionAny` to produce a partition — we will
+    cover this part later, in the *Asynchronous communication best practices* section).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At the end of our main function, we call the `Flush` function to make sure all
+    messages are sent to Kafka.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The function that we just created is using the `github.com/confluentinc/confluent-kafka-go/kafka`
+    library, which we need to include in our Go module. Let’s do this by running the
+    following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s also add a file containing the rating events. In the directory that we
+    just used, create a `ratingsdata.json` file, containing the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, our application is ready. We have implemented the logic to read the rating
+    data from a file and publish it to Apache Kafka for further consumption by the
+    rating service. Let’s implement the logic in the rating service to consume the
+    published data. Create a `rating/internal/ingester/kafka` directory and add an
+    `ingester.go` file with the following contents:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Additionally, add this piece of code to it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the code we just created, we have implemented a `NewIngester` function to
+    create a new Kafka ingester, the component that will ingest rating events from
+    it. The `Ingest` function starts message ingestion in the background and returns
+    a Go channel with `RatingEvent` structures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You may notice that in our call to the `ReadMessage` function, we provided `-1`
+    as an argument. We specified a `-1` is specific to Kafka and means that we will
+    always consume from the beginning of the topic, reading all existing messages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s use this structure in our rating service controller. In our `rating/internal/controller/controller.go`
+    file, add the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: In our code, we call the `Ingest` function and get back a Go channel containing
+    rating events from the topic. We iterate over it using the `for` operator. It
+    keeps returning us available rating events until the channel is closed (for example,
+    when the Kafka client is closed on service shutdown).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, update the existing `RatingService` structure and the `New` function in
+    this file to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, our rating service is able to asynchronously consume rating events from
+    Kafka, and execute the `Put` function for each one, writing it to the rating database.
+    At this point, the rating service provides both a synchronous API for the callers
+    that want to create ratings in real time and asynchronous logic for ingesting
+    rating events from Apache Kafka.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We have covered the basics of asynchronous communication and illustrated how
+    to use it in our microservices. Let’s proceed to the final part of the chapter
+    to see some best practices you should keep in mind while using this model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Asynchronous communication best practices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we are going to cover the best practices of using the asynchronous
+    communication model. You will learn some high-level recommendations for adopting
+    the model in your applications and using it in a way that would maximize its benefits
+    for you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Versioning
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '**Versioning** is the technique of associating the format (or a schema) of
+    the data with its version. Imagine you are working on a rating service, and you
+    use a publisher-subscriber model for producing and consuming rating events. If
+    at some point the format of your rating events gets changed, some of the events
+    that are already produced will have an old data format, and some will have the
+    new one. This situation may be hard to handle because the logic consuming such
+    data would need to know how to differentiate between such formats and how to handle
+    each one. Differentiating between two formats without knowing the data schema
+    or its version could be a nontrivial task. Imagine that we have two JSON events:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: The second event has a `userId` field that is not present in the first. Is it
+    because the producer did not provide it or because the data format did not have
+    this field before?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Providing the schema version explicitly would help the data consumer handle
+    this problem. Consider these updated examples:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: In these examples, we know the versions of events and can now handle each one
+    separately. For example, we may completely ignore events of a certain version
+    (assume there was an application bug and we want to re-process events with an
+    updated version instead) or use the version-specific validation (for instance,
+    allow the records without a `userId` field for version 1, but disallow for the
+    higher versions).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Versioning is very important to systems that can evolve over time because it
+    makes dealing with different data formats easier. Even if you don’t expect your
+    data format to change, consider using versioning to increase your system’s maintainability
+    in the future.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Leveraging partitioning
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In the code examples in the *Adopting Apache Kafka for our microservices* section,
+    we implemented the logic for producing our data to message topics in Apache Kafka.
+    The function for producing a message was as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In this function, we used the `kafka.PartitionAny` option. As we mentioned
+    in the *Apache Kafka basics* section, Kafka topics can be partitioned to allow
+    multiple consumers to consume different partitions of a topic. Imagine you have
+    a topic with three partitions – you can consume each one independently, as illustrated
+    in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 6.4 – A partitioned topic consumption example'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Figure_6.4_B18865.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Figure 6.4 – A partitioned topic consumption example
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can control the number of topic partitions, as well as the partition for
+    each message your services produce. Setting a partition manually may help you
+    to achieve **data locality** — the ability to co-locate the data for various records,
+    storing it together (in our use case, in the same topic partition). For example,
+    you can partition the data using a user identifier, making sure the data for any
+    user is stored on a single topic partition, helping you simplify the data search
+    across the topic partitions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The list of best practices that we just described is not comprehensive. It does
+    not cover all recommendations for using asynchronous communication in your microservices,
+    but it provides some great ideas for what you should consider. Get familiar with
+    the articles listed in the *Further reading* section for some additional ideas
+    and recommendations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we have covered the basics of asynchronous communication and
+    illustrated how to use it in your microservices. You have learned the benefits
+    of asynchronous communication and the common patterns, such as publisher-subscriber
+    and message broker. In addition to this, we have covered the basics of the Apache
+    Kafka message broker and illustrated how to use it in our microservices and how
+    to implement the logic for producing and consuming data from it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we are going to cover another important topic of microservice
+    development – data storage. You will learn how to persist and read different types
+    of service data, as well as how to implement the logic for working with MySQL
+    database in your Go microservices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '*Apache Kafka documentation*: [https://kafka.apache.org/documentation/](https://kafka.apache.org/documentation/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Publish-subscribe pattern*: [https://en.wikipedia.org/wiki/Publish%E2%80%93subscribe_pattern](https://en.wikipedia.org/wiki/Publish%E2%80%93subscribe_pattern)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Asynchronous message-based communication*: [https://docs.microsoft.com/en-us/dotnet/architecture/microservices/architect-microservice-container-applications/asynchronous-message-based-communication](https://docs.microsoft.com/en-us/dotnet/architecture/microservices/architect-microservice-container-applications/asynchronous-message-based-communication
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

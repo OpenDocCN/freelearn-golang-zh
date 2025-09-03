@@ -1,0 +1,952 @@
+- en: '10'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Testing Edge Cases
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the previous chapters, we discussed the implementation and testing of web
+    applications. We made use of a variety of functional and non-functional tests
+    to ensure that the individual services within our microservice architectures remained
+    performant and delivered the correct functionality.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In [*Chapter 4*](B18371_04.xhtml#_idTextAnchor085), *Building Efficient Test
+    Suites*, we discussed the definitions of edge and corner cases, as well as learning
+    how to implement them using table-driven testing. For production systems, it would
+    be nearly impossible to fully test complex systems, no matter how dedicated we
+    might be to implementing tests across a variety of scenarios. Therefore, testing
+    strategies should be designed with system requirements and user journeys in mind.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, no matter how carefully we design and implement them, testing strategies
+    also have their limitations. As discussed in [*Chapter 9*](B18371_09.xhtml#_idTextAnchor197),
+    *Challenges of Testing Concurrent Code*, testing cannot prove the absence of concurrency
+    bugs but does give us statistical confidence that these errors will not happen
+    under the scenarios covered by our testing strategy. We also discussed how concurrency
+    issues are not implementation bugs and are in fact system design faults, so a
+    thorough understanding of Go’s concurrency mechanisms is important in order to
+    avoid such errors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter will explore the previously discussed topic of edge cases through
+    a new lens. We will begin with an introduction to the concept of code robustness,
+    which will allow us to write implementation code that is stable for a wide variety
+    of inputs. Then, we will learn how to use Go’s newly introduced fuzz testing capability
+    to write tests that cover a wide variety of inputs. Finally, we will explore property-based
+    testing, which allows us to write assertions for the output properties that really
+    matter to us, as opposed to exact value matches. This is a different approach
+    to test writing than we have seen so far and can make writing tests for edge cases
+    much simpler.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Definition and best practices for achieving code robustness
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Go’s newly introduced fuzzing capability
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The concept of property-based testing and how we can implement it in Go
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to use fuzzing and property-based testing in the `BookSwap` application
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You will need to have **Go version 1.19** or later installed to run the code
+    samples in this chapter. The installation process is described in the official
+    Go documentation at [https://go.dev/doc/install](https://go.dev/doc/install).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The code examples included in this book are publicly available at [https://github.com/PacktPublishing/Test-Driven-Development-in-Go/chapter10](https://github.com/PacktPublishing/Test-Driven-Development-in-Go/chapter10).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Code robustness
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In [*Chapter 4*](B18371_04.xhtml#_idTextAnchor085), *Building Efficient Test
+    Suites*, we discussed the types of variable values that our testing strategies
+    should cover. Among these values, we identified three types of test cases covering
+    our parameters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Base cases
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Edge cases
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Boundary cases
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We further identified corner cases that occur when multiple input variables
+    are supplied with edge case values. We should write test cases that cover a broad
+    range of values for the inputs supplied to our functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the world of microservice architectures, we often don’t have control over
+    which values are supplied to our services and functions, so the code we write
+    should be stable under a variety of scenarios. In order to achieve this stability,
+    we should implement a well-designed, well-tested robust code base.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Code robustness** is an often overlooked quality that can help us achieve
+    code that will remain stable even as it changes and goes through refactoring cycles.
+    *Figure 10**.1* presents the main characteristics of robust code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.1 – Characteristics of robust code ](img/Figure_10.1_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.1 – Characteristics of robust code
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In a nutshell, robust code is easy for developers to work on due to the following
+    characteristics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Easy to change**: Robust code is able to handle a wide variety of external
+    factors, making it easier to refactor and change its dependencies. We will see
+    that the other characteristics will contribute to making robust code easy to change.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Minimal assumptions**: Robust code makes minimal assumptions for the values
+    of input parameters and resources that it has available. It should check any value
+    that it does not generate internally to ensure that it is as expected.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Good error handling**: Robust code implements good error handling by checking
+    for errors from external functions, gracefully ending current operations in the
+    case of an error, and providing meaningful error messages to be returned to callers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Provides a clear API**: Robust code provides an easy-to-read and comprehensible
+    API for external callers. It should make it clear what parameter types it expects
+    and what possible errors it can return. While documentation is a useful supplement,
+    we should not rely on it. Robust code should use custom types and interfaces to
+    leverage compiler checks and type safety as much as possible.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Easy to test**: Due to the characteristics we have already explored, robust
+    code is easy to test. A clear API makes it easy for us to design our test cases,
+    mock any dependencies required, or formulate any contracts for the implementation
+    of contract testing. Good error handling, which returns well-formulated errors,
+    allows us to write concise assertions that verify returned error messages.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`go vet` command in the official documentation – [https://pkg.go.dev/cmd/vet](https://pkg.go.dev/cmd/vet).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Easy to read**: Robust code that uses a consistent style, handles errors,
+    and provides good APIs reduces the cognitive load that developers will require
+    to understand its behavior. This makes it easier to read and search through.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Good naming/comments**: Documentation is another important but often overlooked
+    aspect of writing code. Variable naming should be short, but representative of
+    the functionality it provides. Functions and types should have accompanying documentation
+    that clearly states their expected behavior and the functionality it provides.
+    You can read more about how to write Go comments on the official blog – [https://tip.golang.org/doc/comment](https://tip.golang.org/doc/comment).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Designing code with robustness in mind will help us create stable systems and
+    microservice architectures. One of the common ways that developers implement systems
+    is by emulating the principles of the **Unix philosophy**, which has been established
+    by its creators and the community. It states that robustness results from transparency
+    and simplicity, which are principles that relate well to Go software development.
+    Looking at these principles, we can see that they are reflected in the characteristics
+    we have examined in *Figure 10**.1*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Transparent code is easy to read and understand. Readability is aided by consistent
+    styling, good naming/comments, and clear API definitions.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Simple code is also easy to understand, but it is also uncomplicated and provides
+    well-defined functionality that can be easily reused. This provides our systems
+    with modularity, which allows us to reuse them to solve a wide variety of problems
+    and situations. However, it should also be able to gracefully handle error cases
+    or situations that it was not designed to accommodate.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Just like Linux, open source software and libraries are generally seen as more
+    robust than their proprietary counterparts, as they have a wider audience that
+    can find and correct errors. This is one of the reasons that we have only explored
+    open source libraries and tools throughout our entire exploration of TDD.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The opposite of robust code is fragile and error-prone code. This type of code
+    is complicated to understand and can be difficult to refactor, even when using
+    the strategies we explored in [*Chapter 7*](B18371_07.xhtml#_idTextAnchor162),
+    *Refactoring in Go*. Often, code refactoring involves making code changes to add
+    robustness to code using some of the best practices we will explore in the next
+    section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Best practices
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now that we have a good grasp of the characteristics of robust code, we can
+    begin to look at some best practices for implementing it in Go. We can begin our
+    exploration by looking at a simple example of a fragile piece of code and exploring
+    what we can do to make it more robust.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will write a function that returns the values contained inside a Go map
+    in key-sorted order. To achieve this, our function will do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Extract the keys contained inside the map.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Sort the keys according to a given order parameter.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Extract the values corresponding to their keys and return them as a slice.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Map refresher
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go maps are dynamic, unordered collections of key-value pairs. Values can be
+    accessed and modified using a unique key. They are represented using the built-in
+    `map` type. The zero value of a map is nil, so it is initialized using a `make`
+    function. Since Go 1.12, the `fmt` package will print maps in key-sorted order,
+    but it is important to remember that the collection is unordered.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Based on this knowledge, we can write a simple function to return the sorted
+    values from a map:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This example function does work, returning sorted values, but it does have
+    some areas for improvement to make it less fragile:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Global variables**: The input map is a global variable, defined outside the
+    scope of the function. The dependency between the function and the map is unclear
+    from looking at the signature.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`GetValues`, does not give any indication of the sorting functionality. It
+    is also unclear what the `dir` parameter is used for and what its allowed values
+    are.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`range` operator is able to handle a nil map passed to it without panic, but
+    it is unclear what the expected behavior of the `GetValues` function is in this
+    case.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`dir` parameter. The function handles the value of the parameter and performs
+    the corresponding sorting, but the values will simply remain unsorted in the case
+    of another value. Instead, it would be better if the caller of the function received
+    some indication that the function was not able to perform its intended work.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`dir` parameter is that it is validated against hardcoded values defined inside
+    the function. Unless the value of the sorting direction is the same, including
+    the letter case, the function will not match it. Furthermore, the caller has no
+    idea what the accepted values are unless the implementation code is inspected.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`sort` package to sort the keys in the correct order. This is a lot better
+    than implementing a sorting algorithm from scratch, but the two sorting cases
+    are implemented using different `sort` package functions.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Memory allocation**: The slices used for the keys and sorted values are declared
+    as their zero values, even though we already know how many keys are values we
+    will be sorting. Under the hood, the Go runtime will have to expand the underlying
+    arrays and copy the data as the number of values grows.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'We can add robustness to this function by addressing the issues we’ve found
+    with the original implementation. This code refactoring is relatively straightforward,
+    as this function is currently operating in isolation from any other code. A revised
+    version is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The changes we have made to this simple function have addressed a lot of the
+    issues that we previously identified:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We introduce a new `SortDirection` type to replace the string value of the `dir`
+    parameter. This type is used to create an `enum` with the acceptable sort direction
+    values.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The signature of the function has been changed to take the input map as a parameter,
+    removing its dependency from the input map global variable. The function also
+    returns a second error value in the case that it cannot complete its operation.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Alternatively, we could have allowed the `GetSortedValues` function to take
+    a sorting function as a parameter, allowing the caller to implement their custom
+    `sort` functions. This would allow us to move the entire sorting logic outside
+    the function, but would also give calling code a lot more flexibility.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In the case that the input map is nil, the function returns an error and stops
+    being executed. This is the behavior we have decided to implement for the function,
+    making it clear to the user that an uninitialized map is considered an error case.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Slices used for saving keys and values are initialized with the same capacity
+    as the length of the input map. Appending values to these slices will not cause
+    data reallocations and copying under the hood. As this is a small sample function,
+    we will assume that the size of the map is enough to load in memory, but this
+    might not be the case when processing very large datasets.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We make use of a `switch` statement to check the values of the newly implemented
+    `SortDirection`. The function has two acceptable cases for ascending and descending
+    sort orders and returns an error in the case that another `enum` value is introduced
+    without the correct implementation. Both cases implement sorting using the `sort.Slice`
+    function.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: These changes have added robustness to our simple function, making it easier
+    and more intuitive to use. We have also seen that adding code robustness is all
+    about small changes, which add up to big improvements in our code stability and
+    readability.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once we get into the habit of writing code with robustness and stability in
+    mind, it becomes a habit to build it into our solutions, removing the need to
+    return and refactor it later. As we have stated multiple times, test code is just
+    as important as implementation code. Therefore, it should also be designed with
+    robustness in mind. In the next sections, we will explore two strategies for writing
+    robust test code that verifies edge cases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Usages of fuzzing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As discussed previously, it is very difficult to write tests that cover all
+    possible user scenarios and parameter value ranges. The number of test cases to
+    write and maintain can become even more time-consuming than project work. In this
+    section, we will explore Go’s fuzz testing capability, which can help us write
+    tests that cover a wide variety of inputs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Fuzz testing** is a powerful technique that has been used to find bugs in
+    a wide variety of software systems, including the Go standard library itself.
+    It involves generating a wide variety of values and using them as input to the
+    UUT. The generated values stress-test the UUT and help uncover bugs or unexpected
+    behavior such as panics, memory leaks, or incorrect outputs.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fuzz tests are automated, black-box tests that can be used to detect any potential
+    functional or security issues in our system. They are usually run using a **fuzz
+    tool**, which takes care of value generation, test execution, and error detection.
+    In this section, we will focus on using fuzzing to detect functional errors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 10**.2* presents an overview of the steps involved in fuzz testing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.2 – The main steps of fuzz testing ](img/Figure_10.2_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.2 – The main steps of fuzz testing
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Writing fuzz tests is not very different from regular unit tests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Identify the fuzz target**: Just like with normal tests, we begin by identifying
+    the UUT. The fuzz target will be the function that we will cover in our tests.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Identify fuzz arguments**: The fuzz target is only suitable for fuzz testing
+    if it takes in at least one parameter. These are the parameters that will be generated
+    by the fuzz tool and used as input for the previously identified fuzz target.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Generate fuzzed values**: Once the test is specified, the fuzz tool will
+    begin to generate the random values for our fuzz arguments.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Run tests with fuzzed values**: The tests are executed with the generated
+    fuzzed values. Typically, fuzz tests are fast-running unit tests, as they will
+    be run with a large amount of generated fuzzed values.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Report and log failures**: The test runner will execute the tests, logging
+    and reporting failures. Just like unit tests, fuzz tests can include assertions
+    and verifications.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Fuzz testing can be used to validate any input values that the UUT or fuzz target
+    has not generated. These can be values coming from other services in the system
+    or from outside sources. It can be applied to files, policies, applications, and
+    libraries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fuzz testing in Go
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The ability to fuzz-test is an important component of a well-rounded testing
+    strategy. Fuzzing was added to the standard Go testing library in Go version 1.18\.
+    This feature was highly anticipated by the Go community, making writing fuzzed
+    tests as easy as writing unit tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Just like tests and benchmarks, fuzzed tests must follow a few rules:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tests must begin with the `Fuzz` prefix. We notice that tests are exported functions,
+    defined by starting with a capital letter. For example, a fuzz test for our `GetSortedValues`
+    function would be named `FuzzGetSortedValues`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Tests must be defined in test files named with the `_test.go` postfix. As with
+    other test files, we should use the name of the source file to name our test file.
+    For example, if our sorting function was defined in a `sort.go` file, then its
+    corresponding test file could be `sort_test.go`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Tests must accept a single `*testing.F` parameter and have no return values.
+    This is the way fuzzed tests interact with the test runner and fuzzing tool.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The fuzz target is defined by calling the `Fuzz` function on the `*testing.F`
+    parameter. This function takes in a `*testing.T` parameter, followed by the fuzzing
+    arguments. There can only be one fuzz target per test and the calls on the UUT
+    will happen inside the fuzz target.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Fuzz arguments are added to the fuzzing tool using the `Add` function on the
+    `*testing.F` parameter. This will instruct the tool to generate values to be used
+    in the fuzz target.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Fuzzing arguments can be of the following types:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`string`, `[]byte`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: All `int` types, including `rune`
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: All `uint` types, including `byte`
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: All `float` types
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`bool`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Due to a large number of test runs, fuzz tests will be run in parallel. They
+    should therefore be deterministic.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Fuzz tests are run alongside your other unit tests using the `go test` command
+    or with the `-fuzz` flag followed by a test name or package. Again, this is similar
+    to how we run benchmark tests.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The fuzzing tool monitors the test runs and reports errors that have occurred.
+    Fuzz tests can fail for a few reasons: panics, test failures, non-recoverable
+    errors, or timeouts. By default, the timeout for a fuzz target is 1 second, so
+    your tests should be fast.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fuzzed tests will continue to run until a failing input is found or until the
+    user cancels the test run manually. Alternatively, we can supply a maximum execution
+    time or the maximum number of iterations using the `–fuzztime` command-line parameter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A simple fuzz test
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'We can write a simple fuzz test for the `GetSortedValues` function we wrote
+    in the previous section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We have written the fuzzed test according to the rules we have discussed and
+    with the same techniques we use for unit tests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We declare a fuzz test using the required signature. The test starts with the
+    `Fuzz` prefix and takes in the `*``testing.F` parameter.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We add two fuzz testing arguments to the fuzz testing tool using the `f.Add`
+    method, one for the map key of the `int` type and one of the `string` type for
+    the map value. These values will be generated by the fuzzing tool. Both of these
+    types are accepted for fuzzing arguments.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We define the fuzz target using the `f.Fuzz` method. This method takes a function
+    as a parameter, which itself takes the fuzzing arguments as parameters. The function
+    also takes in a `*testing.T` parameter, which makes it possible for us to write
+    test assertions inside the fuzz target.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside the fuzz target, we write the testing code. We add the fuzzing arguments
+    to the map, using the generated values to test our functionality. Then, we extract
+    the keys from the map and sort them in ascending order.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We invoke the `GetSortedValues` function, which is our UUT for this test, passing
+    it the input map that now contains the fuzzing arguments.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: At the end of the test, we use the previously sorted slice of keys to assert
+    that the values returned are sorted correctly.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'We have successfully written our first fuzzed test. We can run it using the
+    `go test` command with two configuration flags:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `–fuzz` flag instructs the test runner to execute the fuzzed test specified
+    by name, while the `–fuzztime` flag specifies that the test should run for a maximum
+    of 5 seconds. The output of our test run highlights some key metrics of the test
+    run:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`elapsed` indicates the amount of processing time'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`baseline coverage` indicates the number of scenarios that are applied to measure
+    the coverage provided by the tests'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`execs` indicates the number of test cases that have been run with the fuzz
+    target'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`new interesting` is the number of new inputs that are identified that expand
+    the coverage of the fuzzed test'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Now that we understand how to write and run fuzzed tests, we are ready to add
+    them to our own testing strategies. However, it does have some drawbacks. *Figure
+    10**.3* presents some of the advantages and disadvantages of fuzz testing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.3 – Advantages and disadvantages of fuzz testing ](img/Figure_10.3_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.3 – Advantages and disadvantages of fuzz testing
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The advantages of fuzz testing are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`testing` package, we can easily write fuzzed tests for anything in Go. However,
+    it’s important to keep the scope of the tests small so that they can be executed
+    quickly and efficiently.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Can be used early in the development life cycle**: As we have seen in our
+    simple example, fuzzed tests can be written for functions or even small units
+    of code. This makes it easy to leverage them at any stage of the development life
+    cycle.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Detects a wide variety of bugs**: Fuzzed testing generates values that cover
+    edge cases and run over many executions. This makes it a great tool for detecting
+    bugs that would otherwise not have been possible to find.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The disadvantages of fuzz testing are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Does not replace traditional testing**: Fuzzing complements rather than substitutes
+    the types of tests that we have explored throughout this book. Therefore, it can
+    take additional engineering effort to write these tests.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Does not provide guarantees**: Fuzzed tests only provide an indication of
+    the stability of the UUT, not a guarantee. As it generates random values, it can
+    only indicate to developers the presence of bugs for the inputs it does cover.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Memory- & CPU-intensive**: As we have seen from our example output, fuzzed
+    tests are run in parallel over a large number of scenarios. This makes them more
+    memory- and CPU-intensive than unit tests.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Despite its drawbacks, fuzz testing is a useful and powerful testing technique
+    that complements all the traditional testing methods we have explored so far.
+    As it is able to generate a wide variety of inputs, fuzz testing is also an important
+    tool that can help uncover security vulnerabilities. In security fuzz testing,
+    we input malicious data to a program, while in functional fuzz testing, we input
+    invalid data. We will not focus on security testing in this book, but it is another
+    great use for fuzzing. It is especially useful for ensuring our systems remain
+    stable in edge cases or when processing user inputs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Property-based testing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Fuzz testing is a great step forward when testing edge cases in our application.
+    We can think of it as analogous to chaos testing, where we test a huge variety
+    of edge cases in the hope of detecting an error. However, we do not have any control
+    over the random inputs. This leads to two problems:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We test a large number of irrelevant scenarios that are unlikely to happen in
+    our system.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We don’t know whether the scenarios that really matter have been covered by
+    our fuzzed tests. Instead, it would be great if we had a more structured approach
+    available to us.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Property-based testing** is a testing technique that involves testing a program
+    against a set of properties or specifications that are important to our user journeys
+    and system behavior. This allows engineers to follow a systemic approach to testing,
+    as opposed to focusing on verifying inputs.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In property-based testing, we generate random inputs that satisfy the set of
+    constraints or properties that we have identified. The generation aspect ensures
+    that we test against a larger space of edge cases than would have been possible
+    with traditional, manually written tests. The focus on properties ensures that
+    we cover the edge cases that matter to our applications. Again, this does not
+    guarantee the absence of bugs, but it does ensure that we spend our time testing
+    the things that matter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `testing/quick` package offers testing helper functionality that we can
+    leverage to implement property-based tests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `quick.Check` function takes in a function with a `bool` return value and
+    searches for arbitrary values that make the input function return `false`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `quick.CheckEqual` function takes in two functions and looks for an input
+    for which the functions return different results.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `quick.Generator` interface defines a Generate method that custom types
+    can implement. Once they satisfy this interface, we can generate random values
+    for our custom types using the `quick.Value` function. This gives us the flexibility
+    to generate values for any exported type.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `Check` functions of the `quick` package also take in a `*quick.Config`
+    parameter that allows us to configure our test run with the maximum number of
+    iterations or another random generator.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This type of testing is intuitive and easy to achieve. Looking back at the fuzzing
+    example we implemented, the verifications in the fuzz target only asserted the
+    order of the elements, not the values themselves. In fact, without realizing it,
+    we wrote our first property-based test. The real value of property-based testing,
+    however, lies in its search for failing function inputs, as opposed to generating
+    fully random values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can re-implement our previously implemented fuzz test with property-based
+    testing in mind:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The structure of the test is different, but it uses the same verifications
+    as in the fuzzing test:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The test uses the regular unit test signature, starting with the `Test` prefix
+    and taking in a single parameter of `*testing.T`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside the test, we declare an `isSorted` helper function, which takes in the
+    two arguments we will generate, one for the key and one for the value of our new
+    map entry. It also returns a `bool` value, making it suitable to be used with
+    the `quick.Check` function.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside the function, we add the generated values to the input map. Then, we
+    copy the keys and sort them. We call the `GetSortedValues` function and our UUT
+    and get the actual values to verify.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In the case of an error or a nil slice, we return `false`, stopping the test.
+    We also return `false` if the sorted values are not as expected. This will signal
+    to the `quick.Check` function that an error has occurred.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside the test, we pass the `isSorted` helper function to the `quick.Check`
+    function and fail the test if it returns an error.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'In the case of error, the `quick.Check` function will report the values that
+    have caused the failure. Forcing the test to fail, we will receive an output with
+    information about the inputs that caused the failure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: The input values causing the failure can be used by engineers to debug the application
+    and fix the cause of the failure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The two testing techniques we have covered in this chapter, fuzz testing and
+    property-based testing, allow us to take advantage of value generation and test
+    a wide variety of edge cases for our system inputs. These testing techniques are
+    complementary to the robust code best practices discussed at the beginning of
+    the chapter and allow us to ensure the stability and reliability of our services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Use case – edge cases of the BookSwap application
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'This chapter has taught us two new testing techniques: fuzzed testing and property-based
+    testing. We have learned how to apply these to a simple function that provided
+    the functionality of returning the key-sorted values contained inside an input
+    map. In this section, we will end our exploration with a discussion of how these
+    techniques can be applied to the `BookSwap` application we have built so far.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As previously discussed, robust code should test any variables that it does
+    not generate itself. We named these inputs as being from untrusted sources. *Figure
+    10**.4* presents all the inputs that can be considered untrusted from the viewpoint
+    of the processing service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.4 – Untrusted input in the BookSwap application ](img/Figure_10.4_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.4 – Untrusted input in the BookSwap application
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We identify two sources of untrusted input within the services of `BookSwap`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`UserService` receives input from the user. As we have no control over what
+    the user submits, this interaction is a source of untrusted input.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`UserService` receives information from `BookService`. As you may remember
+    from our discussion in [*Chapter 8*](B18371_08.xhtml#_idTextAnchor179), *Testing
+    Microservice Architectures*, microservices change without any central oversight.
+    Therefore, as `UserService` does not have any control over the functionality provided
+    by this external service, this interaction is a source of untrusted input.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The same applies to `BookService`, which receives requests from `UserService`.
+    While this interaction does not actively send input to `BookService`, the request
+    still contains untrusted information.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Based on these insights, we can identify the need to implement fuzz testing
+    for the HTTP handlers exposed by our web application. We will test the user creation
+    operation that we have also tested in previous chapters. Fuzz testing of HTTP
+    endpoints can easily achieve this using Go’s fuzzing capability:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Other than the interaction with the fuzz testing tool for setting up the fuzzing
+    target and arguments, the body of this test is identical to the HTTP testing we
+    are already familiar with. We add four fuzzing arguments for the fields that the
+    user creation request needs. Inside the fuzzing target, we create and marshal
+    the request to JSON format. Finally, we send the request to the `/users` endpoint
+    using the `http.Post` function. Just as the previous fuzz testing example we have
+    seen in this chapter, we run this test using the `LONG=true go test -fuzz FuzzTestUserCreation
+    -fuzztime=5s ./chapter10 -v` command. It requires the BookSwap application to
+    be up and running, which we can easily do with the Docker command we've seen so
+    far `docker compose -f docker-compose.book-swap.chapter10.yml up --build`. The
+    test also relies on environment variables to construct the URL under test. If
+    you want to run with the default values, set the `BOOKSWAP_BASE_URL` environment
+    variable to http://localhost and the `BOOKSWAP_PORT` environment variable to `3000`
+    to your terminal session.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This brings us to the end of our exploration of fuzz testing and property-based
+    testing, which are two related techniques that allow us to easily write testing
+    strategies that cover a wide variety of edge cases. Both of these techniques integrate
+    well with Go’s `testing` package and can be easily implemented at any level of
+    our application testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we revisited our understanding and approach to covering edge
+    cases of input variables. We began our discussion with the concept of code robustness,
+    focusing on writing code that can handle unexpected inputs and errors. Once code
+    robustness becomes part of our mindset, we start to understand the edge cases
+    of our code. However, it can be very difficult to manually implement tests to
+    cover all these values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Two testing techniques leverage input generation to make this task easier:
+    fuzz testing and property-based testing. Both of these techniques can be implemented
+    with Go’s testing library, allowing us to easily leverage the benefits of these
+    techniques to verify a broad range of edge cases to our components at any level.
+    Finally, we looked at an applied example of how to use fuzz testing together with
+    the `BookSwap` application’s user creation flow, ensuring that it is stable for
+    generated values.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In [*Chapter 11*](B18371_11.xhtml#_idTextAnchor231), *Working with Generics*,
+    we will explore another newly introduced Go feature, namely generics. We will
+    see how it can make our implementation and testing code simpler and easier to
+    use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What are some of the characteristics of robust code?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is fuzz testing?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the signature of a fuzzed test in Go?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is property-based testing?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What are the untrusted inputs of the UUT?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '*The Art of Clean Code: Best Practices to Eliminate Complexity and Simplify
+    Your Life*, Christian Mayer, published by No Starch Press'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*How to Break Software: A Practical Guide to Testing*, James Whittaker, published
+    by Pearson'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

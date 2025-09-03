@@ -1,0 +1,864 @@
+- en: '8'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Readable Function Composition with Fluent Programming
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In this chapter, we are going to look at different methods for chaining functions
+    in functional programming. The end goal here is to write code that is easier to
+    read and takes up less visual space. We will look at three ways to achieve this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, we will take a look at how we can use type aliases to attach methods
+    to container types, allowing us to create chained functions with the familiar
+    *dot notation*.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We’ll then discuss lazy versus eager code evaluation.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Next, we will take a look at **continuation-passing style** (**CPS**) programming.
+    In CPS, we will use higher-order functions to create a control flow without our
+    functions.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We’ll also discuss the trade-offs in each approach.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'For this chapter, the minimum requirement is Go 1.18, as we will be writing
+    code using generics. All the code can be found on GitHub: [https://github.com/PacktPublishing/Functional-Programming-in-Go./tree/main/Chapter8](https://github.com/PacktPublishing/Functional-Programming-in-Go./tree/main/Chapter8).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Some of the code in this chapter will build on top of functions created in both
+    [*Chapter 5*](B18771_05.xhtml#_idTextAnchor085) and [*Chapter 6*](B18771_06.xhtml#_idTextAnchor101).
+    Where necessary, I have copied over the relevant functions and types from those
+    chapters into the `Chapter8` subfolder. For example, `Chapter8/LazyEvaluation/pkg`
+    is a copy of `Chapter5/Monads/pkg` and `Chapter6/pkg`. This way, the examples
+    in `Chapter8` can always be run without requiring the other chapters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Chaining functions through dot notation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Chaining functions through dot notation is not a unique concept to functional
+    programming. In fact, many object-oriented patterns such as the builder pattern
+    explicitly do this as well. Before we dive into how we can leverage Go’s type
+    aliases to do this, let’s look at an example in a more object-oriented style of
+    programming before we dive into chaining functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Chaining methods for object creation (builder pattern)
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We will create a package-private `person` object and add some public functions
+    to change the state of the person, although remember that in Go, this is not the
+    best way of instantiating a new object. However, it is the method many traditional
+    object-oriented languages opt for:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In this example, we have a person struct and three setters – `SetFirstName`,
+    `SetLastName`, and `SetAge`. All three are used to modify the state of our object.
+    If we want to create a new object, we can do so with the following function calls:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Alternatively, a constructor can be created:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: This approach would work fine as long as our objects contain few fields. If
+    an object contains many fields, the constructor and setter approach becomes error-prone
+    and, frankly, tedious to write and maintain. When some fields need default values,
+    it becomes even harder to model in many traditional languages (although some,
+    such as Python and TypeScript, deal with this scenario gracefully). A solution
+    to this particular problem is the **builder pattern**, which allows you to chain
+    function calls for a more readable object-creation experience. It also offers
+    additional benefits, such as being able to define default values, but for the
+    purpose of this chapter, we’ll just focus on chaining method calls.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To achieve this, we will create a new type, `personBuilder`, which has a function
+    for each field that we want to set. However, rather than simply mutating the `person`
+    object, we will return `personBuilder` with the changes applied. Recall from earlier
+    chapters that this is a way to ensure our functions are pure. It also allows us
+    to create these functions without having to use pointers, as our state will be
+    immutable. The one additional function that we need is `build()`, which will return
+    the fully instantiated object:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When we want to create a person using `personBuilder`, we can chain the functions
+    using the familiar dot notation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Dot notation to chain functions on slices
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'With this brief reminder of how dot notation works and how it is used in object-oriented
+    languages, let’s dive into how we can leverage the same concept for the functions
+    that are encountered in functional programming languages. Recall from earlier
+    chapters that we created functions such as `filter`, `map`, and `sum` (as an abstraction
+    on top of `reduce`). When we wanted to run multiple functions in sequence, we
+    had to do so in separate statements and keep track of values in between. For example,
+    imagine we have a slice of numbers. We want to double each number, then keep only
+    those larger than 10, and finally, return their sum. Using the functions of [*Chapter
+    6*](B18771_06.xhtml#_idTextAnchor101), we could write this as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Technically, we don’t need the intermediate steps. We can write it as a one-liner,
+    but it becomes incomprehensible rather quickly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With some minor formatting changes, it becomes slightly more readable, but
+    it’s still not great, although it has a bit of a Lisp-y feel to it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you spend some time reading functions such as the preceding example, you
+    do get used to it. Common Lisp is a good example here; the parenthesis makes it
+    hard to read initially, but over time, it becomes second nature. Yet, I’d argue
+    most of your coworkers are not fluent Lisp programmers and likely don’t want to
+    spend their time learning how to read such code. As object-oriented dot notation
+    is the most common way of method chaining, we should opt for a solution that is
+    closer to what the majority of people are used to. We can achieve this in Go using
+    type aliases. Remember from [*Chapter 2*](B18771_02.xhtml#_idTextAnchor028) that
+    type aliases allow us to attach functions to custom types and that we can create
+    a custom type to represent a slice.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first step, then, is to create a type alias for our container type. This
+    works for all types, but we’ll demonstrate it with integers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we will attach custom methods to this type alias. For our example, we
+    will use `Map`, `Filter`, and `Sum`, as in the previous example, but this would
+    work for any function. For each of the functions, they will call our existing
+    (generic) `Map`, `Filter`, and `Sum` methods. However, notably, the difference
+    is that these functions are now attached to a concrete type. This is somewhat
+    similar to creating a *façade* pattern for function dispatching:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can tell from the preceding snippet, there’s no real magic happening
+    here, but this small change will allow us to chain our functions together in the
+    familiar dot notation. For example, the following method is identical to the previous
+    non-chained examples:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: I’d wager that, for many people, this is the more readable version, especially
+    compared to the more Lisp-style example. However, to an extent, this is just personal
+    preference and what you are used to. That said, in the population of Go programmers,
+    dot notation function chaining is the more common approach. The main downside
+    of this approach is that new functions need to be created simply to allow dot
+    notation chaining. The good news is that there are solutions available for this,
+    but they will make your project setup a bit more complex. We can automate the
+    generation of such functions for our types using the Go compiler pragma system.
+    In [*Chapter 11*](B18771_11.xhtml#_idTextAnchor158), we will see some examples
+    of libraries that can do this.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Lazy evaluation of function calls
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: There is a trade-off that happens whenever we opt for the preceding dot notation
+    style of declarative programming in Go. To understand why there is a potential
+    negative performance impact when chaining functions in Go but not in a language
+    such as Haskell, we need to understand the concept of function evaluation and,
+    particularly, lazy evaluation. When a programming language is said to support
+    **lazy evaluation** of a function call, what is meant is that the function is
+    only executed at the moment when the result is needed, instead of ahead of time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can contrast this with **eager evaluation** (also called strict evaluation),
+    where the entire result for each function is computed at the time of the function
+    call. Eager evaluation is the execution strategy employed by most programming
+    languages, so it is likely the one that you are most familiar with. *Go does not
+    opt for lazy evaluation, but we can mimic it.* To understand what it means for
+    a programming language to be lazy, let’s first talk about eager evaluation and
+    the mental model associated with this. Think about the flow of execution for the
+    following snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: When reading this code, the flow of execution follows our way of reading pretty
+    much. First, the top line is evaluated, and then the one below that, all the way
+    to the final line in the code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.1: The flow of execution, from top to bottom](img/Figure_8.1_B18771.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 8.1: The flow of execution, from top to bottom'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is a natural way to read code and follow what is happening. Let’s extend
+    the example with some function calls.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.2: The execution flow with function calls](img/Figure_8.2_B18771.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 8.2: The execution flow with function calls'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In *Figure 8**.2*, we can see how the execution flow is modeled when a function
+    call is present. First, `main` function, which ends up printing the result stored
+    in `Filter` method that we created in [*Chapter 6*](B18771_06.xhtml#_idTextAnchor101):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: With eager evaluation, what happens in the preceding snippet is that the call
+    to `Filter` will be resolved before passing on the entire result to `numberPrinter`.
+    Essentially, the most deeply nested function will be evaluated first, with the
+    outermost function evaluated last (and using the result of the inner evaluation).
+    Again, this is how most of us rationalize code. *Lazy evaluation, however, wants
+    to only perform the computation once the result becomes required.* In the preceding
+    example, the moment at which the “even number filter” becomes relevant is when
+    we start iterating over the result in `numberPrinter`. Thus, the flow of execution
+    looks like *Figure 8**.3*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.3: The lazy evaluation execution flow](img/Figure_8.3_B18771.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 8.3: The lazy evaluation execution flow'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In *Figure 8**.3*, we zoom in on what happens once the `numberPrinter(pkg.Filter(input,
+    isEven))` line is reached. What happens during lazy evaluation is that we jump
+    into the `numberPrinter` function. Because the filtered list of numbers is not
+    yet relevant to enter that function, the call to `pkg.Filter` has not yet happened.
+    However, our runtime makes note that this function will need to be called eventually.
+    Next, we hit the first line of `numberPrinter`, which loops over our input. At
+    this point, the result of the `Filter` function becomes relevant. Thus, we need
+    to figure out which numbers are odd by calling `pkg.Filter`. Once the result has
+    been computed, the execution continues at the `[..] range input [..]` line. Thus,
+    execution was effectively deferred until it was needed. That is the critical point
+    of lazy evaluation – no work (i.e., no processing power) is expended until we
+    know that it will be absolutely necessary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A language built around this strongly requires function purity, as having a
+    shifting state of the system in conjunction with this lazy evaluation mode of
+    execution would be a recipe for disaster, and would be a leading cause of headaches
+    among functional programmers. Go does not automatically translate our code into
+    functions called with lazy evaluation, but we can force it to do so ourselves
+    by leveraging higher-order functions. Before discussing how eager versus lazy
+    evaluation impacts the declarative code that we are writing, let’s build a simple
+    program that forces lazy evaluation in the preceding scenario. Once again, we’ll
+    create a list of numbers, filtered to only keep the even ones, and then pass them
+    to `numberPrinter`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the preceding modified example, our `numberPrinter` function no longer takes
+    a slice of integers as input. *Instead, it takes a function that returns a slice
+    of integers as the input.* This is a crucial difference, as now it allows us to
+    call the `numberPrinter` function without knowing the numbers to print ahead of
+    time. Once `numberPrinter` deems it necessary to know the numbers, it can call
+    the `lazyGet` function, which will generate each number. When we want to use `numberPrinter`,
+    we have to provide a way for the function to get to the real input. We have done
+    this with an anonymous function, simply wrapping our call to `Filter` in a new
+    function that passes the output along:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: This way, we can model lazy evaluation in Go. I’d say the main difference between
+    this approach and what is typically considered a “lazily evaluated language” is
+    that in a “lazy language,” this type of laziness is handled by the programming
+    language itself. In Go, while we get to lazily evaluate each intermediate result
+    for a function, doing so would require a lot of overhead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Delaying and avoiding execution
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The right way to think about lazy evaluation is not simply delayed execution
+    but rather *delay and avoid* execution. When working with lists, this translates
+    into only generating the subset of the list required to solve the problem. This
+    behavior is easy to mock in Go if we don’t want to write declarative code and
+    hand-write our loops, but it’s much harder if we want to write declarative code.
+    As mentioned earlier in the book, our aim is for code to be as declarative as
+    possible, as this increases the readability. The next example will highlight what
+    is meant by *delay and* *avoid* execution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s say we want to find the first factorial result that is larger than 10
+    million, and we want to write this in a declarative way. To demonstrate this,
+    we will also reuse what we learned in earlier chapters. We’ll use the `Maybe`
+    type introduced in [*Chapter 5*](B18771_05.xhtml#_idTextAnchor085), create a new
+    function (`head`), attach this function to a slice type (`ints`), create a function
+    to generate a pre-populated slice of integers (`IntRange`), and finally, tie this
+    together into a single solution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The complete example can be found on GitHub: [https://github.com/PacktPublishing/Functional-Programming-in-Go./tree/main/Chapter8/LazyEvaluation](https://github.com/PacktPublishing/Functional-Programming-in-Go./tree/main/Chapter8/LazyEvaluation).
+    Let’s start by setting up the `head` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This function returns `Maybe`, which either contains the underlying head of
+    the list, or returns `Nothing`. To attach this to a type to use in our dot notation
+    chain, we’ll need to provide a wrapper function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we need to generate a slice of numbers. The `IntRange` function will
+    generate a range of numbers between a lower and upper bound. Remember that when
+    writing declarative code, we want to concern ourselves with the *what* and not
+    the *how*. As Go does not offer this out of the box, we’ll write the generator
+    function once (the *how*) and then only reuse the generator later (the *what*):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we were to write enough of these types of generators, we would ideally never
+    have to write a manual loop again. Now that we have written these functions, in
+    combination with `Filter` from [*Chapter 6*](B18771_06.xhtml#_idTextAnchor101)
+    and `Factorial` from [*Chapter 7*](B18771_07.xhtml#_idTextAnchor113), we can tie
+    this together into our declarative solution. In our `main` function, we will first
+    create an inner function that checks whether a number is larger than 10 million.
+    Then, we’ll declaratively chain the steps to find the first factorial larger than
+    10 million by doing the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Generating a range from 0 to 100.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Mapping each number in the range to its factorial result.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Filtering the results for being larger than 10 million.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Returning the first element of this list:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: If we run this code, we get the following result – `{``39916800}`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While this is easy to read and understand, there is a pretty big drawback hiding
+    underneath the implementation, due to Go’s lack of lazy evaluation. What we have
+    done in the first two steps is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Generate all numbers from 0 to 100.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Get their factorial result.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: However, the first factorial that exceeded `10_000_000` actually happened at
+    value for `n=11`. This means that every subsequent number (12 to 100) was generated
+    and added to the slice, and then had its factorial calculated for no reason. In
+    a lazily evaluated language such as Haskell, the list would only have generated
+    the values needed to find the result and then short-circuited execution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Short-circuiting in predicates
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is a form of short-circuiting and lazy evaluation that happens in most
+    mainstream programming languages, including Go, which is short-circuiting for
+    predicates. In an `if` condition, if there are multiple conditions present such
+    as `if A() && B()`, the `B` function would not be executed if `A` already returned
+    `false`. Similarly, for the `if A() || B()` statement, the `B` function would
+    not be executed if `A` already returned `true`. This saves on useless computation.
+    (If you are writing side effect-heavy code that would have relied on the result
+    of running both predicates, this can be nasty to debug. Yet another reason to
+    avoid side effects.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Infinite data structures and lazy evaluation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Another advantage of lazy evaluation is that you can model infinite data structures,
+    such as a list with all numbers from 0 to infinity. The reason that we can work
+    with infinite structures in a lazily evaluated language is that you only compute
+    as much data as is needed for the entire chain of operation. Go does not support
+    lazy evaluation, so in this brief segue into the world of infinite data structures,
+    the examples will be written in Haskell and an imaginary Go implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In Haskell, defining an infinite list is a simple operation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: So how do we work with them? Well, we need a terminating function. For lazy
+    evaluation to work with infinite lists, we need to have a clear end state at which
+    the list operation completes. For example, let’s create an infinite list, check
+    each number to see whether it is a prime number, and stop once we have generated
+    1 million prime numbers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, let’s create the `naturals` function, which generates all numbers from
+    2 to infinity. The reason for doing so is that we don’t know exactly where to
+    stop. Let’s also define what the sieve of Eratosthenes looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The sieve will remove (sieve out) all non-primes from the list for a given
+    starting value. Next, let’s wrap these two together into a function that generates
+    prime numbers by feeding the infinite list of numbers into the sieve, alongside
+    a limit (`n`) for how many we want to generate:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here, we have our terminator function. `take n` tells us that, from the infinite
+    list of data, we only want to generate however many are needed to reach `n`. Let’s
+    call this in a `main` function to generate the first 1 million of them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding code is all written in Haskell, but now let’s move back to the
+    domain of the star of this book, Go. If we think about how we would achieve something
+    similar in Go, the easiest way to do so is by using a `for { }` loop. And to be
+    specific, I mean the *while* behavior of the loop. We loop until a condition is
+    met without a postcondition to increment a value. Ignoring the prime check, we
+    would probably write something akin to the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding implementation would work, assuming we fill out the body of the
+    `for` loop (which is a de facto infinite generator; if we never reach the count
+    of 1 million, it will keep looping forever. In practice, it means your algorithm
+    is wrong). However, in writing this code, we have given up the declarative style
+    of programming. *We moved back into the domain of spelling out “how” the result
+    should be reached, rather than focusing on “what” the result should be.* In an
+    imaginary Go implementation, what we would want to write is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding code would be the equivalent (functional) implementation, although
+    we are filtering instead of using a sieve for the sake of simplicity. This ends
+    our segue into lazy evaluation and its benefits. Let’s now move on to another
+    style of chaining functions together.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Continuation-passing style programming
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The next programming style that we will look at is **continuation-passing style**
+    (**CPS**). Unlike the familiar dot notation style of method chaining, CPS is only
+    possible in languages that support functions as first-class citizens. The core
+    idea is that the continuation – in other words, the next step of execution – is
+    another function that is passed as an argument to our original function. This
+    allows us to control the flow of our program using function passing, rather than
+    by branching and explicit function calls. The main benefit is that this will help
+    us read and understand complex chains of functions, and we can change them with
+    minimal effort. Before we dive into the Go implementation of CPS programming,
+    let’s take a brief detour and explain continuations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What are continuations?
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: A continuation is a somewhat abstract concept in the realm of programming languages.
+    It is a function that represents the next computation of a program. It essentially
+    captures the state of our program at the moment of execution (more specifically,
+    the stack), and provides the next step of execution as a function that can be
+    called.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Continuations are used to implement the control flow within a programming language.
+    They can be thought of as a data structure that represents our current state of
+    execution and the next state of execution that we will transition into. This abstract
+    concept is how programming languages can implement the control flow structures
+    that are more familiar to us from day-to-day programming, such as exception handling,
+    `for` loops, and goroutines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In some languages, such as Scheme, continuations are exposed to the programmer
+    and can be leveraged to control the flow of execution of the program at a higher
+    level of abstraction. This is equivalent to programming your own control structs
+    but with the additional advantage that the continuation can be modified in place
+    to take on different behavior. In Go, this is not easily achievable. One of the
+    challenges in doing this in Go is that it is a statically typed language, making
+    it harder to even begin to define a continuation as a data structure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The closest example that touches on continuations in Go is perhaps the `panic`
+    and `recover` pattern. Imagine the following function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this `main` function, we are first defining a `main` function, just before
+    function exits. `defer` specifies a continuation for a function and is a special
+    case in Go, in that it gets executed prior to function exit, regardless of how
+    we exit the function. Inside the deferred function, we will recover if `panic`
+    was encountered anywhere during the execution of the parent function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Outside of the deferred function, we are explicitly calling `panic` after the
+    first `print` statement. This is, again, an example of a continuation. There are
+    a few special things happening here that might not be immediately obvious. First,
+    the call to `panic` is not a simple function call. `panic` is used to signal that
+    our execution stack ended up in a corrupted state, and the normal flow of execution
+    is no longer possible. It captures the entire state of the stack at the moment
+    `panic` was called and halts our function. However, because we have added the
+    `defer` function as a continuation to `main`, `defer` gets access to this saved
+    stack from `panic`. This can then display the content of the stack at the moment
+    that `panic` was called, help us recover from the invalid state, and continue
+    program execution without halting. In other words, our `panic` continuation is
+    capturing valuable information about the state of our program and is exposing
+    this to another function later on during execution. However, do remember that
+    the use of `panic` is discouraged in Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Diving in depth into continuations is beyond the scope of this book, but this
+    small introduction should serve the purpose of showing that continuations, although
+    not explicitly called such in Go, are still prevalent in the language itself.
+    There is a form of explicit continuation that we can leverage though, and that
+    is how we end up in the domain of CPS programming.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing CPS code in Go
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'To build an understanding of CPS, let’s first take a look at a simple example.
+    Recall from the last chapter that we created a few ways to calculate the factorial
+    of a number. In this example, let’s rewrite the recursive version to follow the
+    CPS pattern. To enable CPS, we need to pass the continuation as an argument to
+    our recursive function. The remainder of the logic for calculating the factorial
+    remains the same:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this factorial example, we are using a higher-order function, `f`, to represent
+    the continuation of our recursive function call. Whereas in the recursive function
+    call, we simply multiply the current input of our function by the result of the
+    function call, here we are using a closure to perform the multiplication one layer
+    deeper. We are saying that to continue calculating the factorial, we need to multiply
+    `n` by `y`. However, `y` is not yet defined in this stack frame; it will only
+    be defined in the next function call.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To run this function, let’s create a main function that prints the result of
+    the multiplications:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note how, in this function, we are calling `fmt.Printf` inside the closure.
+    This means that the print statement will get passed down our function call chain,
+    and it will eventually be evaluated by our factorial function. This is one of
+    the powers of CPS – it is making explicit what happens at lower steps of recursion,
+    rather than this being hidden from the programmer. The topmost stack frame gets
+    a function pushed to it, which is the `print` function, and each subsequent call
+    stack gets a function pushed onto it, which is a “multiply our input with the
+    input of the next call” function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.4: Call stack with variable functions](img/Figure_8.4_B18771.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 8.4: Call stack with variable functions'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If we take a look at *Figure 8**.4*, we can see how there are different functions
+    being pushed to different levels of our call stack. The bottommost call stack
+    has a function call to `Println`, while the ones immediately above it have a function
+    call to a multiplication closure. The final stack frame simply has the constant
+    `n * 1`). By introducing CPS, we have effectively abstracted over the recursive
+    function call and have added additional flexibility to how our program flows through
+    the call stack. Whereas in a normal recursive function, each subsequent layer
+    is mostly a copy of the previous layers (apart from the base case), with CPS,
+    we can introduce a different behavior at each frame, depending on what we want
+    to do.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One thing to point out when we are using this mental model of call frames is
+    that they are never returned. In a CPS program, you are not using `return` statements;
+    rather, you are passing the continuation (next step) as a higher-order function.
+    This is why our `print` statement is passed down until the final iteration is
+    reached. To be explicit about it, each call frame is added to the stack but evaluation
+    rolls up from the bottom – that is, our `print` statement is pushed to the frame
+    above it, which pushes it to the frame above it, and so on, all the way to the
+    top.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The function result is rolled up along the way with it. This is in contrast
+    with normal recursion, where our stack frames are added similarly but evaluated
+    from top to bottom. It can take a second to wrap your head around this inversion
+    of evaluation flow. The reason behind this is that in each stack frame, we are
+    passing closures as *input* to the next function. *However, remember that passing
+    around a function as input to another function does not evaluate that function
+    yet.* Hence, we are delaying the execution (as with lazy evaluation) of each function
+    along the stack frame until the final frame is reached. In this case, `f(1)` is
+    the final stack frame. Once we have reached this frame, all our closure functions
+    are effectively evaluated. (From the last closure to the first closure, they are
+    evaluated in the final frame. Hence, the `print` statement from the bottom prints
+    the result of the final evaluation.)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we have seen this example work with recursion, let’s look at a slightly
+    more complex example where we are not actually using recursion. This is to show
+    that any type of control flow can actually be modeled with CPS.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Simple mathematics operations with CPS
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'In the preceding example, we have seen the recursive factorial calculation
+    using CPS. This might lead us to believe that CPS is just an alternative way of
+    writing a recursive function. And while there are certain advantages to writing
+    recursive functions with CPS, it is not strictly necessary for a function to be
+    recursive. Take the following example. Let’s say we start with a slice of integers
+    as input. We first want to filter out the even numbers from the input. If a number
+    is even, we want to double it. Finally, we want to print out the resulting integer.
+    If we want to write this in CPS, we need to consider each continuation (following
+    action) as a function to be passed to the original function. This, without diving
+    into the details, produces the following flow of continuations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This shows us that three continuation functions are needed, along with a fourth
+    function in which we will create the slice of inputs and start the chain of operations.
+    Written in Go, this would produce the following result:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Each of our functions, apart from `print`, performs an operation on our input
+    and calls a continuation function. The continuation function will provide the
+    next step in our algorithm. In the `isEven` function, the continuation is only
+    called if a number matches the `i%2==0` condition, effectively making sure that
+    the continuation only happens on numbers that are even. Now, when we read our
+    `main` function, the entire chain of operations is spelled out:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'First, we create a slice of integers. Next, we call `isEven`; after that, we
+    double, and finally, we print. Note that the odd thing here is that we are actually
+    creating an anonymous function as input for the `isEven` continuation. In Go,
+    we cannot simply write the function like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Well, we could if we changed the signature of `isEven` to take as input arguments:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: However, now our `isEven` function is tied to a function that explicitly takes
+    a continuation as a request. What if we simply want to print the even numbers
+    and perform no further operations on them?
+  prefs: []
+  type: TYPE_NORMAL
+- en: This gets to the heart of why CPS is difficult to get right in Go. The type
+    system is too strict to easily manage functions in the CPS style of programming.
+    We will discuss the drawbacks of CPS in more detail, but first, let’s take a look
+    at a scenario where CPS can actually be a real advantage.
+  prefs: []
+  type: TYPE_NORMAL
+- en: CPS and goroutines
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'One of the areas where CPS can definitely help is managing concurrent code.
+    Whenever you hear about a *callback* in languages such as JavaScript, what you
+    are really doing is using a continuation and passing this to an asynchronous function.
+    Once the asynchronous part has been completed, the continuation (callback) is
+    automatically called with the result of the asynchronous part. Often, this is
+    done in the form of web requests, whereby a web request is launched, the callback
+    is called when the request has been completed, and the state of the callback is
+    populated with the result of the request. This result is often a status code (e.g.,
+    `200`) and a payload (in the case of a `GET` request). This is such a common pattern
+    nowadays that we ignore the underlying concepts, nor do we really need to understand
+    them to use callbacks. However, let’s model our *double if even* function with
+    callbacks and asynchronous Go code to provide an explicit example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding code is a slightly altered version. We are going to asynchronously
+    verify whether or not a number is even, and if it is, we will print `the number
+    x is even`; otherwise, we will print `the number x is odd`. The key component
+    that CPS aims to simplify here is the flow-control part of an asynchronous call.
+    We will launch a call with the `go` keyword, and as the continuation is encoded
+    as part of the function that we are calling, we don’t have to worry about waiting
+    for the result of the function call asynchronously to then launch into the next
+    function. The pattern of *launch call, wait for result, continue computation*
+    is often modeled as async/await operations in languages that don’t support higher-order
+    functions. As Go is a multi-paradigm language, we can leverage higher-order functions
+    and, thus, CPS. This allows us to focus on the *async* part without having to
+    worry about the *wait and continue* part. That said, Go actually has a solid concurrency
+    paradigm with goroutines and channels, so the need for this CPS-style programming
+    is mostly alleviated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When to use CPS?
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: For most use cases, CPS will likely make your program more complex than it’s
+    worth. It’s not the easiest way of reading recursive functions, and even when
+    you are used to it, it can trip you up. It is, however, used in certain spaces,
+    such as compiler/interpreter design. Typically, if there is a complex control
+    flow that you want to model, CPS can make this control explicit and, thus, easier
+    to comprehend and read.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Apart from this, another use case is the use of callbacks in asynchronous programming.
+    Although we don’t often call those CPS, or even continuations, they are definitely
+    a form of CPS. Due to the use of goroutines and channels, the more familiar style
+    of callbacks that we find in languages such as JavaScript is a bit less common
+    but, nevertheless, a useful area where we can use them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we have looked at two distinct ways of composing our functional
+    code. The first way is by chaining methods in a familiar dot notation-style chaining.
+    This is a way of connecting inputs and outputs of various functions without having
+    an intermediate variable assignment in between. While most programmers are familiar
+    with this style of programming, there is some overhead required when writing (pure)
+    functional code with generics in Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another trade-off that we discussed here is the eager versus lazy modes of function
+    evaluation. While it is possible to mimic lazy evaluation in Go, the compiler
+    and language don’t do any of the heavy lifting for us. This means that if we were
+    to port code from a functional language such as Haskell, the performance characters
+    would be significantly different.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we also looked at continuations and CPS programming. A continuation
+    is an abstract representation of any “next step” in an algorithm, whether it is
+    a function call, a loop, or a “goto” statement. CPS programming makes the nature
+    of recursive operations explicit and allows us to abstract over how function chaining
+    happens. While CPS is a powerful technique, the use cases in daily life are a
+    bit limited, even though we are using a lot of CPS under the hood, such as when
+    modeling callback functions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will jump one layer of abstraction higher and look at
+    program composition through functional design patterns.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Part 3: Design Patterns and Functional Programming Libraries'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this part, we will first move to a higher level of abstraction by looking
+    at software architecture using functional programming techniques. Once again,
+    we will compare how the object-oriented approach compares with the more functional
+    approach. We’ll see how Go’s concurrency paradigm can be leveraged in a functional
+    context. Finally, we will learn about libraries that help us in building functional
+    applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part has the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 9*](B18771_09.xhtml#_idTextAnchor138)*, Functional Design Patterns*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 10*](B18771_10.xhtml#_idTextAnchor147)*, Concurrency and Functional
+    Programming*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 11*](B18771_11.xhtml#_idTextAnchor158)*, Functional Programming Libraries*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

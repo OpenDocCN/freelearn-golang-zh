@@ -1,0 +1,1273 @@
+- en: '5'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Types of gRPC Endpoints
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we are going to see the different types of gRPC endpoints that
+    you can write. For each of the endpoints, we are going to understand what the
+    idea behind the type of communication we are talking about is, and we are going
+    to define an RPC endpoint in our Protobuf service. Finally, we are going to implement
+    that endpoint and write a client to consume the endpoint. At the end of this chapter,
+    the goal is to implement a TODO API that will let us create, update, delete, and
+    list the tasks in our TODO list.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we’re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: What the four types of RPC endpoints you can write are
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When to use each of them
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to implement the endpoint’s logic
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to consume a gRPC endpoint
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can find the code for this chapter in the folder called `chapter5` in the
+    companion repo for this book at [https://github.com/PacktPublishing/gRPC-Go-for-Professionals/tree/main/chapter5](https://github.com/PacktPublishing/gRPC-Go-for-Professionals/tree/main/chapter5).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the template
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: This section is only necessary if you want to work with the same architecture
+    as the github repository. Continuing working on the code from the previous code
+    is totally fine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you remember, the goal of the previous chapter was to create a template
+    that we can use to create a new gRPC project. As we will start such a project
+    now, we will need to copy the content of the `chapter4` folder into the `chapter5`
+    folder. To do that, simply run the following commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: We pass `–R` in our case because we want to recursively copy all the files in
+    the `chapter4` folder.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'And finally, we can also clean the template a little bit. We can remove the
+    dummy directory in the `proto` folder because this was just there for testing
+    our code generation. Then, if you used `bazel` for `chapter4`, we can delete all
+    the build folders that start with the `bazel-` prefix. To do that, we can just
+    simply remove them as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: We are now ready to use this template and see the different API endpoints that
+    we can write with gRPC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A Unary API
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: In terms of the underlying protocol, as we mentioned in [*Chapter 1*](B19664_01.xhtml#_idTextAnchor014),
+    *Networking Primer*, the Unary API uses `Send Header` followed by `Send Message`
+    and `Half-Close` from the client side, and `Send Message` plus `Send Trailer`
+    from the server side. If you need a refresher on these operations, I recommend
+    you quickly check the *RPC operations* section in [*Chapter 1*](B19664_01.xhtml#_idTextAnchor014)
+    of this book. This will help get a sense of what is going on when you are calling
+    this API endpoint.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The easiest and most familiar API endpoint that you can write is a unary endpoint.
+    These roughly translate to `GET`, `POST`, and other HTTP verbs that you probably
+    worked with in REST APIs. You send a request and you get a response. Generally,
+    these endpoints will be the ones that you use the most often to represent the
+    treatment of one resource. For example, if you write a login method, you just
+    need to send `LoginRequest` and receive `LoginResponse`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For this section, we are going to write an RPC endpoint called `AddTask`. As
+    its name suggests, this endpoint will create a new task in the list. So before
+    being able to do that, we need to define what a *task* is.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A task is an object that contains the following properties:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`id`: A number that is an identifier of that task'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`description`: The actual task to be done and that the user reads'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`done`: Whether or not the task is already done'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`due_date`: When this task is due'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'And if we translate that to Protobuf code, we would have something like the
+    following (the file in `chapter5/proto/todo/v1` called `todo.proto`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice the use of a `Timestamp` type here. This is a well-known type that is
+    provided with Protobuf under the `google.protobuf` package. We are using this
+    type to represent a point in time in the future at which the task should be completed.
+    We could have rewritten our own `Date` type or used the `Date` type defined in
+    the `googleapis` repository ([https://github.com/googleapis/googleapis/blob/master/google/type/date.proto](https://github.com/googleapis/googleapis/blob/master/google/type/date.proto))
+    but `Timestamp` is sufficient for this API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that we have our task, we can think about our RPC endpoint. We want our
+    endpoint to receive a task, which should be inserted into the list, and to return
+    the identifier for that task to the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: One important thing to notice here is that instead of using the `Task` message
+    as the parameter for the `AddTask` endpoint, we created a wrapper (`AddTaskRequest`)
+    around the necessary pieces of information for the endpoint. Nothing more, nothing
+    less. We could have used the message directly but this may have led the client
+    to send unnecessary data over the wire (e.g., setting the ID, which would be overlooked
+    by the server). Furthermore, for future versions of our API, we could add more
+    fields to `AddTaskRequest` without affecting the `Task` message. We effectively
+    decouple the actual data representation for the request/response representation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Code generation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you are unsure by now on how to generate code out of a proto file, I highly
+    recommend that you check [*Chapter 4*](B19664_04.xhtml#_idTextAnchor136), where
+    we presented three methods for doing that. In this chapter, we are going to generate
+    everything manually, but you can find how to do the same with Buf and Bazel in
+    the `chapter5` folder of the GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that we have created the interface for our API endpoint, we want to be
+    able to implement the logic behind it. The first step to do that is to generate
+    some Go code. To do that, we are going to use `protoc` and the `source_relative`
+    value for the `paths` option. So, knowing that our `todo.proto` file is under
+    `proto/todo/v1/`, we can run the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After running that, you should have a `proto/todo/v1/` directory like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: That is all we need to get started.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inspecting the generated code
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In the generated code, we have two files – the Protobuf-generated code and
+    the gRPC code. The Protobuf-generated code is in a file called `todo.pb.go`. If
+    we inspect this file, the most important thing that we can see is the following
+    code (which is simplified):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: This means we can now create `Task`, `TaskRequest`, and `TaskResponse` instances
+    in our Go code, and that is exactly what we will do later in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For the gRPC-generated code (`todo_grpc.pb.go`), there are interfaces generated
+    for both the client and the server. They should look like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: They look similar, but the server-side `AddTask` is the only one that we need
+    to implement the logic for. The client-side `AddTask` basically generates the
+    request for calling the API endpoint on our server and returning us the response
+    that it received.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Registering a service
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To let gRPC know how to handle a certain request, we need to register the implementation
+    of a service. To register such a service, we are going to call a generated function,
+    which is present in `todo_grpc.pb.go`. In our case, this function is called `RegisterTodoServiceServer`
+    and its function signature is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: It takes `grpc.ServiceRegistrar`, which is an interface that `grpc.Server` implements,
+    and takes `TodoServiceServer`, which is the interface that we saw earlier. This
+    function will link the generic gRPC server provided by the framework with our
+    implementation of the endpoints so that the framework knows how to handle requests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, the first thing to do is to create our server. We are first going to create
+    a struct that embeds `UnimplementedTodoServiceServer`, which is a generated struct
+    that contains the default implementation of the endpoints. In our case, the default
+    implementation is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: If we do not implement `AddTask` in our server, this endpoint will be called,
+    and it will return an error every time we call it. Right now, that does not seem
+    useful because this does nothing other than return an error, but the fact is that
+    this is a safety net, and we are going to see why when we talk about evolving
+    our APIs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, our server will contain a reference to our database. You can adapt this
+    to use any database you are familiar with, but in our case, we are going to abstract
+    the database away with an interface because this will let us focus on gRPC and
+    not on another technology such as, for example, MongoDB.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, our server type (`server/server.go`) will look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let us see what the `db` interface looks like. We are going to first have
+    a function called `addTask`, which takes a description and a `dueDate` value and
+    returns the `id` value for the task created or an error. Now, the important thing
+    to note is that this database interface should be decoupled from the generated
+    code. This is, once again, due to the evolution of our API because if we were
+    to change our endpoints or `Request`/`Response` objects, we would have to change
+    our interface and all the implementations. Here, the interface is independent
+    of the generated code. In `server/db.go`, we can now write the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: This interface will let us test against fake database implementations and implement
+    an in-memory database for non-release environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The last step is to implement the in-memory database. We are going to have
+    a regular array of `Task` storing our to-dos and `addTask` will simply append
+    a task to that array and return the ID of the current task. In a file called `server/in_memory.go`,
+    we can add the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There are a few things to note about this implementation. First, this is probably
+    obvious, but this is not an optimal “database” and is only used for development
+    purposes. Second, without going into too much detail, we could use Golang build
+    tags to choose the database we wanted to run at compile time. For example, if
+    we had our `inMemoryDb` and a `mongoDb` implementation, we could have `go:build`
+    tags at the top of each file. For `in_memory.go`, we could have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And for `mongodb.go`, we could have this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: This would let us select at compile time which `New` function we wanted to use
+    and thus create either an `inMemoryDb` or `mongoDb` instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, you might have noticed that we are using the generated code in the
+    implementation of this “database.” As this is a “database” that we use as a dev
+    environment, it does not really matter if this implementation is coupled with
+    our generated code. The most important thing is to not couple the `db` interface
+    with it so that you can use any database without even having to deal with the
+    generated code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, we are finally ready to register our server type. To do that, we can just
+    go into our `server/main.go main` function and add the following line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: This means that we have now linked the gRPC server called `s` to the server
+    instance created. Note that the `New` function here is the function that we defined
+    inside the `in_memory.go` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing AddTask
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: For the implementation, we are going to create a file called `server/impl.go`
+    that will contain the implementation of all our endpoints. Note that this is purely
+    for convenience and that you could have a file per RPC endpoint.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, as you might remember, the generated interface for our server wants us
+    to implement the following function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, we can just add that function to our server type by writing the function
+    preface with the name of the server instance and the server type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And finally, we can implement the function. This will call the `addTask` function
+    from our `db` interface, and as this never returns errors (for now), we are going
+    to take the given ID and return that as `AddTaskResponse`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that `AsTime` is a function provided by the `google.golang.org/protobuf/types/known/timestamppb`
+    package, which returns a Golang `time.Time` object. The `timestamppb` package
+    is a collection of functions that lets us manipulate the `google.protobuf.Timestamp`
+    object and use it in an idiomatic way in our Go code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Right now, you might feel that this is too simplistic but remember that we are
+    just at the beginning of our API. Later in the book, we will do error handling
+    and see how to reject incorrect arguments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Calling AddTask from a client
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Finally, let us see how to call the endpoint from Go client code. This is simple
+    since we already have the boilerplate that we created in the previous chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will create a function called `AddTask`, which will call the API endpoint
+    that we registered in the server. To do so, we are going to need to pass an instance
+    of `TodoServiceClient`, a description of the task, and a due date. We will create
+    the client instance later but note that `TodoServiceClient` is the interface that
+    we saw when we inspected the generated code. In `client/main.go`, we can add the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: After that, with the parameters, we can just construct a new instance of `AddTaskRequest`
+    and send it to the server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we will receive either an `AddTaskResponse` or an error from our API
+    call. If there is an error, we log that on the screen, and if there is not, we
+    log and return the ID:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To call this function, we need to use a generated function called `NewTodoServiceClient`,
+    to which we pass a connection, and it returns a new instance of `TodoServiceClient`.
+    And with that, we can simply add the following lines to the end of our `main`
+    function in the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that here we are adding a task with a five-second due date and a description
+    of `This is a task`. This is just an example and I encourage you to try to make
+    more calls by yourself with different values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, we can basically run our server and client and see how they are interacting.
+    To run the server, use this `go` `run` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And then, on another terminal, we can run the client in a similar way:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: And finally, to kill the server, you can just press *Ctrl + C* in the terminal
+    running it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: So, we can see that we have a service implementation registered to our server,
+    and our client is correctly sending a request and getting a response back. What
+    we made is a simple example of a Unary API endpoint.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bazel
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we will see how to run an application with Bazel. However,
+    because it would become repetitive if every section had such an explanation, I
+    wanted to warn you that we will not go through these steps each time. For each
+    section, you can run the `bazel run` commands (for the server and client) that
+    you will see under, and the `gazelle` command should be useful only for this section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At this point, your Bazel BUILD files are probably out of date. To synchronize
+    them, we can simply run the `gazelle` command and it will update all our dependencies
+    and files to compile:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After that, we should be able to run the server and client easily by running
+    this command to execute the server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Meanwhile, use the following to run the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is another example of how our server and client are working properly. We
+    can run them with both the `go run` and `bazel run` commands. We are now confident
+    with the Unary API; let us move to the server streaming API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The server streaming API
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: In terms of the underlying protocol, the server streaming API uses `Send Header`
+    followed by `Send Message` and `Half-Close` from the client side, and multiple
+    `Send Message` plus `Send Trailer` from the server side.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, that we know how to register a service, interact with a “database,” and
+    run our client and server, everything will be faster. We will focus mostly on
+    the API endpoint itself. In our case, we are going to create a `ListTasks` endpoint,
+    which, as its name suggests, lists all the available tasks in the database.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One thing that we are going to do to make this a little bit fancier is that
+    for each task listed, we are going to return whether this task is overdue or not.
+    This is mostly done so that you can see how to provide more information about
+    a certain object in the `response` object.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, in the `todo.proto` file, we are going to add an RPC endpoint called `ListTasks`,
+    which will take `ListTasksRequest` and return a stream of `ListTasksResponse`.
+    This is what a server streaming API is. We get one request and return zero or
+    more responses:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that this time, we send an empty object as a request, and we get multiple
+    `Task` and whether they are overdue. We could make the request a bit more intelligent
+    by sending a range of IDs of tasks we want to list (paging), but for the sake
+    of conciseness, we have chosen to make it simple.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Evolving the database
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Before being able to implement the `ListTasks` endpoint, we need a way to access
+    all the elements in our TODO list. Once again, we do not want to tie the `db`
+    interface to our generated code, so we have a few choices:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We create some abstractions to iterate over the tasks. This might be fine for
+    our in-memory database, but how would this work with Postgres, for example?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We tie our interface to an already existing abstraction such as cursors for
+    databases. This is a bit better, but we still couple our interface.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We simply leave the iteration to our implementation of the `db` interface and
+    we apply a user-provided function to all the rows. With this, we are not coupled
+    to any other component.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'So, we are going to leave iteration to the implementation of our interface.
+    This means that the new function that we will add to `inMemoryDb` will iterate
+    over all the tasks and apply a function given as a parameter to each:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, the function passed as a parameter will itself get an `interface{}`
+    as a parameter. This is not type-safe; however, we are going to make sure that
+    we receive a `Task` at runtime when dealing with it later.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Then, for the in-memory implementation, we have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: There is one thing to notice here. We are going to make errors fatal to the
+    process. If the user-provided function returns an error, the `getTasks` function
+    will return an error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That is it for the database; we can now get all the tasks from it and apply
+    some kind of logic to the tasks. Let us implement `ListTasks`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing ListTasks
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To implement the endpoint, let us generate the Go code out of the proto files
+    and take the function signature that we need to implement. We just run the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And if we look at `proto/todo/v1/todo_grpc.pb.go`, we can now see that the
+    `TodoServiceServer` interface has one more function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: As we can see, the signature changed a bit from the one we had from the `AddTask`
+    function. We now only return an error or `nil`, and we have `TodoService_ListTasksServer`
+    as a parameter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you dig deeper into the generated code, you will see that `TodoService_ListTasksServer`
+    is defined as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is a stream on which you can send `ListTasksResponse` objects.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that we know that, let us implement the function in our code. We can go
+    to the `impl.go` file under the server and copy and paste the function signature
+    of `ListTasks` into `TodoServiceServer`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: Obviously, we added the server type to specify that we are implementing `ListTasks`
+    for our server and we named the parameters. `req` is the request that we receive
+    from the client and `stream` is the object that we are going to use to send multiple
+    answers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Then, the logic of our function is once again straightforward. We are going
+    to loop over all tasks, making sure that we are dealing with `Task` objects, and
+    for each of these tasks, we are going to “calculate” the overdue by checking whether
+    these tasks are done (with no overdue for tasks that are done) and whether the
+    `due_date` field is before the current time. In summary, we will just create `ListTasksResponse`
+    with this information and send that to the client (`server/impl.go`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: One thing to notice is that the `AsTime` function will create a time in the
+    UTC time zone, so when you compare a time with it you need it to also be in UTC.
+    That is why we have `time.Now().UTC()` and not simply `time.Now()`
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are obviously ways in which this function can fail (e.g., what if the
+    variable called `t` is not a `Task`?) but right now, let us not worry too much
+    about error handling. We are going to see that later. Let us now call this endpoint
+    from the client.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Calling ListTasks from a client
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To call the `ListTasks` API endpoint from the client, we need to understand
+    how to consume a server-streaming RPC endpoint. To do so, we check the method
+    signature or the generated function in the interface name’s `TodoServiceClient`.
+    It should look like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can see that we will need to pass a context and a request and that there
+    are some optional call options. Then, we can also see that we will get a `TodoService_ListTasksClient`
+    or an error. The `TodoService_ListTasksClient` type is very similar to the stream
+    we dealt with in the `ListTasks` endpoint. The main difference though is that,
+    instead of having a function called `Send`, we now have a function called `Recv`.
+    Here is the definition of `TodoService_ListTasksClient`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So, what we are going to do with this stream is we are going to loop over all
+    the responses that we can get from `Recv`, and then at some point, the server
+    will say: “I am done.” This happens when we get an error that is equal to `io.EOF`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can create a function in `client/main.go` called `printTasks` that will
+    repeatedly call `Recv` and check whether we are finished or have an error, and
+    if that is not the case, it will print the string representation of our `Task`
+    object on the terminal:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once we have this, we can call that function after the `addTask` call that
+    we made in our `main` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can now use `go run` to run our server first and then our client. So, at
+    the root of the project, we can run the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And then, we run our client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: This works as expected. Now, I would encourage you to try to add more tasks
+    by yourself, try different values, and use the `printTasks` function after adding
+    them all. This should help you get familiar with the API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we can add tasks and list them all, it would be nice if we could update
+    already existing tasks. This might be interesting for marking a task as done and
+    changing the due date. We are going to test that through the client streaming
+    API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The client streaming API
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: In terms of the underlying protocol, the client streaming API uses `Send Header`
+    followed by multiple `Send Message` and a `Half-Close` from the client side, and
+    `Send Message` plus `Send Trailer` from the server side.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With client streaming API endpoints, we can send zero or more requests and get
+    one response. This is an important concept, especially for uploading data in real
+    time. An example of this could be that we click on an edit button in our frontend,
+    which triggers an edit session, and we post each edit being made in real time.
+    Obviously, since we are not working with such fancy frontends, we are only going
+    to focus on making the API compatible with this kind of feature.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To define a client streaming API, we simply need to write the `stream` keyword
+    in the parameter clause instead of `return`. Previously, for our server streaming,
+    we had the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we will have the following for `UpdateTasks`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that, in this case, we are using the full Task message in the request,
+    not separated fields like in `AddTask`. This is not a mistake and we will talk
+    about this more during `chapter6`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This effectively means that the client sends multiple requests, and the server
+    returns one response. We are now one step closer to implementing our endpoint.
+    However, let us talk about the database before doing that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Evolving the database
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Before thinking about implementing `UpdateTasks`, we need to see how we interact
+    with the database. The first thing to consider is what information can be updated
+    for a given task. In our case, we do not want the client to be able to update
+    an ID; this is a detail that is handled by the database. However, for all the
+    other information, we want to let the user be able to update it. When a task is
+    done, we need to be able to set `done` to `true`. When the `Task` description
+    needs updating, the client should be able to change it in the database. And finally,
+    when the due date changes, the client should also be able to update it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Knowing that, we can define our function signature for `updateTask` in our
+    database. It will take the task ID and all the information that can be changed
+    as parameters and return an error or `nil`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once again, it looks a little bit much to pass that many parameters, but we
+    do not want to couple this interface with any of the generated code. If later
+    we need to add more information or remove some, this is as easy as updating this
+    interface and updating the implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, to implement that, we are going to go to the `in_memory.go` file. The
+    function will simply iterate through all the tasks in the database, and if any
+    `Task` has the same ID as the ID passed in the parameter, we will update all the
+    fields one by one:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now that means that every time we receive a request, we are going to iterate
+    through all the tasks. This is not highly efficient, especially when the database
+    becomes bigger. However, we are also not working with a real database so it should
+    be good enough for our use case in this book.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing UpdateTasks
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To implement the endpoint, let us generate the Go code out of the proto files
+    and take the function signature that we need to implement. We just run the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And if we look at `proto/todo/v1/todo_grpc.pb.go`, we can now see that the
+    `TodoServiceServer` interface has one more function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As we can see, the signature changed is similar to `ListTasks`; however, this
+    time, we do not even deal with a request. We simply deal with a stream of the
+    `TodoService_UpdateTasksServer` type. If we check the `TodoService_UpdateTasksServer`
+    type definition, we have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: We are already familiar with the `Recv` function. It lets us get an object,
+    but now we also have a `SendAndClose` function. This function lets us tell the
+    client that we are done on the server side. This is used to close the stream when
+    the client sends an `io.EOF`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Armed with that knowledge, we can implement our endpoint. We are going to repeatedly
+    call the `Recv` function on the stream, and if we receive an `io.EOF`, we will
+    use the `SendAndClose` function; otherwise, we will call the `updateTask` function
+    on our database:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: We should now be able to trigger this API endpoint to change a given set of
+    `Task` in real time. Let us now see how a client can call the endpoint.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Calling UpdateTasks from a client
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: This time, since we are working with client streaming, we are going to do the
+    opposite from what we did for server streaming. The client will repeatedly call
+    `Send` and the server will repeatedly call `Recv`. And in the end, the client
+    will call the `CloseAndRecv` function, which is defined in the generated code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we look at the generated code for `UpdateTasks` on the client side, we will
+    see the following signature in the `TodoServiceClient` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Notice that now the `UpdateTasks` function does not take any `request` parameters,
+    but it will return a stream of the `TodoService_UpdateTasksClient` type. This
+    type, as mentioned, will contain two functions: `Send` and `CloseAndRecv`. If
+    we look at the generated code, we have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`Send` is sent `UpdateTasksRequest` and `CloseAndRecv` will tell the server
+    that it is done sending requests and ask for `UpdateTasksResponse`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that we understand that we can implement the `UpdateTasks` function in
+    the `client/main.go` file, we are going to call the `UpdateTasks` function from
+    the gRPC client. This will return a stream and then we are going to send given
+    tasks through it. Once we have looped through all the tasks that needed to be
+    updated, we will call the `CloseAndRecv` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, as you can see in `updateTasks`, we need to pass zero or more `UpdateTasksRequest`
+    as parameters. To get the IDs needed to create task instances and fill the `UpdateTasksRequest.task`
+    field, we are going to record the IDs of tasks created before with `addTasks`.
+    So, formerly, we had the following in `main`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We will now have something like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And now, we can create an array of `UpdateTasksRequest` just like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: This means that the `Task` object with `id1` will be updated to have a new description,
+    the `Task` object with `id2` will be updated to have a new `due_date` value, and
+    finally, the last one will be marked as `done`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can now pass the client to `updateTasks` and expand this array as a variadic
+    parameter by using the `…` operator. In `main`, we can now add the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can now run that in a similar way to the previous sections. We use `go run`
+    to run the server first:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And then we run the client to call the API endpoint:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Before moving on, there is an important thing to note here. You might be a
+    little bit surprised about the fact that the tasks lost some information when
+    updating them. This is because Protobuf will use the default value of a field
+    when it is not set – meaning that if the client sends a `Task` object with only
+    `done` being equal to `true`, the description will be deserialized as an empty
+    string and `due_date` will be an empty `google.protobuf.Timestamp`. For now, this
+    is highly inefficient because we need to resend all the information to update
+    a single field. Later in the book, we are going to talk about how to solve this
+    issue. We can now update multiple tasks in real time based on their IDs. Let us
+    now move to the last API type available: bidirectional streaming.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The bidirectional streaming API
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: In terms of the underlying protocol, the bidirectional streaming API uses `Send
+    Header` from the client side, followed by multiple `Send Message` from the server
+    and/or client side, `Half-Close` from the client side, and finally `Send Trailer`
+    from the server side.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In a bidirectional streaming API, the goal is to let the client send zero or
+    more requests and let the server send zero or more responses. We are going to
+    use this to simulate a feature that is like `updateTasks` but in which we are
+    going to have direct feedback from the `DeleteTasks` endpoint API after each deletion
+    instead of waiting for all the deletions to be done.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One thing to be clear about before continuing with the implementation is the
+    question of why not to design `DeleteTasks` as a server streaming API or `updateTasks`
+    as a bidirectional streaming API. The difference between these two tasks is how
+    “destructive” they are. We can make an update directly on the client even before
+    sending the requests to the server. If any error is present, we can simply look
+    at the list we have on the client and synchronize it with the one on the server
+    depending on the modified time. For a deletion, this would be a little bit more
+    involved. We could keep the deleted row on the client and garbage would collect
+    it later, or we would need to store the information somewhere else to synchronize
+    it with the server. This creates a little bit more overhead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, we are going to send multiple `DeleteTasksRequest`, and for each, we are
+    going to have the confirmation that it was deleted. And, if an error occurs, we
+    are still sure that the tasks preceding the error were deleted on the server.
+    Our RPC and messages look like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: We repeatedly send the ID of the `Task` we want to delete, and if we receive
+    a `DeleteTasksResponse`, this means that the task was deleted. Otherwise, we get
+    an error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, before diving into the implementation, let us look at our database interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Evolving the database
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'As we want to remove a `Task` object in the database, we are going to need
+    a `deleteTask` function. This function will take an ID of the `Task` object to
+    be deleted, act on it, and return an error or nil. We can add the following function
+    to `server/db.go`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Implementing that looks a lot like `updateTask`. However, instead of updating
+    information when we find the task with the right ID, we are going to delete it
+    with a `go slice` trick. In `server/in_memory.go`, we now have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: The slice trick takes the elements after the current task and appends them to
+    the previous task. This effectively overrides the current task in the array and
+    thus deletes it. With that, we are now ready to implement the `DeleteTasks` endpoint.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing DeleteTasks
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Before implementing the actual endpoint, we need to understand how we will
+    deal with the generated code. So, let us generate the code with the following
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And if we check `todo_grpc.pb.go` in the `proto/todo/v1` folder, we should
+    have the following function added to `TodoServiceServer`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is similar to the `UpdateTasks` function because we get a stream, and
+    we return either an error or nil. However, instead of having `Send` and `SendAndClose`
+    functions, we now have `Send` and `Recv`. `TodoService_DeleteTasksServer` is defined
+    like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE64]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This means that, in our case, we can call `Recv` to get a `DeleteTasksRequest`,
+    and for each of them we are going to send a `DeleteTasksResponse`. Finally, since
+    we are working with a stream, we still need to check for errors and `io.EOF`.
+    When we get `io.EOF`, we will just end the function with `return`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE65]'
+  prefs: []
+  type: TYPE_PRE
+- en: One thing to note here is the `stream.Send` call. Even though this is simple,
+    this is what differentiates client streaming from bidirectional streaming. If
+    we did not have that call, we would effectively send multiple requests from the
+    client, and in the end, the server would return `nil` to close the stream. This
+    would be exactly the same as `UpdateTasks`. But because of the `Send` call, we
+    now have direct feedback after each deletion.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Calling UpdateTasks from the client
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Now that we have our endpoint, we can call it from the client. Before we can
+    do it though, we need to look at the generated code for `TodoServiceClient`. We
+    should now have the following function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE66]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once again, this is similar to what we saw in the `ListTasks` and `UpdateTasks`
+    functions because it returns a string that we can interact with. However, as you
+    can guess, we can now use `Send` and `Recv`. `TodoService_DeleteTasksClient` looks
+    like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE67]'
+  prefs: []
+  type: TYPE_PRE
+- en: With that generated code and the underlying gRPC framework, we can now send
+    multiple `DeleteTasksRequest` and get multiple `DeleteTasksResponse`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, we are going to create a new function in `client/main.go` that will take
+    variadic parameters of `DeleteTasksRequest`. Then, we are going to create a channel
+    that will help us wait for the entire process of receiving and sending to finish.
+    If we did not do that, we would return from the function before finishing. This
+    channel will be used in a goroutine that will use `Recv` in the background. Once
+    we receive an `io.EOF` in this goroutine, we are going to close the channel. Finally,
+    we are going to go over all the requests and send them, and once we are done,
+    we are going to wait for the channel to be closed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This might seem a little bit abstract right now but think about the job that
+    the client needs to do. It needs to use `Recv` and `Send` simultaneously; thus,
+    we need some simple concurrent code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE68]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, before running our server and client, let us call that function in
+    the `main` function. We are going to delete all the tasks that we created with
+    `addTasks` and prove that there are no more tasks by trying to print all of them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE69]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With that, we can run the server first:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE70]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And then we can run our client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE71]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice here that, instead of having a single response like client streaming,
+    we have three responses (three `deleted tasks`). This is because we get a response
+    per request. We effectively implemented bidirectional streaming.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We implemented bidirectional streaming here, which let us get feedback for each
+    request we sent to the server. With that, we can make sure that we update resources
+    on the client side without having to wait for a response or error from the server.
+    This is interesting for use cases like ours that need real-time updates.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we saw the different types of APIs we can write in gRPC. We
+    saw that we can create similar API endpoints as the ones we are used to in REST
+    APIs. These endpoints are called unary endpoints. Then, we saw that we can make
+    server streaming APIs to let the server return multiple responses. Similarly,
+    we saw that a client can return multiple requests with client streaming. And finally,
+    we saw that we can “mix” server and client streaming to get bidirectional streaming.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Our current endpoints are simplistic and do not handle a lot of cases that are
+    crucial for production-grade APIs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will start seeing what we can improve at the API level.
+    This will let us first focus on the usability of the API before diving deeper
+    into all the aspects of production-grade APIs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Quiz
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What kind of API endpoint should you use when you want to send one request and
+    receive one response?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Bidirectional streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Client streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Unary
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What kind of API endpoint should you use when you want to send zero or more
+    requests and receive one response?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Server streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Bidirectional streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Client streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What kind of API endpoint should you use when you want to send one request and
+    receive zero or more responses?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Server streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Client streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Bidirectional streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What kind of API endpoint should you use when you want to send zero or more
+    requests and receive zero or more responses?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Client streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Bidirectional streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Server streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: B
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

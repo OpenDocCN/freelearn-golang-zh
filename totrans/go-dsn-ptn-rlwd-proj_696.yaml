@@ -1,0 +1,152 @@
+- en: Authorization with Twitter
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In order to use the streaming API, we will need authentication credentials
+    from Twitter''s Application Management console, much in the same way we did for
+    our Gomniauth service providers in Chapter 3, *Three Ways to Implement Profile
+    Pictures*. Head over to [https://apps.twitter.com](https://apps.twitter.com) and
+    create a new app called something like `SocialPoll` (the names have to be unique,
+    so you can have some fun here; the choice of name doesn''t affect the code either
+    way). When your app has been created, visit the **API Keys** tab and locate the
+    **Your access token** section, where you need to create a new access token. After
+    a short delay, refresh the page and note that you, in fact, have two sets of keys
+    and secrets: an API key and a secret and an access token and the corresponding
+    secret. Following good coding practices, we are going to set these values as environment
+    variables so that our program can have access to them without us having to hardcode
+    them in our source files. The keys we will use in this chapter are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`SP_TWITTER_KEY`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`SP_TWITTER_SECRET`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`SP_TWITTER_ACCESSTOKEN`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`SP_TWITTER_ACCESSSECRET`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'You may set the environment variables however you like, but since the app relies
+    on them in order to work, creating a new file called `setup.sh` (for bash shells)
+    or `setup.bat` (on Windows) is a good idea since you can check such files into
+    your source code repository. Insert the following code in `setup.sh` by copying
+    the appropriate values from the Twitter app page:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On Windows, the code will look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Run the file with the source or call commands to have the values set appropriately,
+    or add them to your `.bashrc` or `C:\cmdauto.cmd` files to save you from running
+    them every time you open a new terminal window.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you're not sure how to do this, just search for `Setting environment variables
+    on Linux` or something similar, and the Internet will help you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Extracting the connection
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The Twitter streaming API supports HTTP connections that stay open for a long
+    time, and given the design of our solution, we are going to need to access the
+    `net.Conn` object in order to close it from outside of the goroutine in which
+    requests occur. We can achieve this by providing our own `dial` method to an `http.Transport`
+    object that we will create.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a new file called `twitter.go` inside `twittervotes` (which is where
+    all things Twitter-related will live), and insert the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Our bespoke `dial` function first ensures that `conn` is closed and then opens
+    a new connection, keeping the `conn` variable updated with the current connection.
+    If a connection dies (Twitter's API will do this from time to time) or is closed
+    by us, we can redial without worrying about zombie connections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will periodically close the connection ourselves and initiate a new one
+    because we want to reload the options from the database at regular intervals.
+    To do this, we need a function that closes the connection and also closes `io.ReadCloser`,
+    which we will use to read the body of the responses. Add the following code to
+    `twitter.go`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, we can call `closeConn` at any time in order to break the ongoing connection
+    with Twitter and tidy things up. In most cases, our code will load the options
+    from the database again and open a new connection right away, but if we're shutting
+    the program down (in response to a *Ctrl + C* hit), then we can call `closeConn`
+    just before we exit.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Reading environment variables
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Next, we are going to write a function that will read the environment variables
+    and set up the `OAuth` objects we''ll need in order to authenticate the requests.
+    Add the following code to the `twitter.go` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we define a `struct` type to store the environment variables that we need
+    to authenticate with Twitter. Since we don't need to use the type elsewhere, we
+    define it inline and create a variable called `ts` of this anonymous type (that's
+    why we have the somewhat unusual `var ts struct...` code). We then use Joe Shaw's
+    `envdecode` package to pull in these environment variables for us. You will need
+    to run `go get github.com/joeshaw/envdecode` and also import the `log` package.
+    Our program will try to load appropriate values for all the fields marked `required`
+    and return an error if it fails to do so, which reminds people that the program
+    won't work without Twitter credentials.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The strings inside the back ticks alongside each field in `struct` are called
+    tags and are available through a reflection interface, which is how `envdecode`
+    knows which variables to look for. We added the `required` argument to this package,
+    which indicates that it is an error for any of the environment variables to be
+    missing (or empty).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once we have the keys, we use them to create `oauth.Credentials` and an `oauth.Client`
+    object from Gary Burd's `go-oauth` package, which will allow us to authorize requests
+    with Twitter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that we have the ability to control the underlying connection and authorize
+    requests, we are ready to write the code that will actually build the authorized
+    request and return the response. In `twitter.go`, add the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: We use `sync.Once` to ensure our initialization code gets run only once despite
+    the number of times we call `makeRequest`. After calling the `setupTwitterAuth`
+    method, we create a new `http.Client` function using an `http.Transport` function
+    that uses our custom `dial` method. We then set the appropriate headers required
+    for authorization with Twitter by encoding the specified `params` object that
+    will contain the options we are querying for.
+  prefs: []
+  type: TYPE_NORMAL

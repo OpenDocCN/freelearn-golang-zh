@@ -1,0 +1,835 @@
+- en: '1'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Networking Primer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Communication over networks is at the core of all of our modern technology and
+    gRPC is one of the high-level frameworks that we can use to achieve efficient
+    reception and transmission of data. As it is high level, it gives you abstractions
+    for sending and receiving data without thinking about all the things that could
+    go wrong when communicating over the wire. In this chapter, the goal is to understand,
+    at a lower level (not the lowest), what happens when we send/receive messages
+    in gRPC Go. This will help you get a sense of what’s going on and, later on, when
+    we talk about debugging and observability, you’ll be able to grasp the concepts
+    presented more easily.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we’re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: HTTP/2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: RPC operations
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: RPC types
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The life cycle of an RPC
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Prerequisites
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, I will be using [`chapter1` directory.](https://www.wireshark.org)
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[To display these capture files, you can simply import them into Wireshark
+    and apply a display filter to them. As we are interested specifically in HTTP/2
+    and gRPC payloads, and I was using port `50051` for communication, you can use
+    the following filter: `tcp.port == 50051 and (grpc` `or http2)`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding HTTP/2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If you are reading this book, I’m going to assume that you have familiarity
+    with HTTP/1.1 or that at least you have a sense of how to make traditional HTTP
+    API calls over the network. I guess so because most of the APIs that we interact
+    with, as developers, have concepts that were brought about by this protocol. I’m
+    talking about concepts such as headers, which can provide metadata for a call;
+    the body, which contains the main data; and actions such as GET, POST, UPDATE,
+    and so on, which define what you intend to do with the data in the body.
+  prefs: []
+  type: TYPE_NORMAL
+- en: HTTP/2 still has all of these concepts but improves efficiency, security, and
+    usability in a few ways. The first advantage of HTTP/2 over plain old HTTP/1.1
+    is the compression down to binary. Before HTTP/2, everything sent over the network
+    was pure text and it was up to the user to compress it or not. With version 2,
+    every part of the HTTP semantic is translated down to binary, thus making it faster
+    for computers to serialize and deserialize data between calls and thereby reducing
+    the request/response payload size.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The second advantage that HTTP/2 has is a feature called server push. This is
+    a feature that gives the server the ability to send multiple responses for only
+    one call from the client. The overall goal here is to reduce the chatter between
+    the server and client, and thus the total payload to reach the same end result.
+    Without this feature, when a client wants to request a web page and all its resources,
+    it has to do a request per resource. However, with the server push feature, the
+    client can just send a request for a web page, and the server will return that
+    web page, then return the CSS and potentially some JS script. This results in
+    only one call from the client, instead of three.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.1 – HTTP/2 server push](img/B19664_01_001.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.1 – HTTP/2 server push
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another important efficiency aspect is the creation of a long-lived TCP connection
+    instead of individual connections per request. In HTTP/0.9, every call is preceded
+    by the creation of a TCP connection and succeeded by the closing of that connection.
+    This is highly inefficient for today’s use of the internet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then, HTTP/1.1 introduced the concept of KeepAlive, which permitted the reuse
+    of a single TCP connection. However, this didn’t mean that we could send interleaved
+    packets to fulfill multiple requests concurrently; it meant that after finishing
+    request one, we could reuse the same connection for request two. This was probably
+    fine in 1997 when the protocol was released, but nowadays we make more and more
+    requests, and also bigger and bigger ones, and waiting for requests to finish
+    before starting another one is not feasible. HTTP/2 solves this by creating a
+    single long-lived connection that can handle multiple requests and responses as
+    interleaved packets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.2 – HTTP/2 interleaved packets over the wire](img/B19664_01_002.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.2 – HTTP/2 interleaved packets over the wire
+  prefs: []
+  type: TYPE_NORMAL
+- en: What’s presented here is obviously an oversimplification of the HTTP/2 protocol.
+    It would take a book in itself to explain all the implementation details of the
+    protocol. As we talk about gRPC, we mostly need to understand that in HTTP/2,
+    we can send structured binary messages over the wire instead of text, we can have
+    streams where the server can send multiple responses for one response, and finally,
+    we do that in an efficient way because we only create one TCP connection and it
+    will handle multiple requests and responses. However, it is also important to
+    understand that gRPC has its own communication protocol on top of HTTP/2\. This
+    means that aIl the HTTP protocol improvements presented here are facilitators
+    for communication. gRPC uses all of these in conjunction with four RPC operations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: RPC operations
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Each interaction done with gRPC between the server and the client can be described
+    as four RPC operations. These operations are composed in a way that creates complex
+    high-level operations in the framework. Let us see these operations and then I
+    will explain how a simple gRPC call uses them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, I’m going to use Wireshark’s result for an RPC call. I will
+    explain how to replicate what I did in this section later in the book. For now,
+    I will just highlight what is important to notice in the dumps.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Send Header
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `Send Header` operation lets the server know that the client will send a
+    request or lets the client know that the server will send a response. This acts
+    as a switch between the server and client to let both sides know who needs to
+    read and who needs to write.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By using Wireshark to analyze a simple gRPC call, we can observe the following
+    header (simplified) being sent by the client in order to let the server know that
+    it will send a request:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: What is important to note in this header is that it mentions that the client
+    wants to call HTTP POST on the `/greet.GreetService/Greet` route and then in the
+    flags, it mentions that this is the end of the header data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Then, later in the call, we will see the following header (simplified) sent
+    by the server to let the client know that it will send the response:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: And here, once again, we can see that this is a header and that this is the
+    last one that will be sent. The main difference though, is that the server is
+    telling the client that the request was handled properly, and it says that by
+    sending a code 200.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Send Message
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `Send Message` operation is the operation that sends the actual data. This
+    is the operation that matters the most to us as API developers. After sending
+    the header, the client can send a message as a request and the server can send
+    a message as a response.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By using Wireshark to analyze the same gRPC call as we did for `Send Header`,
+    we can observe the following data (simplified) being sent by the client as a request:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: What is important to note in this header is that it mentions that the client
+    sends data on the `/greet.GreetService/Greet` route, which is the same as the
+    one that was sent in the header. And then, we can see that we are sending Protocol
+    Buffers data (more on that later) and that the binary value of that message is
+    `436c656d656e74`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After, later in the call, just after the server header, we see the following
+    data (simplified) sent by the server as a response:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: And here, we can see that this is a message sent as a response to a call made
+    on route `/greet.GreetService/Greet` and the binary value of that message is `48656c6c6f20436c656d656e74`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Send Half Close
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `Send Half Close` operation closes either the input or the output of an
+    actor. For example, in a traditional request/response setting, when the client
+    is done sending the request, sending a `Half Close` closes the client stream.
+    This is a little bit like `Send Header` in the sense that it is acting as a switch
+    to let the server know that it is time to work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once again, if we look at the Wireshark transcript for the same gRPC call,
+    we should be able to see that a header was set during the `Send Message` operations.
+    We can observe the following data (simplified):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: This time, we have a flag that denotes the end of the request. Notice however
+    that here, we are sending a payload of type `DATA`. This is different than what
+    we saw up until now because `DATA` is much lighter than a header. This is used
+    for the Half Close because we simply want to send a boolean saying that the client
+    is done.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Send Trailer
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: And finally, we have an operation for terminating an entire RPC. This is the
+    `Send Trailer` operation. This operation also gives us more information about
+    the call, such as the status code, error message, and so on. At this point in
+    the book, we only need to know that this information is mostly necessary for handling
+    API errors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we take a look at the same Wireshark call, we will have the following data
+    (simplified):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that the trailer is basically a header. With this header, we will get more
+    information about the call (`grpc-status` and `grpc-message`). And then we receive
+    two flags – one saying that this is the end of the stream (in our case, request/response).
+    And another one to say that this trailer ends here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: RPC types
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now that we know that there are four RPC operations, we can see how they are
+    combined to create the different RPC types that gRPC provides. We will talk about
+    the Unary, Server Streaming, Client Streaming, and Bidirectional RPC types. We
+    will see that each type presented is a combination of the RPC operations presented
+    earlier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unary
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A unary RPC is an RPC that performs one request and returns one response. We
+    already touched upon this in the previous section, but let us go ahead and make
+    the process clearer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As always, the first step is the client sending the initial header. This header
+    will contain the information related to the RPC endpoint that we want to invoke.
+    As of this point in the book, we simply need to know that this mostly includes
+    the RPC route and the stream ID. The former is to let the server know which user
+    code function it should call to process the request. The latter is a way to identify
+    on which stream the data should be sent. This is because we can have multiple
+    streams going on at the same time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since the server is now aware of the fact that the client will send a request,
+    the client can now send a message. This message will contain the actual request
+    payload. In our case, we are going to only send Protocol Buffers encoded data,
+    but be aware that you can send any kind of data with gRPC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After that, because we are in a unary setting, the client is done sending the
+    request. As we know, the client itself should now send a Half Close. This is saying
+    to the server *I’m done, please send me* *the response.*
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, the server will do similar work. As shown in the next figure,
+    it will send a header, send the response as a Protobuf encoded message, and end
+    the RPC. However, as we know, the server will not send a Half Close; it will send
+    the Trailer. This is some data that says whether or not the call was successful,
+    has an optional error message, and some other key-value pairs that we can add
+    through the user code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.3 – Unary RPC flow](img/B19664_01_003.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.3 – Unary RPC flow
+  prefs: []
+  type: TYPE_NORMAL
+- en: Server streaming
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A server streaming RPC is an RPC that performs one request and returns one or
+    more responses. This RPC type is useful for situations where the client is expecting
+    to get updates from the server. For example, we could have a client display the
+    stock prices for selected companies. With server streaming, the client could subscribe
+    and the server could send different prices over time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this situation, nothing changes for the client. It will send the header,
+    the message, and the Half Close. However, on the server side, we are going to
+    interleave HTTP data messages and data payloads.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As shown in the following figure, the server will first send its header. This
+    is customary when an actor wants to let the other one know that it will send messages.
+    After that, as mentioned above, the server will alternate between sending HTTP
+    data messages and Protobuf payloads. The first data messages will look like this
+    (simplified):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: This says that a message will be sent. This is a lightweight header. And later,
+    once we arrive at the last message to be sent, the server will finish the RPC
+    with the trailer, and at that point, the client will know that the server is done
+    sending responses.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.4 – Server streaming flow](img/B19664_01_004.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.4 – Server streaming flow
+  prefs: []
+  type: TYPE_NORMAL
+- en: Client streaming
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: A client streaming RPC is similar to server streaming, but this time, the client
+    can send one or more requests and the server returns one response. This is useful
+    in situations where the client sends real-time information to the server. For
+    example, this might be useful for microcontrollers to send data coming from some
+    kind of sensor and update the server on the current state of what the sensor is
+    measuring.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Client streaming is similar to server streaming. As you can see in the following
+    figure, the client will do what the server did in server streaming. This means
+    that the client will interleave HTTP data messages, which are like the ones previously
+    mentioned about server streaming, with the Protobuf messages. And in the end,
+    when the client is done, it will simply send a Half Close.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.5 – Client streaming flow](img/B19664_01_005.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.5 – Client streaming flow
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bidirectional streaming
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: By now, you might have guessed that bidirectional streaming is a mix of server
+    streaming and client streaming. A client can send one or more requests and the
+    server returns one or more responses. This is especially useful when one of the
+    actors needs feedback on its data. For example, if you have an app to find taxis,
+    it might not be enough for the server to send updates about cabs. The user might
+    also walk toward their destination in the hope of catching a taxi on the road.
+    Thus, the server also needs to know the user’s location.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bidirectional streaming is less predictable than client and server streaming.
+    This is because there is no defined order in which each actor will send messages.
+    The server could give a response per request or any number of requests. Thus,
+    for this section, let us pretend that we are working with a server that returns
+    a response per request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this case, as you can see in the following figure, the client will send a
+    header and a message. Then, the server will send its header and message. And after
+    that, we will get data and a message per actor. And finally, we will get the Half
+    Close from the client and the Trailer from the server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.6 – Bidirectional streaming flow](img/B19664_01_006.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.6 – Bidirectional streaming flow
+  prefs: []
+  type: TYPE_NORMAL
+- en: The life cycle of an RPC
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Now that we understand the basic RPC operations that can be executed in gRPC
+    and the different types of RPC, we can take a look at the life cycle of an RPC.
+    In this section, we are going to go top-down by first explaining the overall idea
+    of what is happening when a client sends a request and the server receives it,
+    sends a response, and the client receives it. And after that, we will go a bit
+    deeper and talk about three stages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The connection – What happens when a client connects to a server?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The client side – What happens when a client sends a message?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The server side – What happens when a server receives a message?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: gRPC has multiple implementations in different languages. The original one was
+    in C++ and some implementations are just wrappers around the C++ code. However,
+    gRPC Go is a standalone implementation. This means that it was implemented from
+    scratch in Go and doesn’t wrap up the C++ code. As such, in this section, we are
+    going to talk specifically about gRPC Go, and this might prove to be implemented
+    differently in other implementations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before going into too much detail, let’s start with a bird’s-eye view by defining
+    some concepts. The first thing that we need to be clear on is that gRPC is driven
+    by generated code in the user code. This means that we interact with only a few
+    points of the gRPC API and we mostly deal with code that was generated based on
+    our Protocol Buffer service definition. Do not worry too much about that yet;
+    we are going to cover that in the last section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The second important concept is the concept of transport. The transport can
+    be seen as the manager of the connection between the actors and it sends/receives
+    raw bytes over the network. It contains a read-write stream that is designed to
+    be able to read and write over the network in any order. And the most important
+    aspect in our case is that we can call the read on an `io.Reader` and we can call
+    write on an `io.Writer`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, the last thing to clarify is that a client and a server are very similar.
+    All the functions called on the client will be called on the server too. They
+    will simply be called on different objects (for instance, `ClientTransport` and
+    `ServerTransport`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, that we understand all of this, we can take a look at a visual representation
+    of the life cycle of an RPC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.7 – Bird’s-eye view of the RPC life cycle](img/B19664_01_007.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.7 – Bird’s-eye view of the RPC life cycle
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can see that we can simply define only one generic actor and that it will
+    represent both a server and a client. Then, we can see that the generated code
+    will interact directly with the gRPC framework by calling a function called `SendMsg`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is designed, as its name suggests, to send data over the network. This
+    `SendMsg` function will call a lower-level function called `Write`. This is the
+    function provided by the `io.Writer` in the Transport. Once this is done, the
+    other actor will read on an `io.Reader`, then the `RcvMsg` function, and finally,
+    the user code will receive the data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We are now going to go a bit deeper into the important parts of gRPC communication.
+    And as for every kind of transmission over the wire, the client needs to connect
+    to a server, we are going to start with the specifics of a connection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The connection
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To create a connection, the client code will call a function called `Dial` with
+    a target URI and some options as parameters. When the `Dial` request is received,
+    the gRPC framework will parse the target address according to RFC 3986 and it
+    will create a `Resolver` depending on the scheme of the URI. So, for example,
+    if we use the `dns://` scheme, which is the default scheme that gRPC uses when
+    we omit the scheme in the URI or if the scheme provided is unknown, gRPC will
+    create a `dnsResolver` object.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'dnsResolver Then the resolver will do its job, which is resolving the hostname
+    and returning a list of addresses that can be connected to. With these addresses,
+    gRPC will create a load balancer based on the configuration the user passed in
+    the Dial options. The framework provides two load balancers by default:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pick first (the default), which connects to the first address it can connect
+    to, and sends all the RPCs to it
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Round robin, which connects to all the addresses and sends an RPC to each backend
+    one at a time and in order
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As we can see, the goal of the load balancer is to find out on which address(es)
+    the client should create a connection(s). So, it will return a list of addresses
+    to which gRPC should connect, and then gRPC will create a channel, which is an
+    abstraction for the connection used by RPCs, and subchannels, which are abstractions
+    for connections that the load balancer can use to direct the data to one or more
+    backends.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.8 – Channels versus subchannels](img/B19664_01_008.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.8 – Channels versus subchannels
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the end, the user code will receive a `ClientConn` object that will be used
+    for closing the connection, but most importantly, to create a client object that
+    is defined in the generated code and on which we will be able to call the RPC
+    endpoints. The last thing to note here is that, by default, the overall process
+    is non-blocking. This means that gRPC does not wait for the connections to be
+    established to return the `ClientConn` object.
+  prefs: []
+  type: TYPE_NORMAL
+- en: "![Figure 1.9 – Summary of a\uFEFFn RPC connection](img/B19664_01_009.jpg)"
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.9 – Summary of an RPC connection
+  prefs: []
+  type: TYPE_NORMAL
+- en: The client side
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now that we have a connection, we can start thinking about making requests.
+    For now, let us say that we have generated code and that it has a `Greet` RPC
+    endpoint. And for our current purpose, it is not important what it is doing; it
+    is just an API endpoint.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To send a request, the user code will simply call the `Greet` endpoint. This
+    will trigger a function called `NewStream` in the gRPC framework. The name of
+    that function is a little bit of a misnomer because here a stream does not necessarily
+    represent a streaming RPC. In fact, whether you are doing a streaming RPC or not,
+    it will be called and it will create a `ClientStream` object. So here, `Stream`
+    is roughly equivalent to an abstraction for all RPCs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: During the creation of that `ClientStream`, the gRPC framework will perform
+    two actions. The first one is that it will call the load balancer to get a subchannel
+    that can be used. This is done depending on the load balancer policy chosen during
+    the connection creation. The second action is to interact with the transport.
+    The gRPC framework will create the `ClientTransport`, which contains the read-write
+    stream to send and receive data, and it will send the header to the server to
+    initiate an RPC call.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once this is done, the gRPC framework will simply return `ClientStream` to the
+    generated code and the generated code will simply encapsulate it with another
+    object to provide the user code with a smaller set of functions to be called (for
+    example, `Send`, `Recv`, and so on).
+  prefs: []
+  type: TYPE_NORMAL
+- en: "![Figure 1.10 – Summary of client-\uFEFFside communication](img/B19664_01_010.jpg)"
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.10 – Summary of client-side communication
+  prefs: []
+  type: TYPE_NORMAL
+- en: The server side
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Naturally, after sending a request, we expect a response from the server. As
+    we know by now, the client sent a header to initiate an RPC call. This header
+    will be handled by `ServerTransport`. The server is now aware that a client wants
+    to send a request for the `Greet` RPC endpoint.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With that, the transport will send a `transport.Stream` object to the gRPC framework.
+    Then, again, this stream will be thinly wrapped in a `ServerStream` object and
+    passed to the generated code. At this point, the generated code is aware of which
+    user code function to call. It is aware of that because the user code registers
+    functions to specific RPC endpoints.
+  prefs: []
+  type: TYPE_NORMAL
+- en: And that is it, the server will do the computation of the data received and
+    it will simply return a response on the corresponding transport to the client.
+    The `ClientTransport` will read that and return the response to the user code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 1.11 – Summary of server-side communication](img/B19664_01_011.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1.11 – Summary of server-side communication
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: All that knowledge might be overwhelming right now, but do not worry, you do
+    not need to remember all the names of the objects presented to understand how
+    gRPC works. The point of this chapter is more about giving you a sense of the
+    different actors involved in the process of making a connection and sending/receiving
+    data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We saw that we have four RPC operations that can be performed by the client
+    and/or the server. Each actor sends a header to indicate it is its turn to send
+    data, then they send messages, and finally, each of them has a special operation
+    to indicate that it is done with sending messages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After that, we saw how gRPC creates a connection between the server and the
+    client. This is done with the help of the resolver, which finds IP addresses depending
+    on the address we try to connect to, and with the load balancer, which helps gRPC
+    work out which subchannels to send the data to.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then, we talked about channels and subchannels. We saw how they are created
+    by the client to connect to the server. And finally, we saw that the server will
+    receive data and call some code that the user code registered for an RPC endpoint.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will introduce Protocol Buffers and how they relate
+    to gRPC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Quiz
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What is the RPC operation that tells the server that the client is ready to
+    send a request?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`Send Trailer`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`Send Message`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`Send Header`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the RPC operation that tells the client that the server is done returning
+    response(s)?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`Send Half-Close`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`Send Trailer`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`Send Header`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Which RPC type can be used for downloading information by chunks in one request
+    from the client side?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Server streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Client streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Bidirectional streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Unary
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Which RPC type is the equivalent of a traditional HTTP/1.1 request?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Server streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Client streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Bidirectional streaming
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Unary
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is a channel?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: An abstraction used by RPCs for representing a connection to any available server
+    discovered by the load balancer.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: An abstraction used by the load balancer for representing a connection to a
+    specific server.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Both of the above
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is a subchannel?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: An abstraction used by RPCs for representing a connection to any available server
+    discovered by the load balancer.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: An abstraction used by the load balancer for representing a connection to a
+    specific server.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Both of the above
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When receiving the `ClientConn` object from `grpc.Dial`, can you be sure that
+    the client has established a connection with the server?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Yes'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'No'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: B
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: D
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: B
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: B](https://www.wireshark.org) [](https://www.wireshark.org)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

@@ -1,0 +1,164 @@
+- en: Using transactions to maintain counters
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Our `Question` struct has a field called `AnswerCount`, where we intend to store
+    an integer that represents the number of answers that a question has solicited.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, let''s look at what can happen if we don''t use a transaction to keep
+    track of the `AnswerCount` field by tracking the concurrent activity of answers
+    4 and 5 of a question:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Step** | **Answer 4** | **Answer 5** | **Question.AnswerCount** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 1 | Load question | Load question | 3 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 2 | AnswerCount=3 | AnswerCount=3 | 3 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 3 | AnswerCount++ | AnswerCount++ | 3 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 4 | AnswerCount=4 | AnswerCount=4 | 3 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 5 | Save the answer and question | Save the answer and question | 4 |'
+  prefs: []
+  type: TYPE_TB
+- en: 'You can see from the table that without locking Question, AnswerCount would
+    end up being 4 instead of 5 if the answers came in at the same time. Locking with
+    a transaction will look more like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Step** | **Answer 4** | **Answer 5** | **Question.AnswerCount** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 1 | Lock the question | Lock the question | 3 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 2 | AnswerCount=3 | Waiting for unlock | 3 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 3 | AnswerCount++ | Waiting for unlock | 3 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 4 | Save the answer and question | Waiting for unlock | 4 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 5 | Release lock | Waiting for unlock | 4 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 6 | Finished | Lock the question | 4 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 7 |  | AnswerCount=4 | 4 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 8 |  | AnswerCount++ | 4 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 9 |  | Save the answer and question | 5 |'
+  prefs: []
+  type: TYPE_TB
+- en: In this case, whichever answer obtains the lock first will perform its operation,
+    and the other operation will wait before continuing. This is likely to slow down
+    the operation (since it has to wait for the other one to finish), but that's a
+    price worth paying in order to get the numbers right.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: It's best to keep the amount of work inside a transaction as small as possible
+    because you are essentially blocking other people while the transaction is underway.
+    Outside of transactions, Google Cloud Datastore is extremely fast because it isn't
+    making the same kinds of guarantees.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In code, we use the `datastore.RunInTransaction` function. Add the following
+    to `answers.go`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: We first create a new incomplete key (using the `Answer` kind) and set the parent
+    as the question key. This will mean that the question will become the ancestor
+    to all these answers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Ancestor keys are special in Google Cloud Datastore, and it is recommended that
+    you read about the nuances behind them in the documentation on the Google Cloud
+    Platform website.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using our `UserFromAEUser` function, we get the user who is answering the question
+    and set `UserCard` inside `Answer` before setting `CTime` to the current time,
+    as done earlier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then, we start our transaction by calling the `datastore.RunInTransaction` function
+    that takes a context as well as a function where the transactional code will go.
+    There is a third argument, which is a set of `datastore.TransactionOptions` that
+    we need to use in order to set `XG` to `true`, which informs the data store that
+    we'll be performing a transaction across entity groups (both `Answer` and `Question`
+    kinds).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: When it comes to writing your own functions and designing your own APIs, it
+    is highly recommended that you place any function arguments at the end; otherwise,
+    inline function blocks such as the ones in the preceding code obscure the fact
+    that there is another argument afterwards. It's quite difficult to realize that
+    the `TransactionOptions` object is an argument being passed into the `RunInTransaction`
+    function, and I suspect somebody on the Google team regrets this decision.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Transactions work by providing a new context for us to use, which means that
+    code inside the transaction function looks the same, as if it weren't in a transaction.
+    This is a nice piece of API design (and it means that we can forgive the function
+    for not being the final argument).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inside the transaction function, we use our `GetQuestion` helper to load the
+    question. Loading data inside the transaction function is what obtains a lock
+    on it. We then put the answer to save it, update the `AnswerCount` integer, and
+    update the question. If all is well (provided none of these steps returns an error),
+    the answer will be saved and `AnswerCount` will increase by one.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If we do return an error from our transaction function, the other operations
+    are canceled and the error is returned. If that happens, we'll just return that
+    error from our `Answer.Create` method and let the user try again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we are going to add our `GetAnswer` helper, which is similar to our `GetQuestion`
+    function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now we are going to add our `Put` helper method in `answers.go`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: These two functions are very similar to the `GetQuestion` and `Question.Put`
+    methods, but let's resist the temptation of abstracting it and drying up the code
+    for now.
+  prefs: []
+  type: TYPE_NORMAL

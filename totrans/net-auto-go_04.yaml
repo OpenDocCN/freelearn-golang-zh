@@ -1,0 +1,1605 @@
+- en: '4'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Networking (TCP/IP) with Go
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Every network engineer has at some point learned about the seven layers of the
+    **Open Systems Interconnection** (**OSI**) model. A more concise version of it,
+    with only four layers, is the TCP/IP model, which is the architectural model that
+    governs communications over the internet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each layer defines a function, which one data communication protocol per layer
+    performs. These layers pile one upon another, so we often call this collection
+    of protocols a protocol stack. A data packet has to go through each of the four
+    layers of the protocol stack before it gets to the destination host.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Go has several packages to work with protocols at each layer of the TCP/IP
+    model. This enables us to build solutions for an array of use cases – from IP
+    address management to running application transactions through the network or
+    even implementing network protocols:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.1 – TCP/IP model](img/B16971_04_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.1 – TCP/IP model
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we focus on use cases for each of the layers of the TCP/IP
+    model:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Link
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Internet
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Transport
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Application
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We assume basic familiarity with the command line, Git, and GitHub. You can
+    find the code examples for this chapter in the book’s GitHub repository: [https://github.com/PacktPublishing/Network-Automation-with-Go](https://github.com/PacktPublishing/Network-Automation-with-Go),
+    under the `ch04` folder.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To run the examples, you’ll need to do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Install Go 1.17 or later for your operating system. You can follow the instructions
+    in [*Chapter 1*](B16971_01.xhtml#_idTextAnchor015), *Introduction*, in the section
+    *Installing Go*, or go to [https://go.dev/doc/install](https://go.dev/doc/install).
+    Two examples in this chapter, specifically those for the net/netip package, require
+    Go 1.18 or later.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Clone the book’s GitHub repository with `git` `clone https://github.com/PacktPublishing/Network-Automation-with-Go.git`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Change the directory to an example folder: `cd Network-Automation-with-Go/ch04/trie`.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Execute `go` `run main.go`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The link layer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We start with the bottom layer of the TCP/IP model that sends and receives
+    link layer data frames. In this section, we cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Management of network interfaces
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Basic operations with Ethernet
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Network interfaces
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: As we see more and more network operating systems based on Linux, it makes sense
+    to understand how Go can help us interact with network interfaces in this context.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Linux exposes its networking internals through a kernel interface called Netlink.
+    This interface allows user-space applications such as Go to communicate with the
+    kernel over a standard socket API. Most commonly, TCP/UDP libraries use Netlink
+    sockets to send and receive data, but they can also work with most Linux networking
+    constructs, from interfaces to routes and nftables.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Thankfully, you don’t need to learn about or understand the low-level Netlink
+    API, as there are many Go packages that deliver high-level abstractions, making
+    it much easier to work with. Some notable Netlink packages include the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `syscall` package (*Further reading*) of the Go standard library, which
+    includes several low-level primitives typically used by high-level packages.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `vishvananda/netlink` (*Further reading*) third-party Go package is one
+    of the earlier implementations of a high-level Netlink package, widely used by
+    various open source projects such as Docker, Istio, and Kubernetes CNI plugins.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The ecosystem of plugins based on the `mdlayher/netlink` (*Further reading*)
+    package is a set of relatively recent projects implemented on a common foundation
+    in a more idiomatic and maintainable way.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These Netlink packages have varying levels of feature coverage and the one you
+    choose normally depends on your application requirements. For a demonstration,
+    we show how to toggle the administrative state of an interface, and to do that,
+    we pick one of the rtnetlink packages from the `mdlayher/netlink` ecosystem (*Further
+    reading*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s break down and review this example in three stages. First, we import
+    the Netlink package `rtnetlink/rtnl`, which is one of the loosely related packages
+    developed around the `mdlayher/netlink` package, to establish a connection with
+    a Netlink socket with the `Dial` method and then retrieve the list of all local
+    interfaces with the `Links` method over the connection:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: This preceding code resembles what we do for all remote connections in Go, which
+    is why Go developers consider this package more idiomatic. Once we have the list
+    of all the interfaces in the variable links, we can iterate over them to find
+    any interface of interest.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s say we want to toggle the `lo` interface if it’s present in the system.
+    We loop over all the interfaces in the variable links, and we print out the data
+    of the `lo` interface if we find it and store the interface value in a variable
+    we call `loopback`, so we can bring this link down with `LinkDown` and bring it
+    back up with `LinkUp` later:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After running `LinkDown` and `LinkUp`, you can verify that the change had the
+    desired effect by retrieving the interface settings from Netlink after each change.
+    We update the `loopback` variable for a uniform printed statement:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can find this example in full in `ch04/netlink` (*Further reading*) and
+    you must run it with `CAP_NET_ADMIN` capabilities (*Further reading*) or as root:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We’ve only just scratched the surface of the Netlink API as its abilities extend
+    far beyond the scope of this book. Today, you can use Netlink for everything from
+    IP route management to access lists and from **Quality of Service** (**QoS**)
+    policies to **extended Berkeley Packet Filter** (**eBPF**) program attachments.
+    Hopefully, this section provides enough information to give you an idea of what’s
+    involved in Netlink API interactions, as now we have to move on to the next topic
+    and explore how Go deals with the most widely used link layer protocol today:
+    Ethernet.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ethernet
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Working with Ethernet may involve a wide range of activities, from low-level
+    protocol decoding, manipulating, and encoding to interactions with device APIs
+    to collect Ethernet hardware information. Go has a broad spectrum of packages
+    to help you deal with various Ethernet-related tasks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of the most widely used packet processing packages is `google/gopacket`
+    (*Further reading*), which you can use for both packet capturing and protocol
+    decoding. It goes beyond just Ethernet, and we cover it in more detail in [*Chapter
+    10*](B16971_10.xhtml#_idTextAnchor225), *Network Monitoring*.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The Netlink API packages we just covered can query link-layer hardware information
+    for Linux-based operating systems.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Another Ethernet encoding and decoding package `mdlayher/ethernet` (*Further
+    reading*) allows you to convert frames between binary wire format and a static
+    Go type representation.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In the next example, we cover a basic implementation of a `virtual IP` (`VIP`)
+    capability. We loosely based this implementation on the `kube-vip` (*Further reading*)
+    package – a Kubernetes control plane VIP controller. The way it works is a two-step
+    process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It allocates a new **VIP** to one of the local network interfaces.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It periodically sends out gratuitous **Address Resolution Protocol** (**ARP**)
+    packets to let everyone in the local broadcast domain know about this VIP.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Let’s review this from the first step and see how we assign a VIP to an interface.
+    We’ll use the same package to interact with Netlink as we used in the *Network
+    interfaces* section (`rtnetlink/rtnl`), only this time we use the `AddrAdd` method
+    to assign an IP prefix to the interface we specify.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the program, we pass the name of the interface we want to assign to this
+    VIP address via the CLI using the `flag` package and we store this value in the
+    `intfStr` variable. With this info, we use the `mdlayher/packet` package to send
+    and receive ARP packets over this interface with the `Listen` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To actually assign the VIP address to the interface, we create the `vip` struct
+    type that lets us hold all the information we need to pass to `AddrAdd` to make
+    this happen, as the next output shows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once we have the new VIP assigned, we can start sending out the `for` loop,
+    which sleeps for 3 seconds and runs again. In this loop, we include an `if` with
+    initialization (`err := v.sendGARP()`) and conditional (`err != nil`) statements.
+    Go executes the initialization statement before evaluating the conditional expression:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Inside the `sendGARP` method is where we can find most of the Ethernet-related
+    code. Here, we use two packages to help us build the GARP.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We first need to build the GARP payload and populate it with the MAC address
+    of the local interface and the IP address of the VIP. For this, we take advantage
+    of the `mdlayher/arp` (*Further* *reading*) package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then we need to wrap the GARP payload inside an Ethernet frame and set the
+    right Ethernet headers using the `mdlayher/ethernet` (*Further* *reading*) package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The last step is to send a binary frame and to do that, we use the `mdlayher/packet`
+    (*Further reading*) package that implements the Linux packet socket interface
+    that lets us send and receive packets at the device driver (link-layer) level.
+    We have already opened a raw socket, `ethSocket`, using `Listen` as shown earlier,
+    so now we can write our binary frame into it (`field l2Sock` of the `vip` struct):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can find the full example at `ch04/vip` (*Further reading*). You need to
+    run it with elevated privileges to be able to make changes to network interfaces.
+    The resulting output would look like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: At this point, any host with an overlapping IP subnet on the local network segment
+    should be able to ping the `198.51.100.1` address (if they accept GARPs). To end
+    the program, you can press *Ctrl* + *C* and the program cleans up the VIP from
+    the interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s rare for a network engineer or a developer to interact with Ethernet directly,
+    but it’s still worth knowing what it feels like to *talk Ethernet* using Go. In
+    the next section, we move one layer up and cover the internet layer packages and
+    examples.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The internet layer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The internet layer or network layer in the OSI model is in charge of transferring
+    variable-length network packets and routing data from a source to a destination
+    through one or more networks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The predominant protocol in this layer today is the **Internet Protocol** (**IP**)
+    on either of its two versions: version 4 (IPv4) or version 6 (IPv6). The internet
+    layer also includes diagnostic protocols such as **Internet Control Message Protocol**
+    (**ICMP**), a secure network protocol suite such as **Internet Protocol Security**
+    (**IPsec**), and routing protocols including **Open Shortest Path** **First**
+    (**OSPF**).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The IP exchanges information via IP datagrams built from a header and a payload,
+    which the link layer then transmits as frames over specific network hardware such
+    as Ethernet. The IP header carries the IP source and destination addresses of
+    a packet used to route it through the internet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this section, we review the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to use the `net` package to parse and perform common tasks with IP addresses
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The new `net/netip` package and what features it brings to the Go standard library
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Examples of real-life Go projects that work with IP addresses
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The net package
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The `net` package (*Further reading*) from the standard library includes a
+    wide range of tools and resources for network connectivity and, most importantly
+    for this section, defines types and interfaces to work with IP addresses. One
+    of these types is `IP`, represented as a slice of bytes. This type is valid for
+    4-byte (IPv4) or 16-byte (IPv6) slices:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s first explore how we can create an `IP` type variable, from the decimal
+    representation of the IPv4 address `192.0.2.1`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.2 – An IPv4 address](img/B16971_04_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.2 – An IPv4 address
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'One way to turn an IPv4 address into an IP type is by using the `ParseIP` function
+    from the `net` package, which takes a string as an argument and returns an `IP`
+    value:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'IPv6 addresses are a bit harder for our eyes to process, but to Go they are
+    yet another slice of bits just like IPv4:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.3 – An IPv6 address](img/B16971_04_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.3 – An IPv6 address
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `ParseIP` function can also parse a string representation of an IPv6 to
+    return the variable of the `IP` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `IP` type represents an IP address, so you can use the same IP methods for
+    either IPv4 or IPv6 addresses. Let’s say you want to check whether an IP address
+    is within a private address range.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `IsPrivate` method from the `net` package gives you that answer based on
+    RFC 1918 (Address Allocation for Private Internets) and RFC 4193 (Unique Local
+    IPv6 Unicast Addresses) for both IPv4 and IPv6 automatically:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Another interesting type is `IPNet`, which describes an IP prefix or an IP
+    network, so it adds `IPMask` to `IP` to represent its mask:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'A mask in the `net` package is also a slice of bytes, which is better explained
+    with the following example using the `CIDRMask` function. Both `ones` and `bits`
+    arguments are integers as the function signature indicates. The first argument,
+    `ones`, is the number of ones in `IPMask` and the remaining bits are all set to
+    zero. The total length of the mask is measured in `bits`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s see an example for IPv4, with a 32-bit mask:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'IPv6 works similarly but expects a mask length of 128:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To parse a prefix or network from a string, you can use the `ParseCIDR` function
+    from the `net` package. You get three values – a network address of the `IP` type,
+    an IP prefix of the `IPnet` type, and an error:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The next example shows `ParseCIDR` for IPv6 using the same functions as with
+    IPv4:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: The code for these examples is available at `ch04/net/main.go` (*Further reading*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is the standard way of doing basic operations with IP addresses in Go.
+    Yet not long ago there was an effort to add a new IP address type to the standard
+    library, via a package that we review next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The New netip package
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'With the goal of improving some things that weren’t great about the `net.IP`
+    data structure for IP addresses in Go, a group of Go developers came up with a
+    new IP address type. This was an iterative process that they documented in the
+    blog post *netaddr.IP: a new IP address type for Go* (*Further reading*). This
+    package is now available in Go 1.18 as `net/netip`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `net/netip` package defines a new type, `Addr`, that stores both IPv4 and
+    IPv6 addresses as a big-endian 128-bit number. This type also has a special sentinel
+    field `z`, which can have any of these values:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`nil` means an invalid IP address (for a zero `Addr`).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`z4` means an IPv4 address.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`z6noz` means an IPv6 address without a zone.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Otherwise, it’s the IPv6 zone name string.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The data structure in Go looks as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This new `Addr` type has the following major benefits compared to the legacy
+    `net.IP`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It takes up less memory.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It’s immutable and, hence, safe to pass around.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It supports `==` operations and, hence, you can use it as a map key.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let’s see some examples of how to parse an IP address from a string to get
+    an `Addr` type and use it with some methods available in the package. In the first
+    example, we parse an IPv4 address and check whether it’s within the RFC 1112 `224.0.0.0/4`
+    multicast range with the `IsMulticast` method. A second example for IPv6 shows
+    how to parse an IP address from a string with the same function, `ParseAddr`,
+    and checks whether the IPv6 is a Link-Local address or part of the network `FE80::/10`
+    according to the RFC 4291 with the `IsLinkLocalUnicast` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, if you have an existing program that uses `net.IP`, you can use that type
+    as input for `netip` as well. For both IPv4 and IPv6, it parses the `net.IP` type
+    with the function `AddrFromSlice`. The method `IsX` tells us whether this is an
+    IPv4 or IPv6 address:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The code for this example is available at `ch04/parseip` (*Further reading*):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To represent an IP prefix (CIDR), `net/netip` defines a type called `Prefix`
+    that has an `Addr` and an integer to specify the prefix length (from 0 to 128)
+    in the field `bits`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To parse a prefix from a string, you can use the `ParsePrefix` function or
+    `MustParsePrefix`, which calls `ParsePrefix` and panics on error, which means
+    you don’t have to check the returned error in your code. Let’s look at a program
+    that uses `MustParsePrefix` to generate a prefix, and then checks whether some
+    IP addresses are in the address range of that prefix:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We define the prefix `pf` from the `network4` string `192.0.2.0/24`. Then,
+    we check whether addresses `192.0.2.18` and `198.51.100.3` are in this network
+    by printing a message if they are. This program prints the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: The code for this example is available at `ch04/parseprefix` (*Further reading*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Working with IP addresses
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'After parsing IP addresses, you are only one step from several real-world applications
+    you can put into practice. We cover just a few examples here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Route lookups
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Geo IP data
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Extra IP address functions
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Route lookups
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: One way to do a route lookup or find the longest prefix match for an IP address
+    is by using a trie data structure (prefix tree). Tries are very efficient in both
+    memory and speed, which is why we use them for IP prefix lookups. To do this in
+    Go, you can use one of the available packages. In this case, we use `cidranger`
+    (*Further reading*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We start by defining a new path-compressed prefix trie and add a list of parsed
+    IP addresses from the `IPs` variable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now we can check whether any IP is within the defined list of IP address ranges.
+    Here, we find that `127.0.0.1` is in at least one IP prefix on the list:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'One other thing you could do is to request a list of networks that contain
+    an IP address, such as `192.0.2.18` in this case:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This returns `192.0.2.0/24` and `192.0.2.0/25`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: The code of this example is available at `ch04/trie/main.go` (*Further reading*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Geo IP data
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Another interesting use case is to get the geographical location associated
+    with a public IP address. To make this query, you need access to a database that
+    you can download for free from GeoLite2 Free Geolocation Data (*Further reading*)
+    or you can just use the sample file we included in the book’s repo, which has
+    support for a limited number of IP addresses, but enough to run the examples.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We open the database file, and for each IP address in a slice, we query for
+    any available information, which we then print to the terminal:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'One output example is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: The code for this example is available at `ch04/geo/main.go` (*Further reading*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Extra IP address functions
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: If you come from another programming language such as Python, you might be familiar
+    with the `ipaddress` library to manipulate IP addresses and networks. The `iplib`
+    package (*Further reading*) is an effort to bring those features to Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next example, we see a function to increment an IP address by one (`NextIP`)
+    and another function to increase an IP address by any number (`IncrementIPBy`).
+    We then compute the difference between the original IP address and the result
+    after these two increments with the `DeltaIP` function to find out the number
+    of IP addresses in between.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The last line of the example compares two IP addresses with the `CompareIPs`
+    function. If `a` and `b` are the inputs, it returns `0` if `a == b`, `-1` if `a
+    < b`, and `1` if `a >` `b`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Because the `iplib` package allows you to compare IP addresses, it means you
+    can use the `sort` package to sort a list of `net.IP` addresses as the next example
+    shows, using the addresses we just created:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can also generate an array of IP addresses from a network, starting at
+    any IP address with the `Enumerate` method. In the next example, we take the network
+    `198.51.100.0/24`, count the total available addresses in it with `Count`, to
+    then generate an array of size 3 with `Enumerate`, starting from the first available
+    IP address of the network (index 0):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This program produces the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: The code for this example is available at `ch04/ipaddr/main.go` (*Further reading*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: IP is the fundamental protocol on the internet, which has continued to support
+    its evolution over the last 40 years without major changes, despite the fast pace
+    of technological development in the last few decades. Along with protocols from
+    the transport layer, IP has allowed the decoupling of applications from hardware
+    technologies such as coax cable, fiber optics, and Wi-Fi. Speaking of the transport
+    layer, in the next section, we explore how Go can help you navigate this layer
+    of the TCP/IP model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The transport layer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The transport layer protocols are the next OSI layer on top of IP and offer
+    a communication channel abstraction. The two most common protocols today are TCP,
+    which offers a connection-oriented communication channel, and UDP, a connectionless
+    protocol.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In Go, the way you interact with both protocols is similar, even though the
+    underlying packet exchange may be completely different. At a high level, there
+    are only a few things that you need to keep in mind when dealing with TCP or UDP:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each TCP or UDP application works with a corresponding connection represented
+    by a concrete `TCPConn` or `UDPConn` type, respectively.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Go has other connection types with overlapping features such as `PacketConn`,
+    which deals with connectionless protocols (UDP and IP); `Conn`, which covers IP,
+    TCP, and UDP; and `UnixConn` for connections to Unix domain sockets. We only focus
+    on `TCPConn` and `UDPConn` in this section.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Clients use `net.DialTCP` and `net.DialUDP` to open a socket to a remote address.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Servers use `net.ListenUDP` and `net.ListenTCP` to open a listening socket that
+    accepts connections from different clients.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Clients and servers can `Read` and `Write` bytes from and to their respective
+    connections.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When finished, both clients and servers need to close their connections to clean
+    up the underlying file descriptor.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following figure illustrates the interactions between different types involved
+    in a typical UDP client-server communication:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.4 – UDP communication in Go](img/B16971_04_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.4 – UDP communication in Go
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 4**.4* shows a UDP client sending one byte at a time, although in reality,
+    the payload can have more bytes. This could be a DNS request or an RTP packet.
+    All network connection types implement `io.Reader` and `io.Writer` interfaces,
+    so reading and writing are similar no matter what protocol you use underneath.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The UDP client creates a UDP connection with `net.DialUDP` and then writes (`Write`)
+    a byte to it, just like when you make a request to the network. On the server
+    side, you read (`Read`) from the connection you would have created earlier with
+    `net.ListenUDP`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let’s move on to something a bit more concrete and see what a real UDP
+    application may look like.
+  prefs: []
+  type: TYPE_NORMAL
+- en: UDP ping application
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Ping is one of the most conventional ways of checking remote connectivity and
+    end-to-end latency. Just like the traditional ping, UDP ping uses echo replies
+    to calculate latency and packet loss but encapsulates them in a UDP packet instead
+    of ICMP/NDP. Many monitoring applications use this approach as it allows them
+    to discover and monitor various equal-cost paths in networks with devices that
+    perform 5-tuple hashing. One such application is Cloudprober (*Further reading*),
+    which is the source of inspiration for the next example, as the authors wrote
+    it in Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s walk through the code of a UDP ping application, focusing on connection
+    establishment and data exchange. You can find the full code in the `ch04/udp-ping`
+    (*Further reading*) folder of the book’s repository (*Further reading*). At a
+    high level, our UDP ping application consists of two parts:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The server side listens on a UDP port and mirrors back any packets received
+    from its clients.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The client that is sending UDP probes to a server receives a stream of mirrored
+    packets coming back to compute the packet loss and end-to-end latency:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '![Figure 4.5 – UDP ping application](img/B16971_04_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.5 – UDP ping application
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s start the overview of this application with the server side. The program
+    begins by building a `UDPAddr` variable that describes a UDP socket. We then pass
+    this variable to `net.ListenUDP` to create a UDP socket and start listening for
+    incoming packets. The first argument in the `ListenUDP` function is `udp`, which
+    specifies the dual-stack behavior (RFC6724 and RFC6555). You could also use `udp4`
+    or `udp6` to pin the program to either IPv4 or IPv6 respectively:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once we have a listening UDP socket, we can start the main processing loop,
+    which reads an incoming packet into a byte slice with `ReadFromUDP` and writes
+    the entire packet back to the sender with `WriteToUDP`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Since `ReadFromUDP` is a blocking function, most server implementations add
+    an extra `SetReadDeadline` timeout to make sure the program can be gracefully
+    terminated if needed. In this case, it leads directly to the next loop iteration
+    thanks to the `continue` statement after `ReadFromUDP`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The client-side implementation starts similarly, by building a `UDPAddr` variable
+    and passing it to the `net.DialUDP` function. In the case of TCP, the `net.DialTCP`
+    function would trigger a TCP three-way handshake, but in the case of UDP, the
+    underlying OS opens a network socket without exchanging any packets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: At this point, the program branches out in two directions. The logical first
+    step is the packet sending routine, which in this case runs inside the main goroutine
+    of the program. In the background, we also fire off a goroutine that runs the
+    `receive` function, which we discuss a few paragraphs later.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Inside each probe packet we send, we embed a monotonically increasing sequence
+    number and the value of a current timestamp. We serialize the probe packets into
+    a binary slice, `p`, and write them into the UDP connection, `udpConn`, with the
+    `binary.Write` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now let’s have a closer look at the `receive` function, which we kickstarted
+    just before the sending loop in the last code snippet. Inside this function, we
+    have another loop that performs the following sequence of actions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It receives a mirrored packet and deserializes it into the `p` variable of the
+    `probe` type using the `binary.Read` function.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It checks the `SeqNum` sequence number of a received packet to find out whether
+    it’s out of order.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It calculates the latency by subtracting the current time, `time.Now`, from
+    the time received in the `SendTS` probe.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'In Go code, it looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: We’ve used `binary.Read` and `binary.Write` in this example to convert between
+    the in-memory data types and binary slices. This is possible thanks to the fixed
+    size of the probe packets. But, if the probes had been of variable size, we could’ve
+    only used the same functions to pre-parse the fixed-sized part of the header and
+    would’ve had to read and parse the variable-sized payload manually.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The actual UDP ping application in `ch04/udp-ping` (*Further reading*) has
+    a bit more code to account for further error conditions and graceful program termination.
+    Let’s see an example of running the client-side code against a remote UDP ping
+    server, where for each iteration, we can see the total number of lost packets
+    and the latest calculated latency:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The server side does not make any measurements and only logs a client IP address
+    for each received UDP probe:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: You’ve just seen an example of a binary UDP-based protocol that uses a single
+    message to exchange information and calculate network metrics. Although we think
+    it’s important to understand how to work with transport-layer protocols in Go,
+    it’s not very common to implement your own application directly on top of TCP
+    or UDP; the only notable exceptions include high-performance messaging protocols
+    such as Kafka, NATS, and AMQP. Most communications these days happen over a higher-level
+    protocol, HTTP. With it, we get wide support for packages and SDKs, a vast ecosystem
+    of communication standards with REST, GRPC, and GraphQL, and standard support
+    from network middleware such as proxies and intrusion detection systems. In the
+    following section, we show how to write a sample HTTP client-server application
+    in Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The application layer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the last section, we explored how to establish a TCP or UDP connection between
+    two nodes to transfer bytes over the network using the Go low-level network primitives
+    we have learned about so far. Now we focus on the top layer of the TCP/IP model
+    and go into the application-level constructs that Go includes in the standard
+    library to implement HTTP clients and servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To illustrate this, we go through the steps to build a client-server application
+    that returns the MAC address vendor, IP address owner, or detailed domain information
+    to the requester. On the client side, we need to craft an HTTP request that encapsulates
+    the query to the server address. On the server side, we need to listen for requests
+    and implement the logic to serve them and reply with the information for the argument
+    received.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Working with an HTTP client
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'On the client side, we first need to put together the URL we send the request
+    to. The URL, for our example, has three components:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The server address (IP address and port)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The lookup type to perform (MAC, IP, or domain)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An argument, which is the value we want to query for
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `net/url` package helps us in this case, to parse the inputs into a URL
+    structure. We hardcode values for the example in the book, but you can input any
+    values you want via flags when you run the code in `ch04/http/client/main.go`
+    (*Further reading*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We use the `Parse` method from `net/url` to form the first part of the URL:
+    `http://localhost:8080/lookup`. The second part of the example adds the query.
+    We leverage the `Add` method for this, which takes a key-value pair as an argument.
+    The `lookup` variable is the key in this case and the value comes from the `argument`
+    variable. The full URL looks like this: `http://localhost:8080/lookup?domain=tkng.io`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To make the actual request to the server, we leverage the `net/http` package.
+    This package has a `Client` type that specifies the mechanism to make an HTTP
+    request. We don’t need to stipulate any client details for this example, so we
+    show the type just for reference:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you don’t have any preference, you can select a `DefaultClient` that uses
+    a `DefaultTransport`. This client has pre-defined timeouts and proxy settings,
+    which are safe for concurrent use by different goroutines, so we don’t need to
+    adjust any of the parameters that the following code snippet from the Go standard
+    library shows, which also depicts the client HTTP transport settings that are
+    available in case you want to fine-tune the behavior of the connection:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Continuing with the example, `DefaultClient` allows us to use HTTP GET, HEAD,
+    and POST methods. Here, we use HTTP GET with the `Get` method from the `net/http`
+    package to the `addr` address we parsed earlier with `Parse`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The last step is to print out the response we get from the server to the terminal.
+    You can use flags from the CLI to submit different queries when running the client
+    application to do these operations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A health check:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE50]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'A MAC address vendor lookup:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE52]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'A domain lookup:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE54]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE55]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE56]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE57]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE58]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE59]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE60]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE61]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE62]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'An IP address lookup:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE64]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE65]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE66]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE67]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE68]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE69]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE70]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: To get these responses, we need to have a running server first that processes
+    the requests. Let’s build it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Working with an HTTP (server)
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To handle the requests and responses, the `net/http` package exposes a `Server`
+    type and a `Handler` interface. `Server` is the data structure for the parameters
+    to run an HTTP server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE71]'
+  prefs: []
+  type: TYPE_PRE
+- en: Let’s define a `srv` variable of the `Server` type. The zero value for `Server`
+    is a valid configuration, but in this case, we denote `Addr` as `0.0.0.0:8080`
+    to listen on any interface and port `8080` specifically.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `Server` type has a `ListenAndServe` method to listen on the TCP network
+    address, `Addr`, of the `Server` instance (`srv.Addr` or `0.0.0.0:8080` in the
+    example). It then calls the `Serve` method to accept incoming connections and
+    handle the requests. For each request, it creates a new service goroutine that
+    reads the request and then calls the `Server` instance, `Handler` (`srv.Handler`
+    or `nil` in the example), to reply to them:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE72]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This brings us to the second type in the `net/http` package we mentioned initially,
+    the `Handler` interface. The role of `Handler` is to respond to an HTTP request:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE73]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`Handler` responds to HTTP requests via its `ServeHTTP` method, which takes
+    two arguments:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A `ResponseWriter` interface, which you can use to craft an HTTP header and
+    payload to reply to the request and then return:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE74]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE75]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE76]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE77]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE78]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE79]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE80]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE81]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE82]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'An HTTP `Request`, which holds the HTTP request received by the server in this
+    case. It could also be a request you want to send from a client:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE83]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE84]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE85]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE86]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE87]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE88]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE89]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE90]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE91]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE92]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE93]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE94]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Now, if we look back at our example, we didn’t specify our `Handler`, so when
+    we called `ListenAndServe`, our handler was actually null (`nil`). In this scenario,
+    `ListenAndServe` defaults a `DefaultServeMux` to handle the requests that come
+    in. `DefaultServeMux` is an HTTP request multiplexer that the `net/http` package
+    includes. It routes requests to the most appropriate handler based on a list of
+    registered URL patterns.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next step in the example is to register a handler function for a given pattern.
+    We do this with the `HandleFunc` function, which takes a string pattern and a
+    handler function with the `func(ResponseWriter, *Request)` signature as arguments.
+    Now, when we get an incoming request that has a URL that matches this pattern,
+    the specified handler generates the response.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Going back to the example, in the first code snippet we showed of the main
+    function, we purposely omitted the initial two lines of code, which actually register
+    two URL patterns to match, `/lookup` and `/check`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE95]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Normal queries follow the `/lookup` route, but we also included a `/check`
+    option to let us to run a quick health check and verify the server is responding
+    to requests. Each pattern has a corresponding handler function with the `func(ResponseWriter,
+    *Request)` signature as an argument. We conveniently named these functions `lookup`
+    and `check`. *Figure 4**.6* shows how `DefaultServeMux` logically determines the
+    `Handler` that handles the user request:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 4.6 – Handling HTTP requests](img/B16971_04_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4.6 – Handling HTTP requests
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let’s examine the `lookup` handler function. A couple of things stand
+    out:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We write the response to the request via the first argument, `w`, an `http.ResponseWriter`
+    that satisfies the `io.Writer` interface. This means you can use any mechanism
+    that accepts an `io.Writer` interface to write to it. Here, we use `fmt.Sprintf`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We access the user’s request via the second argument, `req`. Here, we extract
+    the target URL from the request to print it out in the example with `req.URL.Query`.
+    Also, we get the value of the query to further process the request based on its
+    type, whether this is for a MAC address, IP address, or a domain:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE96]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE97]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE98]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE99]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE100]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE101]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE102]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE103]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE104]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE105]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE106]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE107]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE108]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE109]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE110]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE111]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE112]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE113]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'When running this on the server side, we need to include all the `.go` files
+    in the folder, not only `main.go`, so you want to run `go run *.go` to get an
+    output like the one in the next snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE114]'
+  prefs: []
+  type: TYPE_PRE
+- en: To run this example, you need to open two tabs. You first run `go run *.go`
+    from `ch04/http/server` (*Further reading*) and then from another tab, you can
+    make the client queries from `ch04/http/client` (*Further reading*) with flags
+    as in the outputs in the client part of this section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we reviewed the different layers of the TCP/IP model and the
+    applicability of Go to each one. We went from changing the state of network interfaces
+    on Linux systems to working with IP addresses, all the way to building a web application
+    prototype.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now you are ready to embark on the network automation journey and take all these
+    lessons you’ve learned so far and apply them to make networks more efficient,
+    reliable, and consistent. This is what we begin to examine in [*Chapter 5*](B16971_05.xhtml#_idTextAnchor128),
+    *Network Automation*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '`syscall` package: [https://pkg.go.dev/syscall](https://pkg.go.dev/syscall
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`vishvananda/netlink` package: [https://github.com/vishvananda/netlink](https://github.com/vishvananda/netlink
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mdlayher/netlink` package: [https://github.com/mdlayher/netlink](https://github.com/mdlayher/netlink
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mdlayher/netlink` ecosystem: [https://github.com/mdlayher/netlink#ecosystem](https://github.com/mdlayher/netlink#ecosystem
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch04/netlink`: [https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch04/netlink](https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch04/netlink
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`CAP_NET_ADMIN` capabilities: [https://man7.org/linux/man-pages/man7/capabilities.7.html](https://man7.org/linux/man-pages/man7/capabilities.7.html
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`google/gopacket` package: [https://github.com/google/gopacket](https://github.com/google/gopacket
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mdlayher/ethernet` package: [https://github.com/mdlayher/ethernet](https://github.com/mdlayher/ethernet
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`kube-vip` package: [https://github.com/kube-vip/kube-vip/tree/main/pkg/vip](https://github.com/kube-vip/kube-vip/tree/main/pkg/vip
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mdlayher/arp` package: [https://github.com/mdlayher/arp](https://github.com/mdlayher/arp
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mdlayher/packet` package: [https://github.com/mdlayher/packet](https://github.com/mdlayher/packet
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch04/vip`: [https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch04/vip](https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch04/vip
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`net` package: [https://pkg.go.dev/net](https://pkg.go.dev/net )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch04/net/main.go`: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/net/main.go](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/net/main.go
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*netaddr.IP: a new IP address type for* *Go*: [https://tailscale.com/blog/netaddr-new-ip-type-for-go/](https://tailscale.com/blog/netaddr-new-ip-type-for-go/
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch04/parseip`: [https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch04/parseip](https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch04/parseip
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch04/parseprefix`: [https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch04/parseprefix](https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch04/parseprefix
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`cidranger`: [https://github.com/yl2chen/cidranger](https://github.com/yl2chen/cidranger
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch04/trie/main.go`: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/trie/main.go](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/trie/main.go
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'GeoLite2 Free Geolocation Data: [https://dev.maxmind.com/geoip/geolite2-free-geolocation-data](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch04/geo/main.go`: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/geo/main.go](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/geo/main.go
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`iplib` package: [https://github.com/c-robinson/iplib](https://github.com/c-robinson/iplib
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch04/ipaddr/main.go`: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/ipaddr/main.go](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/ipaddr/main.go
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'cloudprober: [https://github.com/cloudprober/cloudprober](https://github.com/cloudprober/cloudprober
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch04/udp-ping`: [https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch04/udp-ping](https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch04/udp-ping
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The book’s GitHub repository: [https://github.com/PacktPublishing/Network-Automation-with-Go](https://github.com/PacktPublishing/Network-Automation-with-Go
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch04/http/client/main.go`: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/http/client/main.go](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/http/client/main.go
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch04/http/server`: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/http/server](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/http/server
+    )'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch04/http/client`: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/http/client](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch04/http/client)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Part 2: Common Tools and Frameworks'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This part describes the existing challenges and objectives of network automation.
+    You will learn how organizations are approaching this major undertaking and where
+    we are headed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part of the book comprises the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 5*](B16971_05.xhtml#_idTextAnchor128)*, Network Automation*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 6*](B16971_06.xhtml#_idTextAnchor144)*, Configuration Management*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 7*](B16971_07.xhtml#_idTextAnchor161)*, Automation Frameworks*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

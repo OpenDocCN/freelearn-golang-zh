@@ -1,0 +1,1390 @@
+- en: Asynchronous API Design
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we are going to discuss how to design an asynchronous API for
+    clients. We will look into strategies such as queuing tasks and publish/subscribe
+    paradigms. A synchronous request waits on the server to compute the result. On
+    the other hand, an **asynchronous **(**async**) request receives a response immediately
+    with the information about the eventual result. The real world is composed of
+    many synchronous and asynchronous events.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Asynchronous events are very popular in browsers. An async API mimics the same
+    behavior as an event loop in modern browsers. In this chapter, we'll look at the
+    difference between the request types. We'll also write a few clients in Go that
+    can consume an asynchronous API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding sync/async API requests
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Fan-in/fan-out of services
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Delaying API jobs with queuing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Long-running task design
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Caching strategies for APIs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Event-driven API
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'You will need to install the following software to run the code samples in
+    this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'OS: Linux (Ubuntu 18.04)/Windows 10/Mac OS X >=10.13'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Go stable version compiler >= 1.13.5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Dep: A dependency management tool for Go >= 0.5.3'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Docker version >= 18.09.2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You can download the code for this chapter from [https://github.com/PacktPublishing/Hands-On-Restful-Web-services-with-Go/tree/master/chapter9](https://github.com/PacktPublishing/Hands-On-Restful-Web-services-with-Go/tree/master/chapter9).
+    Clone the code and use the code samples in the `chapter9` directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding sync/async API requests
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A synchronous request is an HTTP request that blocks the server until the response
+    is returned. The majority of the services on the web run in this fashion. Nowadays,
+    with the advent of distributed systems and loose coupling, API requests can also
+    be asynchronous. In other words, an asynchronous request returns with information
+    that can be used to fetch the information of a process. These asynchronous requests
+    on a server are closely related to how concurrently the server can execute a job
+    for multiple clients. Let''s look at what a synchronous request looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/6ed7e24a-abe2-45fb-b25c-a4716b31faaf.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In this type of request, the web server performs all the actions and returns
+    an **Immediate Response** to the **Web client**/**Mobile client**. The drawback
+    of this approach is that if the server takes too much time to render the result,
+    the client is blocked on the server's action.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'An asynchronous request instantly returns a response but not with the result.
+    It issues a ticket for finding the status of the requested operation. A client
+    can use that ticket (a different response) to check the status and the final result
+    of the operation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/841cf354-4327-437d-987d-36d99bca8471.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: As shown in the preceding diagram, the client is sending a request to the server
+    and the server returns a response to the client. This response is not something
+    the client can consume instantly. Long-running tasks/jobs can be made asynchronous
+    by the server. The client can then use the received response to find out the status
+    of the job. Once the job is done, either the server can notify the client or the
+    client can poll the result by looking at the status. So far, we have only built
+    a synchronous API. This chapter will discuss its implementation in detail.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we'll discuss how APIs can diverge into multiple or submerge
+    into a single call. These techniques are called fan-out and fan-in, respectively.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fan-in/fan-out of services
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Let's take a real-world example of an e-commerce website integrating itself
+    with a third-party payment gateway. Here, the website uses an API from the payment
+    gateway to pop up the payment screen and enters security credentials. At the same
+    time, the website may call another API called analytics to record the attempt
+    of payment. This process of forking a single request into multiple is called **fan-out**.
+    In the real world, there can be many fan-out services involved in a single client
+    request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another example is **MapReduce**. Map is a fan-in operation, while Reduce is
+    a fan-out operation. A server can fan out a piece of information to the next set
+    of services (API) and ignore the result or can wait until all the responses from
+    those servers are returned. As shown in the following diagram, an incoming request
+    is being multiplexed by the server into two outgoing requests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/cb751d20-f1e0-4b5e-8c27-a02390d0d5bc.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: This process is a simple fan-out.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Fan-in** is an operation where two or more incoming requests converge into
+    a single request. This scenario is how an API aggregates results from multiple
+    backend services and returns the result on the fly to a client. For example, think
+    about a hotel price aggregator or flight ticket aggregator that fetches requested
+    information about multiple hotels or flights from various data providers and displays
+    them. The following diagram shows how a fan-in operation combines multiple requests
+    and prepares a final response that''s consumed by a client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8b9179a1-4dc9-4c6a-9213-33a5deb5649e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: The client can also be a server that serves further clients. As shown in the
+    preceding diagram, the left-side hand server is collecting the responses from
+    **Hotel A**, **Hotel B**, and **Airline Provider A** and preparing another response
+    for a different client. Therefore, fan-in and fan-out operations are not always
+    completely independent of each other. Mostly, it will be a hybrid scenario where
+    both fan-in and fan-out operations fit with each other.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Please remember that the fan-out operation to the next set of servers can be
+    asynchronous too. This may not be true with fan-in requests. A fan-in operation
+    is sometimes called an API call.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we've seen how fan-in and fan-out work. To use these techniques,
+    we need to know how to implement an asynchronous service (API). In the next section,
+    we'll try to implement such a service using a mechanism called job queuing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Delaying API jobs with queuing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In synchronous APIs, the blocking code plays a crucial role in preparing the
+    response that is sent to the client. However, in the asynchronous design, non-blocking
+    is key. A queue and workers can be helpful in achieving non-blocking code. A server
+    can have multiple workers running in parallel who can exhaust the contents of
+    a queue and work on them. Whenever a client requests an operation through an asynchronous
+    API, the server can put that request in a job queue, and all the workers can pick
+    up a task whenever their turn comes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This approach can offload an API server and focus on its business logic instead
+    of getting blocked on parallel/independent tasks such as sending emails, contacting
+    third-party services, and so on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A few use cases of queuing are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Compress images and email the final result
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Automatic back pressuring (limiting the load on the server to predictable amounts)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To explain this concept in detail, let's formulate an example and try to implement
+    it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s develop an asynchronous API server that can perform two different kinds
+    of jobs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Logging given information to the database
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Sending an email
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The condition is that it should not block other operations. The API should return
+    a Job ID ticket to the client who can use that information to fetch the running
+    information of the job.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before jumping into the implementation, we should know about a few basics of
+    enabling queuing to our service. We can implement queue/worker from scratch, but
+    there are many good open source queuing systems such as RabbitMQ or ZeroMQ to
+    choose from.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We, as part of implementing the preceding problem, will use RabbitMQ due to
+    its popularity and the maturity of Go bindings.
+  prefs: []
+  type: TYPE_NORMAL
+- en: RabbitMQ, a powerful message queue
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'RabbitMQ implements a messaging protocol called **Advanced Message Queueing
+    Protocol** (**AMQP**). It uses it to support worker queues. It also supports many
+    other data exchange patterns, such as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Publish/Subscribe
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Topic/Subscription
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Routing messages
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Remote Procedure Call** (**RPC**)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In this section, we''ll focus on the messaging functionality of RabbitMQ. We
+    can install RabbitMQ on our system using Docker, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It starts the RabbitMQ broker with the given hostname, `rabbitmq-host`, and
+    container name, `rabbitmq-server`. We use `rabbitmq:3` as the base image for our
+    server. Docker pulls the image from the Docker hub and creates a container. You
+    will see an output similar to this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: RabbitMQ uses default port `5672` for its operations. You can change this using
+    the initial settings for the Docker command.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The preceding RabbitMQ broker runs in the foreground. However, in production,
+    you have to run it in the background. This means you need to pass the `-d` flag
+    to the Docker command to run it in the background, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`docker run -d --hostname rabbitmq-host --name rabbitmq-server -p 5672:5672
+    -p 15672:15672 rabbitmq:3`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: By default, if we don't pass user credentials while launching the container
+    (`docker run ...`), a default `<guest:guest>` user's credentials are created for
+    the broker. You can reset them at any time or pass them while launching a container.
+    You can find out more at [https://hub.docker.com/_/rabbitmq](https://hub.docker.com/_/rabbitmq).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Communicating with RabbitMQ in Go
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Now, we have a message broker (RabbitMQ). Before building an asynchronous API,
+    we should learn how a Go program can talk to the message broker and send/receive
+    the messages. While doing so, we'll create clients for production and consumption.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First, we have to create a `connection` to dial to the broker. If the connection
+    is successful, a `Channel` needs to be created out of the connection. It has the
+    API for performing operations on the message broker. Then, we can define a queue
+    that messages are sent to. Finally, we publish a message to the queue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We use an open source Go package called `amqp` for working with RabbitMQ.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s create our first program of this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a directory like this for a message sender:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Install the `amqp` package using the `dep` tool:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: This creates the `Gopkg.toml` and `Gopkg.lock` files in the directory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, we are ready to go. We''re going to look at an example that creates a
+    queue in RabbitMQ and sends a message to it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, let''s import the necessary packages/libraries inside `main.go`. These
+    are `log` and `amqp`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we need a handler to handle errors that will be generated from every step.
+    Go''s error handling can be messy, which hampers readability. To have a clean
+    code structure, we need to handle errors in one single place:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: This function takes an error and a message and logs the information to `STDOUT`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s write the logic for sending and receiving messages. In the program''s
+    main block, create a connection and channel. Then, dial to RabbitMQ using a connection
+    string that contains user credentials. Once the connection is successful, obtain
+    the `Channel` object to push messages. The code looks like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is the connection string:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: It is formed with the details of `protocol ://user:password@host:port`, where
+    `host`, `port`, `user`, and `password` are the credentials of the RabbitMQ server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You should never use the default credentials for RabbitMQ in production. Please
+    set strong passwords for all your sensitive information, including – RabbitMQ.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Declare a queue called `test` for publishing the messages:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we have a queue. Let''s prepare an `amqp` message (RabbitMQ message) to
+    push it into the queue. Let''s say the message body is a log of server time:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Publish the preceding message to the predefined queue, that is `testQueue`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Publish` method publishes a given message into a RabbitMQ queue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We've finished creating a sender. Now, if we run this program, it pushes a message
+    instantly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s write a receiver (worker) to consume those messages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The logic is to define a `Consumer` and receive the messages. The code for
+    the worker is mostly the same as it was previously:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Dial to RabbitMQ using the connection string, fetch the `Channel`, and create
+    a representation for `testQueue`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We need to add some extra functionality to consume. Just after `handleError`
+    in the main section, we need to define which queue to consume and its properties:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`messages` is a consumable that can be read for messages that are pushed into
+    `testQueue`. Let''s see how we can read it:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: This runs a go-routine that spawns a function that runs an infinite loop to
+    collect messages and process them. A go-routine is a lightweight thread that's
+    managed by Go's runtime engine. We can spawn a go-routine from a function. Here,
+    we are simply logging the message to `STDOUT` in our go-routine. If we don't block
+    the main program, the whole process ends, quickly killing the go-routine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s create a channel and read from it to block the main program:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this way, we have a worker.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s run both programs to see how they work. First, run the worker. It creates
+    a Queue called "text" if it doesn''t exist. Then, run the sender to send a message
+    to the queue on a Terminal:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In another window of the Terminal (shell), run the sender program, which pushes
+    a server time log into the queue:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you check the first Terminal, you''ll see the following message:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: This means the worker is successfully able to retrieve the messages from the
+    queue. This functionality can be leveraged by API servers to put long-running
+    jobs into message queues and let dedicated workers handle them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After grasping the basics of queuing and how it can help us build asynchronous
+    APIs, we should implement a real-world problem. In the next section, we'll define
+    the problem statement and try to design a long-running task that performs various
+    functions at the same time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Long-running task design
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'So far, we''ve learned about the basics of queuing and how to delay jobs. Now,
+    we''re going to design a solution to a problem regarding asynchronous APIs. The
+    problem is that we want to build a system that can handle requests for the following
+    scenarios:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The server should save information to the database as one operation.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It should send an email to the given email address.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It should perform a long-running job and POST the result to a callback. This
+    is known as a web-hook.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let''s say these three operations are asynchronous and long-running. We need
+    a mechanism to facilitate a long-running process that has the following characteristics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The client can fire an API and receive a job ID back.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The job is pushed onto a queue with the respective message format.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A worker picks the job and starts performing it.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Finally, the worker saves the result on various endpoints and sends the status
+    to the database.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following diagram shows the preceding requirements in detail:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/32f92cad-16d3-40c7-bb77-9dacb758c13f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The preceding diagram shows a few engaging entities:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**API server**'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '****Database server****'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Queue**'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Workers**'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**API Server** is accepting asynchronous requests from the client and pushing
+    those jobs into a message queue. Then, the workers are picking those jobs and
+    performing some action on them.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Worker A** saves the information from the message into a database. **Worker
+    B** picks a job. After working on the message, it posts some information to a
+    callback that was received as part of a request. **Worker C**''s job is to send
+    an email.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: For the sake of simplicity, we'll mock the end actions (DB insert, Email sending,
+    and Callback). We're doing this in order to focus on the asynchronous API design
+    over concrete actions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To design this flow, we need to reuse the same message and make it fit all use
+    cases. JSON is a better format for storing information about a job.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We need to create some structs that hold information about the jobs, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Job**: Global storage for a job'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Log**: Information dedicated to Job A'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**CallBack**: Information dedicated to Job B'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Mail**: Information dedicated to Job C'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A, B, and C are the worker types mentioned in the previous diagram.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let''s define our project. Creating a project directory and developing
+    each piece shown in the preceding architecture is part of this process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create the project:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: We're naming it `V1` (`Version 1`) because it is our first attempt to achieve
+    asynchronicity. We'll add more features with more versions in the upcoming sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We need to store our structs in the `models` directory. Create a package called
+    `models` and add a new file to store the preceding structs:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For the fields, we have `UUID` to track the job, `type` to distinguish between
+    jobs, and extra data that is specific to respective jobs. We use Google''s `UUID`
+    package to generate a `UUID` string and set a Job ID. `type` could be "A", "B",
+    or "C".`Log` is used for time-related operations, so it needs a time field. `callback`
+    needs a callback URL to post data. `mail` needs an email address to send a message
+    to. The struct file contains the following constructs:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The important field from the preceding file is `ExtraData`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: We define it as an interface and make it a placeholder for Log, Callback, and
+    Mail. We instantiate the respective structs when we publish the message.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the main program, we have to define a few helper functions and constants.
+    We add these to our project''s main file:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Define the queue name, the address that the HTTP server runs on, and an error
+    handler that handles any errors:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is done to avoid duplicate code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We have to bake a few more components in our project:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An HTTP server
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Workers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: URL handlers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A `Handler` takes an incoming request and tries to create an instant Job ID.
+    Once it successfully places the job in the queue, it returns the Job ID to the
+    caller. Now, the workers who are already started and listening to the job queue
+    pick those tasks and execute them concurrently.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a file for the worker:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`Workers` is a `struct` that holds a connection to the message queue. Using
+    that connection, all the workers read from the queue:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: At some point, we need to start the workers. To do this, we need to define a
+    run method that initiates/boots workers. The worker should listen to the message
+    queue for messages and consume them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once there is an incoming message, check the type of work and delegate it to
+    the respective functions, that is,`dbWork`, `callbackWork`, and `emailWork`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: At the end of the function, we closed the channel and blocked the worker since
+    go-routines are running in the background.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Now, we can mock the actual work of the workers with delays for three functions: `dbWork`,
+    `callbackWork`, and `emailWork`. We use delays to simulate the background work
+    and log messages accordingly. We will define those functions on the `workers`
+    struct so that the functions are tightly attached:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: These workers work independent of the main program. They listen to the message
+    queue and process incoming messages according to their type. By doing this, we
+    have defined the endpoints/workers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, it''s time to define a few endpoints for our HTTP server that accept the
+    API requests and publish messages to the queue. These will go into a new file
+    called `handlers.go`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Our handlers also need access to the message queue''s connection, which is
+    a channel where we can publish messages. Due to this, it is better to have a struct
+    for the server and define the handlers as methods. Let''s call it `JobStruct`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We should attach a method called `publish` to the preceding struct. All the
+    handlers can use this method to publish a JSON body to the message queue. It is
+    similar to the logic we explored when we introduced the RabbitMQ channel:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, let''s define three handlers that will work on three types of jobs, as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first handler creates a job for work type A– saving client time to the database.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The second handler creates a job for work type B– a callback to the URL after
+    some time.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The third handler creates a job for work type C– sending an email.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For the first handler, we take a query parameter called `client_time` from
+    an HTTP request and use it to save in the DB. We use `json` and `strconv` to make
+    required data conversions. Once we have the necessary information for the worker,
+    we can compose the JSON and publish it to the queue:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, this function handler composes a message that is required for
+    the worker that processes `"A"`(database job). Extra information is passed inside
+    the `ExtraData` field. As we mentioned previously, the interface can fit any kind
+    of new struct in it. So, at runtime, we set what could fit into `ExtraData`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The other two handlers look exactly the same, except for the composition of
+    `jsonBody`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The JSON message for handler 2 is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The JSON message for handler 3 is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: Next is the main program. We have to glue workers, handlers, and structs using
+    our main logic. Previously, we added the constants, but now we have to extend
+    this to bring the workers and API to life.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, we should glue everything we have built so far together. Follow these
+    steps to do so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We need a function that returns a `JobServer` object. Let''s add that function,
+    called `getServer`, to the `main.go` file. The job server holds a connection and
+    a queue. The code looks like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: Using this server, we can link URL endpoints to handler functions. These functions
+    use the instantiated connection properties of RabbitMQ/Message Queue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, get a `JobServer` by calling the preceding function with `queueName`,
+    which we defined as a constant:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we should start the workers. If we start them normally, they''ll block
+    the main execution thread. Therefore, we have to make them goroutines:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To take client requests and make our application possible, we have to attach
+    handlers to the URL. The Gorilla Mux router can be used for this. We discussed
+    it extensively in [Chapter 2](72226cd9-cd86-497f-ba6c-4a273e0e3193.xhtml),[ ](72226cd9-cd86-497f-ba6c-4a273e0e3193.xhtml)*Handling
+    Routing for our REST Services*. We''ll reuse the same pattern we used there to
+    attach the routes to the handlers:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: This starts an HTTP server and routes requests to the URL we defined previously.
+    As you may have noticed, we are using a job server's handlers as endpoints.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Last but not least, we should safely close the connection and channel:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This completes our example. Let''s build the Go project from the project root
+    (`longRunningTask`) and see the output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Make sure your RabbitMQ server isn't down. Our job server uses RabbitMQ as a
+    message queue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Run the `go build` command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This generates an executable with the same name as the project, that is, `longRunningTaskV1`.
+    We can start our HTTP server like so:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The server is now running on port `8000`. Make a few `curl` `GET` requests
+    to the server:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Instead of blocking the requests, the server returns quickly with a Job ID
+    for the tasks. Let''s take a look at the server logs:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: There is a two second delay in sending the mail, but the client is not blocked
+    on that decision. This is how an asynchronous API works by design.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Always prepare a design upfront for an asynchronous API. Since there is no silver
+    bullet for a given problem, you have to explore various architectures, such as
+    message queues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Okay, but how can a client retrieve the status of a job, whether it is started,
+    in progress, or done? To enable that feature, we have to store the state of a
+    job somewhere. This can be a database or a temporary cache. Modern applications
+    make a lot of read operations by polling the API for the job status. Redis is
+    a good caching solution for these kinds of problems. We can extend this example
+    with Redis to solve `find the status of a job ID`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we'll introduce Redis, which includes installing Redis
+    and linking it to a Go program. After that, we'll construct an extended version
+    of a long-running task with a job status.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Caching strategies for APIs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Redis is a wonderful open source solution for caching high-read configuration/information.
+    It is a key/value pair store and has faster reads thanks to its in-memory storage.
+    An example of a key/value pair store is a media website where a few articles are
+    set fixed on their home page for a few hours.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instead of letting every reader hit their database to fetch a record, a media
+    house can use Redis to store article content. That is one of many applications
+    of Redis.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Job status is temporary information that becomes irrelevant once the job is
+    finished and status is logged to log storage. Due to this, Redis is the best choice
+    for implementing job status caching. We plan to do the following things:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Write a job status
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Read a job status
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Both actions are performed by our job server but at different times. The status
+    can be in three forms:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Started
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In Progress
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Done
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Redis provides a rich collection of data structures to hold information temporarily.
+    Out of them, we use a simple `Key:String` for our job status. Job ID can be a
+    key and status is its value. In simple notation, it looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can easily run a Redis instance with Docker. Just run a Redis container
+    and expose port `6379`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding command runs a Redis server on localhost on port `6379`. The
+    process will be run as a daemon with the `-d` option. To check which container
+    is for Redis, you can simply run the following Docker command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`redis-cli` is a tool that can be used to quickly inspect the Redis server.
+    You don''t have to install it separately. Your Redis Docker instance already has
+    it built in. You just have to execute a command against the Redis container, like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can get all the available keys stored in Redis with the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can also set a key to a value with an expiration date in the CLI, like
+    this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding command sets a key called `topic` to `async`. The server returns
+    `OK` for a successful insert. The CLI is easy to use, but in most cases, you can
+    also access Redis from applications. In the next section, we'll learn how to do
+    this from Go programs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: go-redis, a Go client for communicating with Redis
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'There is a widely used type-safe Go client that''s used to talk to Redis servers
+    called `go-redis`. We can use it to connect to a Redis server by creating a client
+    similar to RabbitMQ. Let''s look at the steps for doing this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we need to create a simple project called `redisIntro` for illustrating
+    its basic usage:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Initialize the necessary dependencies and install the `go-redis` package using
+    the `dep` tool from your project''s root:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, create a small client that calls the default `PING` command and gets `PONG`
+    back:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'A client can be created using the `redis.NewClient` method from the `go-redis`
+    package:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The Redis client can perform commands on the server. One such command is `PING`.
+    A `SET` or `GET` command works the same way. Now, let''s run the program:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: This prints out the `PONG` message, which is a response that's given by the
+    Redis server. With this, we can confirm that our program is successfully connected
+    to the server and that the queries are working fine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Job status cache with Redis
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Now that we''ve introduced Redis and the Redis client for Go, let''s quickly
+    add the feature of job status to our previously designed asynchronous API. We
+    need to make the following changes to that project:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Add a new route to collect the job ID from a client
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Add a new handler to fetch the job status from Redis
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Whenever someone adds a new job, we need to write status to Redis in every stage
+    of the job life cycle
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We'll create a new project for this feature. It has a similar structure to `longRunningTaskV1`,
+    which we created previously. The code and files are the same. You can clone the
+    project and rename it `longRunningTaskV2`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at the implementation, which includes dependency installs
+    and modifications we have to make to the previous project. We won''t go through
+    the complete code, to avoid any redundancy:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To make sure you have all the necessary dependencies, run the `dep` command:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Add the Redis package to the cache in order to store/retrieve the status of
+    a job:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The first change is to add a route to access the job status. The status could
+    be any one of these three:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`STARTED`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`IN PROGRESS`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`DONE`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let''s add one more property to the `JobServer` struct, called `redisClient`.
+    This stores the client connection to the Redis container, which is already up
+    and running:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Add the Redis package and modify its struct:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, add a handler function that accepts a `UUID` as a parameter and constructs
+    a response by fetching the job status from Redis:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: This handler uses the Redis client `Get` function to fetch the value of a key
+    from the Redis server. After this happens, the HTTP JSON response is sent back
+    to the client.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, change the `main.go` file and add a new route:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: This imports the Redis package and creates a new Redis client. It also adds
+    a new route for collecting UUID job strings from clients. The new route is `"job/status"`, and
+    we attach the newly created handler, `statusHandler`, to it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can make an API call to get the status of a job, but the pending functionality
+    is to write a job status in Redis whenever a new job is executed. For that, we
+    have to modify our workers a bit. The file we''ll be modifying is as follows:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we should change the worker struct so that it holds one more Redis connection
+    so that it can write the statuses of jobs in the cache. Our plan is to store the
+    job ID as a key and the status as a value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Add the Redis package to import `NewClient`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Modify the `Worker` struct to add `redisClient`. This will hold a new connection
+    to the Redis server:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the `run` function, create a concrete connection to the Redis client:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE64]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Modify the worker functions to add the status messages. For example, let''s
+    look at `dbWork`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE65]'
+  prefs: []
+  type: TYPE_PRE
+- en: We are writing messages into a Redis key with the message as a value. The same
+    key is overwritten when the process shifts to the next phase. This is achieved
+    by calling the Redis `redisClient.Set()`. function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you're wondering why the third argument is provided, it's because it's the
+    expiration time of a key on the Redis server. We can also set a key that lives
+    only for some time. For now, we want to persist our keys, so the expiration is
+    set to `zero`, which means no expiration in Redis.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can apply the same process for the other two worker functions, that is, `callbackWork`
+    and `emailWork`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, it''s time to test our new feature:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Build the `longRunningTaskV2` project and call a job using curl. Now, find
+    the status of that job using the new endpoint that we added:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE66]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Create a new job, like this:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE67]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This returns the following JSON, which contains job details:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE68]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we can find the status of a job with `uuid`:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE69]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This returns the following status:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE70]'
+  prefs: []
+  type: TYPE_PRE
+- en: This message varies according to when the client calls the API. But it is a
+    transparent way to give the status of asynchronous jobs to clients.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is one more category of API that realizes asynchronous behavior. That
+    is known as the event-driven API. Servers and clients can listen to broadcasted
+    events rather than explicitly requesting them. This approach is different from
+    traditional asynchronous implementations. We'll take a look at this in the next
+    section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Event-driven API
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The strategies we've explained so far are instances of the request/response
+    protocol where the client makes an API call to execute a job. There are many other
+    architectures like this, such as the event-driven API, where a system generates
+    a series of events that other systems can listen to and receive updates from.
+    For a client to receive events, they should be subscribed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This is similar to callbacks in some languages, such as JavaScript, where an
+    event loop runs continuously and collects events. This type of approach is good
+    for non-blocking clients and servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A trivial example includes a client registering an HTTP endpoint with an API.
+    The server can trigger the API as an event whenever some useful information is
+    available. A few practical examples are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A weather station sending a series of events to subscribed clients (for example,
+    mobiles)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Amazon's **Simple Notification Service **(**SNS**) publishing a message to an
+    endpoint
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A slack webhook that is registered to an API to get events; for example, a code
+    pipeline failing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'A few protocols that implement the event-driven architecture are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Publish/Subscribe
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: WebSocket communication
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Webhooks/ REST hooks
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Server push (SSE)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These protocols are used in different places according to the use case at hand.
+    We'll discuss Publish/Subscribe briefly in [Chapter 11](b5dafb13-8906-4c1a-b780-7f0356f95d61.xhtml),
+    *Scaling our REST API Using Microservices*. There, we'll learn how to build an
+    event-driven system, consume events from another party, and more.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we introduced the asynchronous API. First, we explained the
+    key difference between a synchronous API and an asynchronous API. Then, we learned
+    how multiple API requests lead to the fan-in or fan-out of services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After that, we introduced a queuing system called RabbitMQ. A queue can hold
+    jobs and allows servers to work on them. We learned how to create a queue and
+    write a job into it. We also created a few RabbitMQ clients that can pick jobs
+    from the queue and process them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We also designed a long-running task with multiple workers and a queue. The
+    workers always listen to the queue and accept jobs. We defined three kinds of
+    workers: DB, Email, and Callback.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Redis is an in-memory database that stores key/value pairs. We can use it as
+    a cache to store the status of jobs. We extended our long-running task to add
+    status information by storing job statuses in Redis.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we introduced the event-driven API and learned that, using Publish/Subscribe
+    and WebSockets, we can set up event-driven data exchange between clients and servers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will take a look at the basics of GraphQL, as well as
+    examples of writing a GraphQL client and a server in Go.
+  prefs: []
+  type: TYPE_NORMAL

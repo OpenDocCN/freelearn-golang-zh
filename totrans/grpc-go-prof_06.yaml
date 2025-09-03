@@ -1,0 +1,804 @@
+- en: '6'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Designing Effective APIs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While gRPC is performant, it is easy to make mistakes that will cost you in
+    the long term or at scale. In this chapter, we are going to see the considerations
+    that are important in order to design efficient APIs in gRPC. Since we are talking
+    about API design, the considerations are going to be linked to Protobuf because,
+    as you know by now, we define our types and endpoints in Protobuf.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we are going to cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to choose the right integer type
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding the impact of field tags on the size of serialized data
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: How to use field masks to solve the over-fetching problem
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Understanding how repeated fields can lead to a bigger payload than expected
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For this chapter, you will find the relevant code in the folder called `chapter6`
+    in the accompanying GitHub repository ([https://github.com/PacktPublishing/gRPC-Go-for-Professionals/tree/main/chapter6](https://github.com/PacktPublishing/gRPC-Go-for-Professionals/tree/main/chapter6)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Choosing the right integer type
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Protobuf is mostly performant because of its binary format and because of its
+    representation of integers. While some types such as strings are serialized “as
+    is” and prepended with the field tag, type, and length, numbers – especially integers
+    – are generally serialized in way fewer bits than how they are laid out in your
+    computer memory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, you might have noticed that I said “generally serialized.” This is
+    because if you chose the wrong integer type for your data, the `varint` encoding
+    algorithm might encode an `int32` into 5 bytes or more, whereas, in memory, it
+    is 4 bytes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let us see an example of a bad choice of integer type. Let us say that we want
+    to encode the value 268,435,456\. We can check how this value would be serialized
+    in memory and with Protobuf by using the `unsafe.Sizeof` function from the Go
+    standard library and the `proto.Marshal` function provided by Protobuf. And finally,
+    we are also going to use the well-known `Int32Value` type to wrap the value and
+    be able to serialize it with Protobuf.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before writing the main function, let us try to make a generic function called
+    `serializedSize`, which will return the size of an integer in memory and the size
+    of the same integer being serialized with Protobuf.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The code presented here is present in the accompanying GitHub repository under
+    the `helpers` directory. We thought it would not make sense to mix the TODO API
+    and this kind of code so we separated it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let us first add the dependencies:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first one is to have access to the well-known `Int32Value` type and the
+    second one is to have access to predefined type constraints for generics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We are going to use generics to accept any kind of integer as data and let
+    us specify a wrapper message to be able to serialize the data with Protobuf. We
+    will have the following function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we can simply use the `proto.Marshal` function from the Protobuf library
+    to serialize the wrapper and return both the result of `unsafe.Sizeof` and the
+    length of the serialized data:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After that, it is simple. We can just call that function from our `main` with
+    a variable containing the value `268,435,456` and an instance of `Int32Value`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we run this, we should get the following result:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, if you looked carefully at the code, you might be thinking that the `–1`
+    after `len(out)` is cheating. With Protobuf, `Int32Value` is serialized into 6
+    bytes. While you are right about the fact that the real serialization size is
+    6 bytes, the first bytes represent the type and field tag. So, to keep the comparison
+    of the serialized data fair, we remove the metadata and only compare the number
+    itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You may be thinking that our current TODO API, which uses `uint64` for IDs,
+    also has this problem, and you would be totally right. You can easily see that
+    by switching `int32` to `uint64`, `Int32Value` to `UInt64Value`, and setting our
+    data to be equal to 72,057,594,037,927,936:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With the preceding code, we would get the following result:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: This means that after approximately 72 quadrillion tasks are registered, we
+    will have this problem. Obviously, for our use case, we are safe using `uint64`
+    as `id` because to have such a problem we would need every person on the planet
+    to create 9 million tasks (72 quadrillion / 8 billion). But this might problem
+    might be more significant in other use cases, and we need to be aware of the limitations
+    of our API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An alternative to using integers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: An alternative that is often cited and even recommended by Google is to use
+    strings for IDs. They mention that 2^64 (`int64`) is not “as big as it used to
+    be.” In the context of the company, this is understandable. They must deal with
+    a lot of data and with bigger numbers than a lot of us.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, this is not the only advantage that a string has over a number type.
+    The biggest advantage is probably the evolution of your API. If, at some point,
+    you need to store bigger numbers, the only alternative you have is to switch to
+    the string type. But the problem is that there is no backward and forward compatibility
+    between the number type you used previously and a string. Thus, you will have
+    to add a new field to your schema, clutter the message definition, and make the
+    developers check whether the ID is set as a string or as a number in case of communication
+    with older/newer versions of an application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Strings also provide safety in the fact that these cannot be used for arithmetic
+    operations. This limits smart developers, in a good way, to not being able to
+    pull smart tricks with IDs and end up making the numbers overflow. IDs are effectively
+    treated as globs that nobody should manually handle.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In conclusion, for some use cases, it might be a good idea to start directly
+    with strings for IDs. If you expect to scale or simply deal with numbers that
+    are bigger than the integer limits, a string is the solution. However, in a lot
+    of cases, you will probably only need `uint64`. Just be aware of your needs and
+    plan for the future.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Choosing the right field tag
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As you know, field tags are serialized together with the actual data to let
+    Protobuf know into which field to deserialize the data. And as these tags are
+    encoded as `varint`, the bigger the tag, the bigger the impact on your serialized
+    data size. In this section, let us talk about the two considerations that you
+    must make to not let these tags affect your payload too much.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Required/optional
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Having big field tags might be fine if you are aware of the trade-off. One common
+    way of treating big tags is to see them as being used for optional fields. An
+    optional field means that it is less often populated with data and because Protobuf
+    does not serialize fields that are not populated, the tag itself is not serialized.
+    However, we will occasionally populate this field and we will incur costs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One advantage of such a design is keeping relevant information together without
+    having to create loads of messages to keep the field tags small. It will make
+    the code easier to read and make the reader aware of the possible fields that
+    they can populate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The downside though is that if you are creating an API that is user-facing,
+    you might incur costs too often. This might be because the user does not understand
+    how to use your API properly or simply because the user has specific needs. This
+    might also happen in a company setting, but it can be mitigated by senior software
+    engineers or internal documentation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let us see an example of the downside that big tags bring. For the sake of
+    an example, let us say that we have the following message (`helpers/tags.proto`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that these numbers are not random. If you remember, during the Protobuf
+    primer, I explained that tags are encoded as `varints`. These numbers are the
+    thresholds for which it takes one more byte to serialize the tag alone.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, with that, we are going to calculate the size of the message into which
+    we incrementally set the value for fields. We are going to start with an empty
+    object, then we are going to set `tag`, then `tag2`, and so on. Note also that
+    we are going to set the same value for all the fields (1). This will show us the
+    overhead that it takes to simply serialize the tag.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In `helpers/tags.go`, we have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: We repurposed the `serializedSize` we saw earlier. We set the field by dereferencing
+    the pointer to the field, we calculate the size of the `Tag` message with the
+    new field set, and we print the result. This result is a little bit manipulated
+    to show us only the bytes for the tag. We subtract i+1 from the size because i
+    is zero-indexed (so `+1`). So, effectively, we subtract the number of fields already
+    set from the size, which is also the size it takes to serialize the data without
+    the tag (1 byte for value 1).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the end, if we run this, we have the following (beautified):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: This tells us that each time we pass a threshold, we get one more byte overhead
+    in our serialized data. At first, we have an empty message, so we get 0 bytes,
+    then we have a tag of 1, which is serialized into 1 byte, after that a tag of
+    2 serialized into 2 bytes, and so on. We can look at the difference between two
+    lines to get the overhead. The overhead of setting `value` to a field with tag
+    `2048` instead of setting it to a field with tag `16` is 3 bytes (6 – 3 bytes).
+  prefs: []
+  type: TYPE_NORMAL
+- en: In conclusion, we need to keep the smaller field tags available for the fields
+    that are the most populated or required. This is because these tags will almost
+    always be serialized, and we want to minimize the impact of the tag serialization.
+    For optional fields, we might use bigger tags to keep the related fields together,
+    and with that, we should incur non-recurrent payload increases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Splitting messages
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In general, we prefer to split messages to keep smaller objects and have fewer
+    fields, and thus smaller tags. This lets us arrange information into entities
+    and understand what the given information is representing. Our `Task` message
+    is an example of that. It groups information and we can reuse that entity in,
+    for example, `UpdateTasksRequest` to accept a fully featured `Task` as a request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, while it is interesting to be able to separate information into entities,
+    this does not come for free. Your payload gets affected by the use of a user-defined
+    type. Let us see an example of splitting a message and how it can affect the size
+    of serialized data. This example shows that there is a size overhead when splitting
+    messages. To show that, we are going to create a message that contains a name
+    and a wrapper around a name. This first time we check the size, we will only set
+    the string, and the second time we will only set the wrapper. Here is what I mean
+    by such a message:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Right now, let us not worry about the usefulness of this example. We are just
+    trying to prove that splitting a message has an overhead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Then, we will write a `main` function that simply sets the value to `name`
+    first, then calculates the size and prints it. And then, we will clear the name,
+    set the `ComplexName.name` field, calculate the size, and print it. If there is
+    an overhead, the sizes should be different. In `helpers/split.go`, we have the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we run that, we should get:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: Effectively, these two sizes are different. But what is the difference? The
+    difference is that user-defined types are serialized as length-delimited types.
+    In our case, the simple name would be serialized as 0a 05 50 61 63 6b 74\. 0a
+    is the wire type for Length-Delimited + tag 1 and the rest are the characters.
+    But for the complex type, we have 12 07 0a 05 50 61 63 6b 74\. We recognize the
+    last 7 bytes but there are two more in front. 12 is the `Length-Delimited wire
+    type + tag 2` and 07 is the length of the following bytes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In conclusion, we once again have a trade-off. The more tags we have in messages,
+    the more possibility there is for us to incur costs in terms of payload size.
+    However, the more we try to split messages to keep the tags small, the more we
+    will also incur costs because the data will be serialized as length-delimited
+    data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Improving UpdateTasksRequest
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To reflect on what we have learned in the last section, we are going to improve
+    the serialized size of `UpdateTasksRequest`. This is important because of the
+    context in which this message is used. This is a message that is sent 0 or more
+    times by the client since it is used in a client streaming RPC endpoint. It means
+    that any overhead in serialized data size will be multiplied by the number of
+    times that we send this message over the wire.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The following code is present in the accompanying GitHub repository. You will
+    find the new Protobuf code in the `proto/todo/v2` folder and the server/client
+    code for `UpdateTasks` will be updated to reflect the change. Finally, one thing
+    to notice is that we do not provide backward and forward compatibility. A server
+    in `chapter6` cannot receive a request from a client in `chapter5`. More work
+    is needed to make that possible.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we look at the current message, we have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is describing exactly what we want, but now we know that some extra bytes
+    will be serialized because of the sub-message. To solve this problem, we can simply
+    copy the fields that we let the user change and the ID that describes which task
+    to update. This will give us the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is the same definition as the `Task` message.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, you might be thinking that we are repeating ourselves and that it is a
+    waste to do so. However, there are two important benefits to doing that:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We no longer need to incur overhead for the serialization of the user-defined
+    type. On each request, we save 2 bytes (tag + type and length).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We now have more control over the fields that a user might update. If we did
+    not want the user to change `due_date` anymore, we would simply remove that from
+    the `UpdateTaskRequest` message and reserve the tag 4.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To prove that this is more efficient in terms of serialized data size, we can
+    temporarily modify the `UpdateTasks` function in `server/impl.go` a little bit
+    for both `chapter5` and `chapter6`. To count the size of the payload, we can use
+    the `proto.Marshal` that we used earlier and sum up the total serialized size.
+    In the end, we can just print the result on the terminal when we receive an EOF.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is what it looks like in `chapter6`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: For `chapter5`, this leads to 56 bytes being sent over the network as requests,
+    and for `chapter6`, we only send 50 bytes. Once again, this looks negligible because
+    we are doing that at a small scale, but once we receive traffic, it will quickly
+    pile up and impact our costs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adopting FieldMasks to reduce the payload
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: After improving our `UpdateTasksRequest` message, we can now start looking at
+    `FieldMasks` to further reduce the payload size, but this time we are going to
+    focus on `ListTasksResponse`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, let us understand what `FieldMasks` is. It refers to objects containing
+    a list of paths telling Protobuf which fields to include and telling it implicitly
+    which should not be included. An example of that could be the following. Saywe
+    had a message such as `Task`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And we wanted to select only `id` and `done` fields, we could have a simple
+    `FieldMask` like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: We could then apply that mask on an instance of `Task` and it would keep only
+    the mentioned fields’ value. This is interesting when we are doing the equivalent
+    of `GET` and we do not want to fetch too much unnecessary data (over-fetching).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Our TODO API contains one such use case: `ListTasks`. Why? Because if a user
+    wanted to fetch only part of the information, they would not be able to do so.
+    Selecting part of the data might be useful for features such as synchronizing
+    tasks from local storage to a backend. If the backend has IDs 1, 2, and 3 and
+    the local has 1, 2, 3, 4, and 5, we want to be able to calculate the delta of
+    the tasks that we need to upload. To do this, we would need to list only the IDs
+    as fetching the description, done date, and `due_date` value would be wasteful.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Improving ListTasksRequest
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '`ListTasksResponse` is a server-streaming kind of API. We send one request
+    and we get 0 or more responses. This is important to mention because sending a
+    `FieldMask` does not come for free. We still need to carry bytes on the wire.
+    In our case, though, it is interesting to use masks because we can send it once
+    and it will be applied to all the elements returned by the server.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first thing that we need to do is to declare such a `FieldMask`. To do
+    that, we import `field_mask.proto` and add a field to `ListTasksRequest`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we can go to the server side and apply that mask to all the responses
+    that we send. This is done with reflection and a little bit of boilerplate. The
+    first thing that we need to do is to add a dependency in the server to work with
+    slices and specifically access the `Contains` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After that, we can work with reflection. We are going to go over all the fields
+    that a given message has and if its name is not present in the mask’s paths, we
+    are going to remove its value:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The following code is a simplistic implementation to filter fields in a message,
+    but this is sufficient for our use case. In reality, there are more powerful features
+    of `FieldMasks` such as filtering maps, lists, and sub-messages. Unfortunately,
+    the Go implementation of Protobuf does not provide such utilities as the other
+    implementations do, so we need to rely on writing our own code or using community
+    projects.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With that, we can now basically use `Filter` in our `ListTasks` implementation
+    to filter the `Task` object that will be sent in `ListTasksResponse`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice that `Filter` is called before calculating `Overdue`. This is because
+    if we do not include `due_date` in `FieldMask`, we assume that the user does not
+    care about the overdue. In the end, the overdue will be false, not serialized,
+    and thus not sent over the wire.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Then, we need to see how to use that on the client side. In this example, `printTasks`
+    is going to print only IDs. We are going to receive `FieldMask` as a parameter
+    of `printTasks` and add it to `ListTasksRequest`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And finally, with `fieldmaskpb.New`, we first create a `FieldMask` with the
+    path `id`. This function will check that `id` is a valid path in the message that
+    we provide as the first argument. If there is no error, we can set the `Mask`
+    field in our `ListTasksRequest` instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If we run that, we should have the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that `overdue` is still printed as `false`, but in our case, it can be
+    overlooked because we print overdue in the `printTasks` function and the default
+    value of overdue (bool) is false..
+  prefs: []
+  type: TYPE_NORMAL
+- en: Beware the unpacked repeated field
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The last consideration is not helpful for our TODO API but is worth mentioning.
+    In Protobuf, we have different ways of encoding repeated fields. We have packed
+    and unpacked repeated fields.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Packed repeated fields
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To understand, let us see an example of a packed repeated field. Let us say
+    that we have the following message:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'It is a simple list of the `uint32` scalar type. If we serialized this with
+    the values 1, 2, and 3, we would get the following result:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`repeated_scalar.txt` from the preceding command contains the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is an example of a packed repeated field because of how the field wraps
+    multiple values. You might think that this is normal since this is a list, but
+    we are going to see later that this is not always true.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To understand what “wraps multiple values” means, we need to take a closer
+    look at the hexadecimal presented by `hexdump`. We have 5 bytes: 0a 03 01 02 03\.
+    As we know, a repeated field is serialized as a length-delimited type. So 0a is
+    the combination of the type (`varint`) and field tag (1), 03 means that we have
+    three elements in the list, and the rest are the actual values.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unpacked repeated fields
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'However, serialized data for repeated fields is not always that compact. Let
+    us look at an example of an unpacked repeated field. Let us say that we add the
+    `packed` option with the value `false` for the field called `values`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, if we run the same command with the same values, we should have the following
+    result:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: We can see that we have a totally different way of serializing the data. This
+    time, we repeatedly serialize `uint32`. Here, 08 stands for the type (`varint`)
+    and tag (1), and you can see that it is present three times as we have three values.
+    If we have more than two values in the repeated field, this is effectively adding
+    a byte per value. In our case, we serialize the whole as 6 bytes instead of the
+    5 previously.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, you might be thinking that you will just not use the `packed` option and
+    you should always have a `packed` field. You would be right for repeated fields
+    acting on scalars but not on more complex types. For example, strings, bytes,
+    and user-defined types will always be serialized as unpacked and there is no way
+    to avoid that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let us take an example with a user-defined type. Say we have the following
+    Protobuf code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can now try to run the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`repeated_ud.txt` from the preceding command contains the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: We can see that we now have a combination of both the overhead that we had with
+    sub-messages earlier in the chapter and on top of that our repeated field is unpacked.
+    We have 0a and 02, which correspond to the sub-message itself, and the 08 + value,
+    which corresponds to the field called `value`. As you can see, this is now wasting
+    much more bytes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, as this is impossible to avoid on complex types, it is incorrect to say
+    that we should never use repeated fields on such types. This is a very useful
+    concept, and it should be used with care, and we should be aware of its cost.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we saw the main considerations that we need to take into account
+    when we design our APIs. Most of them were related to Protobuf since it is the
+    interface of our API, and it handles serialization/deserialization. We saw that
+    choosing the right integer type is important and can lead to problems in terms
+    of payload size but also when we want to evolve our API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After that, we saw that choosing the right field tag is also important. This
+    is due to the fact that tags are serialized along with the data and that they
+    are serialized as `varints`. So the bigger the tag, the bigger our payload.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then, we saw how we can leverage `FieldMasks` to select the data that we need
+    and avoid the over-fetching problem. While this is a concept that is not that
+    developed in gRPC Go, other implementations use that extensively. This significantly
+    reduces the payload that we send across the wire.
+  prefs: []
+  type: TYPE_NORMAL
+- en: And finally, we saw that we need to be careful when using repeated fields in
+    Protobuf. This is because if we use them on a complex type, we will waste some
+    bytes. However, repeated fields should not be avoided because of that. Sometimes
+    they are the right data structure. In the next chapter, we are going to cover
+    how to make API calls efficient and secure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Quiz
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Why is it not always more optimal to use `varint` for integer types?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: No reason, they are always more optimal than fixed integers
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`varint` encoding serializes bigger numbers into a bigger amount of bytes'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`varint` encoding serializes smaller numbers into a bigger amount of bytes'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How can we get the number of bytes a message will be serialized into?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`proto.Marshal +` `len`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`proto.UnMarshal +` `len`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`len`'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What kind of tag should we give to fields that are often populated?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Bigger tags
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Smaller tags
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the main problem of splitting messages to use smaller tags?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We have overhead because sub-messages are serialized as length-delimited types
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: No problem – this is the way to go
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is `FieldMask`?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A collection of fields’ paths telling us what data to exclude
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A collection of fields’ paths telling us what data to include
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When is a repeated field serialized as unpacked?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When repeated fields are acting on scalar types
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Only when we use the packed option with the value `false`
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When repeated fields are acting on complex types
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: B
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: B
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: B
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

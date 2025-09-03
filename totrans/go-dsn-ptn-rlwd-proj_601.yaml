@@ -1,0 +1,178 @@
+- en: Implementation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The key for our implementation is to separate every operation in a different
+    Goroutine and connect them with channels. The `LaunchPipeline` function is the
+    one that orchestrates them all, as shown in the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Implementation](img/00042.jpeg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'The operation consist of three steps: generate a list of numbers, raise them
+    to the power of 2, and add the resulting numbers.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Each step in this Pipeline pattern will have the following structure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This function represents a common step. Let''s dissect it in the same order
+    that the Go scheduler will probably take to execute it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `functionName` function will commonly receive a channel to take values from
+    (`in <-chan int`). We call it the `in` function, as in the word incoming. We can't
+    send values through it within the scope of this function; that's why the arrow
+    points `out` of the keyword `chan`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The `functionName` function returns a channel (`<-chan in`) that the function
+    caller will only be allowed to take values from (again, represented by the arrow
+    pointing `out` of the keyword `chan`). This also means that any value that goes
+    through that channel must be generated within the scope of the function.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: In the first line of the function, we create a channel called `out` that will
+    be the return of the function (*point 2* in this list).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Then, we will launch a new Goroutine. Its scope will enter into play after returning
+    this function, so let's continue.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We return the previously created `out` channel.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Eventually, after finishing the execution of the function and returning the
+    channel `out`, the Goroutine executes. It will take values from the `in` channel
+    until it's closed. So the caller of this function is responsible for closing this
+    channel, otherwise the Goroutine will never end!
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: When the `in` channel is closed, the for loop finishes and we close the `out`
+    channel. Any Goroutine making use of this channel will not receive any new values
+    since the last that was sent.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The only step that doesn''t completely fit this approach is the first step
+    that receives a number, representing the upper threshold on the list instead of
+    a channel of incoming values. So, if we code this operation for each step in our
+    pipeline, the final diagram looks more like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Implementation](img/00043.jpeg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Although the idea is exactly the same, now we can see that it's the function
+    `LaunchPipeline` that is the one that is going to be receiving channels and sending
+    them back to the next step in the Pipeline. Using this diagram, we can clearly
+    see the flow of the pipeline creation by following the numbers of the arrows.
+    A solid arrow represents a function call and a dashed arrow a channel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's look a little more closely at the code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The list generator
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The first step in the operation is list generation. The list starts at `1`
+    and we will receive an integer representing the higher threshold. We have to pass
+    each number in the list to the next step:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As we mentioned earlier, this is the pattern that we will follow in each step:
+    create a channel, launch the Goroutine that will send the data through the channel,
+    and immediately return the channel. This Goroutine will iterate from 1 to the
+    max argument, which is the higher threshold for our list, and send each number
+    through the channel. After sending every number, the channel is closed so that
+    no more data can be sent through it, but the data already buffered can be retrieved.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Raising numbers to the power of 2
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The second step will take every incoming number from the first step''s channel
+    (that is taken from the arguments) and raise it to the power of 2\. Every result
+    must be sent to the third step using a new channel:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We use the same pattern again: create a channel and launch the Goroutine while
+    we return the created channel.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The `for-range` loop keeps taking values from a channel indefinitely until the
+    channel is closed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Final reduce operation
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The third and final step receives every number from the second step and keeps
+    adding them to a local value until the connection channel is closed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The function sum also takes a channel as an argument (the one returned from
+    *step 2*). It also follows the same pattern of creating a channel, launching the
+    Goroutine, and returning a channel. Goroutine keeps adding values to a variable
+    called `sum` until the `in` channel is closed. When the `in` channel is closed,
+    the value of sum is sent to the `out` channel, and it's immediately closed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Launching the Pipeline pattern
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Finally, we can implement the `LaunchPipeline` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The function `generator` first returns the channel that is passed to the power
+    function. The `power` function returns the second channel that is passed to the `sum`
+    function. The function `sum` finally returns the first channel that will receive
+    a unique value, the result. Let''s try to test this now:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Awesome! It''s worth mentioning that the `LaunchPipeline` function doesn''t
+    need to allocate every channel, and can be rewritten like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: The result of the `generator` function is passed directly to the `power` function
+    and the result of `power` to `sum` functions.
+  prefs: []
+  type: TYPE_NORMAL

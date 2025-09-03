@@ -1,0 +1,1246 @@
+- en: Dependency Management
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '"If at first you don''t succeed, call it version 1.0."'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '- Pat Rice'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Being strong believers in the SOLID principles we discussed in the previous
+    chapter, several prominent figures in the Go community strongly advise software
+    engineers to organize their code into self-contained and reusable packages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When our code imports an external package, its dependency graph is augmented
+    not only with the imported package but also with its set of transitive dependencies—that
+    is, any other packages (and *their* dependencies) required by the packages that
+    we import. As our projects grow larger in size, it becomes necessary to efficiently
+    manage the versions of all our dependencies to ensure that changes in upstream
+    transitive dependencies do not cause unexpected side effects (crashes, changes
+    in behavior, and so on) to our own programs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will focus on the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The importance of versioning for software
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Ways to apply semantic versioning for Go packages
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Strategies for managing the source code for multiversioned packages and tools
+    that allow you to import a particular package version from your code
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The pros and cons of dependency vendoring and how it can be used to facilitate
+    repeatable builds
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The most popular approaches and tools for vendoring Go packages
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What's all the fuss about software versioning?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The idea of versioning is ingrained into everything around us. People all over
+    the world are accustomed to using various forms of versioning on a daily basis.
+    Note that I am not just talking about software here. The vast majority of physical
+    products that you are using are associated with some sort of versioning scheme.
+    Uses of versioning range from your computer's CPU to your mobile phone, and from
+    the revision of the algorithm book on your bookshelf to your favorite superhero
+    (or alternatively light-saber-wielding rebel) movie.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When we move to the realm of software, the concept of versioning becomes even
+    more important. Nowadays, as more and more software engineers ascribe to the *release
+    fast* mantra, having a sane versioning system in place makes it possible to do
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Validate that a particular piece of software can be used as a safe drop-in replacement
+    for an older piece of software that we are using as part of our production systems.
+    This is especially important from a security standpoint, as *all* software, unless
+    formally verified, may contain potential security bugs that can be discovered
+    at any point in time—even weeks or years after it has been deployed to production.
+    It is therefore of paramount importance for us to be able to mitigate such issues
+    by upgrading to a newer release as soon as bug fixes become available.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Pin down each dependency of our applications to a particular package version.
+    This is a key prerequisite for setting up CI pipelines to implement the concept
+    of repeatable builds. Having access to repeatable builds makes it possible to
+    recompile, at any time, an exact copy of the software that a customer runs in
+    production and use it as a reference when investigating bug reports.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In the following sections, we will delve into the details behind *semantic versioning*,
+    a very popular approach for not only managing the version of your software packages
+    but also for notifying the users that depend on them of upcoming and potentially
+    breaking changes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Semantic versioning
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**Semantic versioning** ^([11]) is a widely popular system for describing software
+    versions in a way that makes it quite straightforward for the intended software
+    users to figure out which versions are safe to upgrade to and which versions contain
+    breaking API changes and therefore require development effort and time when upgrading.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Semantic versions are formatted as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`MAJOR.MINOR.PATCH`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Depending on the use case, additional suffixes may be optionally appended to
+    indicate a prerelease (for example, alpha, beta, or RC (or release candidate))
+    or to convey other build-related information (for example, the Git SHA for the
+    branch that is used to build a release or perhaps a timestamp for when the build
+    artifacts were generated).
+  prefs: []
+  type: TYPE_NORMAL
+- en: When working with Go packages, the three-component approach employed by semantic
+    versioning makes it easy for package authors to let users of the package know
+    what *type* of changes each release contains. For example, the `PATCH` field is
+    incremented whenever a *backward-compatible bug fix* is applied to the code. Conversely,
+    the `MINOR` field is incremented when *new functionality* gets added to a package,
+    but, most importantly, only when this new functionality is added in a manner that
+    ensures that the new version *remains backward compatible* with older package
+    versions. Of course, as packages evolve over time, it is inevitable that at some
+    point some breaking changes will have to be introduced. For instance, an existing
+    function signature may need to be changed to support additional use cases. For
+    those kinds of scenarios, the `MAJOR` component of the version string will need
+    to be incremented.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Comparing semantic versions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'If we are given two semantic versions, `a.b.c` and `x.y.z`*,* how can we tell
+    which one is more recent? To compare two semantic versions, we need to compare
+    each one of their individual components from left to right. Here is a short piece
+    of code demonstrating how we can compare two semantic versions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Comparing or sorting semantic versions is quite an easy task for humans to perform,
+    but nevertheless, as is evident in the preceding code snippet, it requires additional
+    effort when performed by machines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You have probably encountered this problem first hand if you have ever worked
+    on makefile rules that check for the presence of a minimum version of a particular
+    library or if you have ever attempted to sort a list of folders that follow this
+    versioning scheme using the standard command-line tools. This is considered a
+    caveat of semantic versioning compared to alternative versioning schemes that
+    are either based on monotonically increasing build numbers or build dates in the `YYYMMDD` format.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Applying semantic versioning to Go packages
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The semantic versioning definition that we discussed in the previous section
+    left a few questions unanswered. To begin with, what should be the *initial* version
+    number for a new package? What is more, as an external user of the package, how
+    would we know when the package API has been stable enough for us to use it safely
+    in our code?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There is no better way to answer these questions than with the help of a small
+    example. Let''s consider the following code snippet from an as *yet unreleased* package
+    that deals with weather predictions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Since we are talking about a brand new package, we need to decide on an *initial* version
+    string. Given that the package is not exposing any public interface, we can start
+    with *0.1.0* as our initial version number. The *0* value for the major version
+    component serves as a warning to potential users of the package that it is still
+    work in progress and the package implementation may frequently change in potentially
+    breaking ways. In other words: *use the package at your own risk*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After a few iterations and extensive refactoring of the package code (each
+    time bumping the *minor* version of the package), we eventually reach version *0.9.0*.
+    At this point, we decide that the package is safe to use *internally* on our production
+    systems. To this end, we need to expose a *public API* so that our existing Go
+    packages can interface with the new package. This is facilitated by a simple rename
+    operation—change `predictAtCoords` to `PredictAtCoords` (and of course update
+    all relevant unit tests), as shown in the following code block:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Following a successful rollout to production, we should feel comfortable enough
+    to make this package publicly available so other people can import and use it.
+    The package is released as version *1.0.0* and it turns out to be a big hit in
+    the weather-forecasting community!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'That is, until one day, when a user of the package opens a GitHub issue with
+    a bug: *passing a certain combination of lat/long parameters causes* `PredictAtCoords`
+    *to panic*. We revisit the code, create a reproducer for the bug, and after a
+    bit of digging around, we discover the root cause for the bug: the lack of proper
+    checks allows a division by zero to occur. The fix is quite simple and does not
+    alter the functionality of the package in any way, so we bump the *patch* version
+    of the package and release *1.0.1*.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As more and more people start depending on our released package, we start receiving
+    requests to add new features, for instance: to predict the weather for a location
+    identified by a *plus code* ^([10]). To implement this new feature, we introduce
+    a new public function to the package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: This change introduces new functionality to the package, but the package itself
+    is still backward compatible with older versions. Therefore, we now need to bump
+    the *minor* version component and release version *1.1.1* of the package. Similarly,
+    we add functions for predicting the weather for a city or a specific address.
+    After each addition, we make sure to bump the *minor* version of our package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So far, so good. However, after a careful inspection of the code in our latest
+    package version, we notice that the current implementation involves quite a bit
+    of repetition—the public API consists of a set of functions that perform more
+    or less the same task: predict the weather at a *location*. The only difference
+    is that each function expects the location to be encoded in a particular way (that
+    is, as GPS coordinates, a plus code, or an address).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In an attempt to simplify the package API and apply the **interface segregation
+    principle** (**ISP**), as we discussed in [Chapter 2](96fb70cb-8134-4156-bd3e-48ca53224683.xhtml),
+    *Best Practices for Writing Clean and Maintainable Go Code*, we decide to introduce
+    a series of *breaking* API changes. To begin with, we define the `Locator` interface,
+    which provides a necessary abstraction for converting locations into a set of
+    GPS coordinates. Secondly, we replace the various `PredictAtXYZ` functions from
+    the package with a new function called `Predict` that receives a `Locator` instance
+    as its argument:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'By refactoring `Predict`, as shown in the preceding code, we can now extract
+    the various types that can be used to represent locations into their own standalone
+    package, aptly called `location`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Thanks to the magic of implicit interfaces, all we need to do to use these
+    new types with the `Predict` function is to add methods that satisfy the `Locator` interface
+    from the `weather` package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: This change definitely improves the quality of the weather package, but at the
+    cost of breaking backward compatibility. To indicate this to the users of the
+    package, we bump the *major* version component and publish version *2.0.0* of
+    the package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By adopting semantic versioning for our packages, we not only allow package
+    users to select which API version they want to work with, but also offer them
+    the flexibility to upgrade to a newer package version at their own pace without
+    any risk of breaking existing production systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Managing the source code for multiple package versions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: One thing that may have you as odd about the previous section is the fact that
+    while I keep going on about the *publishing* version `x.y.z` of the weather package,
+    the section content itself is devoid of any information regarding the actual *process*
+    involved in publishing a package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, you might also be asking yourself the question,* if we have released
+    multiple major versions of a package, how do we manage the source code for each
+    released versi**on?* After all, as the package authors, we can opt to maintain
+    and support several major or major/minor combinations of package versions in parallel
+    and each version can potentially follow its own release cycle. For example, we
+    can work on extending the API for the *2.x.x* line while still continuing to fix
+    bugs or apply security patches to the *1.x.x* line. And how are the end users
+    expected to import a particular version of a Go package?
+  prefs: []
+  type: TYPE_NORMAL
+- en: To answer all these questions, we need to explore a few alternative approaches
+    to versioning Go packages in depth.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Single repository with versioned folders
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Using a single repository with versioned folders requires us to maintain the
+    source code for all supported versions within a *single* repository. The simplest
+    way to achieve this is to create a folder for each version at the root of the
+    repository and copy all the version-specific files and subpackages inside.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s revisit the `weather` package example from the previous section. Let''s
+    assume that we use Git as our VCS and that we host our package on GitHub under
+    the `weather-as-a-service` account in a repository called `weather`. The following
+    flowchart illustrates how the folder layout would look using this approach:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/87683c40-568a-463c-95a3-2779754eaa8e.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1: Managing multiple versions of a package in a single repository
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It is important to point out that even though the `weather.go` files are located
+    under the `v1` and `v2` folders, *both* of them declare a package named `weather`.
+    This trick allows users of the package to explicitly select which package version
+    they want to import and refer to its contents using the `weather` selector, as
+    illustrated in the following code block:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This approach has a few benefits, both for package authors and for the intended
+    end users of the package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The use of a single repository for all versions makes maintenance easier, as
+    package authors can work on each version of the package in isolation.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The repository always contains the latest release for each package version.
+    The end users of the package can use a single command to get/update *all* versions
+    of the package (for example, `go get -u github.com/weather-as-a-service/weather`).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As the end user of the package, you have the option (although it is probably
+    something you should probably avoid) to import and use *different* versions of
+    the same package from within the same code base.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'On the other hand, there are some caveats associated with this approach:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Code duplication! Each versioned folder includes a full copy of the package
+    implementation, which may also include one or more subpackages. This could prove
+    to be a challenge for the package authors, especially if a security issue is identified
+    whose fix requires patching the same code in different folders.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As an end user of the package, how would you know whether a particular package
+    utilizes this particular versioning scheme, or which versions are available to
+    use? To answer these questions you would most likely need to visit the repository
+    page on GitHub and examine the folder structure.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Single repository – multiple branches
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A much better approach would be to still use a single repository but maintain
+    a *different branch* (in Git terminology) for each major package version, extra
+    feature, or development branches for ongoing work. If we were to apply this approach
+    to the case of the weather package that we discussed before, our repository would
+    normally contain the following branches:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`v1`: This is the branch where the released *1.x.y* line of the weather package
+    is located.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`v2`: Another branch for the *2.x.y* release of the weather package.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`develop`: Code in development branches is generally considered to be work
+    in progress, and therefore unstable for use. Eventually, once the code stabilizes,
+    it will be merged back into one or more of the stable release branches.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Similar to the versioned folder approach, the multibranch approach also ensures
+    that the tip or head of each release branch contains the *latest* release version
+    for a package; however, it is sometimes useful to be able to refer to an older
+    semantic version of the package. A typical use case for this is repeatable builds,
+    where we always want to compile against a specific version of the package and
+    not the latest, albeit stable, version from a particular package line.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To satisfy the preceding requirement, we can exploit the VCS's capability to *tag* each
+    release so we can easily locate it in the future without having to scan the commit
+    history. I am using Git as an example here as it is my preferred VCS, but concepts
+    such as tagging generalize to other VCS as well (tags in SVN, labels in Perforce,
+    and so on).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This leads us to yet another question: if each version has its own branch,
+    how do we import it from our code? If we are talking about a public package that
+    is hosted on GitHub, the answer is that we need to use a redirect service such,
+    as `gopkg.in` ^([7]).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `gopkg.in` service functions as a proxy for redirecting Go tools to the
+    sources that correspond to a *specific* version of a Go package. The service achieves
+    this by exposing a series of *versioned* URLs that, when accessed by `go get`,
+    automatically resolve to a particular branch or tag within the repository where
+    the package is hosted.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This convention not only yields cleaner and shorter package URLs, but more importantly, it
+    also ensures that dependent packages can cleanly compile using the latest minor
+    version of the packages they depend on, even if new major versions of those packages
+    get released.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What's more, when the same URLs are accessed via a web browser, users are presented
+    with a neat landing page that provides additional information regarding the purpose
+    of the package and the commands needed to fetch or import it. The same page also
+    contains links to the package sources and documentation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, when you visit a `gopkg.in` URL for a particular package with
+    your browser for the popular logging package called `logrus`, you will see a page
+    that looks similar to the following screenshot. The left side of the page displays
+    the `import` command that we need to use for the selected version of the package. The
+    panel on the right side of the page states the available package versions (in
+    this example: v1 and v0) and the actual branch or tag that they resolve to:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/0e43f8a3-c15b-4707-b97b-bc46cfc8ca6f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2: The gopkg.in page for the popular logrus package
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s go back to the weather example from the previous section and update
+    the imports to use `gopkg.in` URLs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: If we run `go get -u ...` within the folder where the preceding example lives,
+    it will always pull the *latest* *v2* version of the weather package. You may
+    be wondering how `gopkg.in` knows which one is the latest version and where that
+    version lives. In order to correctly resolve a version request, `gopkg.in` first
+    parses the list of available branches and tags for the project. Depending on the
+    version selector suffix (the `.v2`, in this example), `gopkg.in` will always attempt
+    to return the highest matching version of the package whose *major* version component
+    matches the requested selector. This implies that the service is not only capable
+    of working with the other versioning schemes we briefly mentioned before (for
+    example, monotonically increasing build or version numbers, timestamps, and so
+    on), but that it is also smart enough to parse and compare semantic versions of
+    packages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, let''s assume that the weather package repository contains the
+    following mix of tags and branches:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Name** | **Type** | **Notes** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| v1.0.10 | Tag |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| v1.1.9 | Tag |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| v1 | Branch | Contents match v1.1.0 tag |'
+  prefs: []
+  type: TYPE_TB
+- en: '| v2.0 | Tag |  |'
+  prefs: []
+  type: TYPE_TB
+- en: '| v3~dev | Branch | Development branch for the upcoming v3 |'
+  prefs: []
+  type: TYPE_TB
+- en: 'This is how `gopkg.in` would resolve the preceding imports depending on the
+    value of the version selector suffix:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Selector** | **Resolves to** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| v1 | v.1.1.9 (Tag) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| v2 | v2.0 (Tag) |'
+  prefs: []
+  type: TYPE_TB
+- en: '| v3 | v3~dev (Branch) |'
+  prefs: []
+  type: TYPE_TB
+- en: 'To make a project compatible with the `gopkg.in` service, you need to make
+    sure that either your branches or your tags match the expected patterns that `gopkg.in`
+    looks for: `vx`, `vx.y`, `vx.y.z`, and so on.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: As the majority of the software engineering teams are quite opinionated when
+    it comes to selecting a development flow (for example, Git flow versus GitHub
+    flow) or branch naming conventions, my personal recommendation would be to stick
+    to using tags for labeling package versions using the format that `gopkg.in` expects.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Vendoring – the good, the bad, and the ugly
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The fact that services such as `gopkg.in` always redirect the `go get` tool
+    to the *latest* available major version for a given version selector is, technically
+    speaking, a show-stopper for engineering teams that endeavor to set up a development
+    pipeline that guarantees repeatable builds. The typical CI pipeline will always
+    pull both compile and test dependencies via a command such as `go get -t -u ...` prior
+    to building the final output artifact. As a result, even if your code has not
+    changed between builds, your service or application binary may be different because
+    of changes in the dependencies that get pulled in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, what if I told you that there *is* actually a way to retain the benefits
+    of lazy package resolution *and* at the same time have the flexibility to *pin
+    down* package versions for each build? The mechanism that will assist us in this
+    matter is called **vendoring**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the context of Go programming, we refer to vendoring as the *process* where **immutable** snapshots
+    (also known as **vendored dependencies**) for all nodes in the import graph of
+    a Go application get created. The vendored dependencies are used instead of the
+    original imported packages whenever a Go application is compiled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As we will see in the following sections, there are a few different approaches
+    to creating dependency snapshots:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fork the repository that contains each imported dependency and update the import
+    statements in the code base to point to the forked resources.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create a manifest that includes the current (that is, at the time a snapshot
+    is made) commit identifiers (for example, Git SHAs) for each imported package
+    and its transitive dependencies. The manifest, a small, human-readable YAML- or
+    JSON-based file is generally committed to the VCS and used to fetch the appropriate
+    versions of each dependency prior to invoking the compiler.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Cache the imported dependencies locally (typically in a folder called `vendor`)
+    and commit them together with the project files to the VCS. Contrary to the preceding
+    approaches, local caching enables us to check out our project and immediately
+    compile it without having to fetch any dependencies first.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Before we dive a bit deeper into each one of these approaches, let's take a
+    few minutes to discuss the pros and cons of dependency vendoring.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Benefits of vendoring dependencies
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: First and foremost, the key promise of vendoring is nothing other than the capability
+    to run reproducible builds. Many customers, especially larger corporations, tend
+    to stick to stable or LTS releases for the software they deploy and forego upgrading
+    their systems unless it's absolutely necessary. Being able to check out the exact
+    software version that a customer uses and generate a bit-for-bit identical binary
+    for use in a test environment is an invaluable tool for any field engineer attempting
+    to diagnose and reproduce bugs that the customers are facing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another benefit of vendoring is that it serves as a safety net in case an upstream
+    dependency suddenly disappears from the place where it is hosted (for example,
+    a GitHub or GitLab repository), thereby breaking builds for software that depends
+    on it. If you are thinking that this is a highly unlikely scenario, let me take
+    you back to 2016 and share an interesting engineering horror story from the world
+    of Node.js!
+  prefs: []
+  type: TYPE_NORMAL
+- en: You may have heard of the now-infamous *left-pad* package. In case you haven't,
+    it is just a single-function package that, as you can probably figure out by its
+    name, provides a function to pad a string up to a specific length with a specific
+    character. Nothing really scary so far... except that this small package was a
+    direct dependency of over 500 packages, which in turn were transient dependencies
+    of several other packages, and so on. Everything went fine until one day, the
+    left-pad package maintainer received a cease-and-desist letter for one of his other packages
+    and decided, as a form of protest, to take down *all* of his packages, including
+    left-pad.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, picture the chaos that ensued as peoples' CI builds started breaking one
+    after the other. But engineering teams that had been judiciously vendoring their
+    dependencies were not affected by this issue at all.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Is vendoring always a good idea?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The previous section went into great effort to extol the virtues of vendoring.
+    But is vendoring the panacea for all dependency management problems? This section
+    attempts to dig a bit deeper into some of the caveats associated with vendoring.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One common problem across engineering teams is that in spite of the fact that
+    engineers are keen on vendoring their dependencies, they often *forget* to periodically
+    refresh them. As I argued in a previous section, all code can contain potential
+    security bugs. It is therefore likely that some security bugs (perhaps from a
+    transitive dependency of an imported package) will eventually end up in production.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Security-related or not, when bugs are reported to the package maintainers,
+    a fix is usually promptly released and the package version is incremented accordingly
+    (that is, if a package is using semantic versioning). As large-scale projects
+    tend to import a large volume of packages, it is not feasible to monitor each
+    imported package's repository for security fixes. Even if this was possible, we
+    couldn't realistically do this for their transitive dependencies. As a result,
+    production code can remain unpatched for a long time even though the affected
+    upstream packages have already been patched.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Strategies and tools for vendoring dependencies
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Initially, Go had no support for vendoring packages. This made sense at the
+    time, as Google, the primary user of Go, would host all of their package dependencies
+    in a single repository (commonly referred to as a mono-repo).
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, as the Go community began growing and more and more companies began
+    porting their code bases to Go, dependency management became an issue. With the
+    release of Go 1.5, the Go team added experimental support for *vendoring folders*.
+    Users could enable this feature by defining an environment variable named `GO15VENDOREXPERIMENT`*.*
+  prefs: []
+  type: TYPE_NORMAL
+- en: When this feature is enabled, each time the Go compiler attempts to resolve
+    an import, it will *first* check whether the imported package exists inside the
+    vendor folder and use it if found; otherwise, it will proceed, as usual, to scan
+    each entry in the `$GOPATH` looking for the package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As soon as this functionality became available, multiple third parties spearheaded
+    initiatives to produce tools that took advantage of it. The brief, but not exhaustive,
+    list of now deprecated tools for dealing with dependencies includes `godep` ^([5]), `govendor` ^([9]), `glide` ^([3]), and `gvt` ^([4]).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Nowadays, tooling around vendoring is much more streamlined. The following
+    sections explore the recommended approaches to vendoring Go packages at the time
+    of writing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The *dep* tool
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Go modules*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Manual forking of dependencies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The dep tool
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Go team—being well aware that having several competing tools for managing
+    dependencies could result in the fragmentation of the Go ecosystem and encumber
+    the growth of the Go community—decided to assemble a committee and produce an
+    official specification document detailing the way to move forward regarding Go
+    package dependency management. The dep tool ^([2]) is the first tool that conforms
+    to the published specification. It began its life some time around 2017 as an
+    *official experiment* that was made available to users who upgraded to Go 1.9.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The dep tool provides precompiled binaries for various operating systems; however,
+    it is probably easier to build it from the source by running `go get -u github.com/golang/dep/cmd/dep`.
+    The first time that you want to use the dep tool for one of your projects, you
+    need to run `dep init` within the root folder of the project to initialize the
+    dep tool''s state. Unless your import graph is shallow and small in size, this
+    step will take a bit of time, as dep does the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Identifies all imported packages, their transitive dependencies, and whether
+    or not they also use dep.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Selects the highest possible version for each node in the dependency graph.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Downloads the selected packages to the `vendor` folder that lives in the project's
+    root folder. Dep will additionally cache the downloaded packages locally at `$GOPATH/pkg/dep/sources` to
+    speed up dependency lookups for other projects that might also be using dep.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If *none* of the dependencies uses dep, then the selected version is simply
+    the *current* version of each dependency as it appears in `$GOPATH`. Things get
+    a bit more interesting when some (or all) of the imported dependencies also use
+    dep. In that case, dep treats the versions requested by each dep-enabled package
+    as constraints that are then fed into the constraint solver engine that is bundled
+    with the dep tool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Constraint solver engines, such as the one used by the dep tool, transform the
+    list of input constraints into a Boolean **satisfiability problem** (**SAT**)
+    and then attempt to identify a solution, if one exists. SAT problems are typically
+    represented as complex Boolean expressions; the solver's job is to find the right
+    combination of values for the expression variables so that the expression evaluates
+    to `TRUE`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, given the expression `((A and B) or C) and not D`, here is a subset
+    of the total solutions that a SAT could suggest:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Solution** | **A** | **B** | **C** | **D** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 1 | TRUE | TRUE | FALSE | FALSE |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 2 | FALSE | FALSE | TRUE | FALSE |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 3 | TRUE | FALSE | TRUE | FALSE |'
+  prefs: []
+  type: TYPE_TB
+- en: SAT solving is one of the first problems that have been proven to be NP-complete ^([1]).
+    Over the course of the years, several algorithms have been proposed that can scale
+    to larger SAT problems and yield solutions in a reasonable amount of time. The
+    particular SAT solver implementation used by the dep tool is based on a variant
+    of the **conflict-driven clause learning** (**CDCL**) algorithm ^([12]) that has
+    been tweaked to work for the Go package management use case. If all this has piqued
+    your interest, you can take a look at its implementation, which is in the [github.com/golang/dep/gps](https://github.com/golang/dep/tree/master/gps) package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The output of the dep constraints solver is the *highest possible supported* version
+    across *all* dependencies. The dep tool creates two text-based files in the project's
+    root folder that the user *must* commit to their VCS: `Gopkg.toml`and`Gopkg.lock`.
+    To speed up CI builds, users may also *optionally* commit the populated `vendor `folder
+    to version control. Alternatively, assuming that both `Gopkg.toml` and `Gopkg.lock`
+    are available, a prebuild hook can populate the vendor folder on the fly by running `dep
+    ensure -vendor-only`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Gopkg.toml file
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `Gopkg.toml` file serves as a manifest for controlling the dep tool's behavior.
+    The `dep init` invocation will analyze the import graph of the project and produce
+    a `Gopkg.toml` file with an initial set of constraints. From that point on, whenever
+    a constraint needs to be updated (usually to bump the minimum supported version),
+    users need to *manually* modify the generated `Gopkg.toml` file.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So what does the content of a `Gopkg.toml` file look like? `Gopkg.toml` files
+    are composed of a list of blocks or stanzas. Each stanza contains one of the dep-supported
+    rule types. The most frequently used rule types are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Constraints**, which specify the range of compatible dependency versions'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Overrides**, which can force a particular package version when the dep tool
+    cannot automatically find a version that satisfies the aggregated set of constraints
+    specified by multiple `Gopkg.toml` files'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For the full list of supported rule types that the dep tool recognizes, you
+    can refer to the `Gopkg.toml` format specification document ^([8]). The following
+    example defines a constraint that instructs go dep to fetch the package sources
+    from the `master` branch of the package''s GitHub repository:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: Alternatively, instead of `branch`, a constraint rule can include one of the
+    following two keywords: `revision` or `version`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `revision` keyword allows a package dependency to be pinned down to a particular
+    commit identifier (for example, a Git SHA). It exists for compatibility purposes,
+    and dep users are strongly encouraged to avoid using it unless there is no better
+    way to describe a version.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, the `version` keyword is much more versatile in that it allows
+    us to target a specific VCS tag or semantic version range. The following table
+    lists the operators that dep understands when processing version-based constraints.
+    If the version string *does not* contain an operator, the dep tool will work as
+    if the caret (`^`) operator was used. For example, dep would interpret version `1.2.5` as
+    if the following constraint had been specified instead: `>= 1.2.5 and < 1.3`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Operator** | **Description** | **Example** | **Constraint interpretation**
+    |'
+  prefs: []
+  type: TYPE_TB
+- en: '| = | Equals | "=1.2.4" | Select version 1.2.4 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| != | Not equal | "!=0.1" | Exclude version 0.1 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| > | Greater than | ">1.2" | Versions newer than 1.3.0 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| < | Less than | "<2.0" | Versions older than 2.0.0 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| - | Literal range | "1.2-1.4" | Versions >= 1.2 and <= 1.4 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| ~ | Minor range | "~1.2.5" | Versions >= 1.2.5 and < 1.3 |'
+  prefs: []
+  type: TYPE_TB
+- en: '| ^ | Major range | "~1.2.5" | Versions >= 1.2.5 and < 2 |'
+  prefs: []
+  type: TYPE_TB
+- en: One other quite helpful keyword that you may encounter when working with `Gopkg.toml`
+    files is the `source` keyword. The default behavior of the dep tool is to fetch
+    package sources from the repository whose name matches the package name specified
+    by the constraint.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are some cases, however, where we may want to pull the package from a
+    different location. One scenario where this can happen is if we have forked the
+    imported package, pushed some experimental changes, and want to try them out in
+    a code base that imports the original package. To demonstrate this, let''s edit
+    the `Gopkg.toml` file from the preceding example and have it pull the master branch
+    from `github.com/achilleasa/logrus` instead of `github.com/sirupsen/logrus`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As we mentioned at the beginning of the section, the `Gopkg.toml` file is only
+    a manifest that users can change at will. For the changes to actually take effect,
+    we need to run `dep ensure` to do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Scan the code for any new dependencies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Invoke the constraints solver to calculate the required version for each dependency
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Figure out which of the packages in the `vendor `folder are stale and update
+    them
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Update the `Gopkg.lock` file
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The Gopkg.lock file
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The second file that gets generated by the dep tool when running either `dep
+    init` or `dep ensure` is called `Gopkg.lock`. As you can probably tell by its
+    extension, it is something that is not meant to be modified by end users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `Gopkg.lock` file stores a textual representation of the dep tool's constraint
+    solver output. More specifically, it includes the complete list of dependencies,
+    both direct and transient, that are required for compiling the project source
+    code. Each dependency is pinned down to the particular commit identifier (for
+    example, a Git SHA) that, according to the solver, satisfies all constraints that
+    were supplied to it by the dep tool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By committing the `Gopkg.lock` file to the VCS, the dep support in Go 1.9+ guarantees
+    that we can produce repeatable builds, provided, of course, that all referenced
+    dependencies remain available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go modules – the way forward
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'One limitation of the dep tool is that it does not let us use multiple major
+    versions of a package in our projects, as each path to an imported package must
+    be unique. The following diagram illustrates a simple scenario where packages A and B depend
+    on the same version of package C:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/781d9b9b-f9e3-4d9c-aeb9-8b809c389ad5.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3: Two packages importing the same version of the C package
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s say now that we want to test drive *v2.0.0*, the new major version of
+    theCpackage. The point here is to *gradually update* the packages importing C to
+    import the new major version in order to assess that everything works as expected.
+    So we update the `Gopkg.toml` file in B to reference the new major version of C.
+    Our dependency tree now looks as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/da8920a4-d755-4ed6-9dc3-99b6b0d18ade.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 4: Each package imports a different version of the C package
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This change causes no problems for packages A and B as their import graphs
+    are disjointed; each package references a different version of C. Then, we decide
+    to introduce a new package, say D, into the picture, which imports *both* A and B (as
+    shown in the following figure). Now we have a problem! As both packages cannot
+    use the *same* import path, the Go compiler will now bail out with an error when
+    we try to build D:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/020e823e-caa2-4c77-8472-f20680a03f7d.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 5: Package D imports both A and B, which depend on different major versions
+    of C. This causes a conflict and prevents us from building D
+  prefs: []
+  type: TYPE_NORMAL
+- en: The only way to make the preceding use case work with the dep tool is to change
+    the constraints (`Gopkg.toml`) file for *all* packages (A and B in this case)
+    to depend on *v2.0.0* of package C. It goes without saying that this is not a
+    solution that can scale to projects that import a large number of packages. With
+    that in mind, the Go team led an initiative to come up with an official vendoring
+    solution that could support scenarios such as the preceding one.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Go modules were introduced as an experimental feature in Go 1.11 that users
+    could enable via the `GO111MODULE` environment variable (for example, `export
+    GO111MODULE=on`). At the time of writing, the current Go version is 1.12.5, and
+    Go modules are expected to be finalized just in time for the release of Go 1.13\.
+    The major difference of Go modules compared to the dep tool are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go modules fully integrate with the various commands, such as `go get`, `go
+    build`, and `go test`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: While the dep tool selects the *highest* common version for a package, Go modules
+    select the *minimum* viable version.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Go modules support multiversioned dependencies.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Go modules do away with the `vendor` folder, which is used by the dep tool.
+    For backward-compatibility purposes, Go modules come with an extra command to
+    populate the `vendor` folder: `go mod vendor`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following simple example uses the popular `go-yaml` package to read a YAML
+    stream from the standard input and output it as a Go map:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To begin using Go modules, we first need to declare a new Go module by running `go
+    mod init parser` in the folder where the preceding example is located. This will
+    generate a file called `go.mod`. Its initial contents look pretty boring:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The real magic happens when we try to run a command such as `go build`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, Go realized that we needed to fetch a new dependency, so it
+    tried to work out the *current* version of the `go-``yaml` package and resolved
+    it to *v2.1.0*. It then proceeded to download the package and cache it locally
+    under `$GOPATH/pkg/mod`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you list the contents of the project's folder, you will notice a new file
+    called `go.sum`. This file stores the cryptographic hashes of the dependencies
+    that have been downloaded and serves as a safeguard for ensuring that the contents
+    of the packages have not been modified between builds (that is, a package maintainer
+    force-pushed some changes, overwriting the previous version); a very useful feature
+    when aiming for repeatable builds.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `go.mod` and `go.sum` files serve the same purpose as the `Gopkg.toml` and `Gopkg.lock` files
+    used by the dep tool, and they also need to be committed to your version control
+    system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Whenever a new dependency gets added, a line is appended to the `go.mod` file.
+    In this case, the added line reads `require github.com/go-yaml/yaml v2.1.0+incompatible`.
+    Each `require `line in the `go.mod` file defines the *minimum* supported version
+    for a particular dependency. So, from our module''s perspective, `v2.1.0 `of the `go-yaml/yaml` package
+    is the *minimum* version requirement for building the module. Even if a newer
+    version is available, Go will *always* use this particular version unless we run
+    one of the following commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`go get -u`: To upgrade to the most recent minor or patch release'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`go get -u=patch`: To upgrade to the most recent patch release'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`go get package-name@version`: To force the specified version for the package'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Now that we have a basic understanding of how Go modules work, let''s revisit
+    our initial use case: how can we use two different major versions of the same
+    package inside our code base? As I mentioned before, Go import paths must be unique;
+    that''s something that is set in stone and cannot be overridden.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `+incompatible` suffix in the `require` line indicates that while this
+    package defines a valid semantic version, it hasn''t actively opted in to using
+    Go modules by defining its own `go.mod `file. If, however, a new version appeared
+    in the future (say, v4) that did provide a `go.mod` file, Go modules would allow
+    us to import it via a mechanism referred to as *semantic import versioning*. To
+    put it in layman''s terms, semantic import paths are just regular import paths
+    that also carry an additional *version suffix*. The suffix addition creates a
+    unique path for the package and effectively allows us to import and use multiple
+    versions of the package even within the same file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: That concludes our short tour of Go modules. A deep dive into all operations
+    and patterns supported by the Go modules extension is outside of the scope of
+    this book; however, if you are interested in learning more about using Go modules,
+    you can find a great amount of information by browsing the relevant articles on
+    the Golang blog ^([6]).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fork packages
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: With the dep tool and Go modules at our disposal, why would we ever need to
+    manually fork any of the packages we depend on? Before we answer this question,
+    let me first elaborate on how this process works.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Firstly, we need to fork the dependency we are interested in. If the package
+    sources are available on a platform such as GitHub, GitLab, or BitBucket, then
+    forking the package is as simple as visiting the repository page and clicking
+    a button (see the following screenshot); otherwise, we would need to rely on the
+    functionality provided by our preferred VCS to persist a copy of the dependency
+    to a location under our control:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/61cabb4a-cf10-4027-8adb-79bf97b6abe1.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 6: Forking a package repository on a platform such as GitHub, GitLab,
+    or BitBucket is as simple as clicking a button
+  prefs: []
+  type: TYPE_NORMAL
+- en: After forking the repo, we would need to scan through the code base and replace
+    the imports for the original package to point to our forked version. Of course,
+    a much better alternative would be to use the dep tool's provided escape hatch
+    for overriding the source for a package dependency. In the latter case, we wouldn't
+    need to modify any of the import statements in our code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'That brings us back to the original question: why fork in the first place?
+    When working for companies that process sensitive data, such as the ones that
+    operate in the fintech or healthcare domains, it is quite common to have an in-house
+    security team that must audit each imported dependency for potential security
+    flaws before the engineering teams are allowed to use it in their code.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performing a full security audit on a package is quite a lengthy process; it
+    stands to reason that auditing each package from scratch each time a new release
+    becomes available is neither feasible nor cost-effective. As a result, security
+    teams seek to amortize the initial audit cost by forking packages, performing
+    a full audit, and then vet and cherry-pick any upstream changes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we discussed the reasons that necessitate the use of versioning
+    for not only the packages that our code imports, but also the code itself that
+    we, as software engineers, author. We then defined the concept of semantic versioning
+    and the circumstances where each component of a semantic version needs to be incremented.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The meat of the chapter dealt with the concepts of vendoring as the primary
+    mechanism for ensuring repeatable builds for our projects. After elaborating on
+    the pros and cons of vendoring as a process, we examined the current state of
+    vendoring in the Go ecosystem and provided a brief tour of the state-of-the-art
+    tools (*dep* and *Go modules*) that engineers should use to manage their package
+    dependencies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Of course, as our code base evolves and the version requirements for our imports
+    change over time, it is likely that, at some point, a newer version of one of
+    the packages we depend on will break our code. Obviously, we want to be able to
+    catch such regressions as early as possible. One way to achieve this, and the
+    central theme of the next chapter, is to have a solid testing infrastructure in
+    place.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Why is software versioning important?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What does a semantic version look like and when are its individual components
+    incremented?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Which component of a package's semantic version would you increment in the following
+    cases?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A new API is introduced.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: An existing API is modified and a new, *required* parameter is added to it.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A fix for a security bug is committed.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Name some alternative versioning schemes that we could use besides semantic
+    versioning.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What are the pros and cons of vendoring?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Name some of the differences between the dep tool and Go modules.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Cook, Stephen A., 'The Complexity of Theorem-proving Procedures', *Proceedings
+    of the Third Annual ACM Symposium on Theory of Computing*, STOC '71\. New York,
+    NY, USA, ACM, 1971, S. 151–8
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'dep: a dependency management tool for Go: [https://github.com/golang/dep](https://github.com/golang/dep)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: glide: [https://github.com/Masterminds/glide](https://github.com/Masterminds/glide)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: gvt: [https://github.com/FiloSottile/gvt](https://github.com/FiloSottile/gvt)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: godep: [https://github.com/tools/godep](https://github.com/tools/godep)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Golang blog: using Go modules: [https://blog.golang.org/using-go-modules](https://blog.golang.org/using-go-modules)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`Gopkg.in`: stable APIs for the Go language: [https://labix.org/gopkg.in](https://labix.org/gopkg.in)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '`Gopkg.toml` format specification: [https://golang.github.io/dep/docs/Gopkg.toml.html](https://golang.github.io/dep/docs/Gopkg.toml.html)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'govendor: [https://github.com/kardianos/govendor](https://github.com/kardianos/govendor)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Plus codes: short codes for locations, for places that don''t have their own
+    street address: [https://plus.codes/](https://plus.codes/)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Semantic versioning 2.0.0: [https://semver.org/](https://semver.org/)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Silva, João P. Marques; Lynce, Inês; Malik, Sharad, Biere, A.; Heule, M. ; Maaren,
+    H. van; Walsh, T. (Hrsg.), ''Conflict-Driven Clause Learning SAT Solvers'', *Handbook
+    of Satisfiability, Frontiers in Artificial Intelligence and Applications*, Bd.
+    185 : IOS Press, 2009, ISBN 978-1-58603-929-5 ([https://www.worldcat.org/title/handbook-of-satisfiability/oclc/840409693](https://www.worldcat.org/title/handbook-of-satisfiability/oclc/840409693)),
+    S. 131–53'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

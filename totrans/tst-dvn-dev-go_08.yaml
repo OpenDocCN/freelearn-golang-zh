@@ -1,0 +1,1464 @@
+- en: '8'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Testing Microservice Architectures
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The topics we have covered so far have gone beyond the scope of how to write
+    tests. We have looked at a wide range of software design and development concerns,
+    including containerization with Docker and database integration with PostgreSQL.
+    This highlights the fact that writing good tests requires a thorough understanding
+    of the architecture and technical dependencies of the application under test.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Alongside these software development concepts, we discussed the evolution of
+    code in [*Chapter 7*](B18371_07.xhtml#_idTextAnchor162), *Refactoring in Go*.
+    We learned some common refactoring techniques, and we compared monolithic applications
+    with microservice architectures, which is a common evolution of Go web applications
+    as they grow and become more mature.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will continue our exploration of microservice architectures and refactoring
+    from the previous chapter. As microservices are often owned and developed by different
+    software teams, they are often changed without any central oversight. In this
+    fast-paced world of changing requirements and implementations, ensuring that the
+    API integration points in our system are still functioning correctly is one of
+    the biggest challenges to overcome. Another key concern to consider is error detection
+    in the system – when something goes wrong, how do you isolate the malfunctioning
+    service in a large map of dependencies?
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter is dedicated to discussing the testing of microservice architectures,
+    demonstrated on the monolithic `BookSwap` web application introduced in previous
+    chapters. We will have a closer look at the implementation of non-functional tests,
+    which was briefly discussed in previous chapters. Then, we will learn the new
+    concepts of contract testing and how we can leverage Pact for the implementation
+    of contracts on microservice architectures. Finally, we will discuss how we can
+    split up the monolithic `BookSwap` web application that we have built so far.
+    Using the concepts and challenges we will have learned, we will discuss some best
+    practices for running microservices in production.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The implementation of non-functional testing
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Challenges of testing microservice architectures
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Getting started with contract testing with Pact
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Splitting up the `BookSwap` monolith we have built so far
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Best practices for running microservice architectures in production
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You will need to have **Go version 1.19** or later installed to run the code
+    samples in this chapter. The installation process is described in the official
+    Go documentation at [https://go.dev/doc/install](https://go.dev/doc/install).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The code examples included in this book are publicly available at [https://github.com/PacktPublishing/Test-Driven-Development-in-Go/chapter08](https://github.com/PacktPublishing/Test-Driven-Development-in-Go/chapter08).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Functional and non-functional testing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We briefly touched upon the topic of non-functional testing in [*Chapter 1*](B18371_01.xhtml#_idTextAnchor015),
+    *Getting to Grips with Test-Driven Development*. Up until now, we have tabled
+    this important type of testing and focused on verifying the various functional
+    aspects, while exploring the popular testing libraries of `testify`, `ginkgo`,
+    and `GoDog`. Let’s now explore how to implement a few of the most important non-functional
+    tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 8**.1* depicts the main types of non-functional tests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.1 – Types of performance and correctness non-functional testing
+    ](img/Figure_8.01_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.1 – Types of performance and correctness non-functional testing
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The types of tests are divided between **performance tests** and **usability
+    tests**. They verify the following aspects of our systems:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Load testing** simulates user demand on our system. These tests simulate
+    expected demand and overload conditions to identify bottlenecks or performance
+    issues.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Stress testing** simulates user demand under extreme conditions on our system.
+    These tests are used to identify the scalability limit of our system and verify
+    that it handles errors gracefully when components become overloaded.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Volume testing** simulates large volumes of data coming into our system.
+    This is similar to stress testing but with a few tests, each involving relatively
+    large amounts of data, instead of many tests involving smaller amounts of data
+    simulating user demand. These tests are used to identify the data limits that
+    our system can process, which is particularly useful for services with a database/persistent
+    storage solution.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Scalability testing** verifies our system’s ability to scale its components
+    when subjected to sudden load. The load can be applied gradually, or it can be
+    applied suddenly, which is known as a **spike test**.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Failover testing** verifies our system’s ability to recover after a failure.
+    This type of negative testing is a useful simulation for how quickly the system
+    can recover following incidents.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Configuration testing** verifies our system’s behavior with different types
+    of settings. They can be user-controlled settings or system settings. The system
+    setup can change the expected behavior of the system, as well as its performance.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Usability testing** verifies how intuitive the user-facing functionality
+    is to use. The focus of this type of testing varies according to the functionality
+    that the system exposes, but it typically covers the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How intuitive the system is to use for new users
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How easily users can perform their tasks
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Whether error messages are well formulated and guide the user
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Security testing** verifies whether security practices have been followed
+    during the development process. The system under test should have correct authentication,
+    authorization, and data integrity features.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: As we have seen, non-functional tests are extremely important for ensuring that
+    our systems are functioning correctly under a wide variety of conditions. No testing
+    strategy is complete without covering some of these important types of tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Non-functional tests verify crucial aspects of our system
+  prefs: []
+  type: TYPE_NORMAL
+- en: These tests verify the performance and usability of the system under test, including
+    how well the system scales and recovers from outages. These types of tests might
+    be performed by different development teams, as they might require skills from
+    outside the engineering team to implement them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performance testing in Go
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: While we have already established that non-functional testing covers important
+    aspects, performance testing becomes even more important when moving from monolithic
+    applications to microservice architectures. In the microservice world, the user
+    journey varies and is processed by independent system components, which can lead
+    to a less cohesive view of system behavior.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 8**.2* depicts the key questions that performance testing answers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.2 – Key questions that performance testing answers ](img/Figure_8.02_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.2 – Key questions that performance testing answers
+  prefs: []
+  type: TYPE_NORMAL
+- en: The two important questions that performance testing answers relate to system
+    usability and scalability. Let’s look at what each question means.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Is the system usable?
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Usability is more than achieving correct functionality, as a slow-functioning
+    system will eventually impact user satisfaction negatively. Performance testing
+    is useful for assessing the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Stability**: No intermittent failures should occur, causing retries and negative
+    user experiences.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Speed**: User requests should be kept within acceptable levels set according
+    to business requirements, or the system is scaled appropriately.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Error handling**: Errors should be handled gracefully, without sudden crashes,
+    and well-formulated messages should be returned across a variety of scenarios.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**User load**: The system should be able to handle the expected user loads
+    without causing unexpected CPU or user memory spikes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Is the system scalable?
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Business and system requirements evolve with time. A scalable system should
+    be able to grow according to the expected future needs of the business. Performance
+    testing is useful for assessing the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Bottlenecks**: Monitoring a variety of metrics allows us to identify which
+    services in our system are not scalable, and should be refactored.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Individual parts**: It is important to understand the expected response time
+    for each microservice, as well as an estimate for the entire system. This can
+    help us map costs for each user operation on our system.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Growth runway**: Performance testing allows us to establish how much more
+    user and volume growth the system can sustain in its current form.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When used correctly, performance testing will ensure that each microservice
+    is able to handle the current load of the system and that they are able to work
+    together to serve user journeys correctly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The “little and often” approach
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performance testing is often added as part of the code build pipelines so that
+    development teams get immediate feedback on performance with each commit. Similarly
+    to refactoring, performance improvements are best done little and often. Monitoring
+    performance with each commit will make it easier to see any trends and quickly
+    fix new issues.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Performance testing is all about quantifying and comparing the behavior of
+    our system and its microservices. How do we go about achieving this quantification?
+    This is commonly achieved by gathering a few important metrics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Response time**: The time it takes between a user’s request and the response
+    from the system to arrive back to the user. Often, the **average** and **peak**
+    values of the response time are measured, giving an indication of the worst case
+    alongside the average case.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Error rate**: The percentage of error cases in the total number of requests
+    processed by the system. In RESTful APIs, the error responses are easily identified
+    by HTTP status codes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**CPU and memory usage**: The percentage of CPU and memory that the microservice
+    is using on its host. These indicators will show whether the system is correctly
+    scaled.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Concurrent users**: The number of users that are requesting a given resource
+    at the same time. This can make it easy to identify any spikes for a particular
+    endpoint of the user path.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Data throughput**: The amount of data processed by the system. This can indicate
+    whether user requests are increasing over time or whether any large files are
+    flowing into the system and affecting performance.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The system under test should have monitoring and alerting for these metrics
+    in place before we write any performance tests. Furthermore, we should establish
+    what the failure criteria for our performance tests will be according to the needs
+    of our system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While you should always establish your threshold values together with key stakeholders,
+    we can make some general recommendations based on experience and industry practice:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The average response time should generally be under 500 milliseconds, while
+    the peak response time should be under 1 second
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Error rates should generally be under 5%
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: CPU and memory usage should generally stay under 70%, allowing the system to
+    handle any spikes that may come up
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Concurrent users and data throughput do not have any failure thresholds, but
+    should be monitored for spikes and anomalies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Now that we understand the importance of performance tests and how to quantify
+    and compare their results, we can turn our attention to their implementation.
+    We can implement them with Go’s standard `testing` framework or with popular third-party
+    libraries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing performance tests
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In [*Chapter 2*](B18371_02.xhtml#_idTextAnchor035), *Unit Testing Essentials*,
+    we learned how to write and execute benchmarks with Go’s standard testing library,
+    which are special tests used to verify the performance of our code. We also learned
+    how to export test coverage metrics from Go’s test runner.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can use benchmarks to write performance tests for our endpoints. For example,
+    we can easily write a benchmark for the `GET /` root endpoint of our `BookSwap`
+    application:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: We create a new benchmark according to the expected signature, taking in a single
+    `*testing.B` parameter and named with the `Benchmark` prefix. Then, we make use
+    of the standard `http` library to invoke the `GET` operation on the defined endpoint,
+    which is returned by the `getTestEndpoint` helper function. Just as in previous
+    chapters, this function constructs the endpoint based on the provided environment
+    variables. If you want to run with the default values, set the `BOOKSWAP_BASE_URL`
+    environment variable to `http://localhost` and the `BOOKSWAP_PORT` environment
+    variable to `3000` to your terminal session.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We save this test in the `chapter08/performance/books_index_test.go` file. With
+    our simple test written, we need to make sure that the `BookSwap` application
+    is up and running. We can easily run it using the `docker compose -f docker-compose.book-swap.chapter08.yml
+    up --build` command. As mentioned in previous chapters, remember to set the `BOOKSWAP_PORT`
+    environment variable before running. If you are running with default configuration,
+    then you can use `3000` for its value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we need to run the benchmark. The `go test` command provides support
+    for profiling benchmarks in a similar way to how we extracted code coverage details,
+    in [*Chapter 2*](B18371_02.xhtml#_idTextAnchor035), *Unit Testing Essentials*.
+    The `runtime/pprof` package provides the following predefined profiling options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`cpu` shows us where our program is using CPU cycles'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`heap` shows us where our program is making memory allocations'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`threadcreate` shows us where the program is requiring new threads'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`goroutine` shows us stack traces of all the program’s goroutines'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`block` shows us where goroutines are waiting on locking primitives'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`mutex` reports lock contention'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We will explore the concurrency aspects of threads, goroutines, and mutexes
+    in [*Chapter 9*](B18371_09.xhtml#_idTextAnchor197), *Challenges of Testing Concurrent
+    Code*. For now, we will focus on CPU profiling.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We run our newly written benchmark with two profiling options, which will allow
+    us to extract the CPU profile:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The benchmark runner outputs the same results we saw in our introductory chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: As our index endpoint is quite simple, the benchmark is executed 1,556 times
+    and the total running time is 2.6 seconds. This command runs the benchmark and
+    instructs the test runner to save the CPU profile to the `cpu-books.out` file,
+    saved in the current running directory. The details of the test run are saved
+    in the `performance.test` file, which is named after the package that the test
+    is declared in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can view the file using the `pprof` command tool, which comes installed
+    with the Go toolchain:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This opens up an interactive command that will allow us to get some insights
+    into the measured CPU time. The command will give a text output of the top profile
+    results, while `web` will create a visual representation of the same results.
+    Running `top5` on the CPU profile of our benchmark presents the following five
+    results:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: These top results count for more than 80% of the running time, but they seem
+    to be related only to the running and scheduling of the benchmark test itself.
+    As the benchmark is scheduled and runs thousands of times, we can expect that
+    the test runner will need to make use of quite a few goroutines and threads to
+    execute the test. However, this is not very useful output for gaining an understanding
+    of the operation of our `BookSwap` web application. We cannot profile our web
+    application from the benchmark test since the web application is running in a
+    whole other process, separate from the benchmark.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In order to gain insights into the CPU usage of our `BookSwap` application,
+    we will need to integrate the `pprof` tool into our web application. This is easy
+    to do by allowing `pprof` to register itself alongside our other handlers in `handlers/config.go`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`pprof` will now be able to serve all the paths configured with the `debug/pprof`
+    prefix if the `DEBUG` environment variable is set when the application is started.
+    We can easily set it by adding the line `DEBUG=true` to the `docker.env`. We can
+    then rerun the application in debug mode using the `docker compose -f docker-compose.book-swap.chapter08.yml
+    up --build` command. This allows us to selectively expose this endpoint in particular
+    environments. We are now ready to profile our web application. We rerun our benchmark,
+    which will take around 3 seconds to run. We can then download the results to a
+    local file in the same way that we exported the results of the benchmark profile:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As the application is running locally in this example, the URL is `localhost:$BOOKSWAP_PORT`,
+    but we would change it for other environments and configurations. This command
+    downloads the profiling data from the past 10 seconds and saves it to a local
+    file. We can then view the exported results in the same way as before:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: This command opens up the same interactive screen as before, but we will now
+    opt to see the visual representation of the CPU using the `web` command. This
+    will launch a window in your default browser with a graph of the method calls
+    that have been profiled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Graph visualization
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go’s profiling tool, `pprof`, relies on an external dependency for graph visualization.
+    This dependency, named `graphviz`, is not written in Go and is therefore not automatically
+    installed with the Go toolchain. You should follow the official documentation
+    ([https://graphviz.org/download/](https://graphviz.org/download/)) to install
+    it for your operating system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 8**.3* presents the CPU profile usage in a visual representation, as
+    was measured during the benchmarking of the index endpoint:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.3 – A visual representation of the BookSwap CPU profile ](img/Figure_8.03_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.3 – A visual representation of the BookSwap CPU profile
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we can from the CPU profile, the `BookSwap` application spends most resources
+    serving HTTP connections with `net/http` and interacting with the database layer
+    using the `GORM` library. This is indicated by the percentages and size of the
+    boxes corresponding to each operation. The visual representation of the call stack
+    gives us a good indication of where we are spending our resources. We explored
+    the database aspects of the BookSwap application in [*Chapter 6*](B18371_06.xhtml#_idTextAnchor142),
+    *End-to-End Testing the BookSwap Web Application*. If we want to improve the performance
+    of the application, we can use the information presented in the profile to identify
+    areas of the call stack that need to be improved.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While benchmarking allows us to create simple tests and simulate a variety
+    of load-testing scenarios, it can be quite verbose to define testing scenarios
+    across many different microservices. There are two popular open source libraries
+    that are often used for performance testing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`testing` package. Different types of load can be configured. JMeter also has
+    the capability of generating result graphs and dashboards once the tests are run.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**K6** ([https://k6.io/](https://k6.io/)) is an open source Go project maintained
+    by Grafana. Test plans are written in a scripting language similar to JavaScript,
+    reducing a lot of the code needed to write test scenarios. K6 offers different
+    types of load configurations and also has the capability of outputting test results
+    to dashboards.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Gatling** ([https://gatling.io/open-source/](https://gatling.io/open-source/))
+    is an open source Scala load testing tool maintained by Gatling Corp. Similarly
+    to K6, tests are written in a Domain-Specific Language, but it is based on Scala.
+    This library provides load testing and insights on dashboards.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Regardless of which performance testing implementation option you choose, you
+    can profile your application and supplement the data and graphs that it supplies.
+    We will not be exploring these third-party tools in this book, as we have used
+    Go’s in-built benchmarking capabilities to write our performance tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Go profiling is a very powerful tool with many more capabilities than what we
+    have explored here. You can read more about Go’s diagnostics capabilities in the
+    official documentation ([https://go.dev/doc/diagnostics](https://go.dev/doc/diagnostics)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Profiling tests and applications
+  prefs: []
+  type: TYPE_NORMAL
+- en: While we did not directly use the profiling information of the benchmark we
+    ran, profiling tests can be a useful way to investigate costly or slow-running
+    tests. Therefore, knowing how to export and read profiling information is useful
+    for both development and test writing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Contract testing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'As discussed in [*Chapter 7*](B18371_07.xhtml#_idTextAnchor162), *Refactoring
+    in Go*, microservice architectures have many advantages over monolithic applications:
+    the ability to scale system components independently, smaller code bases that
+    are easier to maintain, and a system that is less prone to outages. However, the
+    development and testing of working processes change when organizations adopt microservice
+    architectures. This also brings challenges, alongside the vast benefits of microservice
+    architectures.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 8**.4* depicts the three types of complexity that microservice architectures
+    bring:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.4 – The complexities of microservice architectures ](img/Figure_8.04_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.4 – The complexities of microservice architectures
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Microservice architectures add complexity to every part of the development
+    process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Development complexity**: The source code of each microservice is often contained
+    in its own separate code base or repository. This leads to complexity in the development
+    process due to the following components:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Service design** must be consistent across multiple services. Each engineering
+    team must design multiple services, as opposed to creating one monolithic application
+    and then changing it.'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Related to service design, the **data separation and structure** must be designed
+    as well. Each microservice is in charge of saving its own data to persistent storage
+    and sending the information to other services when they require it. If this is
+    done without any design, services will need to pass data back and forth, increasing
+    response times.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Finally, the team will need to implement **tests for each service**. If the
+    service exposes user-facing functionality, it will need to be tested at every
+    level of the testing pyramid. This will increase the number of tests required
+    for the system, even though they may be faster and test a smaller functionality
+    scope.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Deployment complexity**: Each microservice is its own self-contained running
+    application. This leads to complexity in the deployment pipelines due to the following
+    components:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The development teams have a higher burden of **infrastructure maintenance**
+    due to the separation of each microservice and its dependencies. This can become
+    even more complex when services require different kinds of dependencies or versions,
+    as the system matures and the microservices are not updated at the same time.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Release strategies** become more complex when it comes to making changes,
+    as dependencies inside the system become more complex. All updates to the data
+    structure or API changes, including the services, are not directly user-facing,
+    as they could cause outages elsewhere in the system.'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Deployment automation** becomes a necessity in order to make it feasible
+    for teams to easily build and release services. Testing must also be added to
+    the release pipelines to minimize the risk of outages.'
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Organizational complexity**: Teams are unblocked to develop and release multiple
+    services at the same time. This leads to an increase in productivity, but also
+    organizational challenges due to the following components:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Often, the number of microservices far outnumbers the number of engineering
+    teams, and in some cases even engineers! Therefore, **service ownership** is extended
+    to multiple services per team. This adds maintenance complexity to the teams,
+    which they must manage alongside delivering new features.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Teams must agree on a common way to structure and implement their services so
+    that engineers can work across teams, as well as investigate services across the
+    entire system. As such, the engineering organization will have to undertake some
+    kind of design and implementation standardization process. This can be quite a
+    difficult undertaking, as teams will have different requirements and/or preferences.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Finally, **communication between teams** will need to effectively handle larger
+    systemic changes in order to avoid outages. This can be difficult for teams that
+    are growing rapidly.
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The complexities introduced by microservice architectures can be mitigated with
+    a solid testing strategy, which will flag any errors or breakages before they
+    cause outages across the entire system. As discussed, the integration points between
+    microservices must be tested, as teams will release changes to the services they
+    own without any central oversight.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 8**.5* depicts how we might go about testing the integration between
+    two microservices using the knowledge we have gained so far:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.5 – Testing the integration between two microservices ](img/Figure_8.05_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.5 – Testing the integration between two microservices
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are two options when it comes to testing the integration between two
+    services:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Option A: Integration test with real services** involves writing an integration
+    test between the real services in a testing environment. This approach allows
+    us to verify that both services are functioning as expected and that their integration
+    is successful. However, as the system grows, setting up each service and its dependencies
+    becomes more complicated. Individual test runs will also slow down, as data and
+    requests need to travel across multiple microservices or data stores.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Option B: Integration test with mocks** involves writing separate integration
+    tests against mocks for the dependency. This approach allows us to reduce the
+    scope of the test and ensure that each service is working as expected. However,
+    as it tests each service in isolation, it does not actually verify that the services
+    are working together as expected. If either service does not conform to its defined
+    mock, then the test would pass even though we could be creating an outage. This
+    is the same issue we identified with our mocks in [*Chapter 3*](B18371_03.xhtml#_idTextAnchor061),
+    *Mocking and* *Assertion Frameworks*.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Neither of these two options is ideal because we would need to write robust
+    tests that verify that our microservices are integrated well together to have
+    the confidence to change microservices without central oversight. We will explore
+    a third way of testing that can alleviate some of the downsides of each approach.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fundamentals of contract testing
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Due to the downsides of the existing solutions and the difficulties that come
+    with testing microservice architectures, developers began using another type of
+    testing practice. **Contract testing** offers a simpler way to ensure that microservices
+    continue to integrate well. It is not a new concept, but it has gained traction
+    because it is well suited for distributed architectures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Developers write virtual contracts that define how two microservices should
+    interact. This contract provides the source of truth and represents the expected
+    values for test assertions. There are two sides to every contract:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `BookService` is the consumer as it sends the request.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `PostingService` is the provider as it sends the response.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Based on this terminology, *Figure 8**.6* demonstrates the procedure for writing
+    and running contract tests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.6 – Writing and running contract tests ](img/Figure_8.06_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.6 – Writing and running contract tests
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The simple procedure consists of the following steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Establish the consumer and provider**: We begin by identifying which services
+    we want to test. In a microservice architecture, this isn’t always straightforward.
+    After all, there is no code coverage metric for distributed systems that we can
+    rely on to see which microservice integrations haven’t been tested.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Identify the interaction(s) under test**: This step is equivalent to identifying
+    which user journey we’d like to test or writing our feature test. This should
+    include the HTTP method, the HTTP request body, and any URL parameters we might
+    require. At this point, we should also establish what the expected response of
+    the provider should be.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Consumer unit tests**: As part of the development process, the team will
+    write unit tests for the consumer service. This will be done against a provider
+    mock that is under the **consumer team’s ownership**.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Provider unit tests**: In the same way as on the consumer service side, the
+    team will write unit tests for the provider during the development process, we
+    use a consumer mock that is under the **provider** **team’s ownership**.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Record consumer interaction**: Based on the identified parameters and interactions
+    of the unit test, we can begin to formulate the contract between the consumer
+    and provider. The consumer team captures the required interaction between services,
+    which is made up of the consumer request(s) and the expected provider response.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Contract**: The consumer request and provider response are recorded together
+    in one file, known as the contract. It crosses team boundaries and is the source
+    of truth for the two teams, allowing them to easily collaborate using a common
+    language. As we mentioned previously, microservice architectures add organizational
+    complexity so the contract can help teams communicate more effectively.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Verify contract against provider**: The consumer requests recorded in the
+    contract are run against the provider microservice. The expected provider response
+    is verified against the response received from the real provider microservice.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A contract test is considered passed only when the contract is verified by interacting
+    with the real services on both sides of the contract. However, unlike integration
+    tests, which require one single team to have both the consumer and provider running
+    for the test, contract testing allows this verification to be done in two steps,
+    allowing the team ownership for each service to be maintained.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The consumer viewpoint
+  prefs: []
+  type: TYPE_NORMAL
+- en: Contract testing is written starting with the consumer, which dictates the request
+    and expectations. This helps us to ensure that the API is stable for the services
+    that are using its functionality, encouraging stable APIs that do not promote
+    breaking changes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The contents of the contract file are the most important part of the process,
+    and it is important that they does not contain any errors. The safest way to ensure
+    that this does not happen is to use tools that help us generate them, as opposed
+    to writing them manually. We will not attempt to implement contract testing manually,
+    but instead, look at the process using one of the most popular tools.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Pact
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now that we understand the basic process of contract testing, we can have a
+    look at some tools that facilitate the process by helping us generate contracts
+    and run tests. Pact ([https://github.com/pact-foundation](https://github.com/pact-foundation))
+    is a popular open source contract testing tool that allows us to easily write
+    contract tests. It has been running since 2013, and it has quickly become the
+    number-one choice for implementing contract tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Some of the main features of Pact are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Synchronous and asynchronous support**: Pact allows contract testing for
+    HTTP endpoints, as well as asynchronous non-HTTP messaging systems. It supports
+    a variety of technologies, such as Kafka, GraphQL, and publish-subscribe messaging
+    patterns.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Libraries in over ten languages**: Pact offers support for a wide variety
+    of languages for both frontend and backend technologies. The Pact Go library ([https://github.com/pact-foundation/pact-go](https://github.com/pact-foundation/pact-go))
+    provides us with the functionality required for testing our Go microservices.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Unit testing integration**: The consumer code base imports the Pact Go library
+    and uses it to write unit tests. This allows developers to use the same workflow
+    and techniques for contract tests as was used for writing unit tests.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Contract testing Domain-Specific Language (DSL)**: The Pact library gives
+    projects a common DSL for writing contract tests. This allows developers to define
+    interactions and expected responses in a uniform way.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Test playback and verification**: Based on the test specifications, Pact
+    generates and records the test runs. Contract tests are called pacts, and they
+    are replayed and verified against the provider service.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Broker service**: Pact provides a self-hosted broker solution that allows
+    the easy sharing and verification of contracts and test results. This solution
+    is suitable for production systems and integrating contract testing into the release
+    pipelines.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This list of features is the reason why Pact has quickly become the contract
+    testing tool of choice. We can easily implement the contract testing steps using
+    the Pact Go library.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Pact provides a variety of command-line tools in an easy-to-install native
+    binary that provides functionality for testing both synchronous and asynchronous
+    message-based interactions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Find the newest version of the tools on the project release page ([https://github.com/pact-foundation/pact-ruby-standalone/releases](https://github.com/pact-foundation/pact-ruby-standalone/releases)).
+    This page will also contain installation instructions for your operating system.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The Pact Go library supports Go modules and can be easily added to your projects
+    with the usual command: `go` `get github.com/pact-foundation/pact-go`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Adding the Pact tools to your system path
+  prefs: []
+  type: TYPE_NORMAL
+- en: As detailed in the Pact setup instructions, remember to add the path to the
+    `pact/bin` directory to your system path. The Go test runner will need to be able
+    to call the Pact tools during the test running and verification.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The installation will install a few different tools that we can use during
+    contract testing. You can explore them all on your own. Some of the most commonly
+    used tools are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`pact-mock-service` provides mocking and stubbing functionality. It can help
+    us easily create mocks for our providers during contract testing.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`pact-broker` provides functionality for starting up the previously mentioned
+    broker service, which makes it easy to share contracts and verification results.
+    It also allows you to deploy it independently, including using Docker.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`pact-provider-verifier` provides verification of two versions of pacts, regardless
+    of whether the values are coming from the Pact Broker or another source. The verifier
+    is often added to the release pipelines, saving the development effort of implementing
+    their own.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Once the tools are installed, we can have a look at a simple test example for
+    a possible client of the `GET /` root endpoint:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Looking at the client test more closely, we can see that writing a contract
+    test with Pact is not all that different from writing a unit test with Go’s standard
+    testing library:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The signature of the test is the same as a unit test, conforming to the test
+    name convention and taking in the single `*testing.T` parameter.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The Pact DSL is initialized, and we start up the Pact Mock Server using the
+    `Setup()` function. Pact will find a free port on the local machine and then start
+    up the server.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'We create a test case function that takes in no parameters and returns a single
+    error: `func() error`. This function wraps around the consumer code that calls
+    out to the provider, including setting up any requests required. As we don’t have
+    a dedicated client service on the `BookSwap` application, we simply call out to
+    it using the `http` library.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: With everything set up, we can run test cases in subtests. This allows us to
+    use the same test techniques that we’ve seen so far, including the table-driven
+    testing we explored in [*Chapter 4*](B18371_04.xhtml#_idTextAnchor085), *Building
+    Efficient* *Test Suites*.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside each subtest, we define a new Pact interaction using the `AddInteraction()`
+    function, which sets up all the prerequisites for contract testing, including
+    starting a Mock Server, if one is running.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The `dsl.Interaction` type returned allows us to configure all of the attributes
+    required to describe the contract between the consumer and provider: the request
+    and response body, headers, query parameters, status code, and so on.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Once everything has been set up for the test case and expected behavior, we
+    verify that the behavior is as written using the `Verify` function, which takes
+    in the test case that has defined the consumer configuration.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Finally, we record the interaction in a file and invoke the `Teardown` function,
+    which stops the Pact Mock Server. By default, Pact will save the contract inside
+    the `pacts` folder in the project.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'We can run this test in the same way as we might run any integration test.
+    The output of this test run will be as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The output of the command indicates that the `TestConsumerIndex_Local` test
+    was run against the Pact Mock Server and that it passed. The pact is also written
+    to the `pacts/consumer-bookswap.json` file. This file contains the specified interactions
+    between the consumer and provider, as described by the test.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The consumer has specified the behavior they expect from the provider in the
+    contract specification. Therefore, the provider verification is much simpler:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This simple snippet contains everything required for verification on the provider
+    side:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We define the provider verification as a unit test, in the same way as we did
+    on the consumer side.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: As we run the provider verification against the real service, we do not start
+    the Pact Mock Server, but initialize the Pact DSL.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We call the `VerifyRequest` function, passing in the URL to the provider and
+    the path to the consumer-defined contract. This was generated by running the consumer
+    test, as described earlier on.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The URL to the provider and the path to the contract definition have been defined
+    outside the scope of this test, allowing us to run this test in different environments.
+    Once the `BookSwap` application is up and running with the Docker command we saw
+    earlier, we can run the provider verification:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: The provider verification passes because the returned response from the `BookSwap`
+    application is as we have specified on the consumer side. We have now successfully
+    written and run our first contract test with Pact! All of the interaction with
+    the contract testing library has been through a simple Go library, which has also
+    allowed us to write contract tests in the same way as unit tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we have seen, the power of Pact is that it allows developers to easily implement
+    code-first contract tests, so it is definitely a framework that you should consider
+    adding to your projects alongside the practice of contract testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The role of the Pact Broker
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the example we have explored, the contract tests were running locally, so
+    they had shared access to the same contract file. However, this is not possible
+    in microservice architectures or consumer-facing services. Teams run a dedicated
+    Pact Broker service that can serve as the URL to the contracts that they wish
+    to write and verify. The Pact Broker can be easily run with Docker using its image
+    available on Docker hub ([https://hub.docker.com/r/pactfoundation/pact-broker/](https://hub.docker.com/r/pactfoundation/pact-broker/)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Breaking up the BookSwap monolith
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The discussion in this chapter has been centered around discussing microservice
+    architectures, as distributed systems have become the standard and you will most
+    likely have to work on this kind of system in the near future. However, the BookSwap
+    application is still a monolithic application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Based on some of the practices we discussed in [*Chapter 7*](B18371_07.xhtml#_idTextAnchor162),
+    *Refactoring in Go*, we can discuss how we might go splitting up the BookSwap
+    monolith. *Figure 8**.7* depicts some of the microservices that we could create:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.7 – The distributed BookSwap system ](img/Figure_8.07_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.7 – The distributed BookSwap system
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The distributed `BookSwap` system has microservices with well-defined responsibilities:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`SwapService` is the entry point to the system and is responsible for handling
+    and routing all the incoming user requests of the system. It has direct dependencies
+    on `BookService` and `UserService`, which own the data that `SwapService` relies
+    on.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`UserService` is responsible for all the operations pertaining to user management.
+    The service has persistent storage, `UsersDB`, which it has full control of inside
+    the system. This storage can take any form, but the service must be able to support
+    the access patterns required by `SwapService`. This service has a direct dependency
+    on `BookService`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`BookService` is responsible for all the operations pertaining to book management.
+    This service has its own dedicated persistent storage, `BooksDB`, which it has
+    full control of inside the system. This service has a direct dependency on `PostingService`,
+    which is an external service to the `BookSwap` system.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Avoiding a shared database
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`BookService` and `UserService` have been designed to have their own dedicated
+    databases, instead of sharing one single persistent storage. This allows us to
+    enforce data separation between the two microservices, as well as ensure that
+    a database outage does not cause an outage on both of the services.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This simple `BookSwap` system from *Figure 8**.7* is the starting point of how
+    we might go about splitting up the `BookSwap` monolith. As we can see, the services
+    have dependencies, so they must support the access patterns required by their
+    consumers. The next step in the monolith splitting process is to design the APIs
+    of the different services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 8**.8* depicts which API calls the services might expose:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.8 – The endpoints of the BookSwap microservices ](img/Figure_8.08_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.8 – The endpoints of the BookSwap microservices
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As previously discussed, `SwapService` is the only user-facing service, with
+    the other services being direct dependencies to it. We can see the following access
+    patterns for the different domains in the `BookSwap` services:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Books are accessed by their primary ID and by their owner user ID. This access
+    pattern by two indices must be implemented to satisfy the requirements of `SwapService`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: There is a **one-to-many relationship** between users and books. If we use a
+    SQL database, then the user ID is a foreign key on the books table. This type
+    of dependency can also be implemented in NoSQL tables, even though it feels like
+    a natural fit for SQL databases.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Users are created and updated using the same `POST` request on the corresponding
+    endpoint. This conforms to RESTful design practices, but this merged operation
+    should be handled lower down on the service level.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Books are created using a `POST` request but are updated using their ID as the
+    URL parameter. The second update is the implementation of the swap endpoint.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These simple access patterns can be easily implemented with either a SQL or
+    NoSQL persistent storage solution. It is highly recommended that REST endpoints
+    use JSON as content type, especially as JSON marshaling and unmarshaling are natively
+    supported in Go with the `encoding/json` library. We have previously explored
+    persistent storage with PostgreSQL, but most major NoSQL data stores have Go drivers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `BookSwap` monolithic application would have lived in one single code base
+    up until now, giving developers full visibility of all the changes that are being
+    made to the application. However, in the microservices world, each service has
+    its own code repository and team ownership.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Figure 8**.9* depicts the five service integrations exposed by the new microservice
+    architecture:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.9 – Five service integrations exposed by the new microservice architecture
+    ](img/Figure_8.09_B18371.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.9 – Five service integrations exposed by the new microservice architecture
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The microservices assume the role of consumer and provider according to the
+    flow of data and the request flow between the two services:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The client code is the consumer that issues the request to `SwapService`, which
+    handles it by relying on the other services of the `BookSwap` application.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`SwapService` is the consumer as it issues requests to `BookService` and `UserService`
+    in order to process creation and update their corresponding model.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`UserService` is the consumer and `BookService` is the provider as it fetches
+    the list of books belonging to the user.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`BookService` is the consumer and the external `PostingService` is the provider,
+    as `PostingService` handles the side effects of all book swaps, which is a critically
+    important detail because these side effects are what deliver the business value
+    of the system in the real world.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Contract testing the integration between `BookService` and the external `PostingService`
+    can help us to validate version upgrades, ensuring that external APIs continue
+    to integrate well with our systems. This is a great way to ensure the continued
+    successful operation of our system and all its dependencies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we have seen from the `BookSwap` application in this section, monolithic
+    applications can be converted in to a microservice architecture once the domain
+    and team have the maturity to undertake this journey. In turn, this adds different
+    kinds of complexity to the development, testing, and release processes. That complexity
+    then enables onward scaling of the solution and team. A solid testing strategy,
+    which includes contract testing, can help validate that the microservice architecture
+    is stable, as well as scalable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Production best practices
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The final aspect of the microservice architectures that we will look at is some
+    best practices when it comes to deployment and release. As we previously mentioned,
+    the release pipelines should be automated to make it feasible for teams to release
+    service multiple times a day. In this section, we will briefly explore some common
+    patterns and solutions to consider when migrating to microservice architectures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Monitoring and observability
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In the microservices world, it can be difficult to have an understanding of
+    how data travels through the system and how healthy our system is. This is alleviated
+    by monitoring and observability solutions, which give us the required visibility.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Observability versus monitoring
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Observability and monitoring are often used interchangeably, but they have
+    two different intended purposes: observability aims to give teams access to data
+    they need to debug problems, while monitoring aims to track performance and identify
+    service anomalies. This means that monitoring is contained within observability.
+    Observations need to be viewed in terms of meaningful value to the business in
+    order to deliver reliable monitoring of properties, such as availability, performance,
+    and capacity.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We covered some important metrics for performance earlier in this chapter, in
+    the *Performance testing in Go* section. Alongside these important metrics, `zap`
+    ([https://pkg.go.dev/go.uber.org/zap](https://pkg.go.dev/go.uber.org/zap)), `logrus`
+    ([https://github.com/sirupsen/logrus](https://github.com/sirupsen/logrus)), and
+    `apex/log` ([https://github.com/apex/log](https://github.com/apex/log)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deployment patterns
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'While a solid test strategy verifies the system for errors and performance
+    issues, no code change or testing strategy is perfect. Deployment patterns will
+    allow us to gradually release changes, making it easier to prevent outages. Two
+    common patterns are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Canary deployments** involve releasing the change to a small percentage of
+    traffic. If the canary is functioning correctly, then we roll out the change to
+    larger percentages of traffic. However, if the metrics recorded in the canary
+    deployment are not positive, we can roll back traffic to the old version of the
+    application, which is still up and running. This minimizes the amount of work
+    that must be done to handle the repercussions of a negative change.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Blue-green deployments** involve maintaining two versions of the microservice
+    to be changed. The blue version is running the current version of the service,
+    while the green version is running the updated version. Once the green version
+    has passed testing, user traffic is routed to the green environment. In the case
+    of errors, traffic can be routed back to the blue version. Once the team is confident
+    that the green version is functioning correctly, the blue version can be removed
+    from the running environment or can be used for the next iteration.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: These two popular deployment strategies will make it easier to avoid outages
+    when rolling out new versions of a microservice, allowing us to quickly roll back
+    to the previous version in the case of increased error rates. Such strategies
+    are well supported by tools such as Kubernetes and service meshes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The circuit breaker pattern
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The circuit breaker pattern is a development pattern that allows us to avoid
+    **cascading failures**, which is the process of one service increasing the probability
+    that other services will fail. Circuit breakers typically wrap remote calls to
+    other microservices. Once the error rate for calls to the remote services reaches
+    an established threshold, the circuit breaker will immediately fail other requests,
+    allowing the other service space to attempt to recover, and giving users a clear
+    and timely response to explain the situation rather than keeping many requests
+    in flight. An open circuit breaker then retries after a delay, becoming closed
+    and able to pass further requests if the remote services are available, or becoming
+    open again if the problems continue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A popular open source circuit breaker implementation is the `hystrix-go` ([https://github.com/afex/hystrix-go](https://github.com/afex/hystrix-go))
+    library, which implements error monitoring and retries. This pattern is simple
+    and also requires us to consider default values and fallback behavior for all
+    of our remote calls. The explicit implementation of the error cases for dependency
+    outages brings further resilience to our microservice architecture.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This brings us to the end of our exploration of microservice architecture implementation
+    and testing. As we have seen in this chapter, a comprehensive testing strategy
+    will allow us to take full advantage of the power of microservices, but we must
+    be aware of the difference in the development process in order to be able to efficiently
+    work with microservice architectures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we discussed how to test microservice architectures. Having
+    focused on functional testing in previous chapters, we started by exploring non-functional
+    testing. Then, we took a closer look at performance testing, one particularly
+    important type of non-functional testing. Then, we explored the complexities that
+    microservice architectures bring to the development process and learned how contract
+    testing can help with the verification of API integrations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We learned how to use the Pact tools to write contract tests using the same
+    techniques and processes that developers use for unit testing. Finally, we explored
+    how we might split up the monolithic `BookSwap` application, including which services,
+    endpoints, and contract tests we would write.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In [*Chapter 9*](B18371_09.xhtml#_idTextAnchor197), *Challenges of Testing Concurrent
+    Code*, we will tackle the complex topic of concurrency in Go. We will learn the
+    fundamentals of concurrency in Go and then explore the testing challenges that
+    concurrency introduces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What is the difference between functional and non-functional testing?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What are some key metrics that performance testing should measure?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How does performance testing ensure that the system is scalable?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What are some of the benefits of microservice architectures? What types of complexity
+    are introduced by microservice architectures?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is contract testing?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '*Web Application Security: Exploitation and Countermeasures for Modern Web
+    Applications*, Andrew Hoffman, published by O’Reilly'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Production-Ready Microservices: Building Standardized Systems Across an Engineering
+    Organization*, Susan J. Fowler, published by O’Reilly'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Building Microservices: Designing Fine-Grained Systems*, Sam Newman, published
+    by O’Reilly'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '*Monolith to Microservices: Evolutionary Patterns to Transform Your Monolith*,
+    Sam Newman, published by O’Reilly'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Part 3: Advanced Testing Techniques'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The final part is dedicated to discussing the more challenging aspects of testing
+    complex Go code, as all the tools and techniques required for testing applications
+    are provided by the previous two sections. We begin our exploration by learning
+    about Go concurrency mechanisms and what the concurrency untestable conditions
+    are, including how to use Go’s race detector. Then, we revisit and expand our
+    testing of edge cases by making use of fuzz tests and property-based testing,
+    allowing us to test our code with a large amount of input to ensure that it is
+    robust. Finally, we explore how to leverage Go’s recently introduced generics
+    capability to write code that can work with different types, learn how to change
+    table-driven tests to verify generic code, and leverage generics to create custom
+    test utilities.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part has the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 9*](B18371_09.xhtml#_idTextAnchor197)*, Challenges of Testing Concurrent
+    Code*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 10*](B18371_10.xhtml#_idTextAnchor218)*, Testing Edge Cases*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 11*](B18371_11.xhtml#_idTextAnchor231)*, Working with Generics*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

@@ -1,0 +1,2625 @@
+- en: Building Distributed Graph-Processing Systems
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '"A distributed system is one in which the failure of a computer you didn''t
+    even know existed can render your own computer unusable."'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '- Leslie Lamport'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The master/worker pattern is a popular approach for building fault-tolerant,
+    distributed systems. The first part of this chapter explores this pattern in depth
+    with a focus on some of the more challenging aspects of distributed systems, such
+    as node discovery and error handling.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the second part of this chapter, we will apply the master/worker pattern
+    to build, from scratch, a distributed graph-processing system that can handle
+    massive graphs whose size exceeds the memory capacity of most modern compute nodes.
+    Finally, in the last part of this chapter, we will apply everything learned so
+    far to create a distributed version of the PageRank calculator service for the
+    Links 'R' Us project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following topics will be covered in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The application of the master/worker model for distributed computation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Strategies for discovering master and worker nodes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Approaches for dealing with errors
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using the master/worker model to execute the graph-based algorithms from [Chapter
+    8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based Data Processing*,
+    in a distributed fashion
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating the distributed version of the Links 'R' Us PageRank calculator service
+    and deploying it to Kubernetes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The full code for all topics discussed within this chapter has been published
+    to this book's GitHub repository in the `Chapter12` folder.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You can access the GitHub repository that contains the code and all required
+    resources for each one of this book''s chapters by pointing your web browser at
+    the following URL: [https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang](https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Each example project for this chapter includes a common Makefile that defines
+    the following set of targets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Makefile target** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `deps` | Install any required dependencies. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `test` | Run all tests and report coverage. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lint` | Check for lint errors. |'
+  prefs: []
+  type: TYPE_TB
+- en: As with all other chapters from this book, you will need a fairly recent version
+    of Go, which you can download at [https://golang.org/dl/](https://golang.org/dl/).
+  prefs: []
+  type: TYPE_NORMAL
+- en: To run some of the code in this chapter, you will need to have a working Docker
+    ^([2]) installation on your machine. Furthermore, for the last part of this chapter,
+    you will need access to a Kubernetes cluster. If you don't have access to a Kubernetes
+    cluster for testing, you can simply follow the instructions laid out in the following
+    sections to set up a small cluster on your laptop or workstation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introducing the master/worker model
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The master/worker model is a commonly used pattern for building distributed
+    systems that have been around for practically forever. When building a cluster
+    using this model, nodes can be classified into two distinct groups, namely, masters
+    and workers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The key responsibility of worker nodes is to perform compute-intensive tasks
+    such as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Video transcoding
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Training large-scale neural networks with millions of parameters
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Calculating **Online Analytical Processing** (**OLAP**) queries
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Running a **Continuous Integration** (**CI**) pipeline
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Executing map-reduce operations on massive datasets
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'On the other hand, master nodes are typically assigned the role of the coordinator.
+    To this end, they are responsible for the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Discovering and keeping track of available worker nodes
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Breaking down jobs into smaller tasks and distributing them to each connected
+    worker
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Orchestrating the execution of a job and ensure that any errors are properly
+    detected and handled
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Ensuring that masters are highly available
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In a system built using the master/worker model, losing one or more worker nodes
+    due to crashes or network partitions is not a big issue. The master can detect
+    this and work around the problem by re-distributing the workload to the remaining
+    workers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A crucial piece of advice when designing distributed systems is to make sure
+    that your system does not contain **Single Points of Failure** (**SPoFs**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, the loss of the master node will most certainly take the
+    entire system offline! Fortunately, there are a few different approaches at our
+    disposal for making sure that master nodes are highly available, which we'll cover
+    next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The leader-follower configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The **leader-follower** configuration achieves high availability by introducing
+    multiple master nodes to the cluster. The master nodes implement a leader-election
+    algorithm and, after a few rounds of voting, they assign the role of the cluster
+    leader to one of the master nodes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: From that point onward, the leader is responsible for coordinating the execution
+    of any future jobs and each worker node is instructed to connect to it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The non-leader master nodes (followers) utilize a heartbeat mechanism to continuously
+    monitor the health status of the active leader. If the leader fails to acknowledge
+    a specific number of sequential heartbeat requests, the other master nodes assume
+    that the leader is dead and automatically hold a new election round for selecting
+    a new leader for the cluster.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Meanwhile, the workers attempt to reconnect to the master and eventually establish
+    a connection to the newly elected cluster leader.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The multi-master configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In a **multi-master** configuration, we still spin up multiple master node instances.
+    However, as the name implies, there isn't really a designated leader for the cluster.
+    In a multi-master cluster, we don't need to provide a mechanism for workers to
+    figure out which node is the leader; they can freely connect to any of the master
+    nodes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While this type of configuration has much better throughput characteristics
+    than the equivalent leader-follower configuration, it comes with an important
+    caveat, that is, all master nodes must share the same view of the cluster's state
+    *at all times*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Consequently, masters are required to implement some kind of distributed consensus
+    algorithm such as Paxos ^([3]) or Raft ^([5]) to ensure that mutations to the
+    cluster's state are processed by all masters in the same order.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Strategies for discovering nodes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'For the workers to be able to connect to the master, they first need to be
+    aware of its existence! Depending on our particular use case, the following discovery
+    strategies can be used:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Connecting to a bootstrap node**: This discovery strategy assumes that one
+    of the master nodes (commonly referred to as the **bootstrap** node) is reachable
+    at an IP address that is known beforehand. Both masters and workers attempt to
+    establish an initial connection to the bootstrap node and obtain information about
+    the other nodes of the cluster using a **gossip** protocol.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Using an external discovery service**: This strategy relies on the presence
+    of an external discovery service that we can query to obtain information about
+    all services running inside our cluster. Consul ^([1]) is a very popular solution
+    for implementing this particular pattern.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Locating nodes using DNS records**: If our system is deployed inside an environment
+    that allows us to create and manipulate local DNS records (for example, Kubernetes),
+    we can generate **A records** that point to the leader of the cluster. Workers
+    can look up the leader via a simple DNS query.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Recovering from errors
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Distributed systems are inherently complex. While executing a job in a master/worker
+    setup, numerous things can go wrong, for instance, processes can run out of memory
+    and crash or simply become non-responsive, network packets might be dropped, or
+    network devices might fail and hence lead to network splits. When building distributed
+    systems, we must not only anticipate the presence of errors but we should also
+    devise strategies for dealing with them once they occur.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this section, we will discuss the following approaches for recovering from
+    errors in a master/worker system:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Restart on error**: This kind of strategy is better suited for workloads
+    whose calculations are idempotent. Once a fatal error is detected, the master
+    asks all workers to abort the current job and restart the workload from scratch.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Re-distribute the workload to healthy workers**: This strategy is quite effective
+    for systems that can dynamically change the assigned workloads while a job is
+    executing. If any of the workers goes offline, the master can re-distribute its
+    assigned workload to the remaining workers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Use a checkpoint mechanism**: This strategy is best suited for long-running
+    workloads that involve non-idempotent calculations. While the job is executing,
+    the master periodically asks the workers to create a *checkpoint*, a snapshot
+    of their current internal state. If an error occurs, instead of restarting the
+    job from scratch, the master asks the workers to restore their state from a particular
+    checkpoint and resume the execution of the job.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Out-of-core distributed graph processing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Back in [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based
+    Data Processing**,* we designed and built our very own system for implementing
+    graph-based algorithms based on the **Bulk Synchronous Parallel** (**BSP**) model.
+    Admittedly, our final implementation was heavily influenced by the ideas from
+    the Google paper describing Pregel ^([4]), a system that was originally built
+    by Google engineers to tackle graph-based computation at scale.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the `bspgraph` package from [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based
+    Data Processing**,* can automatically distribute the graph computation load among
+    a pool of workers, it is still limited to running on a single compute node. As
+    our Links 'R' Us crawler augments our link index with more and more links, we
+    will eventually reach a point where the PageRank computation will simply take
+    too long. Updating the PageRank scores for the entire graphs might take a day
+    or, worse, even days!
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can try to buy ourselves some time by **scaling up**, in other words, running
+    our PageRank calculator service on the most powerful (CPU-wise) machine we can
+    get our hands on from our cloud provider. That would give us some breathing room
+    until the graph becomes too large to fit in memory! Once we reach this point,
+    our only viable alternative is to **scale out**, or launch multiple compute nodes
+    and assign a section of the, now massive, graph to each node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the following sections, we will be applying (quite literally!) everything
+    that we have learned so far to build, from scratch, a distributed version of the
+    `bspgraph` package, which will live in the `Chapter12/dbspgraph` folder, which
+    you can browse at this book's GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we did in the previous chapters, we will be once again applying the SOLID
+    principles for our design to re-use as much code as possible. To this end, the
+    new package will be nothing more than a sophisticated wrapper that transparently
+    imbues any existing `bspgraph.Graph` instance with distributed computing superpowers!
+  prefs: []
+  type: TYPE_NORMAL
+- en: This practically means that we can design and test our algorithms on a single
+    machine using the `bspgraph` framework from [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based
+    Data Processing*, and once satisfied with their output, switch to `dsbpgraph`
+    for out-of-core processing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we all are aware, building distributed systems is a difficult task. In an
+    attempt to minimize the complexity of the system we will be creating and make
+    the code easier to follow, we will be splitting the implementation into a bunch
+    of smaller, independent components and dedicate a section to the implementation
+    of each one. Don't worry though—by the end of this chapter, you will have a clear
+    understanding of how all of the bits and bobs fit together!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Describing the system architecture, requirements, and limitations
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The title of this chapter alludes to the type of architecture that we will be
+    using for our distributed graph-processing framework; unsurprisingly, it will
+    be based on the **master/worker** pattern.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To better understand the role of the master and the worker nodes in our design,
+    we will first need to do a quick refresher on how the `bspgraph` package from
+    [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based Data Processing*,
+    works. If you haven't already read [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based
+    Data Processing*, I would recommend doing so before continuing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `bspgraph` package executes graph algorithms using the **Bulk Synchronous
+    Model** (**BSP**). To this end, the chosen algorithm is essentially executed in
+    sequential steps (super-steps). During each super-step, the framework invokes,
+    **in parallel**, a user-defined **compute function** for every vertex in the graph.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The compute function can access both the **local** vertex state and **global**
+    graph state (aggregator instances that model counters, min/max trackers, and so
+    on). Vertices communicate with each other by exchanging messages. Any message
+    published during a super-step is **queued** and delivered to the intended recipient
+    in the **following** super-step. Finally, before commencing the execution of the
+    next super-step, the framework waits for all compute functions to return and any
+    in-flight messages to be queued for delivery. This reflects the *synchronous*
+    behavior of the BSP model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, what would it take to implement the same process in a distributed manner?
+    Let''s see:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: First of all, both the master and the workers need to run exactly the same compute
+    functions. That's pretty easy to do since we will first develop our algorithm
+    using the `bspgraph` package and then use the `dbspgraph` package to execute it
+    either on a master or worker node.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Secondly, to enforce the synchronous aspects of the BSP model, we must introduce
+    some kind of concurrency primitive to ensure that all workers execute the super-steps
+    in **lock-step**. This primitive, which we will be referring to as a **step barrier**, will
+    be implemented by the **master** node.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'As you probably guessed, the master will not really do any computation work;
+    it will rather play the role of the coordinator for the execution of the graph
+    algorithm. More specifically, the master will be responsible for the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Provide an endpoint for workers to connect to and wait for job assignments.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Calculate and broadcast the partition assignments for each worker.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Coordinate the execution of each super-step with the help of a barrier primitive.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Keep track of the **global** state of the graph algorithm currently executing.
+    This includes not only the current super-step but also global aggregator values.
+    The master must collect the partial aggregator values from each worker, update
+    its state, and broadcast the new global state to all workers.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Relay messages between workers. The master is aware of the partition assignments
+    for each worker and can route messages by consulting the destination ID.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Monitor the state of each worker and broadcast a job abort request if an error
+    occurs or any worker crashes.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: On the other hand, the role of the worker is much simpler. Every worker connects
+    to the master and waits for a job assignment. Once a new job is received, the
+    worker initializes its local graph with the vertices and edges that correspond
+    to the **Universal Unique Identifier** (**UUID**) range assigned to it. Then,
+    in coordination with the master node (via the barrier), the worker executes the
+    graph algorithm in lock-step with the other workers until the user-defined termination
+    condition for the algorithm is met. Any outgoing message whose destination is
+    not a local graph vertex will be automatically relayed via the master node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To be able to properly partition the graph and relay messages between workers,
+    our only prerequisite is that vertex IDs are always valid UUIDs. If the underlying
+    graph representation uses a different type of ID (for example, an integer value),
+    the end user will need to manually re-map them to UUIDs during the graph initialization
+    step.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Modeling a state machine for executing graph computations
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To execute a graph algorithm, the `bspgraph` package provides the `Executor`
+    type, a convenience helper that orchestrates the execution of the individual super-steps
+    and allows the end user to define a set of optional callbacks that the executor
+    invokes, if defined, at the various computation stages. The set of optional callbacks
+    includes the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `PRE_STEP` callback: This is invoked *before* executing a super-step. This
+    hook enables the end user to perform any required algorithm-specific initialization
+    steps before the following super-step. For instance, some algorithms might require
+    resetting the value stored in one or more aggregators before each super-step.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `POST_STEP` callback: This is invoked *after* executing a super-step. A
+    typical use case for this hook is to perform additional calculations and update
+    the global aggregator values. For example, to calculate an average value, we could
+    set up two aggregators, a counter and a summer, which are updated by the compute
+    function invocations during the super-step. Then, in the `POST_STEP` callback,
+    we can simply fetch their values, calculate the average, and record it in another
+    aggregator.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `POST_STEP_KEEP_RUNNING` callback: This is invoked after `POST_STEP` and
+    its role is to decide whether the algorithm has completed its execution or additional
+    super-steps are required. Some typical examples of stop conditions are given as
+    follows:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A particular super-step number is reached.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: No more vertices are active (for example, the shortest path algorithm from [Chapter
+    8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based Data Processing*).
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An aggregator value reaches a threshold (for example, the PageRank calculator).
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'If we treat these callbacks as states in a state machine model, its state diagram
+    will look as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/9b48463a-8269-4785-bfc8-1502019c003b.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 1: The state diagram for the bspgraph package'
+  prefs: []
+  type: TYPE_NORMAL
+- en: While the preceding model works quite nicely when we are running on a single
+    node, it is not quite enough when the graph is executing in a distributed fashion.
+    Why is that? Well, remember that in the distributed version, each worker operates
+    on a *subset* of the graph. Consequently, at the end of the algorithm's execution,
+    each worker will have access to a subset of the solution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A state machine is a popular mathematical model of computation. The model defines
+    a set of computation states, rules for transitioning from one state to another,
+    and an abstract machine that performs a particular computation task.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At any point in time, the machine can only reside in **one** of the allowed
+    states. Whenever the machine executes a computation step, the transition rules
+    are consulted to select the next stage to transition to.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can''t really say that the algorithm has, in fact, completed *unless* the
+    results from **all** workers have been successfully persisted! Therefore, for
+    the distributed case, we need to extend our state diagram so that it looks as
+    follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/a7920933-c3ad-46aa-bd9d-509f22e9b696.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 2: The state diagram for the dbspgraph package'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a quick look at what happens while inside the three new states
+    that we just introduced to the state machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once the `POST_STEP_KEEP_RUNNING` callback decides that the terminal condition
+    for the graph algorithm execution has been met, we move to the `EXECUTED_GRAPH`
+    step, where each worker attempts to persist its local calculation results.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Workers reach the `PERSISTED_RESULTS` state once they have successfully persisted
+    their local calculation results to the backing store.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Finally, workers reach the `JOB_COMPLETED` state. When in this state, they are
+    free to reset their internal state and wait for a new job.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Establishing a communication protocol between workers and masters
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A key prerequisite for implementing any kind of distributed system is to introduce
+    a protocol that will allow the various system components to communicate with each
+    other. The same requirement also applies to the distributed graph processing system
+    that we are building in this chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As the workers and masters communicate with each other over network links, we
+    will be applying the concepts learned in [Chapter 9](b3edd7bf-fd1d-4203-bd96-9113cdbb2422.xhtml), *Communicating
+    with the Outside World*, and use gRPC as our transport layer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The message and RPC definitions from the following sections can be found in
+    the `Chapter12/dbspgraph/api` folder in this book's GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining a job queue RPC service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We will be taking a slightly unorthodox approach and start by defining our one
+    and only RPC first. The reason for this is that the selection of the RPC type
+    (unary versus stream) will greatly influence the way we define the various payloads.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, if we opt to use a streaming RPC, we will need to define a kind
+    of envelope message that can represent the different types of messages exchanged
+    between the master and the workers. On the other hand, if we decide in favor of
+    unary RPCs, we can presumably define multiple methods and avoid the need for envelope
+    messages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Without further ado, let''s take a look at the RPC definition for our job queue:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, we will actually be using a *bi-directional streaming* RPC!
+    This comes with a cost; we need to define two envelope messages, one for workers
+    and one for the master. So, what was the deciding factor that drove us to the
+    ostensibly more complicated solution of bi-directional streaming?
+  prefs: []
+  type: TYPE_NORMAL
+- en: The answer has to do with the way that gRPC schedules messages for delivery.
+    If you carefully examine the gRPC specification, you will notice that *only* streaming
+    RPCs guarantees that messages will be delivered in the order in which they were
+    published.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This fact is of paramount importance for our particular use case, that is, if
+    we are not able to enforce in-order message delivery, a worker waiting on a barrier
+    could potentially handle a message before exiting the barrier. As a result, the
+    worker would not only behave in a non-deterministic way (good luck debugging that!),
+    but the algorithm would also produce the wrong results.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another benefit of the stream-based approach is that we can exploit the heartbeat
+    mechanism that is inherently built into gRPC and efficiently detect whether a
+    worker's connection to the master gets severed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Establishing protocol buffer definitions for worker payloads
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'As we saw in the previous section, we need to define an envelope message for
+    worker payloads:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With the help of the `oneof` type, we can emulate a message union. A `WorkerPayload`
+    can contain either a `Step` message or a `RelayMessage` message. The `Step` message
+    is more interesting, so we will examine its definition first:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Step` message will be sent by the worker to enter the master''s barrier
+    for a particular execution step. The barrier type is indicated by the `type` field,
+    which can take any of the nested `Type` values. These values correspond to the
+    steps from the state diagram we saw before. Depending on the step type, the worker
+    will transmit its **local** state to the master under the following situations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: When entering the barrier for the `POST` step, the worker will fetch the **partial**
+    local aggregator (in [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based
+    Data Processing*, we referred to them as **deltas**) values, marshal them into
+    an `Any` message, and add them into a map where the keys correspond to the aggregator
+    names.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When entering the barrier for the `POST_KEEP_RUNNING` step, the worker will
+    populate the `activeInStep` field with the number of **local** vertices that were
+    active in the step.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The other type of message that a worker can send is `RelayMessage`. This message
+    requests the master to relay a message to the worker that is responsible for handling
+    its destination ID. The definition is quite simple and given as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `destination` field encodes the destination ID (a UUID) while the `message`
+    field contains the actual message contents serialized as an `Any` value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Establishing protocol buffer definitions for master payloads
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Now, let''s take a look at the protocol buffer definition for the payloads
+    sent by the master to the individual workers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When a worker connects to the job queue, it blocks until the master assigns
+    it a new job by sending out a `JobDetails` message:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `job_id` field contains a unique ID for the job to be executed while `created_at`
+    encodes the job creation timestamp. The `partition_from_uuid` and `partition_to_uuid`
+    fields define the extents of the UUID range assigned to this worker by the master.
+    Workers are expected to use this information to load the appropriate section of
+    the graph in memory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To enter a barrier for a particular step, workers send a `Step` message to the
+    master. Once all workers reach the same barrier, the master will broadcast a notification
+    to exit the barrier by sending back a `Step` message with the same step type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, when a `Step` message originates from the master node, the two state-related
+    fields are used to push the new **global** state to each worker:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: When exiting the barrier for the `POST` step, the master will send back the
+    new **global** aggregator values, which have been calculated by applying the deltas
+    sent in by each worker. Workers are expected to overwrite their local aggregator
+    values with the values received by the master.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When exiting the barrier for the `POST_KEEP_RUNNING` step, the master will send
+    back the **global** number of vertices that were active during the last step.
+    Workers are expected to use this global value to test the stop condition for the
+    algorithm.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Finally, if the master receives a relay request, it examines its destination
+    to select the worker responsible for dealing with it and simply forwards the message
+    over the gRPC stream.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining abstractions for working with bi-directional gRPC streams
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we saw in [Chapter 9](b3edd7bf-fd1d-4203-bd96-9113cdbb2422.xhtml),* Communicating
+    with the Outside World,* bi-directional gRPC streams are full-duplex; the receive
+    and send channels operate independently of each other. However, reading from a
+    gRPC stream is a blocking operation. Therefore, to process both sides of the stream,
+    we need to spin up some goroutines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another important caveat of gRPC streams is that, while we can call `Recv` and
+    `Send` from different goroutines, calling each of these methods concurrently from
+    different goroutines is not safe and can lead to data loss! Therefore, we need
+    a mechanism to *serialize* send and receive operations on the gRPC stream. The
+    kind of obvious Go primitives for exactly this type of task are channels.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To make our life a bit easier and isolate the rest of our code from having to
+    deal with the underlying gRPC streams, we will go ahead and introduce a set of
+    abstractions to wrap the gRPC streams and provide a clean, channel-based interface
+    for reading and writing from/to the stream.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Remote worker stream
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '`remoteWorkerStream`, the definition of which is shown in the following listing,
+    is used by the master to wrap an incoming worker connection:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can see in the preceding code, `remoteWorkerStream` defines three channels
+    for interacting with the stream:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`recvMsgCh` is used for receiving payloads sent in by the worker.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sendMsgCh` is used for sending payloads from the master to the worker.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`sendErrCh` allows the master to disconnect the worker connection with or without
+    an error code.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The code that interacts with a remote worker stream can use the following methods
+    to obtain the appropriate channel instance for reads and writes as well as for
+    closing the stream:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `remoteWorkerStream` struct also includes two fields (protected by a mutex)
+    for tracking the connection status for the remote worker. While the master is
+    coordinating the execution of a job, it must monitor the health of each individual
+    worker and abort the job if any of the workers suddenly disconnects. To do so,
+    the master can register a disconnect callback via the following method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Since `SetDisconnectCallback` may be invoked *after* the worker stream has already
+    disconnected, the stream uses the Boolean `disconnected` field to keep track of
+    this event and automatically invokes the provided callback if it is required.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'All we need to do to create a new `remoteWorkerStream` instance is to invoke
+    its constructor and pass the gRPC stream as an argument. The constructor implementation
+    (shown in the following) will initialize the various buffered channels required
+    for working with the stream:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `HandleSendRecv` method implements the required logic for working with
+    the underlying stream. As you can see in the following snippet, it first creates
+    a cancelable context, which is always canceled when the method returns. Then,
+    it spins up a goroutine to asynchronously handle the receiving end of the stream. The
+    method then enters an infinite `for` loop, where it processes the sending end
+    of the stream until either the stream is gracefully closed or an error occurs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As far as the send implementation is concerned, the previous code uses a `select`
+    block to wait for one of the following events:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A payload is emitted via `sendMsgCh`. In this case, we attempt to send it through
+    the stream and return any error to the caller.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An error is emitted via `sendErrCh` or the channel is closed (see the `Close`
+    method implementation a few lines up). If no error has occurred, the method returns
+    with a `nil` error. Otherwise, we use the `grpc/status` package to tag the error
+    with the gRPC specific `codes.Aborted` error code and return the error to the
+    caller.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Finally, if the context is canceled by the `handleRecv` goroutine, we exit with
+    a typed `errJobAborted` error message.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let''s now take a closer look at the implementation of the `handleRecv` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Calling the stream's `Recv` method blocks until either a message becomes available
+    or the remote connection is severed. If we receive an incoming message from the
+    worker, a `select` block is used to either enqueue the message to the `recvMsgCh`
+    or to exit the goroutine if the context is canceled (for example, `HandleSendRecv`
+    exits due to an error).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the other hand, if we do detect an error, we always assume that the client
+    disconnected and invoke the `handleDisconnect` helper method before canceling
+    the context and exiting the goroutine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding implementation is pretty straightforward. The `mu` lock is acquired
+    and a check is performed to see whether a disconnect callback has been specified.
+    If that's the case, then the callback is invoked and then the `disconnected` flag
+    is set to `true` to keep track of the disconnect event.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Remote master stream
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Next, we will move to the worker side and examine the equivalent stream helper
+    for handling a connection to the master node. The definition of the `remoteMasterStream`
+    type is pretty much the same as `remoteWorkerStream`, given as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once the worker connects to the master node and receives a job assignment,
+    it will invoke the `newRemoteMasterStream` function to wrap the obtained stream
+    connection with a `remoteMasterStream` instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see in the previous code snippet, the constructor creates a cancelable
+    context and allocates a pair of channels to be used for interfacing with the stream.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Just as we did for the `remoteWorkerStream` implementation, we will define
+    a pair of convenience methods for accessing these channels, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `HandleSendRecv` method is responsible for receiving incoming messages from
+    the master and for transmitting outgoing messages from the worker.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As you can see in the following block of code, the implementation is more or
+    less the same as the `remoteWorkerStream` implementation with two small differences.
+    Can you spot them? Take a look:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first difference has to do with the way we handle errors returned by the
+    stream's `Send` method. If the worker closes the send stream while the preceding block
+    of code is attempting to send a payload to the master, `Send` will return an `io.EOF`
+    error to let us know that we cannot send any more messages through the stream.
+    Since the worker is the one that controls the send stream, we treat `io.EOF` errors
+    as *expected* and ignore them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Secondly, as the worker is the initiator of the RPC, it is not allowed to terminate
+    the send stream with a specific error code as we did in the case of the master
+    stream implementation. Consequently, for this implementation, there is no need
+    to maintain (and poll) a dedicated error channel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the other hand, the following receive side code is implemented in exactly
+    the same way as `remoteMasterStream`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To actually shut down the stream and cause the `HandleSendRecv` method to exit,
+    the worker can invoke the `Close` method of `remoteMasterStream`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Close` method first cancels the context monitored by the `select` blocks
+    in both the receive and send code. As we discussed a few lines preceding, the
+    latter action will cause any pending `Send` calls to fail with an `io.EOF` error
+    and allow the `HandleSendRecv` method to return. Furthermore, the cancelation
+    of the context enables the `handleRecv` goroutine to also return, hence ensuring
+    that our implementation is not leaking any goroutines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a distributed barrier for the graph execution steps
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A barrier can be thought of as a rendezvous point for a set of processes. Once
+    a process enters the barrier, it is prevented from making any progress until all
+    other expected processes also enter the barrier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In Go, we could model a barrier with the help of the `sync.WaitGroup` primitive,
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: To guarantee that each worker executes the various stages of the graph state
+    machine in lock-step with the other workers, we must implement a similar barrier
+    primitive. However, as far as our particular application is concerned, the goroutines
+    that we are interested in synchronizing execute on different hosts. This obviously
+    complicates things as we now need to come up with a distributed barrier implementation!
+  prefs: []
+  type: TYPE_NORMAL
+- en: As we mentioned in the previous section, the master node will serve the role
+    of the coordinator for the distributed barrier. To make the code easier to follow,
+    in the following subsections, we will split our distributed barrier implementations
+    into a worker-side and master-side implementation and examine them separately
+    of each other.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing a step barrier for individual workers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The `workerStepBarrier` type encapsulates the required logic for enabling a
+    worker to enter the barrier for a particular graph execution step and to wait
+    until the master notifies the worker that it can now exit the barrier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `workerStepBarrier` type is defined as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To understand how these fields are initialized, let''s take a look at the constructor
+    for a new barrier instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, the constructor accepts a context and a `remoteMasterStream`
+    instance as an argument. The context allows the barrier code to block until either
+    a notification is received by the master or the context gets canceled (for example, because
+    the worker is shutting down).
+  prefs: []
+  type: TYPE_NORMAL
+- en: To allow the worker to block until a notification is received from the master,
+    the constructor will allocate a separate channel for each type of step that we
+    want to create a barrier for. When the protoc compiles our protocol buffer definitions
+    into Go code, it will also provide us with the handy `Step_Type` map that normally
+    is used to obtain the string-based representation of a step type (protocol buffers
+    model `enum` types as `int32` values). The constructor exploits the presence of
+    this map to automatically generate the required number of channels using a plain
+    `for` loop block.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When the worker wants to enter the barrier for a particular step, it creates
+    a new `Step` message with the local state that it wants to share with the master
+    and invokes the blocking `Wait` method, which is shown as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Wait` method consists of two basic parts. After validating the step type,
+    the implementation tries to push a new `WorkerPayload` into `remoteMasterStream`
+    so it can be sent to the master via the gRPC stream.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once the payload is successfully enqueued, the worker then waits on the appropriate
+    channel for the specified step type and the master broadcasts a `Step` message
+    to all workers to let them know that they can exit the barrier. Once that message
+    is received, it is returned to the caller, which is then free to perform the required
+    chunk of work for implementing this particular graph computation step.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'By now, you are probably wondering who is responsible for publishing the master''s
+    broadcast step to the channel that the `Wait` method is trying to read from. To
+    enforce a clear separation of concerns (and to make testing easier), the barrier
+    implementation does not concern itself with the low-level details of reading the
+    responses from the master. Instead, it provides a `Notify` method that another
+    component (the job coordinator) will invoke once a step message is received by
+    the master:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: The code in the `Notify` method's implementation examines the step type field
+    and uses it to select the channel for publishing the `Step` response.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, let's move on to examine the equivalent step barrier implementation for
+    the master side.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing a step barrier for the master
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Now, let''s take a look at the other half of the barrier implementation logic
+    that runs on the master node. The `masterStepBarrier` type, the definition of
+    which is given as follows, is admittedly more interesting as it contains the actual
+    barrier synchronization logic:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'One key difference is that the `masterStepBarrier` type defines two types of
+    channels:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Wait channel**: It is a channel for which the barrier monitors for incoming
+    `Step` messages from workers.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Notify channel**: It is a channel where remote worker streams will block
+    waiting for a `Step` message to be broadcast by the master node.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As you can see by skimming through the constructor logic for creating the master
+    barrier, we automatically create the required set of channels by iterating the
+    `Step_Type` variable that the protoc generated for use when the protocol buffer
+    definitions were compiled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'What''s more, when creating a new barrier, the caller is expected to also provide
+    the number of workers that are expected to join the barrier as an argument:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the previous section, we saw that, when the worker invokes the `Wait` method
+    on `workerStepBarrier`, a `Step` message is published via `remoteMasterStream`.
+    Now, we will examine what happens on the receiving end. Once the published `Step`
+    message is received, the master invokes the `Wait` method on `masterStepBarrier`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In principle, this is nothing more than a good old unary RPC implemented over
+    a gRPC stream! Here is what happens inside the master''s `Wait` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: The implementation first attempts to publish the incoming `Step` message to
+    the *wait* channel responsible for handling the barrier for the step advertised
+    by the `Step` message's `type` field. This bit of code will block until the master
+    is ready to enter the same barrier (or the context expires due to the master shutting
+    down).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Following a successful write to the *wait* channel, the code will then block
+    a second time waiting for a notification from the master to be published to the
+    appropriate *notify* channel for the step type. Once the `Step` response from
+    the master is dequeued, `Wait` unblocks and returns the `Step` to the caller.
+    The caller is then responsible for transmitting the `Step` message back to the
+    worker, where it will be provided as an argument to the worker barrier's `Notify`
+    method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When the master node is ready to enter the barrier for a particular step, it
+    invokes the blocking `WaitForWorkers` method providing the step type as an argument.
+    This method, the implementation of which is shown as follows, is equivalent to
+    the worker side''s `Wait` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: The purpose of the preceding method is to wait until the expected number of
+    workers join the barrier for the particular step type (via the `Wait` method)
+    and to collect the individual `Step` messages published by each worker. To this
+    end, the code first initializes a slice with enough capacity to hold the incoming
+    messages and performs `numWorkers` reads from the appropriate *wait* channel for
+    the step.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once all workers have joined the barrier, `WaitForWorkers` unblocks and returns
+    the slice of `Step` messages to the caller. At this point, while all workers are
+    still blocked, the master is now within what is referred to as a *critical section*,
+    where it is free to implement any operation it requires in an **atomic** fashion.
+    For instance, while inside the critical section for `POST_STEP`, the master will
+    iterate the workers' step messages and apply the partial aggregator deltas from
+    each worker into its own global aggregator state.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Then, once the master is ready to exit its critical section, it invokes the
+    `NotifyWorkers` method with a `Step` message to be broadcast to the workers currently
+    blocked on the barrier:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: All `NotifyWorkers` needs to do is to push `numWorkers` copies of the master's
+    `Step` message to the appropriate notification channel for the barrier step. Writing
+    to the notification channel unblocks the callers of the `Wait` method and allows
+    the step message to be propagated back to the worker.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Does all of this seem confusing to you? The following diagram visualizes all
+    the barrier-related interactions between the master and the server and will hopefully
+    allow you to connect the dots:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/3ca08530-9b38-4b6b-8b4f-7a6fea7b2912.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 3: An end-to-end illustration of the barrier interactions between the
+    master and the worker'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is a brief summary of what''s going on in the preceding diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The master calls `WaitForWorkers` for the `POST` step and blocks.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The worker calls `Wait` for the `POST` step on its local barrier instance and
+    blocks.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A `Step` message is published by through `remoteMasterStream`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The piece of code on the master side that processes incoming worker messages
+    receives the worker's `Step` message and invokes `Wait` on the master barrier
+    and blocks.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: As the required number of workers (one in this example) has joined the barrier,
+    the master's `WaitForWorkers` call unblocks allowing the master to enter a critical
+    section where the master executes its step-specific logic.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The master then invokes `NotifyWorkers` with a new `Step` message for the `POST`
+    step.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The `Wait` method on the master side now unblocks and the `Step` message that
+    the master just broadcast is sent back through the stream to the worker.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Upon receiving the `Step` response from the master, the worker's `Wait` method
+    unblocks and the worker is now free to execute its own step-specific logic.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Creating custom executor factories for wrapping existing graph instances
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based Data
+    Processing*, we explored the use of the `bspgraph` package to implement a few
+    popular graph-based algorithms such as Dijkstra's shortest path, graph coloring,
+    and PageRank. To orchestrate the end-to-end execution of the aforementioned algorithms,
+    we relied on the API provided by the package's `Executor` type. However, instead
+    of having our algorithm implementations *directly* invoke the `Executor` types
+    constructor, we allowed the end users to optionally specify a custom executor
+    factory for obtaining an `Executor` instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Any Go function that satisfies the following signature can be effectively used
+    in place of the default constructor for a new `Executor` constructor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: The key benefit of this approach is that the executor factory is given full
+    access to the *algorithm-specific* callbacks for the various stages of the computation.
+    In this chapter, we will be exploiting this mechanism to intercept and decorate
+    the user-defined callbacks with the necessary glue logic for interfacing with
+    the barrier primitive that we built in the previous section. The patched callbacks
+    will then be passed to the original `Executor` constructor and the result will
+    be returned to the caller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This little trick, while completely *transparent* to the original algorithm
+    implementation, is all that we really need to ensure that all callbacks are executed
+    in lock-step with all other workers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The workers' executor factory
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a suitable executor factory for workers, we can use the following
+    helper function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `newWorkerExecutorFactory` function expects two arguments, namely a `Serializer`
+    instance and an initialized `workerStepBarrier` object. The serializer instance
+    is responsible for serializing and unserializing the aggregator values to and
+    from the `any.Any` protocol buffer messages that workers exchange with the master
+    when they enter or exit the various step barriers. In the following code, you
+    can see the definition of the `Serializer` interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see in the preceding code snippet, the `newWorkerExecutorFactory`
+    function allocates a new `workerExecutorFactory` value and returns a closure that
+    satisfies the `ExecutorFactory` signature. When the generated factory function
+    is invoked, its implementation captures the original callbacks and invokes the
+    real executor constructor with a set of patched callbacks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at what happens inside each one of the patched callbacks,
+    starting with the one responsible for handling the `PRE` step:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can see, the callback immediately joins the barrier and, once instructed
+    to exit, it invokes the original (if defined) `PRE` step callback. The following
+    code shows the next callback on our list, invoked immediately after executing
+    a graph super-step:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: We mentioned before that, during the `POST` step, workers must transmit their
+    partial aggregator deltas to the master when they enter the `POST` step barrier.
+    This is exactly what happens in the preceding previous snippet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `serializeAggregatorDeltas` helper function iterates the list of aggregators
+    that are defined on the graph and uses the provided `Serializer` instance to convert
+    them into `map[string]*any.Any`. The map with the serialized deltas is then attached
+    to a `Step` message and sent to the master via the barrier's `Wait` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The master tallies the deltas from each worker and broadcasts back a new `Step`
+    message that contains the updated set of global aggregator values. Once we receive
+    the updated message, we invoke the `setAggregatorValues` helper, which unserializes
+    the incoming `map[string]*any.Any` map entries and overwrites the aggregator values
+    for the local graph instance. Before returning, the callback wrapper invokes the
+    original user-defined `POST` step callback if one is actually defined.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The last callback wrapper implementation that we will inspect is the one invoked
+    for the `POST_KEEP_RUNNING` step, given as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: As with every other callback wrapper implementation, the first thing we do is
+    to enter the barrier for the current step type. Note that the outgoing `Step`
+    message includes the **local** number of active vertices in this step. The response
+    we get back from the master includes the **global** number of active vertices,
+    which is the actual value that must be passed to the user-defined callback for
+    this step.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The master's executor factory
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The code for generating an executor factory for the master is quite similar;
+    to avoid repeating the same code blocks again, we will only list the implementations
+    for each one of the individual callback wrappers, starting with `preStepCallback`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: Compared to the worker-side implementation, the master behaves a bit differently.
+    To begin with, the master waits until all workers enter the barrier. Then, with
+    the help of the `masterStepBarrier` primitive, it broadcasts a notification message
+    that unblocks the workers and allows both the master and the workers to execute
+    the same user-defined callback for the step.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s now see what happens inside the callback override for the `POST` step:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once again, the master waits for all workers to enter the barrier but this time,
+    it collects the `Step` messages sent in by each individual worker. Then, the master
+    begins its critical section where it iterates the list of collected `Step` messages
+    and applies the partial deltas to its own aggregator. Finally, the new global
+    aggregator values are serialized via a call to the `serializeAggregatorValues`
+    helper and broadcast back to each worker.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As expected, the callback wrapper for the `POST_STEP_KEEP_RUNNING` step follows
+    exactly the same pattern:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: Inside the master's critical section, the individual `ActiveInStep` counts reported
+    by each worker are aggregated and the result is broadcast back to each worker.
+    After exiting the barrier, the master invokes the user-defined callback for the
+    step.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Coordinating the execution of a graph job
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: So far, we have created the necessary abstractions for reading from and writing
+    to the bi-directional stream established between the workers and the master. What's
+    more, we have implemented a distributed barrier primitive that serves as a rendezvous
+    point for the various graph compute steps that are asynchronously executed by
+    the worker and the master nodes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we have defined a set of custom executor factories that enable us to
+    wrap any existing algorithm built with the help of the `bspgraph` package and
+    transparently allow it to use the barrier primitive to ensure that the graph computations
+    are executed in lock-step across all workers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One thing that we should keep in mind is that running the graph compute algorithm
+    to completion is not a sufficient condition to treat a distributed *compute job*
+    as being complete! We still have to ensure that the results of the computation
+    are persisted to stable storage without an error. The latter task is far from
+    trivial; many things can go wrong while the workers attempt to save their progress
+    as the workers might crash, the store might not be reachable, or a various host
+    of random, network-related failures might occur.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As the old saying goes—building distributed systems is hard! To this end, we
+    need to introduce an **orchestration layer**—in other words, a mechanism that
+    will combine all of the components that we have built so far and include all of
+    the required logic to coordinate the end-to-end execution of a distributed computation
+    job. Should any error occur (at a worker, the master, or both), the coordinator
+    should detect it and signal all workers to abort the job.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Simplifying end user interactions with the dbspgraph package
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This chapter explores the various components of the distributed job runner implementation
+    in detail. Nevertheless, we would rather want to keep all of the internal details
+    hidden from the intended user of the `dbspgraph` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Essentially, we need to come up with a simplified API that the end users will
+    use to interact with our package. As it turns out, this is quite easy to do. Assuming
+    that the end users have already created (and tested) their graph algorithm with
+    the help of the `bspgraph` package, they only need to provide a simple adaptor
+    for interacting with the algorithm implementation. The set of required methods
+    is encapsulated in the `Runner` interface definition, which is outlined as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The first argument to each one of the `Runner` methods is a structure that
+    contains metadata about the currently executing job. The `Details` type mirrors
+    the fields of the `JobDetails` protocol buffer message that the master broadcasts
+    to each worker and is defined as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `StartJob` method provides a hook for allowing the end users to initialize
+    a `bspgraph.Graph` instance, load the appropriate set of data (vertices and edges),
+    and use the provided `ExecutorFactory` argument to create a new `Executor` instance,
+    which `StartJob` returns to the caller. As you probably guessed, our code will
+    invoke `StartJob` with the appropriate custom execution factory depending on whether
+    the code is executing on a worker or master node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once both the master and workers have completed the execution of the graph,
+    we will arrange things so that the `CompleteJob` method is invoked. This is where
+    the end user is expected to extract the computed application-specific results
+    from the graph and persist them to the stable store.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, should an error occur either while running the algorithm
+    or while attempting to persist the results, our job coordinator will invoke the
+    `AbortJob` method to notify the end user and let them properly clean up or take
+    any required action for rolling back any changes already persisted to disk.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The worker job coordinator
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We will start by examining the coordinator logic that the worker side executes.
+    Let''s take a quick look at the constructor for the `workerJobCoordinator` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The constructor expects an external context as an argument as well as a configuration
+    object, which includes the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The job metadata
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A `remoteMasterStream` instance, which we will use to interact with the master
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A user-provided job `Runner` implementation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A user-provided `Serializer` instance to be used by both the executor factory
+    (marshaling aggregator values) and for marshaling outgoing graph messages that
+    need to be relayed through the master node
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Before proceeding, the constructor creates a new *cancelable* context (`jobCtx`),
+    which wraps the caller-provided context. The `jobCtx` instance is then used as
+    an argument for creating a `workerStepBarrier` instance. This approach allows
+    the coordinator to fully control the life cycle of the barrier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If an error occurs, the coordinator can simply invoke the `cancelJobCtx` function
+    and automatically have the barrier shut down. Of course, the same tear-down semantics
+    also apply if the external context happens to expire.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running a new job
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Once the worker receives a new job assignment from the master, it calls the
+    coordinator''s constructor and then invokes its `RunJob` method, which blocks
+    until the job either completes or an error occurs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s break down the `RunJob` implementation into smaller chunks and go through
+    each one:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: The very first thing that `RunJob` does is to create a `workerExecutor` factory
+    using the configured serializer and the barrier instance that the constructor
+    already set up. Then, the `StartJob` method of the user-provided `job.Runner`
+    is invoked to initialize the graph and return an `Executor` value that we can
+    use. Note that, up to this point, *our code* is totally oblivious to how the user-defined
+    algorithm works!
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next step entails the extraction of the `bspgraph.Graph` instance from the
+    returned `Executor` instance and the registration of a `bspgraph.Relayer` helper,
+    which the graph will automatically invoke when a vertex attempts to send a message
+    with an ID that is not recognized by the local graph instance. We will take a
+    closer look at the `relayNonLocalMessage` method implementation in one of the
+    following sections where we will be discussing the concept of message relaying
+    in more detail. This completes all of the required initialization steps. We are
+    now ready to commence the execution of the graph compute job!
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To not only monitor the health of the connection to the master but also asynchronously
+    process any incoming payloads, we will spin up a goroutine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: While our goroutine is busy processing incoming payloads, `RunJob` invokes the
+    `runJobToCompletion` helper method that advances through the various stages of
+    the graph execution's state machine. If an error occurs, we invoke the user's
+    `AbortJob` method and then proceed to check the cause of the error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If the job execution failed due to a context cancelation, we replace the error
+    with the more meaningful, typed `errJobAborted` error. On the other hand, if the
+    `handleMasterPayloads` method reported a more interesting error, we overwrite
+    the returned error value with the reported error:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: Before returning, we cancel the job context to trigger a teardown of not only
+    the barrier but also the spawned payload-handling goroutine and `Wait` on the
+    wait group until the goroutine exits.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Transitioning through the stages of the graph's state machine
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The role of the `runJobToCompletion` method is to execute all stages of the
+    graph's state machine until either the job completes or an error occurs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you can see in the following code snippet, we request from the executor instance
+    to run the graph algorithm until its termination condition is met. Then, the worker
+    reports its success to the master by joining the barrier for the `EXECUTED_GRAPH`
+    step.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once all other workers reach the barrier, the master unblocks us and we proceed
+    to invoke the `CompleteJob` method on the user-provided `job.Runner` instance.
+    Then, we notify the master that the calculations have been stored by joining the
+    barrier for the `PERSISTED_RESULTS` step.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After the master unblocks us for the last time, we notify the master that we
+    have reached the final stage of the state machine by joining the barrier for the
+    `COMPLETED_JOB` step:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: When all workers reach the `COMPLETED_JOB` step, the master will **terminate
+    the connected job stream** with a `grpc.OK` code. Due to the way that gRPC schedules
+    message transmissions, there is no guarantee that the code will be received by
+    the worker before the stream is actually torn down (in the latter case, we might
+    get back an `io.EOF` error).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Keep in mind, however, that the master will only disconnect us once all workers
+    reach the last barrier and report that they have successfully persisted their
+    local results. This is the reason why we can safely omit the error check in the
+    last `barrier.Wait` call.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Handling incoming payloads from the master
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we saw in the previous section, the body of the payload-handling goroutine
+    first registers a disconnect callback with the master stream and then delegates
+    the payload processing to the auxiliary `handleMasterPayloads` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This way, if we suddenly lose the connection to the master, we can simply cancel
+    the job context and cause the job to abort with an error. The following disconnect
+    callback implementation is quite simple:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `handleMasterPayloads` method implements a long-running event processing
+    loop. A `select` block watches for either an incoming payload or the cancelation
+    of the job context.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If the context gets canceled or the `masterStream` closes the channel that
+    we currently read from, the method returns:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once a valid payload is received from the master, we examine its content and
+    execute the appropriate action depending on the payload type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the master relayed a message to us, the handler invokes the `deliverGraphMessage`
+    method (see the next section), which attempts to deliver the message to the intended
+    recipient. If the message delivery attempt fails, the error is recorded in the
+    `asyncWorkerErr` variable and the job context is canceled before returning.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The other type of payload that we can receive from the master is a `Step` message,
+    which the master broadcasts to notify workers that they can exit a barrier they
+    are currently waiting on. All we need to do is to invoke the barrier's `Notify`
+    method with the obtained `Step` message as an argument.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using the master as an outgoing message relay
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we saw in the `RunJob` method's initialization block, once we gain access
+    to an executor instance for the graph, we register a `bspgraph.Replayer` instance
+    which serves as an escape hatch for relaying messages destined for vertices, which
+    are managed by a different graph instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This is how the `relayNonLocalMessage` helper method is implemented:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: We invoke the user-defined serializer to marshal the application-specific graph
+    message into an `any.Any` protocol buffer message and attach it to a new `WorkerPayload`
+    instance as `RelayMessage`. The implementation then blocks until the message is
+    successfully enqueued to the `masterStream` outgoing payload channel or the job
+    context gets canceled.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the other hand, when the master relays an incoming graph message to this
+    worker, the coordinator''s `handleMasterPayloads` method will invoke the `deliverGraphMessage`
+    method, the listing of which follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: This time, the serializer is used to unpack the incoming `any.Any` message back
+    to a type that is compatible with the `message.Message` interface, which is expected
+    by the graph's `SendMessage` method. As the intended recipient is a local vertex,
+    all we need to do is to pretend we are a local graph vertex and simply invoke
+    the graph's `SendMessage` method with the appropriate destination ID and message
+    payload.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The master job coordinator
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this section, we will explore the implementation of the job coordinator component
+    that is responsible for orchestrating the execution of a distributed graph computation
+    job on the master node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In a similar fashion to how the worker job coordinator was implemented, we
+    will start by defining a configuration struct to hold the necessary details for
+    creating a new coordinator instance and then proceed to define the `masterJobCoordinator`
+    type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, the configuration options for the master coordinator are pretty
+    much the same as the worker variant with the only exception being that the master
+    coordinator is additionally provided with a slice of `remoteWorkerStream` instances.
+    It corresponds to the workers that the master has assigned to this particular
+    job. The same symmetry pattern between the two job coordinators types is also
+    quite evident in the set of fields in the `masterJobCoordinator` definition.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once the master node has gathered enough workers for running a new job, it
+    will call the `newMasterJobCoordinator` constructor, the implementation of which
+    is shown as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: One of the key responsibilities of the master coordinator is to evenly split
+    the UUID space into chunks and assign each chunk to one of the workers. To this
+    end, before allocating a new coordinator instance, the constructor will first
+    create a new partition range (see [Chapter 10](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml),
+    *Building, Packaging, and Deploying Software*, for details on the `Range` type)
+    using the extents provided by the caller via the `job.Details` parameter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Given that our proposed cluster configuration uses a single master and multiple
+    workers, the extents from the job details parameter will always cover the **entire**
+    UUID space.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running a new job
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Once the master node creates a new `masterJobCoordinator` instance, it invokes
+    its `RunJob` method to kick off the execution of the job. Since the method is
+    a bit lengthy, we will break it down into a set of smaller blocks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first two lines in the previous block should look a bit familiar. We are
+    following exactly the same initialization pattern as we did with the worker coordinator's
+    implementation, which is we first create our custom executor factory and invoke
+    the user-provided `StartJob` method to obtain an executor for the graph algorithm.
+    Then, we iterate the list of worker streams and invoke the `publishJobDetails`
+    helper to construct and send a `JobDetails` payload to each connected worker.
+  prefs: []
+  type: TYPE_NORMAL
+- en: But how does the `publishJobDetails` method actually figure what UUID range
+    to include in each outgoing `JobDetails` message? If you recall from [Chapter
+    10](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml), *Building, Packaging, and Deploying
+    Software,* the `Range` type provides the `PartitionExtents` convenience method,
+    which gives a partition number in the `[0, numPartitions)` range. It returns the
+    UUID values that correspond to the beginning and end of the requested partition.
+    So, all we need to do here is to treat the worker's index in the worker list as
+    the partition number assigned to the worker!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once the `JobDetails` payloads are broadcast by the master and received by the
+    workers, each worker will create its own local job coordinator and begin executing
+    the job just as we saw in the previous section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As the master is dealing with multiple worker streams, we need to spin up a
+    goroutine for handling incoming payloads from each worker. To ensure that all
+    goroutines properly exit before `RunJob` returns, we will make use of `sync.WaitGroup`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'While our goroutines are busy handling incoming payloads, the master executes
+    the various stages of the graph''s state machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once the job execution completes (with or without an error), the job context
+    is canceled to send a stop signal to any still-running payload processing goroutines.
+    The `RunJob` method then blocks until all goroutines exit and then returns.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Transitioning through the stages for the graph's state machine
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The `runJobToCompletion` implementation for the master job coordinator is nearly
+    identical to the one used by the worker:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: Again, the user-defined algorithm is executed until the terminating condition
+    is met. Assuming that no error occurred, the master simply waits for all workers
+    to transition through the remaining steps of the graph execution state machine
+    (`EXECUTED_GRAPH`, `PERSISTED_RESULTS`, and `COMPLETED_JOB`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that, in the preceding implementation, the master does not invoke `NotifyWorkers`
+    on the barrier for the `COMPLETED_JOB` step. This is intentional; once all workers
+    reach this stage, there is no further operation that needs to be performed. We
+    can simply go ahead and close each workers' job stream.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Handling incoming worker payloads
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The `handleWorkerPayloads` method is responsible for handling incoming payloads
+    from a particular worker. The method blocks waiting for either a new incoming
+    payload to appear or the job context to be canceled:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: Incoming payloads contain either a message relay request or a `Step` message,
+    which the worker sends to request admission to the barrier for a particular type
+    of step.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the latter case, the `Step` message from the worker is passed as an argument
+    to the master barrier's `Wait` method. As we explained in a previous section,
+    the `Wait` method blocks until the master invokes the `NotifyWorkers` method with
+    its own `Step` message.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once that occurs, the new step message is wrapped in `MasterPayload` and transmitted
+    to the worker via the stream.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Relaying messages between workers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'For the master to be able to relay messages between workers, it needs to be
+    able to *efficiently* answer the following question: "*given a destination ID,
+    which partition does it belong to?"*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This certainly sounds like a query that the `Range` type should be able to
+    answer! To jog your memory, this is what the `Range` type definition from [Chapter
+    10](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml), *Building, Packaging, and Deploying
+    Software,* looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `start` field keeps track of the range''s start UUID while `rangeSplits[p]`
+    tracks the **end** UUID value for the *p[th]* partition. Therefore, the UUID range
+    for a partition *p* can be calculated as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/5d0221d8-5929-4223-be6f-2b5b8d013afd.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Before we examine how the UUID-to-partition number query is actually implemented,
+    try as a simple thought exercise to think of an algorithm for answering this type
+    of query (no peeking!).
+  prefs: []
+  type: TYPE_NORMAL
+- en: One way to achieve this is to iterate the `rangeSplits` slice and locate a range
+    that includes the specified ID. While this naive approach would yield the correct
+    answer, it will unfortunately not scale in a scenario where you might have hundreds
+    of workers exchanging messages with each other.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Can we do any better? The answer is yes. We can exploit the observation that
+    the values in the `rangeSplits` field are stored in sorted order and use the handy
+    `Search` function from the Go `sort` package to perform a binary search.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is a much more efficient implementation of this type of query:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `sort.Search` function executes a binary search on a slice and returns the
+    *smallest* index for which a user-defined predicate function returns **true**.
+    Our predicate function checks that the provided ID value is *strictly less* than
+    the end UUID of the partition currently being scanned.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now that we have the means to efficiently answer UUID-to-partition queries,
+    let''s take a look at the implementation of the `relayMessageToWorker` method,
+    which is invoked by the worker payload handler for message relay requests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first thing we need to do is to parse the destination ID and make sure that
+    it actually contains a valid UUID value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then, we call the `PartitionForID` helper to look up the index of the partition
+    that the destination ID belongs to and forward the message to the worker assigned
+    to it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What if it turns out that the worker that asked us to relay the message in the
+    first place is *also* the one we need to relay the message to? In such a scenario,
+    we will treat the destination ID as being invalid and abort the job with an error.
+    The justification for this decision is that if the local graph was aware of that
+    particular destination, it would simply locally enqueue the message for delivery
+    instead of attempting to relay it through the master node.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining package-level APIs for working with master and worker nodes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: At this point, we have implemented all required internal components for running
+    both the master and the server nodes. All we need to do now is to define the necessary
+    APIs for allowing the end users to create and operate new workers and master instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instantiating and operating worker nodes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a new worker, the user of the package invokes the `NewWorker` constructor,
+    which returns a new `Worker` instance. The definition of the `Worker` type looks
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Worker` type stores the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The client gRPC connection to the master
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An instance of the `JobQueueClient` that the protoc compiler has automatically
+    generated for us from the RPC definition for the job queue
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The required components for interfacing with the user's **bspgraph**-based algorithm
+    implementation (that is, a job `Runner` and `Serializer` for graph messages and
+    aggregator values)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'After obtaining a new `Worker` instance, the user has to connect to the master
+    by invoking the worker''s `Dial` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once a connection to the master has been successfully established, the user
+    can ask the worker to fetch and execute the next job from the master by invoking
+    the worker''s `RunJob` method. Let''s see what happens within that method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'First of all, the worker makes an RPC call to the job queue and obtains a gRPC
+    stream. Then, the worker invokes the `waitForJob` helper, which performs a blocking
+    `Recv` operation on the stream and waits for the master to publish a job details
+    payload. After the payload is obtained, its contents are validated and unpacked
+    into a `job.Details` instance, which is returned to the `RunJob` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE64]'
+  prefs: []
+  type: TYPE_PRE
+- en: Next, the worker initializes the required components for executing the job.
+    As you can see in the previous code, we create a wrapper for the stream and pass
+    it as an argument to the job coordinator constructor.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We are now ready to delegate the job execution to the coordinator! However,
+    before we do that, there is one last thing we need to do, that is, we need to
+    fire up a dedicated goroutine for handling the send and receive ends of the wrapped
+    stream:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE65]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we invoke the coordinator''s `RunJob` method and emit a logline depending
+    on whether the job succeeded or failed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE66]'
+  prefs: []
+  type: TYPE_PRE
+- en: Just as we did so far with all other blocks of code that spin up goroutines,
+    before returning from the `RunJob` method, we terminate the RPC stream (but leave
+    the client connection intact for the next RPC call) and wait until the stream-handling
+    goroutines cleanly exits.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's move on to defining the necessary APIs for creating new master instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instantiating and operating master nodes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'As you probably guessed, the `Master` type would encapsulate the implementation
+    details for creating and operating a master node. Let''s take a quick look into
+    its constructor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE67]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The constructor expects a `MasterConfig` object as an argument that defines
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It defines the address where the master node will be listening for incoming
+    connections.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It defines the `job.Runner` instance for interfacing with the user-defined graph
+    algorithm.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It defines `Serializer` for marshaling and unmarshaling aggregator values. Note
+    that, in contrast to the worker implementation, the master only relays messages
+    between the workers and never needs to peek into the actual message contents.
+    Therefore, masters require a much simpler serializer implementation.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Besides allocating a new `Master` object, the constructor also creates and attaches
+    to it a *worker pool*. We haven't really mentioned the concept of a **worker pool**
+    in this chapter, so right about now, you are probably wondering about its purpose.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A worker pool serves as a waiting area for connected workers until the master
+    is asked by the end user to begin the execution of a new job. New workers may
+    connect to (or disconnect from) the master at any point in time. By design, workers
+    are not allowed to join a job that is *already being executed*. Instead, they
+    will always be added to the pool where they will wait for the next job run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When the end user requests a new job execution from the master, the required
+    number of workers for the job is extracted from the pool and the job details are
+    broadcast to them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The implementation of the worker pool contains quite a bit of boilerplate code,
+    which has been omitted in the interest of brevity. However, if you're interested
+    in delving deeper, you can explore its source code by examining the contents of the
+    `worker_pool.go` file, which can be found in the `Chapter12/dbspgraph` package in
+    this book's GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Handling incoming gRPC connections
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'While the constructor returns a new and configured `Master` instance, it does
+    not automatically start the master''s gRPC server. Instead, this task is left
+    to the end user, who must manually invoke the master''s `Start` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE68]'
+  prefs: []
+  type: TYPE_PRE
+- en: As is customary when launching gRPC servers in Go, we first need to create a
+    new `net.Listener` instance, then create the gRPC server instance and serve it
+    on the listener we just created. Of course, before invoking the `Serve` method
+    on the server, we need to register a handler for incoming RPCs that adheres to
+    the interface that protoc generated for us.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To avoid polluting the public API of the `Master` type with the RPC method signatures,
+    we employ a small trick—we define an *un-exported* shim that implements the required
+    interface and registers it with our gRPC server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The implementation of the handler for the `JobStream` RPC is just a handful
+    of lines:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE69]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the interest of making debugging easier, the RPC handler will check whether
+    it can access any peer-related information for the connected worker and include
+    them in a log message. Next, the incoming stream is wrapped in `remoteWorkerStream`
+    and added to the pool, where it will wait until a new job is ready to run.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The gRPC semantics for handling streaming RPCs dictate that the stream will
+    be automatically closed once the RPC handler returns. Therefore, we want our RPC
+    handler to block until either a job completes or an error occurs. An easy way
+    to achieve this is to make a synchronous call to the wrapped stream's `HandleSendRecv`
+    method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running a new job
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'After the end user starts the master''s gRPC server, they can request a new
+    job execution by invoking the master''s `RunJob` method, the signature of which
+    is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE70]'
+  prefs: []
+  type: TYPE_PRE
+- en: Because the worker requirements generally vary depending on the algorithm to
+    be executed, the end user must specify, in advance, the minimum number of workers
+    required for the job as well as a timeout for acquiring the required workers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If the number of workers is not important from the user''s perspective, they
+    can specify a zero value for the `minWorkers` argument. Doing so serves as a hint
+    to the master to either select all workers currently available in the pool or
+    to block until at least one of the following conditions is satisfied:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: At least one worker joins the pool.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The specified acquire timeout (if non-zero) expires.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Let''s break down the `RunJob` methods into chunks, starting from the code
+    that acquires the required workers from the pool:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE71]'
+  prefs: []
+  type: TYPE_PRE
+- en: If `workerAcquireTimeout` is specified, the preceding code snippet will automatically
+    wrap the externally provided context with a context that expires after the specified
+    timeout and pass it to the pool's `ReserveWorkers` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With the required number of workers streams in hand, the next step entails
+    the allocation of a UUID for the job and the creation of a new `job.Details` instance
+    with a partition assignment that covers the entire UUID space:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE72]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Before commencing execution of the job, we need to create a new job coordinator
+    instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE73]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After this initialization step, we can invoke the `RunJob` method and run the
+    job to completion:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE74]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the job execution fails, we invoke the `Close` method on each worker stream
+    passing along the error returned by the coordinator's `RunJob` method. Calling
+    `Close` on `remoteWorkerStream` allows the `HandleSendRecv` call from the RPC
+    handler to return with an error that gRPC will automatically propagate back to
+    the worker.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, if the work completes without any error, we invoke `Close`
+    with a `nil` error value. This action has exactly the same effect (that is, it
+    terminates the RPC) but in the latter case, no error is returned to the worker.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deploying a distributed version of the Links 'R' Us PageRank calculator
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The PageRank calculator is the only component of the Links 'R' Us project that
+    we haven't yet been able to horizontally scale on Kubernetes. Back in [Chapter
+    8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based Data Processing**,*
+    where we used the `bspgraph` package to implement the PageRank algorithm, I promised
+    you that a few chapters down the road, we would take the PageRank calculator code,
+    and **without any code modifications**, enable it to run in distributed mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After completing this chapter, I strongly recommend, as a fun learning exercise,
+    taking a look at using the `dbspgraph` package to build a distributed version
+    of either the graph coloring or the shortest path algorithms from [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based
+    Data Processing*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we will leverage all of the work we have done so far in this
+    chapter to achieve this goal! I would like to point out that while this section
+    will exclusively focus on the PageRank calculator service, everything we discuss
+    here can also be applied to any of the other graph algorithms that we implemented
+    in [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based Data
+    Processing*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Retrofitting master and worker capabilities to the PageRank calculator service
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Logically, we don't want to implement a new PageRank service from scratch, especially
+    given the fact that we already created a standalone (albeit not distributed) version
+    of this service in the previous chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What we will actually be doing is making a copy of the standalone PageRank calculator
+    service from [Chapter 11](dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml), *Splitting
+    Monoliths into Microservices,* and adapt it to use the APIs exposed by the `dbspgraph`
+    package from this chapter. Since our copy will share most of the code with the
+    original service, we will omit all of the shared implementation details and only
+    highlight the bits that need to be changed. As always, the full source for the
+    service is available in the `Chapter12/linksrus/pagerank` package in this book's
+    GitHub repository if you want to take a closer look.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before we proceed, we need to decide whether we will create a separate binary
+    for the master and the worker. Taking into account that a fairly large chunk of
+    the code is shared between the master and the workers, we are probably better
+    off producing a single binary and introducing a command-line flag (we will call
+    it `mode`) to select between master or worker mode.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Depending on the selected mode, the service will do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When in *worker* mode: It creates a `dbspgraph.Worker` object, calls its `Dial`
+    method, and finally calls the `RunJob` method to wait until the master publishes
+    a new job.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'When in *master* mode: It creates a `dbspgraph.Master` object, calls its `Start`
+    method, and periodically invokes the `RunJob` method to trigger a PageRank score
+    refresh job.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Serializing PageRank messages and aggregator values
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A prerequisite for creating a new `dbspgraph.Master` instance or a `dbspgraph.Worker`
+    instance is to provide a suitable, **application-specific** serializer for both
+    aggregator values and any message that can potentially be exchanged between the
+    graph nodes. For this particular application, graph vertices distribute their
+    accumulated PageRank scores to their neighbors by exchanging `IncomingScore` messages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE75]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In addition, as you can see from the following snippet, which was taken from
+    the PageRank calculator implementation, our serializer implementation also needs
+    to be able to properly handle `int` and `float64` used by the calculator''s aggregator
+    instances:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE76]'
+  prefs: []
+  type: TYPE_PRE
+- en: The main benefit of having full control over the serializer used by both the
+    master and the workers is that we get to choose the appropriate serialization
+    format for our particular use case. Under normal circumstances, protocol buffers
+    would be the most logical candidate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: However, given that we only really need to support serialization of `int` and
+    `float64` values, using protocol buffers would probably be overkill. Instead,
+    we will implement a much simpler serialization protocol.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, let''s take a look at how the `Serialize` method is implemented:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE77]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding implementation uses a type switch to detect the type of value
+    that was passed as an argument to `Serialize`. The method sets the `TypeUrl` field
+    to a single-character value, which corresponds to the type of the encoded value:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`"i"`: This specifies an integer value'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`"f"`: This specifies a float64 value'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`"m"`: This specifies a float64 value from `IncomingScoreMessage`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Values are encoded as variable-length integers with the help of the `PutVarint`
+    and `PutUvarint` functions provided by the `binary` package that ships with the
+    Go standard library.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that floating-point values cannot be encoded directly to a `Varint`; we
+    must first convert them into their equivalent `uint64` representation via `math.Float64bits`.
+    The encoded values are stored in a byte buffer and attached as a payload to the
+    `any.Any` message, which is returned to the caller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `Unserialize` method, the implementation of which is shown as follows,
+    simply reverses the encoding steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE78]'
+  prefs: []
+  type: TYPE_PRE
+- en: To unserialize a value contained within an `any.Any` message, we check the contents
+    of the `TypeUrl` field and, depending on the type of encoded data, decode its
+    variable-length integer representation using either the `Varint` or `Uvarint`
+    method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For floating-point values, we use the `math.Float64frombits` helper to convert
+    the decoded unsigned `Varint` representation of the float back into a `float64`
+    value. Finally, if the `any.Any` value encodes `IncomingScoreMessage`, we create
+    and return a new message instance that embeds the floating-point score value that
+    we just decoded.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining job runners for the master and the worker
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The step for completing the distributed version of the Links 'R' Us PageRank
+    calculation service is to provide a `job.Runner` implementation that will allow
+    the `dbspgraph` package to interface with the PageRank calculator component that
+    includes the graph-based algorithm that we want to execute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As a reminder, this is the interface that we need to implement:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE79]'
+  prefs: []
+  type: TYPE_PRE
+- en: The glue logic for masters and workers has a different set of requirements.
+    For example, the master will not perform any graph-related computations apart
+    from processing the aggregator deltas sent in by the workers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Therefore, the master does not need to load any graph data into memory. On the
+    other hand, workers not only need to load a subset of the graph data, but they
+    also need to persist the computation results once the job execution completes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Consequently, we need to provide not one but two `job.Runner` implementations—one
+    for the master and one for workers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing the job runner for master nodes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Let''s begin by examining the rather trivial `StartJob` method implementation
+    for the master node:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE80]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `StartJob` method records the time when the job was started and performs
+    the following three tasks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It resets the graph's internal state. This is important as the calculator component
+    instance is re-used between subsequent job runs.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It overrides the calculator component's executor factory with the version provided
+    by the `dbspgraph` package.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: It invokes the calculator's `Executor` method, which uses the installed factory
+    to create and return a new `bspgraph.Executor` instance.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Next, we will examine the implementation of the `AbortJob` and `CompleteJob`
+    methods:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE81]'
+  prefs: []
+  type: TYPE_PRE
+- en: As far as the `AbortJob` method is concerned, there isn't really anything special
+    that we need to do when a job fails. Therefore, we just provide an empty stub
+    for it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `CompleteJob` method does nothing more than log the run time for the job
+    and the *total* number of processed page links. As you probably noticed, the latter
+    value is obtained by directly querying the value of the global `page_count` aggregator,
+    which is registered by the calculator component when it sets up its internal state.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The worker job runner
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The worker''s `StartJob` implementation is slightly more complicated as we
+    need to load the vertices and edges that correspond to the UUID range assigned
+    to us by the master node. Fortunately, we have already written all of the required
+    bits of code in [Chapter 11](dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml),* Splitting
+    Monoliths into Microservices,* so we can just go ahead and invoke the loading
+    functions with the appropriate arguments:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE82]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `CompleteJob` method contains the necessary logic for updating the Links
+    ''R'' Us document index with the fresh PageRank scores that we just calculated.
+    Let''s take a look at its implementation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE83]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding block of code for persisting the calculation results should seem
+    familiar to you as it has been copied verbatim from [Chapter 11](dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml),
+    *Splitting Monoliths into Microservices*. The `Scores` convenience method iterates
+    the graph vertices and invokes the `persistScore` callback with the vertex ID
+    and PageRank score as arguments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `persistScore` callback (shown as follows) is a simple wrapper for mapping
+    the vertex ID into a UUID value and calling the `UpdateScore` method of the Links
+    ''R'' Us document index component:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE84]'
+  prefs: []
+  type: TYPE_PRE
+- en: Similar to the master job runner implementation, the worker's `AbortJob` method
+    is also an empty stub. To keep our implementation as lean as possible, we won't
+    bother rolling back any already persisted score changes if any of the other workers
+    fails after the local worker has already completed the job. Since the PageRank
+    scores are periodically re-calculated, we expect them to be *eventually consistent*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Deploying the final Links 'R' Us version to Kubernetes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: We have finally reached and conquered the end-goal for the Links 'R' Us project—we
+    have built a feature-complete, microservice-based system where **all** components
+    can be deployed to Kubernetes and individually scaled up or down.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The last thing we need to do is to update our Kubernetes manifests so we can
+    deploy the distributed version of the PageRank calculator instead of the single-pod
+    version from [Chapter 11](dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml), *Splitting
+    Monoliths into Microservices*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For this purpose, we will create two separate Kubernetes `Deployment` resources.
+    The first deployment provision a **single** pod, which executes the PageRank service
+    in the master node, while the second deployment will provision **multiple** pods
+    that execute the service in worker mode. To facilitate the discovery of the master
+    node by the workers, we will place the master node behind a Kubernetes service
+    and point the workers at the DNS entry for the service.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After applying the proposed changes, our Kubernetes cluster will look as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/ecb9a98f-856b-454c-bb05-05bb41bd94fb.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 4: The components of the fully distributed Links ''R'' Us version'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can have a look at the full set of Kubernetes manifests for the final version
+    of Links 'R' Us by checking out this book's GitHub repository and examining the
+    contents of the `Chapter12/k8s` folder.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you haven't already set up a **Minikube cluster** and white-listed its private
+    registry, you can either take a quick break and manually follow the step-by-step
+    instructions from [Chapter 10](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml), *Building,
+    Packaging, and Deploying Software,* or simply run `make bootstrap-minikube`, which
+    will take care of everything for you.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, if you have already deployed any of the Links 'R' Us versions
+    from the previous chapters (either the monolithic or microservice variant), make
+    sure to run `kubectl delete namespace linksrus` before proceeding. By deleting
+    the `linksrus` namespace, Kubernetes will get rid of all pods, services, and ingresses
+    for Links 'R' Us but leave the data stores (which live in the `linksrus-data`
+    namespace) intact.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To deploy all required components for Links ''R'' Us, you will need to build
+    and push a handful of Docker images. To save you some time, the Makefile in the
+    `Chapter12/k8s` folder provides two handy build targets to get you up and running
+    as quickly as possible:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`make dockerize-and-push`: This will build all required Docker images and push
+    them to Minikube''s private registry.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`make deploy`: This will ensure that all required data stores have been provisioned
+    and apply all manifests for deploying the final, microservice-based version of
+    Links ''R'' Us in one go.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It's time to give yourself a pat on the back! We have just completed the development
+    of the final version of our Links 'R' Us project. After taking a few minutes to
+    contemplate what we have achieved so far, point your browser to the index page
+    of the frontend and have some fun!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this rather long chapter, we performed a deep dive into all of the aspects
+    involved in the creation of a distributed graph-processing system that allows
+    us to take any graph-based algorithm created with the `bspgraph` package from
+    [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml),* Graph-Based Data Processing,*
+    and automatically distribute it to a cluster of worker nodes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What's more, as a practical application of what we learned in this chapter,
+    we modified the Links 'R' Us PageRank calculator service from the previous chapter
+    so that it can now run in distributed mode. By doing so, we achieved the primary
+    goal for this book—to build and deploy a complex Go project where every component
+    can be independently scaled horizontally.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next and final chapter focuses on the reliability aspects of the system
+    we just built. We will be exploring approaches for collecting, aggregating, and
+    visualizing metrics that will help us monitor the health and performance of the
+    Links 'R' Us project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Describe the differences between a leader-follower and a multi-master cluster
+    configuration.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Explain how the checkpoint strategy can be used to recover from errors.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the purpose of the distributed barrier in the out-of-core graph processing
+    system that we built in this chapter?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Assume that we are provided with a graph-based algorithm that we want to run
+    in a distributed fashion. Would you consider a computation job as completed once
+    the algorithm terminates?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**Consul***: Secure service networking.* [https://consul.io](https://consul.io)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '**Docker***: Enterprise container platform.* [https://www.docker.com](https://www.docker.com)'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Lamport, Leslie: Paxos Made Simple. In *ACM SIGACT News (Distributed Computing
+    Column) 32, 4 (Whole Number 121, December 2001)* (2001), S. 51–58'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Malewicz, Grzegorz; Austern, Matthew H.; Bik, Aart J. C; Dehnert, James C.;
+    Horn, Ilan; Leiser, Naty; Czajkowski, Grzegorz: Pregel: *A System for Large-scale
+    Graph Processing*. In *Proceedings of the 2010 ACM SIGMOD International Conference
+    on Management of Data*, *SIGMOD ''10*. New York, NY, USA : ACM, 2010 — ISBN [978-1-4503-0032-2](https://worldcat.org/isbn/978-1-4503-0032-2),
+    S. 135–146'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Ongaro, Diego; Ousterhout, John: *In Search of an Understandable Consensus
+    Algorithm*. In *Proceedings of the 2014 USENIX Conference on USENIX Annual Technical
+    Conference*, *USENIX ATC''14*. Berkeley, CA, USA : USENIX Association, 2014 — ISBN [978-1-931971-10-2](https://worldcat.org/isbn/978-1-931971-10-2),
+    S. 305–320'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

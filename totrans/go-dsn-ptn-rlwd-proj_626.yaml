@@ -1,0 +1,145 @@
+- en: Separating views from logic using templates
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Templates allow us to blend generic text with specific text, for instance,
+    injecting a user''s name into a welcome message. For example, consider the following
+    template:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We are able to replace the `{{name}}` text in the preceding template with the
+    real name of a person. So if Bruce signs in, he might see:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The Go standard library has two main template packages: one called `text/template`
+    for text and one called `html/template` for HTML. The `html/template` package
+    does the same as the text version except that it understands the context in which
+    data will be injected into the template. This is useful because it avoids script
+    injection attacks and resolves common issues such as having to encode special
+    characters for URLs.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Initially, we just want to move the HTML code from inside our Go code to its
+    own file, but won't blend any text just yet. The template packages make loading
+    external files very easy, so it's a good choice for us.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Create a new folder under our `chat` folder called `templates` and create a `chat.html`
+    file inside it. We will move the HTML from `main.go` to this file, but we will
+    make a minor change to ensure our changes have taken effect:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, we have our external HTML file ready to go, but we need a way to compile
+    the template and serve it to the user's browser.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Compiling a template is a process by which the source template is interpreted
+    and prepared for blending with various data, which must happen before a template
+    can be used but only needs to happen once.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We are going to write our own `struct` type that is responsible for loading,
+    compiling, and delivering our template. We will define a new type that will take
+    a `filename` string, compile the template once (using the `sync.Once` type), keep
+    the reference to the compiled template, and then respond to HTTP requests. You
+    will need to import the `text/template`, `path/filepath`, and `sync` packages
+    in order to build your code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In `main.go`, insert the following code above the `func main()` line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Did you know that you could automate the adding and removing of imported packages?
+    See [Appendix](part0227_split_000.html#6OFFM1-9c484ed022e64a0fb0e1aebf8e05d4fd
+    "Appendix Appendix. Good Practices for a Stable Go Environment"), *Good Practices
+    for a Stable Go Environment*, on how to do this.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `templateHandler` type has a single method called `ServeHTTP` whose signature
+    looks suspiciously like the method we passed to `http.HandleFunc` earlier. This
+    method will load the source file, compile the template and execute it, and write
+    the output to the specified `http.ResponseWriter` method. Because the `ServeHTTP`
+    method satisfies the `http.Handler` interface, we can actually pass it directly
+    to `http.Handle`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: A quick look at the Go standard library source code, which is located at [http://golang.org/pkg/net/http/#Handler](http://golang.org/pkg/net/http/#Handler),
+    will reveal that the interface definition for `http.Handler` specifies that only
+    the `ServeHTTP` method need be present in order for a type to be used to serve
+    HTTP requests by the `net/http` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Doing things once
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: We only need to compile the template once, and there are a few different ways
+    to approach this in Go. The most obvious is to have a `NewTemplateHandler` function
+    that creates the type and calls some initialization code to compile the template.
+    If we were sure the function would be called by only one goroutine (probably the
+    main one during the setup in the `main` function), this would be a perfectly acceptable
+    approach. An alternative, which we have employed in the preceding section, is
+    to compile the template once inside the `ServeHTTP` method. The `sync.Once` type
+    guarantees that the function we pass as an argument will only be executed once,
+    regardless of how many goroutines are calling `ServeHTTP`. This is helpful because
+    web servers in Go are automatically concurrent and once our chat application takes
+    the world by storm, we could very well expect to have many concurrent calls to
+    the `ServeHTTP` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Compiling the template inside the `ServeHTTP` method also ensures that our code
+    does not waste time doing work before it is definitely needed. This lazy initialization
+    approach doesn't save us much in our present case, but in cases where the setup
+    tasks are time- and resource-intensive and where the functionality is used less
+    frequently, it's easy to see how this approach would come in handy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using your own handlers
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'To implement our `templateHandler` type, we need to update the `main` body
+    function so that it looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `templateHandler` structure is a valid `http.Handler` type so we can pass
+    it directly to the `http.Handle` function and ask it to handle requests that match
+    the specified pattern. In the preceding code, we created a new object of the type `templateHandler`,
+     specifying the filename as `chat.html` that we then take the address of (using
+    the `&` address of the operator) and pass it to the `http.Handle` function. We
+    do not store a reference to our newly created `templateHandler` type, but that's
+    OK because we don't need to refer to it again.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In your terminal, exit the program by pressing *Ctrl + C* and re-run it, then
+    refresh your browser and notice the addition of the (from template) text. Now
+    our code is much simpler than an HTML code and free from its ugly blocks.
+  prefs: []
+  type: TYPE_NORMAL

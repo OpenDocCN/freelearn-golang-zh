@@ -1,0 +1,260 @@
+- en: Solving small issues in our library
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We have a few issues in our code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It cannot be used as a library. We have critical code written in the `main`
+    package (strategy creation).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Solution**: Abstract to two different packages the strategy creation from
+    the command-line application.'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: None of the strategies are doing any logging to file or console. We must provide
+    a way to read some logs that an external user can integrate in their logging strategies
+    or formats.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Solution**: Inject an `io.Writer` interface as dependency to act as a logging
+    sink.'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: Our `TextSquare` class is always writing to the console (an implementer of the `io.Writer`
+    interface) and the `ImageSquare` is always writing to file (another implementer
+    of the `io.Writer` interface). This is too coupled.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Solution**: Inject an `io.Writer` interface so that the `TextSquare` and
+    `ImageSquare` can write to any of the `io.Writer` implementations that are available
+    (file and console, but also bytes buffer, binary encoders, `JSON` handlers...
+    dozens of packages).'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'So, to use it as a library and solve the first issue, we will follow a common
+    approach in Go file structures for apps and libraries. First, we will place our
+    main package and function outside of the root package; in this case, in a folder
+    called `cli`. It is also common to call this folder `cmd` or even `app`. Then,
+    we will place our `PrintStrategy` interface in the root package, which now will
+    be called the `strategy` package. Finally, we will create a `shapes` package in
+    a folder with the same name where we will put both text and image strategies.
+    So, our file structure will be like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Root package**: strategy'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'File: `print_strategy.go`'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '**SubPackage**: shapes'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Files: `image.go`, `text.go`, `factory.go`'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '**SubPackage**: cli'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'File: `main.go`'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: 'We are going to modify our interface a bit to fit the needs we have written
+    previously:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We have added the `SetLog(io.Writer)` method to add a logger strategy to our
+    types; this is to provide feedback to users. Also, it has a `SetWriter` method
+    to set the `io.Writer` strategy. This interface is going to be located on the
+    root package in the `print_strategy.go` file. So the final schema looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Solving small issues in our library](img/00032.jpeg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Both the `TextSquare` and `ImageSquare` strategies have to satisfy the `SetLog`
+    and `SetWriter` methods which simply store some object on their fields so, instead
+    of implementing the same twice, we can create a struct that implements them and
+    embed this struct in the strategies. By the way, this would be the composite pattern
+    we have seen previously:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: So now each strategy must have the `PrintOutput` struct embedded if we want
+    to modify their `Writer` and `logger` fields.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We also need to modify our strategy implementation. The `TextSquare` struct now
+    needs a field to store the output `io.Writer` (the place where it is going to
+    write instead of writing always to the console) and the `log` writer. These two
+    fields can be provided by embedding the `PrintOutput` struct. The `TextSquare` struct
+    is also stored in the file `text.go` within the shapes package. So, the struct
+    is now like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'So now the `Print()` method is slightly different because, instead of writing
+    directly to the console by using the `println` function, we have to write whichever
+    `io.Writer` is stored in the `Writer` field:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `bytes.NewReader` is a very useful function that takes an array of bytes
+    and converts them to an `io.Reader` interface. We need an `io.Reader` interface
+    to use the `io.Copy` function. The `io.Copy` function is also incredibly useful
+    as it takes an `io.Reader` (as the second parameter) and pipes it to an `io.Writer`
+    (its first parameter). So, we won''t return an error in any case. However, it''s
+    easier to do so using directly the `Write` method of `t.Writer`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can use whichever method you like more. Usually, you will use the `Write`
+    method but it's nice to know the `bytes.NewReader` function too.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Did you realize that when we use `t.Writer`, we are actually accessing `PrintOutput.Writer`?
+    The `TextSquare` type has a `Writer` field because the `PrintOutput` struct has
+    it and it's embedded on the `TextSquare` struct.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Embedding is not inheritance. We have embedded the `PrintOutput` struct on
+    the `TextSquare` struct. Now we can access `PrintOutput` fields as if they were
+    in `TextSquare` fields. This feels a bit like inheritance but there is a very
+    important difference here: `TextSquare` is not a `PrintOutput` value but it has
+    a `PrintOutput` in its composition. What does it mean? That if you have a function
+    that expects a `PrintOutput`, you cannot a pass `TextSquare` just because it has
+    a `PrintOutput` embedded.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: But, if you have a function that accepts an interface that `PrintOutput` implements,
+    you can pass `TextSquare` if it has a `PrintOutput` embedded. This is what we
+    are doing in our example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `ImageSquare` struct is now like the `TextSquare`, with a `PrintOutput`
+    embedded:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Print` method also needs to be modified. Now, we aren''t creating a file
+    from the `Print` method, as it was breaking the single responsibility principle.
+    A file implements an `io.Writer` so we will open the file outside of the `ImageSquare`
+    struct and inject it on the `Writer` field. So, we just need to modify the end
+    of the `Print()` method where we wrote to the file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you check our previous implementation, after using `draw`, you can see that
+    we used the `Print` method, we created a file with `os.Create` and passed it to
+    the `jpeg.Encode` function. We have deleted this part about creating the file
+    and we have replaced it with a check looking for a `Writer` in the fields (`if
+    i.Writer != nil`). Then, on `jpeg.Encode` we can replace the file value we were
+    using previously with the content of the `i.Writer` field. Finally, we are using
+    `io.Copy` again to log some message to the `LogWriter` if a logging strategy is
+    provided.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We also have to abstract the knowledge needed from the user to create instances
+    of implementors of the `PrintStrategy` for which we are going to use a Factory
+    method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We have two constants, one of each of our strategies: `TEXT_STRATEGY` and `IMAGE_STRATEGY`.
+    Those are the constants that must be provided to the factory to retrieve each
+    square drawer strategy. Our factory method receives an argument `s`, which is
+    a string with one of the previous constants.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each strategy has a `PrintOutput` type embedded with a default logger to `stdout`
+    but you can override it later by using the `SetLog(io.Writer)` methods. This approach
+    could be considered a Factory of prototypes. If it is not a recognized strategy,
+    a proper message error will be returned.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'What we have now is a library. We have all the functionality we need between
+    the `strategy` and `shapes` packages. Now we will write the `main` package and
+    function in a new folder called `cli`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Again, like before, the `main` function starts by parsing the input arguments
+    on the console to gather the chosen strategy. We can use the variable output now
+    to create a strategy without Factory:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now we will implement the business needs by using our library. For the purpose
+    of the `TextStrategy`, we want to write, for example, to `stdout`. For the purpose
+    of the image, we will write to `/tmp/image.jpg`. Just like before. So, following
+    the previous statements, we can write:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the case of `TEXT_STRATEGY`, we use `SetWriter` to set the `io.Writer` to
+    `os.Stdout`. In the case of `IMAGE_STRATEGY`, we create an image in any of our
+    folders and pass the file variable to the `SetWriter` method. Remember that `os.File`
+    implements the `io.Reader` and `io.Writer` interfaces, so it''s perfectly legal
+    to pass it as an `io.Writer` to the `SetWriter` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we call the `Print` method of whichever strategy was chosen by the
+    user and check for possible errors. Let''s try the program now:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: It has worked as expected. What about the image strategy?
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: If we check in `/tmp/image.jpg`, we can find our red square on the dark background.
+  prefs: []
+  type: TYPE_NORMAL

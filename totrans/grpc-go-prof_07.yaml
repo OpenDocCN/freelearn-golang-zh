@@ -1,0 +1,1404 @@
+- en: '7'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Out-of-the-Box Features
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Since writing production-ready APIs is more complicated than sending requests
+    and receiving responses, gRPC has a lot more to offer than the simple communication
+    patterns we saw. In this chapter, we are going to see the most important features
+    that we can use in order to make our APIs robust, efficient, and secure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we are going to cover the following topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Dealing with errors, cancellation, and deadlines
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Sending HTTP headers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Encrypting data over the wire
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Providing extra logic with interceptors
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Balancing requests to different servers
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: By the end of the chapter, we will have learned about the most important features
+    that come right out of the box when we use gRPC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: For this chapter, you will find the relevant code in the folder called `chapter7`
+    in the accompanying GitHub repository ([https://github.com/PacktPublishing/gRPC-Go-for-Professionals/tree/main/chapter7](https://github.com/PacktPublishing/gRPC-Go-for-Professionals/tree/main/chapter7)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the last section, I will use Kubernetes to show client-side load balancing.
+    I assume that you already have Docker installed and a Kubernetes cluster. This
+    can be done any way you want, but I provide a Kind ([https://kind.sigs.k8s.io/](https://kind.sigs.k8s.io/))
+    configuration to spin up a cluster easily and locally. This configuration is situated
+    under the `k8s` folder of `chapter7` and in the file called `kind.yaml`. Once
+    Kind is installed, you can use it like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And you can dispose of it by running the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Handling errors
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Up until now, we have not discussed potential errors that could appear within
+    or outside of the business logic. This is obviously not great for a production-ready
+    API, so we are going to see how to solve them. In this section, we are going to
+    concentrate our efforts on the RPC endpoint called `AddTask`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before starting to code, we need to understand how errors work in gRPC, but
+    this should not be hard because they are pretty similar to what we are used to
+    in REST APIs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Errors are returned with the help of a wrapper struct called `Status`. This
+    struct can be built in multiple ways but the ones we are interested in this section
+    are the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: They both take a message for the error and an error code. Let us focus on the
+    codes since the messages are just strings describing the error. The status codes
+    are predefined codes that are consistent across the different implementations
+    of gRPC. It is similar to the HTTP codes such as `404` and `500`, but the main
+    difference is that they have more descriptive names and that they are much fewer
+    codes than in HTTP (16 in total).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To see all these codes, you can head to the gRPC Go documentation ([https://pkg.go.dev/google.golang.org/grpc/codes#Code](https://pkg.go.dev/google.golang.org/grpc/codes#Code)).
+    It contains good explanations for each of the errors and it is less ambiguous
+    than HTTP codes, so do not be afraid. For this section though, we are interested
+    in two common errors:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`InvalidArgument`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Internal`'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The first one indicates that the client has specified an argument that is not
+    correct for the proper functioning of the endpoint. The second indicates that
+    an expected property of the system is broken.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`InvalidArgument` is perfect for validating inputs. We are going to use that
+    in `AddTask` to make sure that the description of a `Task` is not empty (a task
+    without a description is useless) and that a due date is specified and not in
+    the past. Note that we make the due date required, but if you wanted to make it
+    optional, we could just check if the `DueDate` property in the request was `nil`
+    and act accordingly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: These checks will make sure that we have only useful tasks in our database,
+    and that our due dates are in the future.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we have another error that could come from the `addTask` function,
+    which would be an error relayed from the database. We could do extensive checks
+    to create more precise error codes depending on each database error, but in our
+    case, for simplicity, we are simply going to say that any database error is an
+    `Internal` error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We are going to get the potential error from the `addTask` function and do
+    something similar to what we did for our `InvalidArgument`, but this time, it
+    will be an `Internal` code, and we are going to use the `Errorf` function to relay
+    the details of the error:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we are done with the server side. We can switch to the client side – if
+    you didn’t notice before, we are already “handling” errors in `addTask`. We have
+    the following lines:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Of course, clients might do fancier error handling or even recovery, but our
+    goal for now is to see that our server errors are correctly propagated to the
+    client. To test the `InvalidArgument` error, we can simply try to add a `Task`
+    without a description. At the end of `main`, we can add the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we run our server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And our client should return the expected error:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we can check the due date error by providing a `Time` instance that is
+    in the past:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We should get the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And finally, we are not going to show the `Internal` error because this would
+    make us create a fake error in the in-memory database, but understand that it
+    will return the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Before finishing this section, it is important to also understand how we can
+    check the type of an error and act accordingly. We are going to basically panic
+    but with more readable messages. For example, imagine the situation in which we
+    have the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Instead, we are going to print this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To do that, we are going to modify `addTask` such that if there is an error,
+    we will try to convert it into a status with the `FromError` function – if the
+    conversion is done correctly, we will print the error code and the error message,
+    and if it did not convert into a status, we will just panic as before:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And now, after running the client with one of the errors we defined earlier,
+    we can get the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Bazel
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: The commands presented here are needed every time you update the imports related
+    to gRPC. For the sake of simplicity, we show it only once in this chapter and
+    we assume you will be able to do it in the other sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As we are going to add more dependencies throughout this chapter, we will need
+    to update our `BUILD` files. If we try to run the server with Bazel, right now,
+    we will get an error that says the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To solve this problem, we can just run the `gazelle` command, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And then, we will be able to run the server and client correctly:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: To conclude, we saw that we can create an error on the server side with the
+    `Error` and `Errorf` functions from the `status` package. We have multiple error
+    codes that we can choose from. We only saw two, but they are common ones. And
+    finally, on the client side, we saw that we can act accordingly depending on the
+    error code by transforming a Golang error into a Status and writing conditions
+    based on the status code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Canceling a call
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When you want to stop a call depending on certain conditions or interrupt a
+    long-lived stream, gRPC provides you with cancellation functions that you can
+    execute at any time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you have worked with Go on any distributed system code or API before, you
+    probably saw a type called `context`. This is the idiomatic way to provide request-scoped
+    information and signal across the API’s actors, and this is an important piece
+    of gRPC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you did not pay attention, up until now, we used `context.Background()`
+    every time we made a request. In the Golang documentation, this is described as
+    returning “*a non-nil, empty Context. It is never cancelled, has no values, and
+    has no deadline*.” As you can guess, this alone is not suitable for production-ready
+    APIs for the following reasons:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: What if the user wants to kill the request early?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What if the API call never returns?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What if we need the server to be aware of global values (e.g., an authentication
+    token)?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In this section, let us focus on the first question, and in the next two sections,
+    we will answer the others.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To gain the ability to cancel a call, we will be using the `WithCancel` function
+    from the `context` package ([https://pkg.go.dev/context#WithCancel](https://pkg.go.dev/context#WithCancel)).
+    This function will return the constructed context and a `cancel` function that
+    we can execute to interrupt the call made with the context. So, now, instead of
+    only using `context.Background()`, we will create a context like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice that this is important to call the `cancel` function at the end of the
+    function to release the resources associated with the context. To make sure that
+    the function is called, we can use a `defer`. However, this does not mean we cannot
+    call the function before the end of the function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As an example, we will create a fictional requirement. It is fictional because
+    we are going to improve/remove the code we will write in this section in the following
+    ones. The fictional requirement is to cancel a `ListTasks` call once we get an
+    overdue `Task`. We can agree that it does not make sense in terms of features
+    but regardless, this section’s goal is to try to cancel a call.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To implement such a feature, we will create the context with the `WithCancel`
+    function, pass this context to the `ListTasks` API endpoint, and finally, we are
+    going to add another `if` in the reading loop checking whether there is an `overdue`.
+    If this is the case, we will call the `cancel` function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that we could be breaking instead of calling the `cancel` function directly.
+    Then the `defer` `cancel()` would kick in and the server would stop working. However,
+    I decided to directly call `cancel` and let the client-side loop run because I
+    want to show you that we will receive an error when canceling a call.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, we need to be aware that `cancel` takes time to propagate over the network
+    and thus the server might continue to run without us knowing. To inspect what
+    the server is sending, we are simply going to print the `Task` on the terminal
+    before sending it to the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And finally, I want to mention that we do not need to add any code in the client’s
+    `main` and this is because we already saw that we have tasks that are overdue
+    when we run the current `main` code. The first overdue should appear in the `update`
+    section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is because, if you remember, we updated the `Id` value and the description
+    of that `Task` and we set the rest of the properties of `Task` to the default
+    values. This means that `Done` will be set to `false` and `DueDate` to an empty
+    time object.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, we can run the server like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we run the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before running the following code, make sure that you have commented the function
+    calls that panic. This includes the two `addTask` that we added in the previous
+    section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You should notice, on the client side, that everything runs correctly and that
+    nothing was canceled even if the `update` section contains the following message:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: The reason for this is that, the server does not know that the call has been
+    canceled. To solve this problem, we can make the server cancel-aware.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To do that, we need to check the context’s `Done` channel. This channel will
+    be closed when the cancel is propagated to the server and, in the cancel example,
+    the context will have an error equal to `context.Canceled`. When we have this
+    event, we know that the server needs to return and effectively stop working on
+    the rest of the requests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: There are a couple of things to note before running this code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first one is that, when dealing with `stream`, we can get the context by
+    using the `Context()` function available in the generated stream type (in our
+    case, `pb.TodoService_ListTasksServer`).
+  prefs: []
+  type: TYPE_NORMAL
+- en: And secondly, note that we are intentionally sleeping 1 millisecond per call
+    of the closure. This would not happen in production; we would have a default branch
+    instead. This is done so that the server has time to notice the cancellation.
+    Note that this number is arbitrary; it is the smallest amount of time for me to
+    notice the cancel error on my machine. You might need to make it larger, or you
+    can make it smaller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, we can run the server like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we can run the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, you should also notice that on the server side, you get the following
+    message:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: To conclude, we saw how we can use `context.WithCancel()` to create a cancellable
+    context. We also saw that this function returns a `cancel` function, which we
+    need to call at the end of the scope to release the resources attached to the
+    context, but we can also call it earlier to cancel depending on some condition.
+    And finally, we saw that we can make the server cancel-aware so that it does not
+    execute more work than needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Specifying deadlines
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Deadlines are the most important thing when we are dealing with asynchronous
+    communication. This is because a call could never return due to network or other
+    problems. That is why Google recommends that we set a deadline for each of our
+    RPC calls. Fortunately for us, this is as easy as canceling a call.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first thing that we need to do, on the client side, is to create a context.
+    This is similar to the `WithCancel` function, but this time, we will use `WithTimeout`.
+    It takes a parent context like `WithCancel` but on top of that, it takes a `Time`
+    instance representing the maximum amount of time for which we are willing to wait
+    for a server answer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Instead of `WithCancel` in `printTasks`, we are now going to have the following
+    context:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: Obviously, a timeout of 1 millisecond is way too low to let the server answer,
+    but this is done on purpose so that we can get a `DeadlineExceeded` error. In
+    real-life scenarios, we would need to set the timeout depending on the requirements
+    set for the service. This is very much dependent on your use case and the service’s
+    job, so you will need to experiment and track the average amount of time in which
+    your server will respond.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'That is everything we need to make a deadline in gRPC. We can now run our server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we can run the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: We can see that the first `ListTasks`, as expected, failed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, while this is all you need to set deadlines up, you can also make the server
+    aware of the `DeadlineExceeded` error. Even if this is technically already done
+    because we are returning `ctx.Err()` when the `Done` channel closes, we still
+    want to print a message saying that the deadline has been exceeded.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To do so, this is like the `Canceled` error, but this time, we are going to
+    add a `DeadlineExceeded` branch in the `switch` on `ctx.Err()`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And if we rerun our server and client, we now should have the following message
+    on the terminal running the server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: To conclude, we saw that, similarly to `WithCancel`, we can use `WithTimeout`
+    in order to create a deadline for a call. It is recommended to always set a deadline
+    since we might never get an answer back from the server. And finally, we also
+    saw how to make the server deadline-aware so that it does not work more than needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sending metadata
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Another feature that builds upon contexts is the possibility to pass metadata
+    through calls. In gRPC, these metadata can be HTTP headers or HTTP trailers. They
+    are both a list of key-value pairs that are used for many purposes such as passing
+    authentication tokens and digital signatures, data integrity, and so on. In this
+    section, we are mostly going to focus on sending metadata through headers. Trailers
+    are simply headers that are sent after a message and not before. They are less
+    used by developers but are used by gRPC to implement streaming interfaces. Anyway,
+    if you are interested, you can look at the `grpc.SetTrailer` function ([https://pkg.go.dev/google.golang.org/grpc#SetTrailer](https://pkg.go.dev/google.golang.org/grpc#SetTrailer)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Our use case will be to pass an auth token to the `UpdateTasks` RPC endpoint,
+    and after checking it, we will decide to either update the task or return an `Unauthenticated`
+    error. Obviously, we are not going to deal with how to generate the `auth` token
+    because this is an implementation detail, but we are going to simply have `authd`
+    as the right token and everything else will be considered incorrect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let us start from the server side. The server is receiving the data from the
+    context; thus, we are going to use the `FromIncomingContext` function from the
+    `metadata` package in gRPC. This will return a map and whether there is some metadata
+    or not. In `UpdateTasks`, we can do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can now check whether the auth token was provided. To do that, this is a
+    simple usage of the Golang map. We try to access the `auth_token` element in the
+    `md` map. It will return values and a Boolean saying whether the key is in the
+    map or not. If it is, we are going to check that there is only one value and that
+    this value is equal to `"authd"`. And if it is not, we will return an `Unauthenticated`
+    error:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: That is all for the server; we return an error if there is no metadata, if there
+    is metadata but no `auth_token`, if there is an `auth_token` with multiple values,
+    and if the `auth_token` value is different from `"authd"`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can now go to the client to send the appropriate header. This can be done
+    with another function from the `metadata` package called `AppendToOutgoingContext`.
+    We know that we already have a context created before calling the endpoint, so
+    we are just going to append `auth_token` to it. This is as easy as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We override the context that we created with a new context containing the key
+    value pair. Note that the key-value pairs can be interleaved. This means that
+    we can have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, `K` stands for key, and `V` stands for value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can now run the server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And then we run the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And everything should go well. However, if you set a value for `auth_token`
+    different from `"authd"`, you should get the following message:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you do not set the `auth_token` header, you will see this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And imagine you set multiple values to `auth_token`, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You should get the following error:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: To conclude, we saw how to get metadata from a context with the `metadata.FromIncomingContext`
+    function and all the possible errors that can arise when we do so. We also saw
+    how to actually send metadata from the client by appending a key-value pair to
+    a context with the `metadata.AppendToOutgoingContext` function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: External logic with interceptors
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While some headers might be applicable to only one endpoint, most often, we
+    want to be able to apply the same logic across different endpoints. In the case
+    of the `auth_token` header, if we have multiple routes that can only be called
+    when the user is logged in, we do not want to repeat all the checks we did in
+    the previous section. It bloats the code; it is not maintainable; and it might
+    distract developers when finding the heart of the endpoint. This is why we will
+    use an authentication interceptor. We will extract that authentication logic and
+    it will be called before each call in the API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Our interceptors will be called `authInterceptor`. The interceptor on the server
+    side will simply do all the checks we did in the previous section, and then if
+    everything goes well, the execution of the endpoint will be launched. Otherwise,
+    the interceptor will return the error and the endpoint will not be called.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To define a server side interceptor, we have two possibilities. The first one
+    is used when we work with a unary RPC endpoint (e.g., `AddTasks`). The interceptor
+    function will look like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And then we have interceptors working on streams. They look like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: They look very similar. The main difference is the parameters’ type. Now, we
+    are not going to use all the parameters for our use case, so I will encourage
+    you to check the documentation ([https://pkg.go.dev/google.golang.org/grpc](https://pkg.go.dev/google.golang.org/grpc))
+    for `UnaryServerInterceptor` and `StreamServerInterceptor`, and play with them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let us start with the unary interceptor that will be used by `AddTasks`. We
+    will first extract the check into a function that will be shared across the interceptors.
+    In a file called `interceptors.go`, we can write the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There is nothing different from what we did directly in `UpdateTasks`. But
+    now, writing our interceptor is simple. We will just call the `validateAuthToken`
+    function and check for errors. If there is one, we will return it directly. And
+    if there is not, we are going to call the `handler` function, which effectively
+    calls the endpoint:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can do the same for streams. The only thing that will change is the arguments
+    of the handler and how we get the context:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, you might be thinking that we have functions but nobody to call them.
+    And you are entirely right. We need to register these interceptors so that our
+    server knows that they exist. This is done in `server/main.go` where we can add
+    the interceptors as options to the gRPC server. Right now, we create the server
+    like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And to add the interceptors, we can simply add them to the `opts` variable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can now run the server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before running the server, you can delete the whole authentication logic in
+    the `UpdateTasks` function in `server/impl.go`. This is not needed anymore since
+    the interceptors will authenticate requests automatically.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we can run the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: As expected, we get an error because we never added the `auth_token` header
+    in the `addTask` function on the client side.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Obviously, we do not want to add the header to all our calls by hand. We will
+    create a client-side interceptor that will add it for us before proceeding to
+    send the request. On the client side, we have two ways of defining an interceptor.
+    For the unary calls, we have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And for streams, we have this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, there are many more parameters on this side. And, while most
+    parameters are not important for our use case, I encourage you to check the documentation
+    ([https://pkg.go.dev/google.golang.org/grpc](https://pkg.go.dev/google.golang.org/grpc))
+    for `UnaryClientInterceptor` and `StreamClientInterceptor`, and play around with
+    them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the client-side interceptors, we are going to simply create a new context
+    and append the metadata before calling the endpoint. We do not even need to create
+    a separate function to share the logic since this is as simple as calling the
+    `AppendToOutgoingContext` function that we saw earlier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In `client/interceptors.go`, we can write the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And finally, as in the server, we also need to register these interceptors.
+    This time, these interceptors will be registered by adding `DialOptions` to the
+    `Dial` function we use in `main`. Right now, you should have something like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can now add the interceptors like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As they are registered, we can run our server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we can run the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important note
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before running the client, you can delete the call to `AppendToOutgoingContext`
+    present in `updateTask` in the `client/main.go` file. This is not needed anymore
+    since the interceptors will do it automatically.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: And all the calls should now go through without any errors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To conclude, in this section, we saw that we can write unary and stream interceptors
+    on both the server and client sides. The goal of these interceptors is to automatically
+    do some repetitive work across multiple endpoints. In our example, we automated
+    the adding and checking of the `auth_token` header for authentication.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Compressing the payload
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While Protobuf serializes data into binary and this involves much smaller payloads
+    than text data, we can apply compression on top of the binary. gRPC provides us
+    with the gzip Compressor ([https://pkg.go.dev/google.golang.org/grpc/encoding/gzip](https://pkg.go.dev/google.golang.org/grpc/encoding/gzip))
+    and for more advanced use cases, lets us write our own Compressor ([https://pkg.go.dev/google.golang.org/grpc/encoding](https://pkg.go.dev/google.golang.org/grpc/encoding)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, before diving into how to use the gzip Compressor, it is important to understand
+    that lossless compression might result in a bigger payload size. If your payload
+    does not contain repetitive data, which is what gzip detects and compresses, you
+    will send more bytes than needed. So, you will need to experiment with a typical
+    payload and see how gzip affects its size.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To show an example of that, I included in the `helpers` folder a file called
+    `gzip.go`, which contains a helper function called `compressedSize`. This function
+    returns the original size of the serialized data and its size after gzip compression:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As this is a generic function, we can use it with any message. We can start
+    with a message that would not be suitable to compress: `Int32Value`. So, in the
+    `main` function of the file, we are going to create an instance of `Int32Value`,
+    pass it through the `compressedSize` function, and we are going to print both
+    the original and the new size:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And if we run this, we should get the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The compressed payload is five times bigger than the original one. That is
+    definitely something to avoid in production. Now obviously, most of the time,
+    we do not send such simple messages, so let us see a more concrete example. We
+    are going to use the `Task` message that we defined earlier in the book:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE64]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we can compile it with the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE65]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And after that, we can now create an instance of `Task` and pass it the `compressedSize`
+    function to see the result of compression:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE66]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And if we run it, we should get the following sizes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE67]'
+  prefs: []
+  type: TYPE_PRE
+- en: This is better than the previous example, but this is still not efficient since
+    we are sending more bytes than needed. So, in the cases we saw previously, it
+    would not make sense to use gzip compression.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Lastly, let us see an example of when compression is useful. Let us say that
+    most of our `Task` instances have long descriptions. For example, we could have
+    something like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE68]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, running the `compressedSize` function will give us the following sizes:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE69]'
+  prefs: []
+  type: TYPE_PRE
+- en: The lesson here is that we need to know our data before enabling gzip compression
+    in gRPC. Now, let us see how to enable it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On the server side (`server/main.go`), this is as easy as adding the following
+    import:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE70]'
+  prefs: []
+  type: TYPE_PRE
+- en: Notice that we add an underscore before it in order to avoid getting an error
+    from the compiler saying that we are not using the import.
+  prefs: []
+  type: TYPE_NORMAL
+- en: That is all for the server. On the client side, there is a little bit more code,
+    but this is also simple. We can enable compression on all the RPC endpoints by
+    adding `DialOption` or we can enable it for a single endpoint by adding `CallOption`
+    ([https://pkg.go.dev/google.golang.org/grpc#CallOption](https://pkg.go.dev/google.golang.org/grpc#CallOption)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For the first option, we can simply add the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE71]'
+  prefs: []
+  type: TYPE_PRE
+- en: gzip adds the same import as the one in the server without the preceding underscore.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'And for adding compression per call, we can add `CallOption`. If we wanted
+    to add gzip compression to `AddTask` calls, we would have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE72]'
+  prefs: []
+  type: TYPE_PRE
+- en: To conclude, we saw that always adding compression is not a good idea and we
+    should only add it after testing it on our data. Then, we saw how we can register
+    the gzip compressor on the server and client. And finally, we saw that we can
+    enable compression globally or per call.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Securing connections
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Up until now, we have not made our connections secure – we used insecure credentials.
+    In gRPC, we can use TLS, mTLS, and ATLS connections. The first uses a one-way
+    authentication where the client can verify the server’s identity. The second one
+    is a two-way communication where the server verifies the client’s identity and
+    the client verifies the server’s. And finally, ATLS is similar to TLS but designed
+    and optimized for Google’s use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'mTLS and ATLS are worth exploring if you are working on smaller-scale communication
+    or working with Google Cloud, respectively. If you are interested in mTLS, you
+    should check the mTLS folder in the `grpc-go` GitHub repository: [https://github.com/grpc/grpc-go/tree/master/examples/features/encryption/mTLS](https://github.com/grpc/grpc-go/tree/master/examples/features/encryption/mTLS).
+    And if you want to use ATLS, check out this link: [https://grpc.io/docs/languages/go/alts/](https://grpc.io/docs/languages/go/alts/).
+    However, in our case, we are going to see the most frequently used form of encryption,
+    which is TLS.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: To do so, we are going to need to create some self-signed certificates. Obviously,
+    in production, these certificates will be automatically created with something
+    such as Let’s Encrypt. However, once these certificates are available, the overall
+    settings are the same.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, for the sake of simplicity, we are going to download these certificates
+    from the examples in the `grpc-go` repository. These certificates can also be
+    found in the `certs` directory under the `chapter7` folder. We first need to get
+    the server certificate and its key:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE73]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And then we need to get the **Certificate Authority** (**CA**) certificate:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE74]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we can start with the server. We will add the credentials as `ServerOption`
+    because we want all our calls to be encrypted. To create the credentials, we can
+    use a function called `NewServerTLSFromFile` from gRPC’s `credential` package.
+    It reads two files, the server certificate and the server key:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE75]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And once this is created, we can use the `grpc.Creds` function, which creates
+    a `ServerOption`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE76]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s see what happens when we now try to run the server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE77]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we run the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE78]'
+  prefs: []
+  type: TYPE_PRE
+- en: We get an error that basically tells us that the client was not able to connect
+    to the server. To solve this, we need to go to the client side and create the
+    `DialOption` for the credentials.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This time, we will use the `NewClientTLSFromFile` function, which takes the
+    CA certificate. For testing purposes, we will add the host URL as a second argument
+    (the certificate domain is *.test.example.com).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE79]'
+  prefs: []
+  type: TYPE_PRE
+- en: And to add the credentials, we use a function called W`ithTransportCredentials`,
+    which creates a `DialOption`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE80]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that we remove the insecure credentials since we now want to encrypt the
+    communication.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let us now rerun the server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE81]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we do the same for the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE82]'
+  prefs: []
+  type: TYPE_PRE
+- en: Everything goes well – we should pass through all the calls that we passed previously
+    but now our communication is secure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bazel
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In order to run the code we wrote in this section with Bazel, we need to include
+    the certificate files in our `BUILD` files. This can be done by exporting them
+    and adding them as `data` to the `server_lib` and `client_lib` targets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To export the files, we need to create a `BUILD.bazel` file in the `certs`
+    folder that contains the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE83]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, in the server `BUILD` file, we can now add a dependency on `server_cert`
+    and `server_key` like so (in `server/BUILD.bazel`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE84]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And finally, we can add the dependency to `ca_cert` in the client like so (in
+    `client/BUILD.bazel`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE85]'
+  prefs: []
+  type: TYPE_PRE
+- en: You should now be able to run the server and the client correctly with Bazel
+    as we showed in the previous chapters.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To conclude, we saw that we need to have a server certificate and a server key
+    file to create a connection on the server side, and we need to have a CA certificate
+    on the client side. We also worked with self-signed certificates but in production,
+    these certificates should be generated for us. And finally, we saw how to create
+    `ServerOption` and `DialOption` to enable TLS in gRPC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Distributing requests with load balancing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Load balancing in general is a complex topic. There are many ways of implementing
+    it. gRPC provides, by default, client-side load balancing. This is a less popular
+    choice than look-aside or proxy load-balancing because it involves “knowing” all
+    the servers’ addresses and having complex logic in the client, but it has the
+    advantage of directly talking to the servers and thus enables lower-latency communication.
+    If you want to know more about how to choose the correct [load balancing for your
+    use case, check t](https://grpc.io/blog/grpc-load-balancing/)his documentation:
+    [https://grpc.io/blog/grpc-load-balancing/](https://grpc.io/blog/grpc-load-balancing/).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: To see the power of client-side load balancing, we will deploy three instances
+    of our server to Kubernetes and let the client balance the load across them. I
+    created the Docker images beforehand so that we do not have to go through all
+    of that here. If you are interested in checking the Docker files, you can see
+    them both in the `server` and `client` folders. There are extensively documented.
+    Furthermore, I uploaded the images on Docker Hub so that we can pull them easily
+    ([https://hub.docker.com/r/clementjean/grpc-go-packt-book/tags](https://hub.docker.com/r/clementjean/grpc-go-packt-book/tags)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before deploying the server and client, let us see what we need to change in
+    terms of code. On the server side, we will simply print every request we receive.
+    This is done with an interceptor that looks like the following (in `server/interceptors.go`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE86]'
+  prefs: []
+  type: TYPE_PRE
+- en: This simply prints which method has been called and continues the execution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After that, these interceptors need to be registered in an Interceptor Chain.
+    This is because we already have our authentication Interceptor, and gRPC accepts
+    only one call of `grpc.UnaryInterceptor` and `grpc.StreamInterceptor`. We can
+    now merge, in `server`/`main.go`, two Interceptors of the same type (unary or
+    stream) like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE87]'
+  prefs: []
+  type: TYPE_PRE
+- en: That is all for the server side. Let us now focus on the client. We are going
+    to add a `DialOption` with the `grpc.WithDefaultServiceConfig` function. This
+    takes a JSON string as a parameter, which represents a global client configuration
+    for the service and its methods. If you are interested in diving into [the configuration,
+    you can check the following documentation:](https://github.com/grpc/grpc/blob/master/doc/service_config.md)
+    [https://github.com/grpc/grpc/blob/master/doc/service_config.md](https://github.com/grpc/grpc/blob/master/doc/service_config.md).
+  prefs: []
+  type: TYPE_NORMAL
+- en: For us, the configuration will be simple; we will simply say that our client
+    should use the `round_robin` load-balancing policy. The default policy is called
+    `pick_first`. This is saying that the client will try to connect to all the available
+    addresses (resolved by DNS), and once it can connect to one, it will send all
+    the requests to that address. `round_robin` is different. It will try to connect
+    to all the addresses available. And then, it will forward requests to each server
+    in turn.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To set up the `round_robin` balancing, we just need to add one `DialOption`
+    in `client/main.go`, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE88]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, one last thing to note is that the load balancing only works with
+    the DNS scheme. This means that we will change the way we run our client. Before,
+    we had the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE89]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we will need to prepend the `dns:///` scheme, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE90]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, we are ready to talk about deploying our application. Let us start deploying
+    the server. The first thing that we are going to need is a headless service. This
+    is done by setting `ClusterIP` to `None`, which allows the client to find all
+    the server instances through DNS. Each of the server instances will have its own
+    DNS A record, which indicates the IP of the instance. On top of that, we are going
+    to expose port `50051` to our server and make the selector equal to `todo-server`
+    so that all the Pods with that selector will be exposed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Right now, in `k8s/server.yaml`, we have the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE91]'
+  prefs: []
+  type: TYPE_PRE
+- en: After that, we are going to create a Deployment of 3 instances. We are going
+    to make sure that these Deployments have the right label for the service to find
+    them and we are going to expose port `50051`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can now add the following after the service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE92]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can now deploy the server instances by using the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE93]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And a little bit later, we should be have the following Pods (the names might
+    be different):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE94]'
+  prefs: []
+  type: TYPE_PRE
+- en: Next, we need to create a Pod for the client. Normally, if the client is not
+    a microservice, we would not have to deploy it in Kubernetes. However, since our
+    client is a simple Go app, it would be easier to deploy it in a container to talk
+    to our server instances.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In `k8s/client.yaml`, we have the following simple Pod:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE95]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can now run the client by using the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE96]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'And after a few seconds, we should get a similar output (or error instead of
+    completed):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE97]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, the most important thing is to see the actual effects of load-balancing.
+    To do that, we will take each server name and execute a `kubectl logs` command
+    for each:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE98]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, you might have different results, but you should be able to see that the
+    load was distributed across the different instances. One more thing to note is
+    that, as we are not using a real database, the logs for the `todo-client` should
+    not be correct. This is because we might have a `Task` on server 1 and ask to
+    list the `Task` for server 2, which does not know about the `Task` we want. In
+    production, we would use a real database, and that should not happen.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To conclude, we saw that the default load-balancing policy is `pick_first`,
+    which attempts to connect to all the available addresses, in order, until it finds
+    one that is reachable and sends all the requests to it. Then, we used a `round_robin`
+    load-balancing policy, which sends requests to each of the servers in turn. And
+    finally, we saw that setting up client-side load-balancing is simple in terms
+    of gRPC code. All the rest of the configuration is mostly some DevOps work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we saw the key features that we get out of the box when using
+    gRPC. We saw that we return errors with error codes and messages. There are way
+    fewer error codes in gRPC than in HTTP, which makes them less ambiguous.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After that, we saw that we can use the context to make a call cancelable and
+    specify deadlines. These features are important for making reliable calls and
+    making sure that if something goes wrong on the server side before returning,
+    our client is not waiting indefinitely.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With context and interceptors, we also saw that we can send metadata and use
+    them to validate requests. In our case, we checked for an authentication token
+    every time a request was made. On the client side, we saw that interceptors can
+    automatically add the metadata for us. This is especially useful for metadata
+    that is shared across services and/or endpoints.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then, we saw how we can encrypt communication over the network. We used TLS,
+    as this is the most common way to do so. We saw that, once we have our certificates,
+    we can simply create a `ServerOption` and a `DialOption` to let the server and
+    client know how to understand each other.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After that, we saw how we can compress payloads. And most importantly, we saw
+    when this might be useful and when it is not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: And finally, we used client-side load-balancing with a `round_robin` policy
+    to distribute requests across different instances of our server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will see more essential features of the kind we saw
+    in this chapter. We are going to introduce the concept of middleware and see how
+    to use different kinds of middleware to make our APIs more solid.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Quiz
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What is the context used for?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Passing metadata between the client and server
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Making calls cancelable
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Specifying a timeout
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: All of the above
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is an interceptor used for?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Sharing logic across endpoints
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Intercepting malicious data
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the potential problem of using compression in gRPC?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: There is no problem
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: There is the possibility that the payload gets corrupted
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: There is the possibility that the payload gets bigger
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: D
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: A
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: C
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Challenges
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Implement more errors on the server side. An example might be handling the errors
+    coming out of `updateTask` and `deleteTasks`, which are talking to the database.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As deadlines can save time and resources, it is important to specify them. Make
+    all calls to our client have a deadline of 200 milliseconds.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Create a client-side Interceptor that logs the requests the client sends.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

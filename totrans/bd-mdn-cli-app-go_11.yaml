@@ -1,0 +1,743 @@
+- en: '11'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Custom Builds and Testing CLI Commands
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: With any Golang application, you’ll need to build and test. However, it is increasingly
+    important as the project and its user base grow. Build tags with Boolean logic
+    give you the ability to create targeted builds and testing and further stabilize
+    your project with each new feature.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Given a deeper understanding of build tags and how to use them, we will use
+    a real-world example, the audio file CLI, to integrate levels (free and pro) and
+    enable a profiling feature.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Build tags are not only used as input when building but also when testing.
+    We will spend the latter half of this chapter on testing. We will learn specifically
+    how to mock an HTTP client that our CLI is using, configure tests locally, write
+    tests for individual commands, and run them. In this chapter, we will cover the
+    following topics in detail:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: What are build tags and how can you use them?
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Building with tags
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Testing CLI commands
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You’ll need a Unix operating system to understand and run the examples shared
+    in the chapter
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You can also find the code examples on GitHub at [https://github.com/PacktPublishing/Building-Modern-CLI-Applications-in-Go/tree/main/Chapter11/audiofile](https://github.com/PacktPublishing/Building-Modern-CLI-Applications-in-Go/tree/main/Chapter11/audiofile)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: What are build tags and how can you use them?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '**Build tags** are indicators of when a code file should be included within
+    the build process. In Go, they are defined by a single line at the top, or near
+    the top, of any source file, not just a Go file. They must precede the package
+    clause and be followed by a blank line. They have the following syntax:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: This line can only be defined once in a file. More than one definition would
+    generate an error. However, when more than one tag is used, they interact using
+    Boolean logic. In [*Chapter 7*](B18883_07.xhtml#_idTextAnchor143), *Developing
+    for Different Platforms*, we briefly touched on tags and their logic. The other
+    method for handling the development of different platforms uses a series of `if-else`
+    statements that check the operating system at runtime. Another method is to include
+    the operating system in the filename. For example, if there’s a filename ending
+    in `_windows.go`, we indicate to the compiler to only include this file when building
+    for `windows`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Tags can help separate code to include when compiling for different operating
+    systems using `$GOOS` and `$GOARCH`. Valid combinations of operating systems and
+    the architecture can be found here: [https://go.dev/doc/install/source#environment](https://go.dev/doc/install/source#environment).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Besides targeting platforms, build tags can be customized to separate featured
+    code or integration tests. Often, integration tags receive a specific tag, as
+    they often take a longer time to run. Separating unit tests from integration tests
+    adds a level of control when testing your application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'These build constraints, when used together, can powerfully compile different
+    versions of your code. As mentioned, they are evaluated together using Boolean
+    logic. Expressions contain build tags combined using the `||`, `&&`, and `!` operators
+    and parentheses. To learn more about build constraints, run the following command
+    in your terminal:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As an example, the following build tags constrain a file to build when the
+    `linux` or `openbsd` tags are satisfied and when `amd64` is satisfied and `cgo`
+    is not:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Run `go` `env` in your terminal to see which tags are satisfied automatically
+    when building your application. You’ll see the target operating system (`$GOOS`)
+    and architecture (`$GOARCH`) and `unix` if the operating system is Unix or Unix-like.
+    The `cgo` field is determined by the `CGO_ENABLED` environment variable, the term
+    for each Go major release, and any additional tags given by the `–``tags` flag.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As mentioned earlier, you can create your own pro and free versions based on
+    tags placed at the top of code files, `//go:build pro` or `//go:build free`. Integration
+    test files can be tagged with `//go:build int`, for example. However you want
+    to customize your builds, you can do so with the power of tags and Boolean logic.
+    Now, in the next section, let’s use tags in our code to do just that.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How to utilize build tags
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'As mentioned, we can use build tags to separate builds based on the operating
+    system and architecture. Within the audio file repository, we’re already doing
+    so with the following files associated with the `play` and `bug` commands. For
+    the `bug` command, we have the following files:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`bug_darwin.go //` only builds on Darwin systems'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bug_linux.go //` only builds on Linux systems'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bug_windows.go //` only builds on Windows platforms'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Each of those files contains a function that is specifically coded for the
+    targeted platform. The file suffixes have similar functionality to the build tags.
+    You can choose a file suffix that matches the exact platform and architecture.
+    However, build tags are preferred when you want to target more than one platform
+    and architecture. Inside the files is the matching build tag, used as an example,
+    but duplicates functionality. Inside `bug_darwin.go`, for example, at the top
+    of the file is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Since we already have these build tags set up throughout the repo to target
+    platforms where needed, let’s explore a few other ways to utilize build tags.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a pro, free, and dev version
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Suppose the command-line interface utilized build tags to create different levels
+    of access to the application’s features. This could be for admin or basic level
+    users or restricted by the level of permissions, but it could also be, especially
+    if the CLI was for external customers, a pro and free level version of your application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, it’s important to decide which commands will be available for each version.
+    Let’s give this a try with the audio file application:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Table 11.1 – List of commands included in the free or pro level](img/Table_11.1_B18883.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Table 11.1 – List of commands included in the free or pro level
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s also include a dev version; this simply allows the API to be run locally.
+    In a real-world scenario, the application would be configured to call a public
+    API, and storage could be done in a database. This gives us another build tag
+    to create.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let’s use build tags to distinguish the free, pro, and dev versions. The
+    dev version build tag is placed at the top of the `cmd/api.go` file, making the
+    API command only available when the `dev` tag is specified:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, the tag to distinguish the pro version is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'There are a few files, as previously mentioned, that already have build tags
+    to target platforms. This build tag means that the file will be available in the
+    free, pro, and dev versions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: The preceding build tags utilize Boolean logic to state that the file should
+    be included in the build process when both the `darwin` and `free` tags are defined.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s break down the tags here with the Boolean logic syntax examples:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Table 11.2 – Boolean logic examples'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '](img/Table_11.2_B18883.jpg)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Table 11.2 – Boolean logic examples
+  prefs: []
+  type: TYPE_NORMAL
+- en: This Boolean logic included within the build tag will allow developers to build
+    for any combination of platforms and versions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Adding build tags to enable pprof
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Another way to utilize build tags is to enable profiling on your API service.
+    `pprof` is a tool for visualizing and analyzing profile data. The tool reads a
+    collection of samples in `proto`, or protocol buffer, format and then creates
+    reports that help visualize and analyze the data. This tool can generate text
+    and graphical reports.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: To learn more about how to use this tool, visit [https://pkg.go.dev/net/http/pprof](https://pkg.go.dev/net/http/pprof).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For this case, we’ll define a build tag called `pprof` to appropriately match
+    its usage. Within the `services/metadata/metadata.go` file, we define the metadata
+    service used to extract information from the audio files uploaded via the command-line
+    interface. The `CreateMetadataService` function creates the metadata service and
+    defines all the endpoints with matching handlers. To enable profiling, we will
+    add this new block of code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'At the top of the file, after the inputs, we’ll define the variable that it’s
+    dependent on:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'However, we need some way to set the `profile` variable to `true`. To do so,
+    we create a new file: `services/metadata/pprof.go`. This file contains the following
+    content:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, whether building the `free`, `pro`, or `dev` version, if the
+    `profile` build tag is added as tag input, then the `init` function will be called
+    to set the `profile` variable to `true`. Now, we have another idea of how to use
+    build tags – to set Boolean variables that act as feature flags. Now that we’ve
+    changed the necessary files to include the build tags, let’s use these as inputs
+    to the build commands.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building with tags
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'By now, we have built our applications using `Makefile`, which contains the
+    following command specific to building a Darwin application:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: For the Darwin build, we can additionally build a version for a free and pro
+    version and also a profile version to enable `pprof`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building a free version
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To build a `free` version for the Darwin operating system, we need to modify
+    the preceding `make` command and create a new one:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the `build-darwin-free` command, we pass in the two build tags: `darwin`
+    and `free`. This will include files such as `bug_darwin.go` and `play_darwin.go`,
+    which contain the following line at the top of the Go file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: Similarly, the files will be included in the build when we build the `pro` version.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building a pro version
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To build a `pro` version for the Darwin operating system, we need to add a
+    new `build` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the `build-darwin-pro` command, we pass in the two build tags: `darwin`
+    and `pro`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building to enable pprof on the pro version
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To build a `pro` version that has `pprof` enabled, we add the following `build`
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the `build-darwin-pro-profile` command, we pass three build tags: `darwin`,
+    `pro`, and `profile`. This will include the `services/metadata/pprof.go` file,
+    which includes the line at the top of the file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Similarly, the files will be included in the build when we build for the free
+    version.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this point, we’ve learned what build tags are, the different ways to use
+    build tags within your code, and, finally, how to build applications targeted
+    to specific uses using build tags. Specifically, while build tags can be used
+    to define different levels of features available (free versus pro), you can also
+    enable profiling or any other debug tooling using build tags. Now that we have
+    understood how to build our command-line application for different targets, let’s
+    learn how to test our CLI commands.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing CLI commands
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'While building your command-line application, it’s important to also build
+    testing around it so you can ensure that the application works as expected. There
+    are a few things that typically need to be done, including the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mock the HTTP client
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Handle test configuration
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Create a test for each command
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We’ll go over the code for each of these steps that exist in the audio file
+    repository for [*Chapter 11*](B18883_11.xhtml#_idTextAnchor258).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Mocking the HTTP client
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To mock the HTTP client, we’ll need to create an interface to mimic the client’s
+    `Do` method, as well as a function that returns this interface, which is both
+    satisfied by the real and mocked client.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the `cmd/client.go` file, we’ve written some code to handle all of this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can now easily create a mock client by replacing the `getClient` variable
+    with a function that returns a mocked client. If you look at each command’s code,
+    it uses the `getClient` variable. For example, the `upload.go` file calls the
+    `Do` method with the following line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: When the application runs, this returns the actual HTTP client with a 15-second
+    timeout. However, in each test, we’ll set the `getClient` variable to a mocked
+    HTTP client.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The mocked HTTP client is set in the `cmd/client_test.go` file. First, we define
+    the type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, to satisfy the `AudiofileClient` interface previously defined, we implement
+    the `Do` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Some of the requests, including `list`, `get`, and `search` endpoints, will
+    return data that is stored in JSON files under the `cmd/testfiles` folder. We
+    read these files and store them in the corresponding byte slices: `listBytes`,
+    `getBytes`, and `searchBytes`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The data read from these files is used within the response. Since the `Do`
+    method receives the request, we can create a switch case for each request endpoint
+    and then handle the response individually. You can create more detailed cases
+    to handle errors, but in this case, we are only returning the successful case.
+    For the first case, the `/request` endpoint, we return `200 OK`, but the body
+    of the response also contains the string value from `getBytes`. You can see the
+    actual data in the `./``testfiles/get.json` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For the `/upload` endpoint, we return `200 OK`, but the body of the response
+    also contains the `"123"` string value:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For the `/list` endpoint, we return `200 OK`, but the body of the response
+    also contains the string value from `listBytes`. You can see the actual data in
+    the `./``testfiles/list.json` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For the `/delete` endpoint, we return `200 OK`, but the body of the response
+    also contains `"successfully deleted audio with` `id: 456"`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For the `/search` endpoint, we return `200 OK`, but the body of the response
+    also contains the string value from `searchBytes`. You can see the actual data
+    in the `./``testfiles/search.json` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: Finally, if the request path doesn’t match any of the endpoints in the `switch`
+    statement, then an empty response is returned.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Handling test configuration
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We handle the test configuration in the `cmd/root_test.go` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: Within the `ConfigureTest` function, we set the `getClient` variable to a pointer
+    to the `ClientMock` type. Because the `viper` configuration values are checked
+    when the command is called, we set some default values for the CLI’s hostname
+    and port to random test values. Finally, in this file, the regular logger, `Logger`,
+    and verbose logger, `Verbose`, are both defined and then later initialized by
+    the `utils.InitCLILogger()` method call.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a test for a command
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Now that we have the mocked client, configuration, and loggers set up, let’s
+    create a test for the commands. Before I dive into the code for each, it’s important
+    to mention the line of code that’s reused at the start of each test:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding section discusses the details of this function, but it prepares
+    each state with a mocked client, default configuration values, and initialized
+    loggers. In our examples, we use the `testing` package, which provides support
+    for automated tests in Go. It is designed to be used in concert with the `go test`
+    command, which executes any function in your code defined with the following format:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`Xxx` can be replaced with anything else, but the first character needs to
+    be capital. The name itself is used to identify the type of test that is being
+    executed. I won’t go into each individual test, just three as examples. To view
+    the entirety of tests, visit the audio file repository for this chapter.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing the bug command
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The function for testing the `bug` command is defined here. It takes a single
+    parameter, which is a pointer to the `testing.T` type, and fits the function format
+    defined in the last section. Let’s break down the code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this function, we first define the output buffer, `b`, which we can later
+    read for comparison to the expected output. We set the arguments using the `SetArgs`
+    method and pass in an unexpected argument. The command is executed with the `rootCmd.Execute()`
+    method and the actual result is read from the buffer and saved in the `actualBytes`
+    variable. The expected output is stored within the `./testfiles/bug.txt` file
+    and is read into the `expectedBytes` variable. We compare these values to ensure
+    that they are equal. Since we passed in an unexpected argument, the command usage
+    is printed out. This test is designed to pass; however, if the trimmed strings
+    are not equal, the test fails.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing the get command
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The function for testing the `get` command is defined here. Similarly, the
+    function definition fits the format to be picked up in the `go test` command.
+    Remember the mocked client and that the `get` command calls the `/request` endpoint.
+    The response body contains the value found in the `./testfiles/get.json` file.
+    Let’s break down the code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We pass in the following arguments to mimic the `audiofile get –id 123 –``json`
+    call:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We execute the root command with the preceding arguments:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We read the actual data output from `rootCmd`’s execution and store it in the
+    `actualBytes` variable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We read the expected data output from the `./``testfiles/get.json` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, the data of both `actualBytes` and `expectedBytes` is unmarshalled into
+    the `models.Audio` struct and then compared:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: This test was designed to succeed, but if the data is not as expected, then
+    the test fails.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing the upload command
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The function for testing the `upload` command is defined here. Again, the function
+    definition fits the format to be picked up in the `go test` command. Remember
+    the mocked client and that the `upload` command calls the `/upload` endpoint with
+    a mocked response body containing the `"123"` value. Let’s break down the code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: '`rootCmd`’s arguments are set to mimic the following command call:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: The file type and data are not validated because that happens on the API side,
+    which is mocked. However, since we know the body of the response contains the
+    `123` value, we set the expected variable to `123`. The `actual` value, which
+    contains the output of the command execution, is then later compared to the expected
+    one. The test is designed for success, but if the values are not equal, then the
+    test fails.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ve now gone over several examples of how to test a CLI Cobra command. You
+    can now create your own tests for your CLI, by mocking your own HTTP client and
+    creating tests for each individual command. We haven’t done so in this chapter,
+    but it’s good to know that build tags can also be used to separate different kinds
+    of tests – for example, integration tests and unit tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running the tests
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'To test your commands, you can run `go test` and pass in a few additional flags:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`-v` for verbose mode'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`-tags` for any files you want to specifically target'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In our test, we want to target just the `pro` build tag because that will cover
+    all commands. We add two additional `Makefile` commands, one to run tests in verbose
+    mode and one that doesn’t:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After saving the `Makefile` from the terminal, you can execute the command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The following output is expected:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: We now know how to run the tests utilizing build tags as well. This should be
+    all the tools needed to run your own CLI testing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, you learned what build tags are and how to use them for different
+    purposes. Build tags can be used for generating builds of different levels, separating
+    our specific tests, or adding debug features. You also learned how to generate
+    builds with the build tags that you added to the top of your files and how to
+    utilize the Boolean logic of tags to quickly determine whether files will or won’t
+    be included.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You also learned how to test your Cobra CLI commands with Golang’s default
+    `testing` package. Some necessary tools were also included, such as learning how
+    to mock an HTTP client. Together with the build tags, you can now not only build
+    targeted applications with tags but also run tests with the same tags to target
+    specific tests. In the next chapter, [*Chapter 12*](B18883_12.xhtml#_idTextAnchor291),
+    *Cross-Compilation Across Different Platforms*, we will learn how to use these
+    tags and compile for the different major operating systems: `darwin`, `linux`,
+    and `windows`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Where does the build tag go in a Golang file and what is the syntax?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What flag is used for both `go build` and `go test` to pass in the build tags?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What build tag could you place on an integration test Golang file and how would
+    you run `go test` with the tag?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Answers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'It’s placed at the top of the file, before the package declaration, followed
+    by a single empty line. The syntax is: `//``go:build [tag]`.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The `–tags` flag is used to pass in build tags for both the `go build` and `go`
+    `test` methods.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'You could add the `//go:build int` build tag at the top of any integration
+    test file, and then modify the test file to run this command: `go test ./cmd -tags
+    "``pro int"`.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Read more about the `build` package at [https://pkg.go.dev/go/build](https://pkg.go.dev/go/build),
+    and read more about the `testing` package at [https://pkg.go.dev/testing](https://pkg.go.dev/testing)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

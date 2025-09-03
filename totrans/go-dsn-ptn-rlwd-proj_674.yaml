@@ -1,0 +1,300 @@
+- en: Refactoring and optimizing our code
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When we look back at how our `Avatar` type is used, you will notice that every
+    time someone sends a message, the application makes a call to `GetAvatarURL`.
+    In our latest implementation, each time the method is called, we iterate over
+    all the files in the `avatars` folder. For a particularly chatty user, this could
+    mean that we end up iterating over and over again many times a minute. This is
+    an obvious waste of resources and would, at some point very soon, become a scaling
+    problem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instead of getting the avatar URL for every message, we should get it only once
+    when the user first logs in and cache it in the `auth` cookie. Unfortunately,
+    our `Avatar` interface type requires that we pass in a `client` object to the
+    `GetAvatarURL` method and we do not have such an object at the point at which
+    we are authenticating the user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: So did we make a mistake when we designed our `Avatar` interface? While this
+    is a natural conclusion to come to, in fact we did the right thing. We designed
+    the solution with the best information we had available at the time and therefore
+    had a working chat application much sooner than if we'd tried to design for every
+    possible future case. Software evolves and almost always changes during the development
+    process and will definitely change throughout the lifetime of the code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Replacing concrete types with interfaces
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: We have concluded that our `GetAvatarURL` method depends on a type that is not
+    available to us at the point we need it, so what would be a good alternative?
+    We could pass each required field as a separate argument, but this would make
+    our interface brittle, since as soon as an `Avatar` implementation needs a new
+    piece of information, we'd have to change the method signature. Instead, we will
+    create a new type that will encapsulate the information our `Avatar` implementations
+    need while conceptually remaining decoupled from our specific case.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In `auth.go`, add the following code to the top of the page (underneath the
+    `package` keyword, of course):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: You may have noticed that we only actually implemented one of the two required
+    methods to satisfy our `ChatUser` interface. We got away with this because the
+    Gomniauth `User` interface happens to define the same `AvatarURL` method. In practice,
+    when we instantiate our `chatUser` struct provided we set an appropriate value
+    for the implied Gomniauth `User` field our object implements both Gomniauth's
+    `User` interface and our own `ChatUser` interface at the same time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Changing interfaces in a test-driven way
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Before we can use our new type, we must update the `Avatar` interface and appropriate
+    implementations to make use of it. As we will follow TDD practices, we are going
+    to first make these changes in our test file, see the compiler errors when we
+    try to build our code, and see failing tests once we fix those errors before finally
+    making the tests pass.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Open `avatar_test.go` and replace `TestAuthAvatar` with the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: You will also need to import the `gomniauth/test` package as `gomniauthtest`,
+    like we did in the last section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using our new interface before we have defined it is a good way to check the
+    sanity of our thinking, which is another advantage of practicing TDD. In this
+    new test, we create `TestUser` provided by Gomniauth and embed it into a `chatUser`
+    type. We then pass the new `chatUser` type into our `GetAvatarURL` calls and make
+    the same assertions about output as we always have done.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Gomniauth's `TestUser` type is interesting as it makes use of the `Testify`
+    package's mocking capabilities. Refer to [https://github.com/stretchr/testify](https://github.com/stretchr/testify)
+    for more information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `On` and `Return` methods allow us to tell `TestUser` what to do when specific
+    methods are called. In the first case, we tell the `AvatarURL` method to return
+    the error, and in the second case, we ask it to return the `testUrl` value, which
+    simulates the two possible outcomes we are covering in this test.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Updating the other two tests is much simpler because they rely only on the `UniqueID`
+    method, the value of which we can control directly.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Replace the other two tests in `avatar_test.go` with the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Of course, this test code won''t even compile because we are yet to update
+    our `Avatar` interface. In `avatar.go`, update the `GetAvatarURL` signature in
+    the `Avatar` interface type to take a `ChatUser` type rather than a `client` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Note that we are using the `ChatUser` interface (with the starting letter in
+    uppercase) rather than our internal `chatUser` implementation struct after all,
+    we want to be flexible about the types our `GetAvatarURL` methods accept.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Trying to build this will reveal that we now have broken implementations because
+    all the `GetAvatarURL` methods are still asking for a `client` object.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fixing the existing implementations
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Changing an interface like the one we have is a good way to automatically find
+    the parts of our code that have been affected because they will cause compiler
+    errors. Of course, if we were writing a package that other people would use, we
+    would have to be far stricter about changing the interfaces like this, but we
+    haven't released our v1 yet, so it's fine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We are now going to update the three implementation signatures to satisfy the
+    new interface and change the method bodies to make use of the new type. Replace
+    the implementation for `FileSystemAvatar` with the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: The key change here is that we no longer access the `userData` field on the
+    client, and just call `UniqueID` directly on the `ChatUser` interface instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we update the `AuthAvatar` implementation with the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Our new design proves to be much simpler, it's always a good thing if we can
+    reduce the amount of code required. The preceding code makes a call to get the
+    `AvatarURL` value, and provided it isn't empty, we return it; otherwise, we return
+    the `ErrNoAvatarURL` error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Note how the expected flow of the code is indented to one level, while error
+    cases are nested inside `if` blocks. While you can't stick to this practice 100%
+    of the time, it's a worthwhile endeavor. Being able to quickly scan the code (when
+    reading it) to see the normal flow of execution down a single column allows you
+    to understand the code much quicker. Compare this to code that has lots of `if...else`
+    nested blocks, which takes a lot more unpicking to understand.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, update the `GravatarAvatar` implementation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Global variables versus fields
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'So far, we have assigned the `Avatar` implementation to the `room` type, which
+    enables us to use different avatars for different rooms. However, this has exposed
+    an issue: when our users sign in, there is no concept of which room they are headed
+    to so we cannot know which `Avatar` implementation to use. Because our application
+    only supports a single room, we are going to look at another approach to select
+    implementations: the use of global variables.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A global variable is simply a variable that is defined outside any type definition
+    and is accessible from every part of the package (and from outside the package
+    if it''s exported). For a simple configuration, such as which type of `Avatar`
+    implementation to use, global variables are an easy and simple solution. Underneath
+    the `import` statements in `main.go`, add the following line:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: This defines `avatars` as a global variable that we can use when we need to
+    get the avatar URL for a particular user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Implementing our new design
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'We need to change the code that calls `GetAvatarURL` for every message to just
+    access the value that we put into the `userData` cache (via the `auth` cookie).
+    Change the line where `msg.AvatarURL` is assigned, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Find the code inside `loginHandler` in `auth.go` where we call `provider.GetUser`
+    and replace it, down to where we set the `authCookieValue` object, with the following
+    code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we created a new `chatUser` variable while setting the `User` field (which
+    represents the embedded interface) to the `User` value returned from Gomniauth.
+    We then saved the `userid` MD5 hash to the `uniqueID` field.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The call to `avatars.GetAvatarURL` is where all of our hard work has paid off,
+    as we now get the avatar URL for the user far earlier in the process. Update the
+    `authCookieValue` line in `auth.go` to cache the avatar URL in the cookie and
+    remove the e-mail address since it is no longer required:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: However expensive the work the `Avatar` implementation needs to do, such as
+    iterating over files on the filesystem, it is mitigated by the fact that the implementation
+    only does so when the user first logs in and not every time they send a message.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tidying up and testing
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Finally, we get to snip away at some of the fat that has accumulated during
+    our refactoring process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Since we no longer store the `Avatar` implementation in `room`, let''s remove
+    the field and all references to it from the type. In `room.go`, delete the `avatar
+    Avatar` definition from the `room` struct and update the `newRoom` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Remember to use the compiler as your to-do list where possible, and follow the
+    errors to find where you have impacted other code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In `main.go`, remove the parameter passed into the `newRoom` function call since
+    we are using our global variable instead of this one.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After this exercise, the end user experience remains unchanged. Usually when
+    refactoring the code, it is the internals that are modified while the public-facing
+    interface remains stable and unchanged. As you go, remember to re-run the unit
+    tests to make sure you don't break anything as you evolve the code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: It's usually a good idea to run tools such as `golint` and `go vet` against
+    your code as well in order to make sure it follows good practices and doesn't
+    contain any Go faux pas, such as missing comments or badly named functions. There
+    are a few deliberately left in for you to fix yourself.
+  prefs: []
+  type: TYPE_NORMAL

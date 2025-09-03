@@ -1,0 +1,2515 @@
+- en: Building a Persistence Layer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '"Database schemas are notoriously volatile, extremely concrete, and highly
+    depended on. This is one reason why the interface between OO applications and
+    databases is so difficult to manage, and why schema updates are generally painful."'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '- Robert C. Martin ^([14])'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we will focus our attention on designing and implementing
+    the data access layers for two of the Links ''R'' Us components: the link graph
+    and the text indexer. More specifically, in the pages that follow, we will do
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Discuss and compare the different types of database technologies
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Identify and understand the main reasons that necessitate the creation of a
+    data access layer as an abstraction over the underlying database layer
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Analyze the entities, relations, and query requirements for the link graph
+    component, define a Go interface for the data layer, and build two alternative
+    data layer implementations from scratch: a simple, in-memory store that we can
+    use for testing purposes and a production-ready store backed by CockroachDB'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Come up with a document model for indexing and searching web page contents and
+    implement both an in-memory indexer (based on the popular bleve Go package) as
+    well as a horizontally scalable variant based on Elasticsearch
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Outline strategies for creating test suites that can be shared and reused across
+    different data layer implementations
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The full code for the topics that will be discussed in this chapter have been
+    published in this book's GitHub repository under the `Chapter06` folder.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can access this book's GitHub repository at [https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang](https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To get you up and running as quickly as possible, each example project includes
+    a makefile that defines the following set of targets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Makefile target** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `deps` | Install any required dependencies. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `test` | Run all tests and report coverage. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lint` | Check for lint errors. |'
+  prefs: []
+  type: TYPE_TB
+- en: As with all the other chapters in this book, you will need a fairly recent version
+    of Go, which you can download from [https://golang.org/dl](https://golang.org/dl)*.*
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running tests that require CockroachDB
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To run the link graph tests that use CockroachDB as a backend, you will need
+    to download a recent version of CockroachDB (v19.1.2 or newer) from [https://www.cockroachlabs.com/get-cockroachdb](https://www.cockroachlabs.com/get-cockroachdb).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After downloading and unpacking the CockroachDB archive, you can spin up a
+    CockroachDB instance for your tests by changing to the folder where the archive
+    was extracted and run the following set of commands:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: The link graph tests for the CockroachDB backend examine the contents of the
+    `CDB_DSN` environment variable by looking for a valid **data source name** (**DSN**)
+    for accessing the CockroachDB instance. If the environment variable is empty or
+    not defined, all the CockroachDB tests will be automatically skipped.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Assuming you followed the preceding instructions to start a local CockroachDB
+    instance, you can execute the following command to define a suitable DSN prior
+    to running the CockroachDB test suite:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Finally, it is important to note that all the tests operate under the assumption
+    that the database schema has been set up in advance. If you have just created
+    the database, you can apply the required set of DB migrations by switching to
+    your local checked-out copy of this book's source code repository and running
+    `make run-cdb-migrations`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Running tests that require Elasticsearch
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To run the link graph tests that use Elasticsearch as a backend, you will need
+    to download a recent version of Elasticsearch (v7.2.0 or newer) from [https://www.elastic.co/downloads/elasticsearch](https://www.elastic.co/downloads/elasticsearch)*.*
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After downloading and unpacking the Elasticsearch archive, you can change to
+    the location of the extracted files and start a local Elasticsearch instance (with
+    a sane list of default configuration options) by running the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The Elasticsearch tests obtain the list of Elasticsearch cluster endpoints
+    to connect to by examining the contents of the `ES_NODES` environment variable.
+    Assuming that you have started a local Elasticsearch instance by following the
+    instructions above, you can define `ES_NODES` as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: As we will see in the following sections, the Elasticsearch indexer will be
+    designed in a way that will allow the store to automatically define the schema
+    for the indexed documents once it successfully establishes a connection to the
+    Elasticsearch cluster. Consequently, there is no need for a separate migration
+    step prior to running the Elasticsearch test suite.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exploring a taxonomy of database systems
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the following sections, we will be presenting a list of the most popular
+    DB technologies and analyze the pros and cons of each one. Based on our analysis,
+    we will select the most appropriate type of database for implementing the link
+    graph and the text indexer components of Links 'R' Us.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Key-value stores
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The first type of database technology that we will be examining is a key-value
+    store. As the name implies, a key-value store database persists data as a collection
+    of key-value pairs, where keys serve as unique identifiers for accessing stored
+    data within a particular collection. By this definition, key-value stores are
+    functionally equivalent to a hashmap data structure. Popular key-value store implementations
+    include memcached ^([15]), AWS DynamoDB ^([8]), LevelDB ^([13]), and SSD-optimized
+    RocksDB ^([20]).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The basic set of operations supported by key-value stores are *insertions*, *deletions*, and *lookups*.
+    However, some popular key-value store implementations also provide support for *range
+    queries*, which allow clients to iterate an *ordered* list of key-value pairs
+    between two particular keys. As far as keys and values are concerned, the majority
+    of key-value store implementations do not enforce any constraints on their contents.
+    This means that any kind of data (for example, strings, integers, or even binary
+    blobs) can be used as a key.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The data access patterns that are used by key-value stores make data partitioning
+    across multiple nodes much easier compared to other database technologies. This
+    property allows key-value stores to scale horizontally so as to accommodate increased
+    traffic demand.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s examine some common use cases where key-value stores are generally considered
+    to be a great fit:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Caches! We can use a key-value store as a general-purpose cache for all sorts
+    of things. We could, for instance, cache web pages for a CDN service or store
+    the results of frequently used database queries to reduce the response time for
+    a web application.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'A distributed store for session data: Imagine for a moment that we operate
+    a high-traffic website. To handle the traffic, we would normally spin up a bunch
+    of backend servers and place them behind a load balancer. Unless our load balancer
+    had built-in support for sticky sessions (always sending requests from the same
+    user to the same backend server), each request would be handled by a different
+    backend server. This could cause issues with stateful applications as they require
+    access to the session data associated with each user. If we tagged each user request
+    with a unique per-user ID, we could use that as a key and retrieve the session
+    data from a key-value store.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A storage layer for a database system. The properties of key-value stores make
+    them a very attractive low-level primitive for implementing more sophisticated
+    types of databases. For example, relational databases such as CockroachDB ^([5]) and
+    NoSQL databases such as Apache Cassandra ^([2]) are prime examples of systems
+    built on top of key-value stores.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The main caveat of key-value stores is that we cannot efficiently search *within*
+    the stored data without introducing some kind of auxiliary data structure to facilitate
+    the role of an index.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Relational databases
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The idea of relational databases was introduced by E. F. Codd in 1970 ^([6]).
+    The main unit of data organization in a relational database is referred to as
+    a **table**. Each table is associated with a **schema** that defines the names
+    and data types for each table **column**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Within a table, each data record is represented by a **row** that is, in turn,
+    identified by a **primary key**, a tuple of column values that must be *unique*
+    among all the table rows. Table columns may also reference records that exist
+    in other tables. This type of column is typically referred to as a **foreign key**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The standardized way to access and query relational databases is via the use
+    of an *English-like* **structured query language** (**SQL**), which is actually
+    a subset of various domain-specific languages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A data *definition* language, which includes commands for managing the database
+    schema; for example, creating, altering, or dropping tables, indexes, and constraints
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A data *manipulation* language, which supports a versatile set of commands for
+    inserting, deleting, and, of course, querying the database contents
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A data *control* language, which provides a streamlined way to control the level
+    of access that individual users have to the database
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A *transaction control* language, which allows database users to start, commit,
+    or abort database transactions
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'One of the most important features of relational databases is the concept of
+    transactions. A transaction can be thought of as a wrapper around a sequence of
+    SQL statements that ensures that either *all* of them will be applied or *none* of
+    them will be applied. To ensure that transactions work reliably in the presence
+    of errors or faults (for example, loss of power or network connectivity) *and*
+    that their outcomes are always deterministic when multiple transactions execute
+    concurrently, relational databases must be compliant with a set of properties
+    that are commonly referred to with the acronym ACID. Let''s go over what **ACID**
+    stands for:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Atomicity**: Transactions are applied completely or not at all.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Consistency**: The contents of a transaction is not allowed to bring the
+    database into an invalid state. This means that the database system must validate
+    each of the statements included in a transaction against the constraints (for
+    example, primary, foreign, or unique keys) that have been defined on the tables
+    that are about to be modified.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Isolation**: Each transaction must execute in total isolation from other
+    transactions. If multiple transactions are executing concurrently, the end result
+    should be equivalent to running each transaction one after the other.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Durability**: Once a transaction has been committed, it will remain committed,
+    even if the database system is restarted or the nodes it runs on experience loss
+    of power.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In terms of performance, relational databases such as PostgreSQL ^([18]) and
+    MySQL ^([17]) are generally easy to scale vertically. Switching to a beefier CPU
+    and/or adding more memory to your database server is more or less a standard operating
+    procedure for increasing the **queries per second** (**QPS**) or **transactions
+    per second** (**TPS**) that the DB can handle. On the other hand, scaling relational
+    databases horizontally is much harder and typically depends on the type of workload
+    you have.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For *write-heavy* workloads, we usually resort to techniques such as data sharding.
+    Data sharding allows us to split (partition) the contents of one or more tables
+    into multiple database nodes. This partitioning is achieved by means of a per-row **shard
+    key**, which dictates which node is responsible for storing each row of the table.
+    One caveat of this approach is that it introduces additional complexity at query
+    time. While writes are quite efficient, reads are not trivial as the database
+    might need to query *each* individual node and then aggregate the results together
+    in order to answer even a simple query such as `SELECT COUNT(*) FROM X`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, if our workloads are *read-heavy*, horizontal scaling is
+    usually achieved by spinning up *read-replicas*, which mirror updates to one or
+    more *primary* nodes. Writes are always routed to the primary nodes while reads
+    are handled by the read-replicas (ideally) or even by the primaries if the read-replicas
+    cannot be reached.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While relational databases are a great fit for transactional workloads and complex
+    queries, they are not the best tool for querying hierarchical data with arbitrary
+    nesting or for modeling graph-like structures. Moreover, as the volume of stored
+    data exceeds a particular threshold, queries take increasingly longer to run.
+    Eventually, a point is reached where reporting queries that used to execute in
+    real-time can only be processed as offline batch jobs. As a result, companies
+    with high-volume data processing needs have been gradually shifting their focus
+    toward NoSQL databases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: NoSQL databases
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'NoSQL databases have met a sharp rise in popularity over the last couple of
+    years. Their key value propositions are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: They are well suited for crunching massive volumes of data.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: By design, NoSQL database systems can effortlessly scale both vertically and
+    horizontally. As a matter of fact, most NoSQL database systems promise a linear
+    increase in performance as more nodes are added to the database cluster.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: More advanced NoSQL solutions can scale even across data centers and include
+    support for automatically routing client requests to the nearest data center.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: However, as we all know, there is no such thing as a free lunch. To achieve
+    this performance boost, NoSQL databases have to sacrifice something! Being distributed
+    systems, NoSQL databases must adhere to the rules of the *CAP theorem*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The CAP theorem was proposed by Eric Brewer in 2000 ^([4]) and is one of the
+    fundamental theorems that governs the operation of distributed systems. It states
+    that networked shared data systems can only guarantee up to *two* of the following
+    properties:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Consistency**: Each node in the system has the same view of the stored data.
+    This implies that each read operation on a piece of data will always return the
+    value of the last performed write.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Availability**: The system can still process read and write requests in a
+    reasonable amount of time, even if some of the nodes are not online.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Partition tolerance**: If a network split occurs, some of the cluster nodes
+    will become isolated and therefore unable to exchange messages with the remaining
+    nodes in the cluster. However, the system should remain operational and the cluster
+    should be able to reach a consistent state when the partitioned nodes rejoin the
+    cluster.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'As shown in the following diagram, if we were to pair together two of the three
+    fundamental properties of the CAP theorem, we can obtain a couple of interesting
+    distributed system configurations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/4a225d36-b48f-4b7d-96e7-cc11680bfd0a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 1: The intersection of the three properties of the CAP theorem'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s briefly analyze the behavior as to how each of these configurations
+    reacts in the presence of errors:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Consistency – Partition (CP) tolerance**: Distributed systems in this category
+    typically use a voting protocol to ensure that the majority of nodes agree that
+    they have the most recent version of the stored data; in other words, they reach
+    a *quorum*. This allows the system to recover from network partitioning events.
+    However, if not enough nodes are available to reach quorum, the system will return
+    an error to clients as data consistency is preferred over availability.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Availability – Partition (AP) tolerance**: This class of distributed systems
+    favors availability over consistency. Even in the case of a network partition,
+    an AP system will try to process read requests, although *stale* data may be returned
+    to the clients.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Consistency – Availability (CA)**: In practice, *all* distributed systems
+    are, to some extent, affected by network partitions. Therefore, a pure CA type
+    of system is not really feasible unless, of course, we are talking about a single-node
+    system. We could probably classify a single-node deployment of a traditional relational
+    database as a CA system.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: At the end of the day, the choice of an appropriate NoSQL solution largely depends
+    on your particular use case. What happens, though, if the use case requires all
+    three of these properties? Are we simply out of luck?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Fortunately, over the years, several NoSQL solutions (for example, Cassandra ^([2]))
+    have evolved support for what is now referred to as **tunable consistency**. Tunable
+    consistency allows clients to specify their desired level of consistency on a *per-query* basis.
+    For example, when creating a new user account, we would typically opt for strong
+    consistency semantics. On the other hand, when querying the number of views of
+    a popular video, we could dial down the desired level of consistency and settle
+    for an approximate, eventually-consistent, value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Document databases
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Document databases are specialized NoSQL databases that store, index, and query
+    complex and possibly deeply nested *document-like* objects. All documents are
+    stored within a *collection*, which is the equivalent of a table in a relational
+    database. The key differentiation that makes document databases unique is that
+    they do not enforce a particular schema (that is, they are schema-less) but rather *infer* the
+    schema from the stored data. This design decision allows us to store *different*
+    types of documents in the *same* collection. What's more, both the schema and
+    contents of each individual document can evolve over time with no visible impact
+    on the database's query performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Contrary to relational databases, which have standardized on SQL, document databases
+    typically implement their own **domain-specific language** (**DSL**) for querying
+    data. However, they also provide advanced primitives (for example, support for
+    map-reduce) for calculating complex aggregations across multiple documents in
+    a collection. This makes document databases a great fit for generating **business
+    intelligence** (**BI**) and other types of analytics reports.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The list of document database systems is quite long, so I will just be listing
+    some of the more popular (in my view) implementations: MongoDB ^([16]), CouchDB ^([3]), and
+    Elasticsearch ^([9]).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Understanding the need for a data layer abstraction
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before we delve deeper into modeling the data layer for the link graph and text
+    indexer components, we need to spend some time discussing the reasoning behind
+    the introduction of a data layer abstraction.
+  prefs: []
+  type: TYPE_NORMAL
+- en: First and foremost, the primary purpose of the data layer is to decouple our
+    code from the underlying data store implementation. By programming against a well-defined
+    and data store-agnostic interface, we ensure that our code remains clean, modular,
+    and totally oblivious to the nuances of accessing each data store.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An extra benefit of this approach is that it offers us the flexibility to A/B
+    test different data store technologies before we decide which one to use for our
+    production systems. What's more, even if our original decision proves to be less
+    than stellar in the long term (for example, service traffic exceeds the store's
+    capability to scale vertically/horizontally), we can easily switch to a different
+    system. This can be achieved by wiring in a new data store adapter implementation
+    without the need to modify any of the higher levels of our services' implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The final advantage of having such an abstraction layer has to do with *testing*.
+    By providing individual Go packages for each data store that we are interested
+    in supporting, we can not only encapsulate the store-specific logic but can also
+    write comprehensive test suites to test each store's behavior in total isolation
+    from the rest of the code base. Once we are confident that the implementation
+    behaves as expected, we can use any of the testing mechanisms (for example, mocks,
+    stubs, and fake objects) that we outlined in [Chapter 4](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml),
+    *The Art of Testing*, to test other high-level components that require access
+    to a data store without actually having to provision a real data store instance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Initially, this might not seem to be a big benefit. However, for larger Go projects
+    that spawn multiple packages, the cost of setting up, populating with fixtures,
+    and finally cleaning a database *between tests* can be quite high. Compared to
+    using an in-memory data store implementation, tests against a real database not
+    only take more time to run but may also prove to be quite flaky.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One common problem that you may have encountered in the past is potential DB
+    access races for tests that belong to *different packages* but try to access and/or
+    populate the *same* database instance concurrently. As a result, some of the DB-related
+    tests may start randomly failing in a non-deterministic manner. And of course,
+    by virtue of Murphy's law, such problems rarely crop up when testing locally,
+    but rather have the tendency to manifest themselves when the continuous integration
+    system runs the tests for the pull request you just submitted for review!
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is pretty easy to end up in such a messy situation if multiple packages from
+    your code base have a strong coupling to the underlying database due to the fact
+    that the `go test` command will, *by default*, run tests that belong to different
+    packages *concurrently*. As a temporary workaround, you could force `go test` to
+    serialize the execution of *all* the tests by providing the `-parallel 1` command-line
+    flag. However, that option would severely increase the total execution time for
+    your test suites and would be overkill for larger projects. Encapsulating the
+    tests that require a real DB store instance into a single package and using mocks
+    everywhere else is a clean and elegant solution for mitigating such problems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Designing the data layer for the link graph component
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the following sections, we will perform an extended analysis of the data
+    models that are required for the operation of the link graph component. We will
+    kick off our analysis by creating an **Entity-Relationship** (**ER**) diagram
+    for the entities that compose the data access layer. Then, we will define an interface
+    that fully describes the set of operations that the data access layer must support.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, we will design and build two alternative data access layer implementations
+    (in-memory and CockroachDB-backed) that both satisfy the aforementioned interface. To
+    ensure that both implementations behave in exactly the same manner, we will also
+    create a comprehensive, store-agnostic test suite and arrange for our test code
+    to invoke it for each individual store implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: All the code that we will be discussing in the following sections can be found
+    in the `Chapter06/linkgraph` folder in this book's GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating an ER diagram for the link graph store
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The following diagram presents the ER diagram for the link graph data access
+    layer. Given that the crawler retrieves web page links and discovers connections
+    between websites, it makes sense for us to use a graph-based representation for
+    our system modeling. As you can see, the ER diagram is comprised of two models: **Link** and **Edge**:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/90c94c2c-00ed-4f53-9acd-2da303a48848.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2: The ER diagram for the link graph component
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Link model instances represent the set of web pages that have been processed
+    or discovered by the crawler component. Its attribute set consists of an ID value
+    for uniquely identifying each link, the URL associated with it, and a timestamp
+    value indicating when it was last retrieved by the crawler. The preceding list
+    constitutes the *bare minimum* set of attributes that are required for modeling
+    the link graph for the Links ''R'' Us project. In a real-world implementation,
+    we would probably want to augment our link model with additional metadata, such
+    as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The MIME type for the URL content (as indicated by the remote server) and its
+    length in bytes.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The HTTP status code of the last crawl attempt. This is quite useful for retrying
+    failed attempts or for dropping dead links from our graph.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A preferred (per-domain or per-link) time window for performing future crawl
+    requests. As web crawlers tend to induce significant traffic spikes when fetching
+    links from remote servers, this information can be used by our crawler to schedule
+    its update cycle at off-peak times and thus minimize its impact on remote servers.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Each web page in the graph may contain *zero or more* outgoing links to other
+    web pages. An Edge model instance represents a **uni-directional** connection
+    between two links in the graph. As shown in the preceding diagram, the attribute
+    set for the Edge model includes a unique ID for the edge itself, as well as the
+    IDs of both the source and destination links. This modeling approach can also
+    support **bi-directional** links (also known as backlinks) between web pages,
+    with the minor caveat that they would need to be represented as two separate edge
+    entries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Moreover, the edge attribute set also contains a timestamp value that tracks
+    the last time that the edge was visited by the crawler. A common challenge with
+    graphs such as the WWW, whose structure changes at a very fast rate, is figuring
+    out how to efficiently detect edge-related changes: new edges may appear and others
+    may disappear at any point in time. Handling edge additions is a trivial task;
+    all we need to do is **upsert** (insert or update if the entry already exists)
+    an Edge model instance for every outgoing edge that''s detected by the crawler.
+    Handling edge *deletions, on the other hand,* is slightly more complicated.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The approach that we will be adopting for the crawler component will leverage
+    the last update timestamp as the means of detecting whether an existing edge is
+    *stale* and needs to be removed. Each time the crawler processes a link from the
+    graph, it will perform the following actions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Upsert a Link model entry for each outgoing link.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Upsert an Edge model for each unique outgoing link, where we have the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The `origin` is always set to the link that is currently being processed.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `destination` is each detected outgoing link.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `updatedAt` timestamp is the current system time.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: By following these steps, any links with the same `(source, destination)` tuple
+    will have their `UpdatedAt` field refreshed while stale, old links will retain
+    their previous `UpdatedAt` value. If we arrange for the crawler to record the
+    exact time when it started crawling a particular page, we can simply delete all
+    the edges whose *source* is the link that was just crawled and whose `UpdatedAt` value
+    is older than the recorded timestamp.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listing the required set of operations for the data access layer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Following the SOLID design principles we discussed in the previous chapters,
+    we will start designing the link graph data access layer by listing the operations
+    (responsibilities, in SOLID terminology) that it needs to perform and then formally
+    describe them by means of a Go interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For our particular use case, the link graph access layer must support the following
+    set of operations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Insert a link into the graph or update an existing link when the crawler discovers
+    that its content has changed.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Look up a link by its ID.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Iterate *all the links* present in the graph. This is the primary service that
+    the link graph component must provide to the other components (for example, the
+    crawler and `PageRank` calculator) that comprise the Links 'R' Us project.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Insert an edge into the graph or refresh the `UpdatedAt` value of an existing
+    edge.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Iterate the list of edges in the graph. This functionality is required by the
+    `PageRank` calculator component.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Delete stale links that originated from a particular link and were not updated
+    during the last crawler pass.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Defining a Go interface for the link graph
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To satisfy the list of operations from the previous section, we shall define
+    the `Graph` interface as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The first two methods allow us to upsert a `Link` model and retrieve it from
+    the backing store if we are aware of its ID. In the following code, you can see
+    the definition of the `Link` type, whose fields match the ones from the ER diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Each link is assigned a unique ID (a V4 UUID, to be precise) and contains two
+    fields: the URL for accessing the web page and a timestamp field that keeps track
+    of the last time that the link''s content was retrieved by the crawler.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next two methods from the `Graph` interface allow us to manipulate the
+    edges of the graph. Let''s begin by examining the definition of the `Edge` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Similar to links, edges are also assigned their own unique ID (also a V4 UUID).
+    In addition, the `Edge` model tracks the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ID of both the source and destination links that form the edge
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The timestamp when it was last updated
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Partitioning links and edges for processing the graph in parallel
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'As you have probably noticed by their signatures, the `Links` and `Edges` methods
+    are designed to return an *iterator* so that they can access a filtered subset
+    of the graph''s vertices and edges. More specifically, they do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `Links` method returns a set of links whose ID belongs to the `[fromID,
+    toID)` range *and* their last retrieval time before the provided timestamp.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `Edges` method returns the set of edges whose *origin vertex IDs* belong
+    to the `[fromID, toID)` range and their last update time is before the provided
+    timestamp.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'At this point, we need to spend some time and elaborate on the reasoning behind
+    the design of these methods. We could argue that, at some point, the link graph
+    will grow large enough so that in order to process it in an efficient manner,
+    we will eventually have to split it into chunks and process each chunk in parallel.
+    To this end, our design must anticipate this need and include a mechanism for
+    grouping links and edges into partitions based on their individual IDs. Given
+    a `[fromID, toID)` range, all graph implementations will use the following logic
+    to select which link and edge model instances to return via the iterator:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Return links whose ID is within the `[fromID, toID)` range.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Return edges for which the *origin link's ID* is within the `[fromID, toID)` range.
+    In other words, edges always belong to the same partition as their origin links.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It is important to note that while the preceding method signatures accept a
+    UUID range as their input, the implementation of a suitable partitioning scheme
+    for calculating the UUID ranges themselves will be the* responsibility of the
+    caller*. The `Links` and `Edges` methods will happily accept any UUID range that's
+    provided by the caller as long as it is valid.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In [Chapter 10](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml), *Building, Packaging,
+    and Deploying Software*, we will explore the use of the `math/big` package to
+    facilitate the carving of the UUID space into non-overlapping regions that can
+    then be fed into the aforementioned store methods.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Iterating Links and Edges
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Since there is no upper bound in the number of links or edges that can be potentially
+    returned by calls to the `Links` and `Edges` methods, we will be implementing
+    the *iterator* designpattern and lazily fetch Link and Edge models on demand.
+    The `LinkIterator` and `EdgeIterator` types, which are returned by these methods,
+    are interfaces themselves. This is intentional as their internal implementation
+    details will obviously depend on the database technology that we select for the
+    link graph persistence layer. Here is how they are defined:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Both of the preceding interfaces define a *getter* method for retrieving the `Link` or `Edge` instance
+    that the iterator is currently pointing at. The common logic between the two iterators
+    has been extracted into a separate interface called `Iterator`, which both of
+    the interfaces embed. The definition of the `Iterator` interface is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To iterate a list of edges or links, we must obtain an iterator from the graph
+    and run our business logic within a `for` loop:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Calls to `linkIt.Next()` will return false when the following occurs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We have iterated all the available links
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An error occurs (for example, we lost connection to the database)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: As a result, we don't need to check whether an error occurred inside the loop
+    – we only need to check *once* after exiting the for loop. This pattern yields
+    cleaner-looking code and is actually used in various places within the Go standard
+    library, such as the `Scanner` type from the `bufio` package.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Verifying graph implementations using a shared test suite
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we mentioned in the previous sections, we will be building both an in-memory
+    and a database-backed implementation of the `Graph` interface. To this end, we
+    need to come up with a set of comprehensive tests to ensure that both implementations
+    behave in exactly the same manner.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'One way to achieve this is to write the tests for the first implementation
+    and then duplicate them for each additional implementation that we may introduce
+    in the future. However, this approach doesn''t really scale well: what if we modify
+    the `Graph` interface in the future? We would need to track down and update a
+    whole bunch of tests that might be scattered across different packages.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A much better, and cleaner, approach would be to come up with a shared, implementation-agnostic
+    test suite and then just wire it to each underlying graph implementation. I opted
+    for this approach as it reduces the amount of maintenance that''s required, while
+    at the same time allowing us to run *exactly the same set of tests* against all
+    implementations: a fairly efficient way of detecting regressions when we change
+    one of our implementations.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: But if the test suite is shared, where should it live so that we can include
+    it in all implementation-specific test suites? The answer is to encapsulate the
+    suite into its own dedicated testing package that our regular test code can import
+    and use where it's needed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `SuiteBase` definition lives in the `Chapter06/linkgraph/graph/graphtest`
+    package and depends on the `gocheck` ^([11]) framework, which we introduced in
+    [Chapter 4](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml), *The Art of Testing*.
+    The suite includes the following groups of tests:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Link/Edge upsert tests**: These tests are designed to verify that we can
+    insert new edges/links into the graph and that they are assigned a valid, unique
+    ID.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Concurrent link/edge iterator support**: These tests ensure that no data
+    races occur when the code concurrently accesses the graph''s contents via multiple
+    iterator instances.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Partitioned iterator tests**: These tests verify that if we split our graph
+    into N partitions and assign an iterator to each partition, each iterator will
+    receive a unique set of links/edges (that is, no item will be listed in more than
+    one partition) and that all the iterators will process the full set of links/edges
+    present in the graph. Additionally, the edge iterator tests ensure that each edge
+    appears in the same partition as its source link.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Link lookup tests**: A simple set of tests that verify the graph implementation''s
+    behavior when looking up existing or unknown link IDs.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Stale edge removal tests**: A set of tests that verify that we can successfully
+    delete stale edges from the graph using an *updated-before-X* predicate.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To create a test suite for a *new* graph implementation, all we have to do
+    is to define a new test suite that does the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Embeds `SuiteBase`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Provides a suite setup helper that creates the appropriate graph instance and
+    invokes the `SetGraph` method that's exposed by `SuiteBase` so that we can wire
+    it to the base test suite before running any of the preceding tests
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Implementing an in-memory graph store
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The in-memory graph implementation will serve as a gentle introduction to writing
+    a complete graph store implementation. By virtue of maintaining the graph in memory,
+    this implementation is simple, self-contained, and safe for concurrent access.
+    This makes it an ideal candidate for writing unit tests that require access to
+    the link graph component.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at its implementation, starting with the definition of the `InMemoryGraph` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `InMemoryGraph` struct defines two maps (`links` and `edges`) that maintain
+    the set of `Link` and `Edge` models that have been inserted into the graph. To
+    accelerate ID-based lookups, both maps use the model IDs as their key.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Going back to our ER diagram, we can see that link URLs are also expected to
+    be unique. To this end, the in-memory graph also maintains an auxiliary map (`linkURLIndex`)
+    where keys are the URLs that are added to the graph and values are pointers to
+    link models. We will go through the details of how this particular map is used
+    when we examine the implementation of the `UpsertLink` method in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Another type of query that we should be able to answer *efficiently* in order
+    to implement the `Edges` and `RemoveStaleEdges` methods is: *find the list of
+    edges that originate from a particular link*. This is achieved by defining yet
+    another auxiliary map called `linkEdgeMap`. This map associates link IDs with
+    a slice of edge IDs that correspond to the edges *originating* from it.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, to ensure that our implementation is safe for concurrent access, the
+    struct definition includes a `sync.RWMutex` field. In contrast to the regular
+    `sync.Mutex`, which provides single reader/writer semantics, `sync.RWMutex` supports
+    *multiple concurrent readers* and thus provides much better throughput guarantees
+    for *read-heavy* workloads.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Upserting links
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Let's begin our tour of the in-memory graph implementation by taking a look
+    at how the `UpsertLink` method is implemented. Since an upsert operation will
+    always modify the graph, the method will acquire a *write* lock so that we can
+    apply any modifications in an atomic fashion. The method contains two distinct
+    code paths.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If the link to be upserted does not specify an ID, we treat it as an insert
+    attempt *unless* we have *already* added another link with the same URL. In the
+    latter case, we silently convert the insert into an *update* operation while making
+    sure that we always retain the most recent `RetrievedAt` timestamp:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once we verify that we need to create a new entry for the link, we must assign
+    a unique ID to it before we can insert it into the graph. This is achieved by
+    means of a small for loop where we keep generating new UUID values until we obtain
+    one that is unique. Since we are using V4 (random) UUIDs for our implementation,
+    we are more or less guaranteed to obtain a unique value on our first attempt.
+    The presence of the for loop guarantees that our code behaves correctly, even
+    in the highly unlikely case of UUID collisions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once we have generated an ID for the link, we can make a *copy* of link that's
+    provided by the caller to ensure that no code outside of our implementation can
+    modify the graph data. Then, we insert the link into the appropriate map structures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Upserting edges
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The edge upsert logic in `UpsertEdge` has a lot of things in common with the `UpsertLink` implementation
+    we examined in the previous section. The first thing we need to do is acquire
+    the write lock and verify that the source and destination links for the edge actually
+    exist:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we scan the set of edges that originate from the specified source link
+    and check whether we can find an *existing* edge to the same destination. If that
+    happens to be the case, we simply update the entry''s `UpdatedAt` field and copy
+    its contents back to the provided `edge` pointer. This ensures that the `entry` value
+    that''s provided by the caller has both its `ID` and `UpdatedAt` synced with the
+    values contained in the store:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If the preceding loop does not produce a match, we create and insert a new
+    edge to the store. As you can see in the following code snippet, we follow the
+    same methodology that we did for link insertions. First, we allocate a new, unique
+    ID for the edge and populate its `UpdatedAt` value. Then, we create a *copy* of
+    the provided `Edge` object and insert it into the store''s `edges` map:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, before returning, there is a last bit of book-keeping that we need
+    to perform: we need to add the new link to the edge list that originates from
+    the specified source link. To this end, we index the `linkEdgeMap` using the source
+    link ID as a key and append the ID of the newly inserted edge to the appropriate
+    edge list.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking up links
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Looking up links is a fairly trivial operation. All we need to do is acquire
+    a *read* lock, look up the link by its ID, and do either of the following things:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Return the link back to the caller
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Return an error if no link with the provided ID was found
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The link lookup logic is outlined in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Since we want to ensure that no external code can modify the graph's contents
+    without invoking the `UpsertLink` method, the `FindLink` implementation always
+    returns a *copy* of the link that is stored in the graph.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Iterating links/edges
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To obtain an iterator for the graph links or edges, users need to invoke the `Links` or `Edges` methods.
+    Let''s take a look at how the `Links` method is implemented:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding implementation, we obtain a *read* lock and then proceed to
+    iterate all the links in the graph, searching for the ones that belong to the `[fromID,
+    toID)` partition range *and* whose `RetrievedAt` value is less than the specified `retrievedBefore` value.
+    Any links that satisfy this predicate are appended to the `list` variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To figure out whether a link ID belongs to the specified partition range, we
+    convert it into a string and then rely on string comparisons to verify that it
+    is either equal to `fromID` or falls between the two ends of the partition range.
+    Obviously, performing string conversions and comparisons is not as efficient as
+    directly comparing the underlying byte representation of the UUID values. However,
+    since this particular implementation is meant to be used just for debugging purposes,
+    we can focus on keeping the code simple rather than worrying about its performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once we have finished iterating all the links, we create a new `linkIterator` instance
+    and return it to the user. Now, let''s examine how the iterator is implemented,
+    starting with its type definition:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, the iterator stores a pointer to the in-memory graph, a list
+    of `Link` models to iterate, and an index for keeping track of the iterator's
+    offset within the list.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The implementation of the iterator''s `Next` method is quite trivial:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Unless we have already reached the end of the list of links, we advance `curIndex` and
+    return true to indicate that more data is available for retrieval via a call to
+    the `Link` method, whose implementation is listed as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: Keep in mind that the `Link` model instances associated with this iterator are
+    maintained by the in-memory graph and may potentially be *shared* with other iterator
+    instances. As a result, while one go-routine may consuming links from the iterator,
+    another go-routine may be modifying their contents. To avoid data races, whenever
+    the user invokes the iterator's `Link` method, we obtain a *read* lock on the
+    link graph. While holding the lock, we can safely fetch the next link and make
+    a copy, which is then returned to the caller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, let''s take a look at the implementation of the `Edges` method. The
+    logic is quite similar to `Links`, but with a minor difference in the way we populate
+    the list of edges that belong to the requested partition:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: As we mentioned in the *Partitioning links and edges for processing the graph
+    in paralle*l section, each edge belongs to the same partition as the link it originates
+    from. Therefore, in the preceding implementation, we begin by iterating the set
+    of links in the graph and skip the ones that do not belong to the partition we
+    need. Once we have located a link belonging to the requested partition range,
+    we iterate the list of edges that originate from it (via the `linkEdgeMap` field)
+    and append any edges that satisfy the *updated-before-X* predicate to the `list` variable.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The content of the `list` variable is then used to create a new `edgeIterator` instance,
+    which is then returned to the caller. The `edgeIterator` is implemented in more
+    or less the same way as the `linkIterator`, so we will attempt to save some space
+    by not including its full implementation here. You can easily look it up by visiting
+    this book's GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Removing stale edges
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The last bit of functionality that we need to explore is the `RemoveStaleEdges` method.
+    The caller invokes it with the ID of a link (the origin) and an `updatedBefore` value:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: As with other operations that mutate the graph's contents, we need to acquire
+    a *write* lock. Then, we iterate the list of edges that originate from the specified
+    source link and ignore the ones whose `UpdatedAt` value is less than the specified `updatedBefore` argument.
+    Any edge that survives the culling is added to a `newEdgeList`, which becomes
+    the new list of outgoing edges for the specified source link.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up a test suite for the graph implementation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Before we conclude our tour of the in-memory graph implementation, we need
+    to spend some time authoring a test suite that will execute the shared verification
+    suite against the store implementation we just created. This can be achieved with
+    only a handful of lines, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: Since we are working with a pure, in-memory implementation, we can cheat and
+    recreate the graph before running each test by providing a `SetUpTest` method
+    that the `gocheck` framework will automatically invoke for us when running the
+    test suite.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Scaling across with a CockroachDB-backed graph implementation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: While the in-memory graph implementation is definitely a great asset for running
+    our unit tests or even for spinning up small instances of the Links 'R' Us system
+    for demonstration or end-to-end testing purposes, it's not really something that
+    we would actually want to use in a production-grade system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First and foremost, the data in the in-memory store will not persist across
+    service restarts. Even if we could somehow address this limitation (for example,
+    by creating periodic snapshots of the graph to disk), the best we can do is scale
+    our graph up: for example, we can run the link graph service on a machine with
+    a faster CPU and/or more memory. But that''s about it; as we anticipate the graph
+    size eventually outgrowing the storage capacity of a single node, we need to come
+    up with a more efficient solution that can scale across multiple machines.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To this end, the following sections will explore a second graph implementation
+    that utilizes a database system that can support our scaling requirements. While
+    there are undoubtedly quite a few DBMS out there that can satisfy our needs, I
+    have decided to base the graph implementation on CockroachDB ^([5]) for the following
+    set of reasons:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It can easily scale horizontally just by increasing the number of nodes available
+    to the cluster. CockroachDB clusters can automatically rebalance and heal themselves
+    when nodes appear or go down. This property makes it ideal for our use case!
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: CockroachDB is fully ACID-compliant and supports distributed SQL transactions.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The SQL flavor supported by CockroachDB is compatible with the PostgreSQL syntax,
+    which many of you should already be familiar with.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: CockroachDB implements the PostgreSQL wire protocol; this means that we do not
+    require a specialized driver package to connect to the database but can simply
+    use the battle-tested pure-Go Postgres ^([19]) package to connect to the database.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Dealing with DB migrations
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When creating a dependency on a DBMS, we need to introduce an external mechanism
+    to assist us in managing the schema for the tables that we will be running queries
+    against.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Following the recommended industry best practices, changes to our database schema
+    need to be made in small, incremental steps that can be applied when deploying
+    a new version of our software to production, or reverted if we decide to roll
+    back a deployment due to the discovery of a bug.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For this particular project, we will be managing our database schema with the
+    help of the `gomigrate` tool ^([7]). This tool can work with most popular database
+    systems (including CockroachDB) and provides a handy command-line tool that we
+    can use to apply or revert DB schema changes. `gomigrate` expects database migrations
+    to be specified as two separate files: one containing the SQL commands to apply
+    the migration (the *up* path) and another to revert the migration (the *down*
+    path). The standard format for migration file names uses the following pattern:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: The addition of a timestamp component ensures that `gomigrate` always picks
+    up and applies the changes in the correct order.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To execute any required migrations, we need to invoke the `gomigrate` CLI tool
+    and provide it with the following bits of information:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A data source** name** (**DSN**) URL for the target database.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The path to the location of the migration files. The tool not only supports
+    local paths but it can also pull migrations from GitHub, GitLab, AWS S3, and Google
+    Cloud Storage.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A migration *direction* command. This is typically `up` to apply the migrations
+    or `down` to revert them.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'You may be wondering: how does `gomigrate` ensure that migrations are only
+    executed once? The answer is: by maintaining state! So, where is that state stored
+    then? The first time you run the `gomigrate` tool against a database, it will
+    create two additional tables that are used by the tool to keep track of which
+    migrations it has applied so far. This makes the tool safe to run multiple times
+    (for example, each time we deploy a new version of our software to production).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: All the required migrations for the link graph project live in the `Chapter06/linkgraph/store/cdb/migrations` folder.
+    What's more, the top-level makefile includes a `run-cdb-migrations` target that
+    will install (if missing) the `gomigrate` tool and automatically run any *pending* migrations.
+    In fact, this command is leveraged by the CI system linked to this book's GitHub
+    repository to bootstrap a test database before running the CockroachDB tests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An overview of the DB schema for the CockroachDB implementation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Setting up the tables we need for the CockroachDB graph implementation is a
+    fairly straightforward process. The following is a combined list of the SQL statements
+    that will be applied when we run the included DB migrations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You probably noticed that, while building the in-memory graph implementation,
+    we had to manually enforce some constraints. For example, we had to check the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The link and edge IDs are unique
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The URLs are unique
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The source and destination link IDs for edges point to existing links
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `(source, destination)` tuple for edges is unique
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: For the CockroachDB implementation, we can simply delegate those checks to the
+    DB itself by introducing uniqueness and foreign-key constraints when defining
+    the table schemas. A small caveat of this approach is that when a SQL statement
+    execution attempt returns an error, we need to inspect its contents to detect
+    whether a constraint validation occurred. If that happens to be the case, we can
+    return a more meaningful, typed error such as `graph.ErrUnknownEdgeLinks` to the
+    caller matching the behavior of the in-memory implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Upserting links
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To upsert a link to the CockroachDB store, we will use an upsert-like SQL query
+    that leverages the database''s support for specifying an action to be applied
+    when a conflict occurs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Basically, if we try to insert a link that has the same `url` as an existing
+    link, the preceding conflict resolution action will ensure that we simply update
+    the `retrieved_at` column to the maximum of the original value and the one specified
+    by the caller. Regardless of whether a conflict occurs or not, the query will
+    always return the row''s `id` (existing or assigned by the DB) and the value for
+    the `retrieved_at` column. The relevant `UpsertLink` method implementation is
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: This method binds the fields from the provided model, which are bound to the `upsertLinkQuery`, and
+    proceeds to execute it. Then, it scans the `id` and `retrieved_at` values that
+    are returned by the query into the appropriate model fields.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Upserting edges
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To upsert an edge, we will be using the following query:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see, the query includes a conflict resolution step for the case where
+    we try to insert an edge with the same `(src, dst)` tuple. If that happens, we
+    simply change the `updated_at` column value to the current timestamp.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Unsurprisingly, the code to upsert an edge to the CockroachDB store looks quite
+    similar to the link upsert code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE29]'
+  prefs: []
+  type: TYPE_PRE
+- en: Once again, we bind the relevant fields to a query that we proceed to execute
+    and update the provided edge model with the `id` and `updated_at` fields that
+    were returned by the query.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The preceding code comes with a small twist! When we defined the schema for
+    the edges table, we also specified a *foreign-key* constraint for the `src` and `dst` fields.
+    Therefore, if we try to upsert an edge with an unknown source and/or destination
+    ID, we will get an error. To check whether the error was actually caused by a
+    foreign-key violation, we can use the following helper:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE30]'
+  prefs: []
+  type: TYPE_PRE
+- en: To match the behavior of the in-memory store implementation, if the error points
+    to a foreign-key violation, we return the more user-friendly `graph.ErrUnknownEdgeLinks` error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking up links
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To look up a link by its ID, we will be using the following standard SQL selection
+    query:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE31]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The implementation of the `FindLink` method is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE32]'
+  prefs: []
+  type: TYPE_PRE
+- en: After executing the query, we create a new `Link` model instance and populate
+    it with the returned link fields. If the selection query does not match any link,
+    the SQL driver will return a `sql.ErrNoRows` error. The preceding code checks
+    for this error and returns a user-friendly `graph.ErrNotFound` error to the caller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Iterating links/edges
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To select the links that correspond to a particular partition and whose retrieved
+    timestamp is older than the provided value, we will use the following query:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE33]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The implementation of the `Links` method is shown in the following listing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE34]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As you can see, the method executes the query with the specified arguments
+    and returns a `linkIterator` to consume the returned result set. The link CockroachDB
+    iterator implementation is nothing more than a wrapper on top of the `sql.Rows` value
+    that''s returned by the SQL query. This is what the `Next` method''s implementation
+    looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE35]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Edges` method uses the following query, which yields exactly the same
+    set of results as the in-memory implementation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE36]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here''s what the implementation of `Edges` looks like:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE37]'
+  prefs: []
+  type: TYPE_PRE
+- en: The implementation of the `edgeIterator` is quite similar to the `linkIterator`, so
+    we will conserve some space and omit it. You can take a look at the complete iterator
+    implementations by examining the source code in the `iterator.go` file, which
+    can be found within the `Chapter06/linkgraph/store/cdb` package of this book's
+    GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Removing stale edges
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The last piece of functionality that we will be examining is the `RemoveStaleEdges` method,
+    which uses the following query to delete edges that have not been updated after
+    a particular point in time:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s take a look at the `RemoveStaleEdges` method implementation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: There' nothing out of the ordinary here; the code in the preceding snippet simply
+    binds the arguments to the delete query and executes it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up a test suite for the CockroachDB implementation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create and wire the test suite for the CockroachDB implementation, we will
+    follow exactly the same steps that we did for the in-memory implementation. The
+    first step is to define a test suite that embeds the shared `graphtest.SuiteBase` type
+    and register it with `go test`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we need to provide a setup method for the test suite that will create
+    a new CockroachDB graph instance and wire it to the base suite. Following the
+    testing paradigm we discussed in [Chapter 4](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml), *The
+    Art of Testing*, our test suite relies on the presence of an environment variable
+    that should contain the DSN for connecting to the CockroachDB instance. If the
+    environment variable is not defined, the entire test suite will be automatically
+    skipped:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To ensure that all the tests work exactly as expected, one of our requirements
+    is that each test in the suite is provided with a clean DB instance. To this end,
+    we need to define a *per-test* setup method that empties all the database tables:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we need to provide a teardown method for the test suite. Once the
+    test suite has finished executing, we truncate the DB tables once more and release
+    the DB connection:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that flushing the database's contents during teardown is not mandatory.
+    In my opinion, it's good practice to always do so just in case some other set
+    of tests from a different package use the same DB instance but expect it to be
+    initially empty.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Designing the data layer for the text indexer component
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the following sections, we will perform an in-depth analysis of the text
+    indexer component. We will identify the set of operations that the text indexer
+    component must be able to support and formally encode them as a Go interface named `Indexer`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In a similar fashion to the link graph analysis, we will be constructing two
+    concrete implementations of the `Indexer` interface: an in-memory implementation
+    based on the popular bleve ^([1]) package and a horizontally-scalable implementation
+    using Elasticsearch ^([9]).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A model for indexed documents
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'As the first step in our analysis of the indexer component, we will start by
+    describing the document model that the `Indexer` implementations will index and
+    search:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: All the documents must include a non-empty attribute called `LinkID`. This attribute
+    is a UUID value that connects a document with a link that's obtained from the
+    link graph. In addition to the link ID, each document also stores the URL of the
+    indexed document and allows us to not only display it as part of the search results
+    but to also implement more advanced search patterns in future (for example, constraint
+    searches to a particular domain).
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `Title` and `Content` attributes correspond to the value of the `<title>` element
+    if the link points to an HTML page, whereas the `Content` attribute stores the
+    block of text that was extracted by the crawler when processing the link. Both
+    of these attributes will be indexed and made available for searching.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `IndexedAt` attribute contains a timestamp that indicates when a particular
+    document was last indexed, while the `PageRank` attribute keeps track of the `PageRank` score
+    that will be assigned to each document by the `PageRank` calculator component.
+    Since `PageRank` scores can be construed as a quality metric for each link, the
+    text indexer implementations will attempt to optimize the returned result sets
+    by sorting search matches *both* by their relevance to the input query and by
+    their `PageRank` scores.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Listing the set of operations that the text indexer needs to support
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'For the text indexer component use case, we need to be able to perform the
+    following set of operations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Add a document to the index or reindex an existing document when its content
+    changes. This operation will normally be invoked by the crawler component.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Perform a lookup for a document by its ID.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Perform a full-text query and obtain an *iterable* list of results. The frontend
+    component for our project will invoke this operation when the user clicks the
+    search button and consume the returned iterator to present a paginated list of
+    results to the end user.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Update the `PageRank` score for a particular document. This operation will be
+    invoked by the `PageRank` calculator component when the `PageRank` score for a
+    particular link needs to be updated.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Defining the Indexer interface
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Similar to the approach we followed when we modeled the link graph component,
+    we shall encapsulate the preceding list of operations into a Go interface called `Indexer`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Search` method expects a `Query` type instead of a simple string value
+    as its input argument. This is by design; it offers us the flexibility to expand
+    the indexer''s query capabilities further down the road to support richer query
+    semantics without having to modify the signature of the `Search` method. Here
+    is the definition of the `Query` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Expression` field stores the search query that''s entered by the end user.
+    However, its interpretation by the indexer component can vary, depending on the
+    value of the `Type` attribute. As proof of concept, we will only implement two
+    of the most common types of searches:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Searching for a list of keywords *in any order*
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Searching for an *exact* phrase match
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In the future, we can opt to add support for other types of queries such as *boolean-*, *date-*, or *domain-based* queries.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After executing a search query, the text indexer will return an `Iterator` interface
+    instance that provides a simple API for consuming the search results. This is
+    the definition of the `Iterator` interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After obtaining an iterator instance, we can consume each search result using
+    a simple `for` loop:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: Calls to `docIt.Next()` will return false either when we have iterated all the
+    results or an error has occurred. In a similar fashion to the link graph iterators
+    we examined in the previous sections, we only need to check *once* for the presence
+    of errors after exiting the iteration loop.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Verifying indexer implementations using a shared test suite
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the next few pages, we will be constructing two completely different Indexer
+    implementations. In a similar fashion to the link graph component, we will again
+    devise a shared test suite that will help us verify that both implementations
+    behave in exactly the same way.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `SuiteBase` definition for our shared indexer tests can be found in the `Chapter06/textindexer/index/indextest` package
+    and depends on the `gocheck` ^([11]) framework that we introduced in [Chapter
+    4](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml), *The Art of Testing*. The suite
+    defines tests for the following groups of index operations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Document indexing tests**: These tests are designed to verify that the indexer
+    component successfully processes valid documents and rejects any document that
+    does not define the required set of document attributes (for example, it includes
+    an empty link ID).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Document lookup tests**: These tests validate that we can look up a previously
+    indexed document via its link ID and that the returned document model is identical
+    to the document that was passed and indexed.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Keyword search tests**: A series of tests designed to verify that keyword
+    searches yield the correct set of documents.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Exact phrase search tests**: Yet another series of tests that verifies that
+    exact phrase searches yield the correct set of documents.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`PageRank` **score update tests**: These tests exercise the `PageRank` score
+    update code path and verify that changes to the score values for indexed documents
+    are reflected in the order of returned search results.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To create a test suite for an actual indexer implementation, all we have to
+    do is the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Define a new test suite that embeds `SuiteBase`
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Provide a suite setup helper that creates the appropriate indexer instance and
+    then invokes the `SetIndexer` method exposed by `SuiteBase` to wire the indexer
+    to the base test suite
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: An in-memory Indexer implementation using bleve
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Our first attempt at implementing an in-memory indexer will be based on a popular
+    full-text search package for Go called bleve ^([1]). While bleve is primarily
+    designed to store its index on disk, it also supports an in-memory index. This
+    makes it an excellent candidate for running unit tests in isolation or for demonstration
+    purposes if we don't want to spin up a much more resource-intensive option such
+    as Elasticsearch.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The full source for the bleve-based Indexer implementation is available in
+    the `Chapter06/textindexer/store/memory` package in this book''s GitHub repository.
+    The definition of the `InMemoryBleveIndexer` type is pretty straightforward:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `idx` field stores a reference to the bleve index. To speed up indexing,
+    we don''t pass the full `Document` model to bleve and instead make use of a more
+    lightweight representation that only contains the three fields we need for performing
+    searches: the title, content, and `PageRank` score.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: An obvious caveat of this approach is that since bleve stores a partial view
+    of the document data, we cannot recreate the original document from the result
+    list returned by bleve after executing a search query. To solve this problem,
+    the in-memory indexer maintains a map where keys are the document link IDs and
+    values are *immutable* copies of the documents that are processed by the indexer.
+    When processing a result list, the returned document IDs are used to index the
+    map and to recover the original document. To ensure that the in-memory indexer
+    is safe for concurrent use, access to the map is guarded with a read/write mutex.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Indexing documents
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The implementation of the `Index` method for the in-memory indexer is outlined
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: To guarantee that the only way to mutate an already-indexed document is via
+    a reindex operation, the indexer is designed to work with immutable copies of
+    the documents that are passed as arguments to the `Index` method. The `copyDoc` helper
+    creates a copy of the original document that we can safely store in the internal
+    document map.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To add a new document to the index or to reindex an existing document, we need
+    to provide bleve with two parameters: a *string-based* document ID and the document
+    to be indexed. The `makeBleveDoc` helper returns a partial, lightweight view of
+    the original document that, as we mentioned in the previous section, only contains
+    the fields we want to use as part of our search queries.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: When updating an existing document, we don't want the index operation to mutate
+    the `PageRank` score that has already been assigned to the document as this would
+    interfere with how the search results are ordered. To this end, if a document
+    already exists, we need to patch the lightweight document that we pass to bleve
+    so that it reflects the correct `PageRank` value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking up documents and updating their PageRank score
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'If we know a document''s link ID, we can invoke the `FindByID` method to look
+    up the indexed document. The implementation is pretty straightforward; we just
+    acquire a read lock and lookup for the specified ID in the internal map maintained
+    by the indexer. If a matching entry exists, we create a copy and return it to
+    the caller:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: You may be wondering why the `FindByID` implementation converts the input UUID
+    into a string and delegates the actual document look up to the unexported `findByID` method.
+    In the previous section, we saw that when we request bleve to index a document,
+    we need to provide a string-based ID for the document. Bleve will return that
+    ID to us when the document is matched by a search query. As will become evident
+    in the following section, by providing a `findByID` method that accepts the linkID
+    as a string, we can *reuse* the document lookup code when iterating search results.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To update the `PageRank` score for an existing document, clients invoke the `UpdateScore` method,
+    which expects a document''s link ID and the updated `PageRank` score:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: Updating *any* searchable document attribute requires a reindex operation. Consequently,
+    the `UpdateScore` implementation will acquire a *write* lock and look up the document
+    in the internal document map. If the document is found, its `PageRank` score will
+    be updated *in-place* and the document will be passed to bleve for indexing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Searching the index
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The clients of the in-memory indexer submit search queries by invoking the `Search` method.
+    The implementation of this method is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: The first thing that our implementation needs to do is check what type of query
+    the caller asked us to perform and then invoke the appropriate bleve helper to
+    construct a query from the caller-provided expression.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next, the generated query is transformed into a new search request where we
+    also ask bleve to order the results by `PageRank` and relevance in descending
+    order. Bleve search results are always paginated. Consequently, in addition to
+    any sorting preferences, we must also specify the number of results per page that
+    we want bleve to return (the batch size). The search request object also allows
+    us to control the offset in the result list by specifying a value for its `From` field.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The next step is to submit the search request to bleve and check for the presence
+    of errors. If everything goes according to plan and no error is returned, the
+    implementation creates a new iterator instance that the caller can use to consume
+    the matched documents.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Iterating the list of search results
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The `bleveIterator` type implements the `indexer.Iterator` interface and is
+    defined as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The iterator implementation keeps track of two pointers:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A pointer to the in-memory indexer instance, which allows the iterator to access
+    the stored documents when the iterator is advanced
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A pointer to the executed search request, which the iterator uses to trigger
+    new bleve searches once the current page of results has been consumed
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To track the position in the paginated search result list, the iterator also
+    maintains two counters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A cumulative counter (`cumIdx`) that tracks the absolute position in the *global*
+    result list
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A counter (`rsIdx`) that tracks the position in the *current* page of results
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `bleve.SearchResult` objects returned by bleve queries provide information
+    about both the total number of matched results and the number of documents in
+    the current result page. The iterator's `Next` method makes use of this information
+    to decide whether the iterator can be advanced.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When the iterator''s `Next` method is invoked, the implementation performs
+    a quick check to see if an error has occurred or we have already iterated the
+    full set of results. If that is the case, `Next` will return `false` to indicate
+    that no more items are available. The latter check is facilitated by comparing
+    the total result count reported by bleve to the `cumIdx` value that the iterator
+    tracks within its internal state:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: Our next course of action is to check whether we have exhausted the current
+    page of results. This is facilitated by comparing the number of documents in the
+    current result page to the value of the `rsIdx` counter. If all the documents
+    in the *current* result page have been consumed and *no* additional result pages
+    are available, the method returns `false` to indicate this to the caller.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Otherwise, the implementation automatically fetches the next pages of results
+    by doing the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Updating the stored search request so that the result offset points to the beginning
+    of the *next* page
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Executing a new bleve search request to obtain the next page of results
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Resetting the `rsIdx` counter so that we can process the first result of the
+    newly retrieved page
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'The preceding steps are outlined in the following code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: To latch the next document from the result set, we extract its ID from the bleve
+    result and look up the full document by invoking the `findByID` method on the
+    in-memory index. As we saw in the previous section, the document lookup code always
+    returns a *copy* of the indexed document that we can safely cache within the iterator.
+    Lastly, both position-tracking counters are incremented and a `true` value is
+    returned to the caller to indicate that the iterator has been successfully advanced
+    and that the next document can be retrieved via a call to the iterator's `Document`
+    method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up a test suite for the in-memory indexer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The test suite for the in-memory indexer implementation embeds the shared test
+    suite we outlined in the *Verifying indexer implementations using a shared test
+    suite* section. Since the suite depends on the `gocheck` framework, we need to
+    add some extra code to register the suite with the `go test` framework:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To ensure that each test uses a clean index instance, the suite provides a
+    per-test setup method that recreates the index before running each test:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: Since bleve index instances are held in memory, we also need to define a per-test
+    teardown method to ensure that the index is closed and that any acquired resources
+    are freed after each test completes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Scaling across an Elasticsearch indexer implementation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A caveat of the in-memory bleve-based indexer implementation is that we are
+    more or less limited to running our index on a single node. This not only introduces
+    a single point of failure to our overall system design but it also places a hard
+    limit on the amount of search traffic that our service can handle.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We could definitely argue that we could try to scale our implementation horizontally.
+    At the time of writing, bleve does not provide any built-in mechanism for running
+    in distributed mode; we would need to roll out a custom solution from scratch.
+    One approach would be to create a multi-master setup. The idea here would be to
+    spin up multiple instances of our index service and place them behind a *gateway
+    service* that allows clients to access the index via an API. When clients provide
+    a document for indexing, the gateway will ask *all* the index instances to process
+    the document and will only return to the caller when all the instances have successfully
+    indexed the document. On the other hand, the gateway can delegate incoming search
+    requests to any random index instance in the pool. Given that searching is a read-intensive
+    type of workload, the preceding approach would *probably* work nicely. I say probably
+    because there are quite a few things that could possibly go wrong with such an
+    implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Building distributed systems is hard; figuring out how they behave when faults
+    occur is even harder. We would definitely be better off using an off-the-self
+    solution that has been battle-tested in large-scale production systems; preferably
+    one whose failure modes (discovered via a framework such as Jepsen ^([12])) are
+    known and well understood. To this end, we will be basing our second indexer implementation
+    on Elasticsearch ^([9]). Here are some of the benefits of using Elasticsearch:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can run Elasticsearch on our own infrastructure or use one of the commercially
+    available managed Elasticsearch SaaS offerings.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Elasticsearch has built-in support for clustering and can scale horizontally.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It exposes a REST API and clients are available for most popular programming
+    languages. The client list includes an official Go client ^([21]) that we will
+    be using for our indexer implementation.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Creating a new Elasticsearch indexer instance
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To create a new Elasticsearch search indexer, clients need to invoke the `NewElasticSearchIndexer` constructor
+    and provide a list of elastic search nodes to connect to. Our implementation will
+    use the official Go client for Elasticsearch, which is provided by the `go-elastic`
+    package ^([21]):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'After creating a new go-elastic client, the constructor invokes the `ensureIndex` helper,
+    which checks whether the Elasticsearch index (the equivalent of a table, in DB
+    terminology) that we will be using for storing our documents already exists. If
+    not, the helper will automatically create it for us using the following set of
+    field mappings (table schema, in DB terminology):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: Providing field mappings is not strictly required by Elasticsearch! In fact,
+    the indexing engine is quite capable of inferring the types of each document field
+    simply by analyzing their contents. However, if we explicitly provide the field
+    mapping on our end, we not only force Elasticsearch to use a *specific indexer
+    implementation* for each field type but we can also individually configure and
+    fine-tune the behavior of each field indexer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The preceding JSON document defines the following set of mappings:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `LinkID` and `URL` fields specify a `keyword` field type. This type instructs
+    Elasticsearch to index them as a blob of text and is suited for queries such as `find
+    the document whose LinkID is X`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `Content` and `Title` fields specify a `text` field type. Elasticsearch
+    will use a special indexer that allows us to perform full-text searches against
+    these fields.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `IndexedAt` and `PageRank` fields are parsed and stored as date and double
+    values.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Indexing and looking up documents
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To upsert a document to the index, we need to submit an update operation to
+    the Elasticsearch cluster. The update request''s contents is populated using the
+    following block of code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `makeEsDoc` helper converts the input `indexer.Document` instance into a
+    representation that Elasticsearch can process. It is important to note that the
+    mapped document does not include a `PageRank` score value, even if that is present
+    in the original docs. This is intentional as we only allow `PageRank` scores to
+    be mutated via a call to `UpdateScore`. The `doc_as_upsert` flag serves as a hint
+    to Elasticsearch that it should create the document if it does not exist, that
+    is, it should treat the update request as an upsert operation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After populating the update document, we just need to serialize it into JSON,
+    execute a *synchronous* update, and check for any reported errors:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When performing any API call to Elasticsearch using the go-elastic client,
+    errors can be reported in two different ways:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The client returns an error and a `nil` response value. This can happen, for
+    instance, if the DNS resolution for the Elasticsearch nodes fails or if the client
+    can't connect to any of the provided node addresses.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Elasticsearch sends a JSON response that contains a structured error as its
+    payload.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: To deal with the latter case, we can use the handy `unmarshalResponse` helper,
+    which checks for the presence of errors in the response and returns them as regular
+    Go error values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'What about document lookups? This operation is modeled as a search query where
+    we try to match a single document with a specific link ID value. Like any other
+    request to the Elasticsearch cluster, search queries are specified as JSON documents
+    that are sent to the cluster via an HTTP POST request. The `FindByID` implementation
+    creates the search query inline by defining a nested block of `map[string]interface{}` items
+    which are then serialized via a JSON encoder instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: At this point, I would like to point out that I only opted to use an inline,
+    *type-less* approach to define the search query for simplicity. Ideally, instead
+    of using maps, you would define nested structs for each portion of the query.
+    Besides the obvious benefits of working with typed values, one other important
+    benefit of working with structs is that we can switch to a much more efficient
+    JSON encoder implementation that doesn't require the use of *reflection*. One
+    such example is easyjson ^([10]), which utilizes code generation to create efficient
+    JSON encoder/decoders and promises a 4x-5x increase in speed over the JSON encoder
+    implementation that ships with the Go standard library.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'After our query has been successfully serialized to JSON, we invoke the `runSearch` helper,
+    which submits the query to Elasticsearch. The helper will then unserialize the
+    obtained response into a nested struct while at the same time checking for the
+    presence of errors:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE64]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If everything goes according to plan, we will receive a single result. The
+    obtained result is then passed to the `mapEsDoc` helper, which converts it back
+    into a `Document` model instance, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE65]'
+  prefs: []
+  type: TYPE_PRE
+- en: As you can see in the preceding snippet, the majority of the fields are just
+    copied over to the document with the exception of the `LinkID` field, which must
+    be parsed from a string representation into a UUID value first. The converted
+    document is then returned to the caller of the `FindByID` method.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performing paginated searches
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As you might expect from a product whose primary job is searching within documents,
+    Elasticsearch supports a plethora of different query types, ranging from keyword-based
+    searches to complex geospatial or time-based queries. Unfortunately, the syntax
+    for specifying queries varies slightly, depending on the type of query that we
+    wish to perform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It turns out that, for our particular use case, we can get away with using
+    the same query syntax for both keyword- and phrase-based queries. All we need
+    to do is convert the `QueryType` provided by the caller into an Elasticsearch-specific
+    value that we can plug into a predefined search template. To achieve this, the
+    indexer implementation makes use of the *switch* block to convert the incoming
+    query type into a value that Elasticsearch can recognize and interpret:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE66]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can then proceed to assemble our search query in the (quite verbose) format
+    that''s expected by Elasticsearch using a series of nested `map[string]interface{}` values,
+    as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE67]'
+  prefs: []
+  type: TYPE_PRE
+- en: To handle pagination of the matched results, the query specifies both the page
+    offset and the page size via the `from` and `size` query fields.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The preceding query template demonstrates another very useful Elasticsearch
+    feature: **score boosting**. By default, Elasticsearch sorts the returned documents
+    in terms of their *relevance* to the submitted query. For some kinds of queries,
+    the default built-in relevance score calculation algorithm may not yield a meaningful
+    value for sorting (for example, all the documents contain the search keywords
+    and are assigned the same relevance score). To this end, Elasticsearch provides
+    helpers for manipulating or even completely overriding the relevance scores of
+    matched documents.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Our particular query template specifies a custom script that calculates the
+    effective relevance score by **aggregating** the matched document's PageRank score
+    and the query relevance score calculated by Elasticsearch (exposed via the `_score` field).
+    This little trick ensures that documents with a higher `PageRank` score always
+    sort higher in the set of results.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Just as we did for the `FindByID` implementation, we once again invoke the `runSearch` helper
+    to submit a search request to Elasticsearch and unserialize the first page of
+    returned results. If the operation succeeds, a new `esIterator` instance is created
+    and returned to the caller so that the results of the search query can be consumed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE68]'
+  prefs: []
+  type: TYPE_PRE
+- en: In a similar fashion to its in-memory sibling, the `esIterator` implementation
+    maintains its own set of global and per-page counters for keeping track of its
+    position within the result set returned by Elasticsearch. Each time the iterator's `Next` method is
+    invoked, the iterator checks if an error has occurred or whether all the search
+    results have been consumed. If this happens to be the case, then the call to `Next` returns `false` to
+    notify the caller that no more results are available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If the iterator hasn''t exhausted the current page of results yet, it does
+    the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Both internal position-tracking counters are incremented
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The next available result is converted into a `Document` model via a call to
+    the `mapEsDoc` helper (see the previous section) and latched inside the iterator
+    object
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: A `true` value is returned to the caller to indicate that the next result is
+    available for retrieval via a call to the iterator's `Document` method
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Otherwise, if the end of the current page of results has been reached and more
+    results are available, the iterator adjusts the offset field of the last search
+    query and sends out a new search request to obtain the next page of results.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the interest of brevity, we will not be listing the source code for the `esIterator` implementation
+    here since it is almost identical to the in-memory indexer implementation that
+    we've already examined. You can take a look at the fully documented source code
+    for the iterator by opening the `iterator.go` file in this `Chapter06/textindexer/store/es`
+    package, which is available in this book's GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Updating the PageRank score for a document
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: To update the `PageRank` score for an existing document, we need to construct
+    an update request payload that the go-elastic client will submit to the Elasticsearch
+    cluster via an HTTP POST request. The update payload includes a map with the fields
+    names and values that need to be updated.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To facilitate document updates, the go-elastic client exposes an `Update` method
+    that expects the following set of arguments:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The name of the index that contains the document to be updated
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The ID of the document to be updated
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The document update payload encoded as JSON
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following code snippet illustrates how the update request is assembled
+    and passed to the `Update` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE69]'
+  prefs: []
+  type: TYPE_PRE
+- en: If the caller of the `UpdateScore` method provides a document link ID that does
+    not exist, we want to be able to create a placeholder document containing just
+    the `LinkID` and `PageRank` scores. This is facilitated by including the `doc_as_upsert` flag
+    to our update payload.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting up a test suite for the Elasticsearch indexer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The Elasticsearch-backed indexer implementation defines its own go-check test
+    suite that embeds the shared indexer test suite and provides setup and teardown
+    methods that are specific to the Elasticsearch implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Each the tests in the suite use the same `ElasticSearchIndexer` instance that
+    is initialized once with the following suite setup method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE70]'
+  prefs: []
+  type: TYPE_PRE
+- en: Given the fact that Elasticsearch is quite a resource-intensive application,
+    it stands to reason that you might not be running it locally on your dev machine.
+    In anticipation of this, the suite setup code will check for the presence of the `ES_NODES` environment
+    variable, which contains a comma-delimited list of Elasticsearch nodes to connect
+    to. If the variable is not defined, then the entire test suite will be automatically
+    skipped.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To guarantee that the tests don''t interfere with each other, it is important
+    to provide each test with a blank Elasticsearch index. To this end, before each
+    test runs, a per-test setup method drops the Elasticsearch index and, by extension,
+    any documents that were added to the index by the previous test runs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE71]'
+  prefs: []
+  type: TYPE_PRE
+- en: The remainder of the test suite code is responsible for registering the suite
+    with the go-check framework and adding the appropriate hooks so that the suite
+    can run when `go test` is invoked.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we started laying the groundwork for the Links 'R' Us system
+    by defining a data layer abstraction for the link graph and the text indexer components.
+    Furthermore, as proof that our abstraction layer does indeed make it easy to swap
+    the underlying implementation, we provided two compatible and fully testable implementations
+    for each of the components.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we will discuss strategies and patterns for building efficient
+    data processing pipelines using Go and implement the web scraping component of
+    the Links 'R' Us project.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What are the key differences between a relational database and a NoSQL database?
+    Provide an example use case where a relational database would be a better fit
+    than a NoSQL database and vice versa.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How would you scale a relational database system for a read-heavy and a write-heavy
+    workload?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the CAP theorem and is it important when choosing which NoSQL implementation
+    to use?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Why is it important to provide an abstraction layer between our business logic
+    and the underlying database?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: How would you go about adding a new method to the `Indexer` interface we discussed
+    in the last part of this chapter?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: A modern text indexing library for Go. Available at: [https://github.com/blevesearch/bleve](https://github.com/blevesearch/bleve).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Apache Cassandra: Manage massive amounts of data, fast, without losing sleep.
+    Available at: [http://cassandra.apache.org](http://cassandra.apache.org).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Apache CouchDB. Available at: [https://couchdb.apache.org](https://couchdb.apache.org).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Brewer, Eric A.: *Towards Robust Distributed Systems.* In: Symposium on **Principles
+    of Distributed Computing** (**PODC**), 2000.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'CockroachDB: Ultra-resilient SQL for global business. Available at: [https://www.cockroachlabs.com](https://www.cockroachlabs.com).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Codd, E. F.: *A Relational Model of Data for Large Shared Data Banks.* In: Commun.
+    ACM Bd. 13\. New York, NY, USA, ACM (1970), Nr. 6, S. 377–387.'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Database migrations. CLI and Golang library. Available at: [https://github.com/golang-migrate/migrate](https://github.com/golang-migrate/migrate).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'DynamoDB: Fast and flexible NoSQL database service for any scale. Available
+    at: [https://aws.amazon.com/dynamodb](https://aws.amazon.com/dynamodb).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Elasticsearch: Open Source Search and Analytics. Available at: [https://www.elastic.co/](https://www.elastic.co/).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Fast JSON serializer for golang. Available at: [https://github.com/mailru/easyjson](https://github.com/mailru/easyjson).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'gocheck: rich testing for the Go language. Available at: [http://labix.org/gocheck](http://labix.org/gocheck).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Jepsen: Breaking distributed systems so you don''t have to. Available at: [https://github.com/jepsen-io/jepsen](https://github.com/jepsen-io/jepsen).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'LevelDB: A fast key-value storage library written at Google that provides an
+    ordered mapping from string keys to string values. Available at: [https://github.com/google/leveldb](https://github.com/google/leveldb).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Martin, Robert C.: Clean Architecture: *A Craftsman''s Guide to Software Structure
+    and Design,* Robert C. Martin Series. Boston, MA : Prentice Hall, 2017 — ISBN [978-0-13-449416-6](https://worldcat.org/isbn/978-0-13-449416-6).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'memcached: A distributed memory object caching system. Available at: [https://memcached.org](https://memcached.org).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'MongoDB: The most popular database for modern apps. Available at: [https://www.mongodb.com](https://www.mongodb.com).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'MySQL: The world''s most popular open source database. Available at: [https://www.mysql.com](https://www.mysql.com).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'PostgreSQL: The world''s most advanced open source relational database. Available
+    at: [https://www.postgresql.org](https://www.postgresql.org).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Pure Go Postgres driver for database/SQL. Available at: [https://github.com/lib/pq](https://github.com/lib/pq).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'RocksDB: An embeddable persistent key-value store for fast storage. Available
+    at: [https://rocksdb.org](https://rocksdb.org).'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The official Go client for Elasticsearch. Available at: [https://github.com/elastic/go-elasticsearch](https://github.com/elastic/go-elasticsearch).
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL

@@ -1,0 +1,1634 @@
+- en: '8'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Network APIs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As the ways we build, deploy, and operate networks evolve, new protocols and
+    interfaces are emerging to ease machine-to-machine communication—a primary enabler
+    of network automation. In this and the following chapters, we’ll navigate through
+    some of these new capabilities and explore how to take advantage of them in the
+    context of the Go programming language.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The network **Command-Line Interface** (**CLI**) is what we, network engineers,
+    have used for decades to operate and manage network devices. As we move toward
+    a more programmatic approach to managing networks, simply relying on faster CLI
+    command execution might not be enough to deploy network automation solutions at
+    scale.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Solutions that don’t have a strong foundation are brittle and unstable. Hence,
+    when possible, we prefer to build network automation projects based on structured
+    data and machine-friendly **Application Programming Interfaces** (**APIs**). The
+    target use case for these interfaces isn’t direct human interaction, so you can
+    rely on Go to translate between remote API calls and a local, user-facing interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When we talk about APIs, we generally refer to different things that make up
+    the API developer experience, which you need to consider when evaluating an API:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A set of **Remote Procedure Calls** (**RPCs**) defining the rules of interaction
+    between a client and a server—at the very least, this would include a standard
+    set of create, get, update, and delete operations.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The structure and data type exchanged—product vendors can define this using
+    data model specification languages such as YANG or OpenAPI.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The underlying protocol that wraps the modeled data, which you can serialize
+    into one of the standard formats, such as XML or JSON, and transports it between
+    a client and a server—this could be SSH or, more often these days, HTTP.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In the networking world, we have another dimension in the API landscape that
+    determines the origin of a model specification document. While every networking
+    vendor is free to write their own data models, there are two sources of vendor-agnostic
+    models—IETF and OpenConfig—that strive to offer a vendor-neutral way of configuring
+    and monitoring network devices. Because of this variability in the API ecosystem,
+    it’s impossible to cover all protocols and standards, so in this chapter, we’ll
+    only cover a subset of network APIs, selected based on availability, practicality,
+    and usefulness:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ll start by looking at OpenAPI as one of the most prevalent API specification
+    standards in a wider infrastructure landscape.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We’ll then move on to JSON-RPC, which uses vendor-specific YANG models.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: After that, we’ll show an example of an RFC-standard HTTP-based protocol called
+    RESTCONF.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Finally, we’ll look at how you can leverage **Protocol Buffers** (**protobuf**)
+    and gRPC to interact with network devices and stream telemetry.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In this chapter, we’ll focus only on these network APIs, as the others are outside
+    of the scope. The most notable absentee is the **Network Configuration Protocol**
+    (**NETCONF**)—one of the oldest network APIs, defined originally by IETF in 2006\.
+    We’re skipping NETCONF mainly because of the lack of support for XML in some Go
+    packages we use throughout this chapter. Although NETCONF is in use today and
+    offers relevant capabilities, such as different configuration datastores, configuration
+    validation, and network-wide configuration transactions, in the future, it may
+    get displaced by technologies running over HTTP and TLS, such as RESTCONF, gNMI,
+    and various proprietary network APIs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can find the code examples for this chapter in the book’s GitHub repository
+    (refer to the *Further reading* section), under the `ch08` folder.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: We recommend you execute the Go programs in this chapter in a virtual lab environment.
+    Refer to the appendix for prerequisites and instructions on how to build it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: API data modeling
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before we look at any code, let’s review what data modeling is, what its key
+    components are, and their relationships. While we focus on the configuration management
+    side of model-driven APIs for this explanation, similar rules and assumptions
+    apply to workflows involving state data retrieval and verification.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The main goal of a configuration management workflow is to transform some input
+    into a serialized data payload whose structure adheres to a data model. This input
+    is usually some user-facing data, which has its own structure and may contain
+    only a small subset of the total number of configuration values. But this input
+    has a one-to-one relationship with the resulting configuration, meaning that rerunning
+    the same workflow should result in the same set of RPCs with the same payloads
+    and the same configuration state on a network device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: At the center of it all is a data model—a text document that describes the hierarchical
+    structure and types of values of a (configuration) data payload. This document
+    becomes a contract with all potential clients—as long as they send their data
+    in the right format, a server should be able to understand it and parse it. This
+    contract works both ways so that when a client requests some information from
+    a server, it can expect to receive it in a predetermined format.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following diagram shows the main components of a model-driven configuration
+    management workflow and their relationships:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.1 – Data modeling concepts](img/B16971_08_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.1 – Data modeling concepts
+  prefs: []
+  type: TYPE_NORMAL
+- en: Thus far, we’ve discussed a model, its input, and the resulting configuration.
+    The only thing we haven’t mentioned until now is the *bindings*. We use this term
+    to refer to a broad set of tools and libraries that can help us generate the final
+    configuration data payload programmatically, that is, without resorting to a set
+    of text templates or building these data payloads manually, both of which we consider
+    an anti-pattern in any network automation workflow. We produce these bindings
+    based on the data model and they represent a programmatic view of the model. They
+    may also include several helper functions to serialize and deserialize data structures
+    into one of the expected output formats, for example, JSON or protobuf. We’ll
+    spend most of this chapter discussing and interacting with bindings as they become
+    the main interface for a data model inside of the programming language.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we’ve covered some theory, it’s time to put it into practice. In the
+    following section, we’ll examine OpenAPI models and one way you can instantiate
+    and validate them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: OpenAPI
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Within a greater infrastructure landscape, HTTP and JSON are two commonly used
+    standards for machine-to-machine communication. Most web-based services, including
+    public and private clouds, use a combination of these technologies to expose their
+    externally facing APIs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The OpenAPI Specification allows us to define and consume RESTful APIs. It lets
+    us describe the enabled HTTP paths, responses, and JSON schemas for the corresponding
+    payloads. It serves as a contract between an API provider and its clients to allow
+    for a more stable and reliable API consumer experience and enables API evolution
+    through versioning.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We don’t widely use OpenAPI in networking, arguably for historical reasons.
+    YANG and its ecosystem of protocols predate OpenAPI and the rate of change in
+    network operating systems is not as fast as you might expect. But we often find
+    OpenAPI support in network appliances—SDN controllers, monitoring and provisioning
+    systems or **Domain Name System** (**DNS**), **Dynamic Host Configuration Protocol**
+    (**DHCP**), and **IP Address Management** (**IPAM**) products. This makes working
+    with OpenAPI a valuable skill to have for any network automation engineer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In *Chapters 6* and *7*, we went through an example of how to interact with
+    Nautobot’s external OpenAPI-based interface. We used a Go package produced by
+    an open source code generation framework based on Nautobot’s OpenAPI specification.
+    One thing to be mindful of with automatic code generation tools is that they rely
+    on a certain version of the OpenAPI Specification. If the version of your API
+    specification is different (there are nine different OpenAPI versions today; refer
+    to the *Further reading* section), the tool may not generate the Go code. Hence,
+    we want to explore an alternative approach.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we’ll configure NVIDIA’s Cumulus Linux device (`cvx`), which
+    has an OpenAPI-based HTTP API, using **Configure Unify Execute** (**CUE**; refer
+    to the *Further reading* section)—an open source **Domain-Specific Language**
+    (**DSL**) designed to define, generate, and validate structured data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: CUE’s primary user-facing interface is CLI, but it also has first-class Go API
+    support, so we’ll focus on how to interact with it entirely within Go code while
+    providing the corresponding shell commands where appropriate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following figure shows a high-level overview of the Go program we’ll discuss
+    next:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.2 – Working with OpenAPI data models](img/B16971_08_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.2 – Working with OpenAPI data models
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data modeling
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Starting from the top of the diagram, the first thing we need to do is produce
+    the CUE code we can use to generate the data structures to configure a network
+    device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Although CUE can import existing structured data and generate CUE code, it may
+    take a few iterations to get to a point where the code organization is optimal.
+    It turned out to be faster to write this code from scratch for the example we
+    present here. The result is in the `ch08/cue/template.cue` file (refer to the
+    *Further* *reading* section).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: We won’t cover CUE syntax or any of its core concepts and principles in this
+    book but will instead focus on its Go API. For more details about the language,
+    please refer to CUE’s official documentation, linked in the *Further* *reading*
+    section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'CUE resembles JSON with heavy influences from Go. It allows you to define data
+    structures and map values between different data structures via references. Data
+    generation in CUE thus becomes an exercise of data transformation with strict
+    value typing and schema validation. Here’s a snippet from the `template.cue` file
+    mentioned earlier, which defines three top-level objects for interfaces, routing,
+    and VRF configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Important Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can refer to CUE’s *References and Visibility* tutorial (linked in the *Further
+    reading* section) for explanations about emitted values, references, and the use
+    of underscores.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This file has references to an external CUE package called input, which provides
+    the required input data for the data model in the preceding output. This separation
+    of data templates and their inputs allows you to distribute these files separately
+    and potentially have them come from different sources. CUE provides a guarantee
+    that the result is always the same, no matter the order you follow to assemble
+    those files.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data input
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Now, let’s see how we define and provide inputs to the preceding data model.
+    We use the same data structure we used in *Chapters 6*, *Configuration Management*,
+    and [*Chapter 7*](B16971_07.xhtml#_idTextAnchor161), *Automation Frameworks*,
+    in a YAML file (`input.yaml`), which for the `cvx` lab device looks as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Using CUE, we can validate that this input data is correct by building a corresponding
+    object and introducing constraints, for example, a valid ASN range or IPv4 prefix
+    format. CUE allows you to define extra values directly inside the schema definition,
+    either by hardcoding defaults (`input.VRFs`) or referencing other values from
+    the same context (`input.LoopbackIP`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the main function of the example program, we use the `importInput` helper
+    function to read the input YAML file and generate a corresponding CUE file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The program saves the resulting file as `input.cue` in the local directory.
+    The implementation details of this function are not too important as you can perform
+    the same action from the command line with `cue import input.yaml -``p input`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At this stage, we can validate that our input conforms to the schema and constraints
+    shown earlier. For example, if we had set the `asn` value in `input.yaml` to something
+    outside of the expected range, CUE would’ve caught and reported this error:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Device configuration
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now we have all the pieces in place to configure our network device. We produce
+    the final configuration instance by compiling the template defined in the `cvx`
+    package into a concrete CUE value. We do this in three steps.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we load all CUE files from the local directory, specifying the name
+    of the package containing the template (`cvx`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Second, we compile all loaded files into a CUE value, which resolves all imports
+    and combines the input with the template:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Finally, we validate that we can resolve all references and that the input
+    provides all the required fields:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once we know the CUE value is concrete, we can safely marshal it into JSON
+    and send it directly to the `cvx` device. The body of the `sendBytes` function
+    implements the three-stage commit process we discussed in [*Chapter 6*](B16971_06.xhtml#_idTextAnchor144),
+    *Configuration Management*:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can find the full program in the `ch08/cue` directory (refer to the *Further
+    reading* section) of this book’s GitHub repository (refer to the *Further reading*
+    section). The same directory includes the complete version of the CUE files with
+    a data template and input schema and the input YAML file. Successful execution
+    of this program should produce an output like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: Keep in mind that although we focus on CUE’s Go API in this chapter, you can
+    do the same set of actions using the CUE CLI (executable binary). This even includes
+    the three-stage commit to submit and apply the `cvx` configuration. Using the
+    built-in CUE scripting language, you can define any sequence of tasks, such as
+    making HTTP calls or checking and parsing responses. You can save these actions
+    or tasks in a special *tool* file and they automatically become available in the
+    `cue` binary. You can read more about this in the `ch08/cue` readme document and
+    find example source code in the `ch08/cue/cue_tool.cue` file (refer to the *Further*
+    *reading* section).
+  prefs: []
+  type: TYPE_NORMAL
+- en: CUE has many use cases outside of what we’ve just described and different open
+    source projects such as **Istio** and **dagger.io** (refer to the *Further reading*
+    section) have adopted it and use it in their products. We encourage you to explore
+    other CUE use cases beyond what’s covered in this book, as well as similar configuration
+    languages such as **Jsonnet** and **Dhall** (refer to the *Further* *reading*
+    section).
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ve covered a few different ways of interacting with an OpenAPI provider.
+    For the rest of this chapter, we’ll focus on YANG-based APIs. The first one we’ll
+    introduce is a JSON-RPC interface implementation from Nokia.
+  prefs: []
+  type: TYPE_NORMAL
+- en: JSON-RPC
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: JSON-RPC is a lightweight protocol you can use to exchange structured data between
+    a client and a server. It can work over different transport protocols, but we’ll
+    focus only on HTTP. Although JSON-RPC is a standard, it only defines the top-level
+    RPC layer, while payloads and operations remain specific to each implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we’ll show how to use Nokia-specific YANG models to configure
+    the srl device from our lab topology, as SR Linux supports sending and receiving
+    YANG payloads over JSON-RPC (refer to the *Further* *reading* section).
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ll try to avoid building YANG data payloads manually or relying on traditional
+    text templating methods. The sheer size of some YANG models, as well as model
+    deviations and augmentations, make it impossible to build the payloads manually.
+    To do this at scale, we need to rely on a programmatic approach to build configuration
+    instances and retrieve state data. This is where we use openconfig/ygot (YANG
+    Go Tools) (refer to the *Further reading* section)—a set of tools and APIs for
+    automatic code generation from a collection of YANG models.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At a high level, the structure of the example program is analogous to the one
+    in the *OpenAPI* section. *Figure 8**.3* shows the building blocks of the program
+    we’ll review in this section:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.3 – Working with YANG data models](img/B16971_08_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.3 – Working with YANG data models
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ll start by combining the auto-generated Go bindings with the input data
+    and building a configuration instance to provision the `srl` device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Code generation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Starting from the top of the preceding diagram, the first step is to generate
+    the corresponding Go code from a set of Nokia’s YANG models (refer to the *Further
+    reading* section). We’ll only use a subset of Nokia’s YANG models to generate
+    the bindings to configure what we need, namely L3 interfaces, BGP, and route redistribution.
+    This way, we keep the size of the generated Go package small and constrained to
+    our specific use case.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sadly, there is no universal rule for how to pinpoint the list of models you
+    need apart from reading and understanding YANG models or reverse-engineering them
+    from an existing configuration. Thankfully, Nokia has developed a YANG browser
+    (refer to the *Further reading* section) that includes a pattern-matching search
+    that highlights the relevant XPaths and can help you find the right set of YANG
+    models.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Once we’ve identified which models we need, we can use the ygot generator tool
+    to build a Go package based on them. We won’t describe all the flags of this tool,
+    as ygot’s official documentation (refer to the *Further reading* section) covers
+    them. Still, we want to highlight the most important options we’ll use:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`generate_fakeroot`: This encapsulates all generated Go data structures in
+    a top-level *fake* root data structure called `Device` to join all modules in
+    a common hierarchy. Because there isn’t a YANG model that defines a universal
+    root top-level container for all devices, network devices just add the YANG modules
+    they support at the root (`/`). `ygot` represents the root via this *fake* root
+    container.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`path`: This flag helps `ygot` find and resolve any YANG data model imports.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The complete command to auto-generate the `srl` package and place it in the
+    `./pkg/srl/` directory we used is this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Since the preceding command has several flags, it may be desirable to remember
+    their exact set to make the build reproducible in the future. One alternative
+    is to include it in a code build utility, such as make. Another, more Go-native
+    option is to include it in the source code using the `//go:generate` directive,
+    as you can see in the `ch08/json-rpc/main.go` file (refer to the *Further reading*
+    section). Thus, you can generate the same `srl` repeatedly using this command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Building configuration
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Now that we’ve built a YANG-based Go package, we can create a programmatic instance
+    of our desired configuration state and populate it. We do all this within Go,
+    with the full flexibility of a general-purpose programming language at our disposal.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, we can design the configuration program as a set of methods, with
+    the input model being the receiver argument. After we read and decode the input
+    data, we create an empty *fake* root device we extend iteratively until we build
+    the complete YANG instance with all the relevant values we want to configure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The benefit of using a root device is that we don’t need to worry about individual
+    paths. We can send our payload to `/`, assuming that the resulting YANG tree hierarchy
+    starts from the root:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding code calls three methods on input. Let’s zoom in on `buildNetworkInstance`,
+    responsible for L3 routing configuration. This method is where we define a *network
+    instance*, which is a commonly used abstraction for **VPN Routing and Forwarding**
+    (**VRF**) instances and **Virtual Switch Instances** (**VSIs**). We create a new
+    network instance from the top-level root device to ensure we attach it to the
+    top of the YANG tree:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the next code snippet, we move all uplinks and a loopback interface into
+    the newly created network instance by defining each subinterface as a child of
+    the default network instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we define the global BGP settings by manually populating the BGP struct
+    and attaching it to the `Protocols.Bgp` field of the `default` network instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The final part of the configuration is BGP neighbors. We iterate over a list
+    of peers defined in the input data model and add a new entry under the BGP struct
+    we set up earlier:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When we finish populating the Go structs, we make sure that all provided values
+    are correct and match the YANG constraints. We can do this with a single call
+    to the `Validate` method on the parent container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Device configuration
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Once we have populated a YANG model instance with all the input values, the
+    next step is to send it to the target device. We do this in a few steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We use a `ygot` helper function to produce a map from the current YANG instance.
+    This map is ready to be serialized into JSON according to the rules defined in
+    RFC7951.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We use the standard `encoding/json` library to build a single JSON-RPC request
+    that updates the entire YANG tree with our configuration changes.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Using the standard `net/http` package, we send this request to the `srl` device:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE19]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE20]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE21]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE22]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE23]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE24]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE25]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE26]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE27]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE28]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE29]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE30]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE31]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE32]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE33]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE34]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE35]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE36]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE37]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE38]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE39]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE40]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE41]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE42]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE43]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE44]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE45]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE46]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE47]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'You can find the complete program that configures the srl device in the `ch08/json-rpc`
+    directory (refer to the *Further reading* section) of this book’s GitHub repository.
+    To run it, `cd` into this folder and run the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: This program only verifies that we executed the RPC successfully; it doesn’t
+    yet check to confirm that it had the desired effect, which we will discuss later
+    in this chapter. As with most HTTP-based protocols, a single RPC is a single transaction,
+    so you can assume the target device applied the changes, as long as you receive
+    a successful response. It’s worth mentioning that some JSON-RPC implementations
+    have more session control functions that allow multistage commits, rollbacks,
+    and other features.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the following section, we’ll take a similar approach of configuring a network
+    device based on its YANG models but introduce a couple of twists to show OpenConfig
+    models and the RESTCONF API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: RESTCONF
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The IETF designed RESTCONF as an HTTP-based alternative to NETCONF that offers
+    **Create, Read, Update, and Delete** (**CRUD**) operations on a conceptual datastore
+    containing YANG-modeled data. It may lack some NETCONF features, such as different
+    datastores, exclusive configuration locking, and batch and rollback operations,
+    but the exact set of supported and unsupported features depends on the implementation
+    and network device capabilities. That said, because it uses HTTP methods and supports
+    JSON encoding, RESTCONF reduces the barrier of entry for external systems to integrate
+    and inter-operate with a network device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'RESTCONF supports a standard set of CRUD operations through HTTP methods: POST,
+    PUT, PATCH, GET, and DELETE. RESTCONF builds HTTP messages with the YANG XPath
+    translated into a REST-like URI and it transports the payload in the message body.
+    Although RESTCONF supports both XML and JSON encoding, we will only focus on the
+    latter, with the rules of the encoding defined in RFC7951\. We’ll use Arista’s
+    EOS as a test device, which has its RESTCONF API enabled when launching the lab
+    topology.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The structure of the program we’ll create in this section is the same as for
+    the JSON-RPC example illustrated in *Figure 8**.3*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Code generation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The code generation process is almost the same as the one we followed in the
+    *JSON-RPC* section. We use openconfig/ygot (refer to the *Further reading* section)
+    to generate a Go package from a set of YANG models that EOS supports. But there
+    are a few notable differences that are worth mentioning before moving forward:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instead of vendor-specific YANG models, we use vendor-neutral OpenConfig models,
+    which Arista EOS supports.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When generating Go code with openconfig/ygot (refer to the *Further reading*
+    section), you might run into situations when more than one model is defined in
+    the same namespace. In those cases, you can use the `-exclude_modules` flag to
+    ignore a certain YANG model without having to remove its source file from the
+    configured search path.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We enable OpenConfig path compression to optimize the generated Go code by removing
+    the YANG containers containing `list` nodes. Refer to the `ygen` library design
+    documentation for more details (*Further reading*).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We also show an alternative approach where we don’t generate a *fake* root device.
+    As a result, we can’t apply all the changes in a single RPC. Instead, we have
+    to make more than one HTTP call, each with its own unique URI path.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Before we can generate the Go code, we need to identify the supported set of
+    Arista YANG models (refer to the *Further reading* section) and copy them into
+    the `yang` directory. We use the following command to generate the `eos` Go package
+    from that list of models:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For the same reasons we described in the *JSON-RPC* section, we can also embed
+    this command into the Go source code to generate the same Go package using the
+    following command instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: Building configuration
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In this example, we won’t apply all changes in a single HTTP call so that we
+    can show you how to update a specific part of a YANG tree without affecting other,
+    unrelated parts. In the preceding section, we worked around that by using an `Update`
+    operation, which merges the configuration we send with the existing configuration
+    on the device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: But in certain cases, we want to avoid the *merge* behavior and ensure that
+    only the configuration we send is present on the device (declarative management).
+    For that, we could’ve imported all existing configurations and identified the
+    parts that we want to keep or replace before sending a new configuration version
+    to the target device. Instead, we create a configuration for the specific parts
+    of a YANG tree via a series of RPCs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To simplify RESTCONF API calls, we create a special `restconfRequest` type
+    that holds a URI path and a corresponding payload to send to the device. The `main`
+    function starts with parsing the inputs for the data model and preparing a variable
+    to store a set of RESTCONF RPCs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'As in the JSON-RPC example, we build the desired configuration instance in
+    a series of method calls. This time, each method returns one `restConfRequest`
+    that has enough details to build an HTTP request:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s examine one of these methods that creates a YANG configuration from our
+    inputs. The `enableRedistribution` method generates a configuration to enable
+    redistribution between a directly connected table and the BGP `TableConnection`
+    struct that uses a pair of YANG enums to identify the redistribution source and
+    destination:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE53]'
+  prefs: []
+  type: TYPE_PRE
+- en: The rest of the code in *Figure 8**.3* shows the building blocks of the program
+    we review in this section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Device configuration
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Once we’ve prepared all the required RESTCONF RPCs, we can send them to the
+    device. We iterate over each `restconfRequest` and pass it to a helper function,
+    catching any returned errors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `restconfPost` helper function has just enough code to build an HTTP request
+    using the `net/http` package and send it to the `ceos` device:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE54]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can find the complete program in the `ch08/restconf` directory (refer to
+    the *Further reading* section) of this book’s GitHub repository. Running it from
+    a host running the lab topology should produce a similar output to this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE55]'
+  prefs: []
+  type: TYPE_PRE
+- en: At this point, we should have all three nodes of our lab topology fully configured.
+    Still, we haven’t confirmed that what we’ve done has had the desired effect. In
+    the next section, we’ll go through a process of state validation and show how
+    you can do it using network APIs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: State validation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the last three sections of this chapter, we pushed device configs without
+    verifying that the configuration changes had the desired effect. This is because
+    we need all devices configured before we can validate the resulting converged
+    operational state. Now, with all the code examples from the *OpenAPI*, *JSON-RPC*,
+    and *RESTCONF* sections executed against the lab topology, we can verify whether
+    we achieved our configuration intent—establish end-to-end reachability between
+    loopback IP addresses of all three devices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we’ll use the same protocols and modeling language we used
+    earlier in this chapter to validate that each lab device can see the loopback
+    IP address of the other two lab devices in its `ch08/state` directory (refer to
+    the *Further reading* section) of this book’s GitHub repository. Next, we’ll examine
+    a single example of how you can do this with Arista’s cEOS (`ceos`) lab device.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Operational state modeling
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: One thing we need to be mindful of when talking about the operational state
+    of a network element is the difference between the applied and the derived state,
+    as described by the YANG operational state IETF draft (refer to the *Further reading*
+    section). The former refers to the currently active device configuration and should
+    reflect what an operator has already applied. The latter is a set of read-only
+    values that result from the device’s internal operations, such as CPU or memory
+    utilization, and interaction with external elements, such as packet counters or
+    BGP neighbor state. Although we aren’t explicitly mentioning it when we’re talking
+    about an operational state, assume we’re referring to the derived state unless
+    we state otherwise.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Historically, there’ve been different ways to model the device’s operational
+    state in YANG:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: You could either enclose everything in a top-level container or read from a
+    separate `state` datastore, completely distinct from the `config` container/datastore
+    we use for configuration management.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Another way is to create a separate `state` container for every YANG sub-tree
+    alongside the `config` container. This is what the YANG operational state IETF
+    draft (refer to the *Further reading* section) describes.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Depending on which approach you use, you may need to adjust how you construct
+    your RPC request. For example, the `srl` device needs an explicit reference to
+    the `state` datastore. What we show in the next code example is the alternative
+    approach, where you retrieve a part of the YANG sub-tree and extract the relevant
+    state information from it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s worth noting that OpenAPI is less strict about the structure and composition
+    of its models and the state may come from a different part of a tree or require
+    a specific query parameter to reference the operational datastore, depending on
+    the implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Operational state processing
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Configuration management workflows typically involve the processing of some
+    input data to generate a device-specific configuration. This is a common workflow
+    that we often use to show the capabilities of an API. But there is an equally
+    important workflow that involves operators retrieving state data from a network
+    device, which they process and verify. In that case, the information flows in
+    the opposite direction—from a network device to a client application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At the beginning of this chapter, we discussed the configuration management
+    workflow, so now we want to give a high-level overview of the state retrieval
+    workflow:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We start by querying a remote API endpoint, represented by a set of URL and
+    HTTP query parameters.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We receive an HTTP response, which has a binary payload attached to it.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: We unmarshal this payload into a Go struct that follows the device’s data model.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Inside this struct, we look at the relevant parts of the state we can extract
+    and evaluate.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: The following code snippet from the `ch08/state` program (refer to the *Further
+    reading* section) is a concrete example of this workflow. The program structure
+    follows the same pattern we described in the *State validation* section of [*Chapter
+    6*](B16971_06.xhtml#_idTextAnchor144), *Configuration Management*. Hence, in this
+    chapter, we’ll only zoom in on the most relevant part—the `GetRoutes` function,
+    which connects to the `ceos` device and retrieves the content of its routing table.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It starts by building an HTTP request with the device-specific login information:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE56]'
+  prefs: []
+  type: TYPE_PRE
+- en: The **Abstract Forwarding Table** (**AFT**) in the code example is an OpenConfig
+    representation of the FIB (routing) table and the GET API call retrieves a JSON
+    representation of the default **Virtual Routing and Forwarding** (**VRF**) routing
+    table.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we create an instance of the Go struct corresponding to the part of the
+    YANG tree we queried and pass it to the `Unmarshal` function for deserialization.
+    The resulting Go struct now has one `Ipv4Entry` value for each entry in the default
+    FIB and we store that list of prefixes in the `out` slice:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE57]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, we import the `eos` package (`restconf/pkg/eos`) we auto-generated
+    in the *RESTCONF* section of this chapter, which lives outside the root directory
+    of this program. To do this, we add the `replace restconf => ../restconf/` instruction
+    to this program’s `go.mod` file (`ch08/state/go.mod`; refer to the *Further* *reading*
+    section).
+  prefs: []
+  type: TYPE_NORMAL
+- en: For the remaining lab devices, we follow a similar state retrieval workflow.
+    The only difference is in the YANG paths and the model-based Go structs we use
+    for deserialization. You can find the full program code in the `ch08/state` directory
+    (refer to the *Further reading* section) of this book’s GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we have covered network APIs based on HTTP version 1.1 that
+    use common encoding formats, such as JSON. Although HTTP is still very popular
+    and this is unlikely to change soon, it has its own limitations that may manifest
+    themselves in large-scale deployments. HTTP 1.1 is a text-based protocol, which
+    means it’s not efficient on the wire and its client-server origins make it difficult
+    to adapt it for bi-directional streaming. The next version of this protocol, HTTP/2,
+    overcomes these shortcomings. HTTP/2 is the transport protocol of the gRPC framework,
+    which is what we’ll examine in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: gRPC
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Network automation opens a door that until recently seemed closed or at least
+    prevented network engineers from reusing technologies that have had success in
+    other areas, such as microservices or cloud infrastructure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of the most recent advances in network device management is the introduction
+    of gRPC. We can use this high-performance RPC framework for a wide range of network
+    operations, from configuration management to state streaming and software management.
+    But performance is not the only thing that is appealing about gRPC. Just like
+    with YANG and OpenAPI apps, gRPC auto-generates client and server stubs in different
+    programming languages, which enables us to create an ecosystem of tools around
+    the API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this section, we’ll go over the following topics to help you understand
+    the gRPC API better:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Protobuf
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: gRPC transport
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Defining gRPC services
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Configuring network devices with gRPC
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Streaming telemetry from a network device with gRPC
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Protobuf
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: gRPC uses protobuf as its **Interface Definition Language** (**IDL**) to allow
+    you to share structured data between remote software components that may be written
+    in different programming languages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When working with protobuf, one of the first steps is to model the information
+    you’re serializing by creating a protobuf file. This file has a list of *messages*
+    defining the structure and type of data to exchange.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If we take the input data model we have been using throughout this book as
+    an example and encode it in a `.proto` file, it would look something like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE58]'
+  prefs: []
+  type: TYPE_PRE
+- en: Each field has an explicit type and a unique sequence number that identifies
+    it within the enclosing message.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next step in the workflow, just like with OpenAPI or YANG, is to generate
+    bindings for Go (or any other programming language). For this, we use the protobuf
+    compiler, protoc, which generates the source code with data structures and methods
+    to access and validate different fields:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE59]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The preceding command saves the bindings in a single file, `pb/model.pb.go`.
+    You can view the contents of this file to see what structs and functions you can
+    use. For example, we automatically get this `Router` struct, which is what we
+    had to define manually before:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE60]'
+  prefs: []
+  type: TYPE_PRE
+- en: Protobuf encodes a series of key-value pairs in a binary format similar to how
+    routing protocols encode **Type-Length-Values** (**TLVs**). But instead of sending
+    the key name and a declared type for each field, it just sends the field number
+    as the key with its value appended to the end of the byte stream.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As with TLVs, Protobuf needs to know the length of each value to encode and
+    decode a message successfully. For this, Protobuf encodes a wire type in the 8-bit
+    key field along with the field number that comes from the `.proto` file. The following
+    table shows the wire types available:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Type** | **Meaning** | **Used For** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 0 | Varint | int32, int64, uint32, uint64, sint32, sint64, bool, enum |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 1 | 64-bit | fixed64, sfixed64, double |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 2 | Length-delimited | string, bytes, embedded messages, packed repeated
+    fields |'
+  prefs: []
+  type: TYPE_TB
+- en: '| 5 | 32-bit | fixed32, sfixed32, float |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 8.1 – Protobuf wire types
+  prefs: []
+  type: TYPE_NORMAL
+- en: This generates a dense message (small output) that a CPU can process faster
+    compared to a JSON- or XML-encoded message. The downside is the message you generate
+    is not human-readable in its native format and it’s only meaningful if you have
+    the message definition (proto file) to find out the name and type for each field.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Protobuf on the wire
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'One of the easiest ways to see how protobuf looks in a binary format is to
+    save it into a file. In our book’s GitHub repository, we have an example in the
+    `ch08/protobuf/write` directory (refer to the *Further reading* section) that
+    reads a sample `input.yaml` file and populates the data structure generated from
+    the `.proto` file we discussed earlier. We then serialize and save the result
+    into a file we name `router.data`. You can use the following command to execute
+    this example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE61]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can see the content of the generated protobuf message by viewing the file
+    with `hexdump -C router.data`. If we group some bytes for convenience and refer
+    to the proto definition file, we can make sense of the data, as shown in the following
+    figure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.4 – Protobuf-encoded message](img/B16971_08_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.4 – Protobuf-encoded message
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To give you an idea of how efficient the protobuf encoding is, we’ve included
+    a couple of JSON files encoding the same data. The `router.json` file is a compact
+    (space-free) JSON encoding. The second version, called `router_ident.json`, has
+    the same JSON payload indented with extra spaces, which can happen if you generate
+    JSON from a text template or use *pretty print* functions before sending the data
+    over the network:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE62]'
+  prefs: []
+  type: TYPE_PRE
+- en: The difference between JSON and protobuf is quite stark and can become very
+    important when transferring and encoding/decoding large datasets.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we know some basics about gRPC data encoding, we can move on to the
+    protocol used to transfer these messages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: gRPC transport
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Besides efficient binary encoding and enabling simpler framing to serialize
+    your data—compared to newline-delimited plain text—the gRPC framework also attempts
+    to exchange those messages as efficiently as possible over the network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'While you can only process one request/response message at a time with HTTP/1.1,
+    gRPC makes use of HTTP/2 to multiplex parallel requests over the same TCP connection.
+    Another benefit of HTTP/2 is that it supports header compression. *Table 8.2*
+    shows the various transport methods used by different APIs:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **API** | **Transport** | **RPC/Methods** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| NETCONF | SSH | get-config, edit-config, commit, lock |'
+  prefs: []
+  type: TYPE_TB
+- en: '| RESTCONF | HTTP | GET, POST, DELETE, PUT |'
+  prefs: []
+  type: TYPE_TB
+- en: '| gRPC | HTTP/2 | Unary, server streaming, client streaming, bidirectional
+    streaming |'
+  prefs: []
+  type: TYPE_TB
+- en: Table 8.2 – API comparative table
+  prefs: []
+  type: TYPE_NORMAL
+- en: Compared to the older network APIs, gRPC not only allows you to make unary or
+    single requests, but it also supports full-duplex streaming. Both the client and
+    server can stream data simultaneously, so you no longer need to work around the
+    limitations of the traditional client-server mode of interaction.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defining gRPC services
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: gRPC uses Protobuf to define statically typed services and messages in a file
+    that we can use to generate the code for client and server applications to consume.
+    gRPC abstracts the underlying transport and serialization details, allowing developers
+    to focus on the business logic of their applications instead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A gRPC service is a collection of RPCs that accept and return protobuf messages.
+    In the following output, you can see a snippet from Cisco IOS XR’s proto file
+    called `ems_grpc.proto` (refer to the *Further reading* section). This file defines
+    a gRPC service called `gRPCConfigOper` with several RPCs to perform a standard
+    set of configuration management operations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE63]'
+  prefs: []
+  type: TYPE_PRE
+- en: As well as the configuration management operations, this Cisco IOS XR protobuf
+    definition includes a streaming telemetry subscription (`CreateSubs`) RPC. The
+    message format for the request and response is also part of the `ems_grpc.proto`
+    file (refer to the *Further reading* section). For example, to invoke the telemetry
+    subscription RPC, the client has to send a `ConfigArgs` message and the server
+    (router) should reply with a stream of `CreateSubsReply` messages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Unlike with NETCONF, where `telemetry.proto` (refer to the *Further* *reading*
+    section):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE64]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This is something that the OpenConfig community is addressing with the definition
+    of vendor-agnostic services, such as gNMI (`gnmi.proto`; refer to the *Further
+    reading* section), which we will explore in the next chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE65]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, let’s see how you can use these RPCs with Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring network devices with gRPC
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'In our example program, we configure an IOS XR device with the `ReplaceConfig`
+    RPC, defined in a service called `gRPCConfigOper`. You can find all the source
+    code for this program in the `ch08/grpc` directory of this book’s GitHub repository
+    (refer to the *Further reading* section). You can use the following command to
+    execute this program against a test device in Cisco’s DevNet sandbox:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE66]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Following the same configuration management workflow we’ve used throughout
+    this chapter, we’ll start by generating the code for the following gRPC service:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE67]'
+  prefs: []
+  type: TYPE_PRE
+- en: One thing to remember when working with gRPC-based network APIs is that they
+    might not define the full data tree natively as protobuf schemas. In the preceding
+    example, one field defines a string called `yangjson` that expects a YANG-based
+    JSON payload, not exploring any further what might be inside that “string.” Carrying
+    a YANG-based JSON payload is what we also did in the JSON-RPC and RESTCONF examples.
+    In a sense, gRPC serves as a thin RPC wrapper in this example, not too different
+    from JSON-RPC. We are still doing the configuration management work with YANG-based
+    data structures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Since we’re now using both gRPC and YANG schemas, we have to use `protoc` together
+    with `ygot` to generate their respective bindings. We run the `protoc` command
+    to generate the code from the proto definition in `ch08/grpc/proto` (refer to
+    the *Further reading* section) and `ygot` to generate code from a set of OpenConfig
+    YANG models. You can find the exact set of commands in the `ch08/grpc/generate_code`
+    file (refer to the *Further* *reading* section).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Before we can connect to the target device, we need to gather all the information
+    we need to run the program, so we reuse the data structures from [*Chapter 6*](B16971_06.xhtml#_idTextAnchor144),
+    *Configuration Management*, to store this data:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE68]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We start the `main` function of the program by populating the access credentials
+    and processing the device configuration inputs, just like in other examples in
+    the book:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE69]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Next, we use the `ygot` Go bindings from the `grpc/pkg/oc` package to prepare
+    the `yangjson` payload. We build the BGP configuration in the `buildNetworkInstance`
+    method in the same way we showed in the *JSON-RPC* section of this chapter. Once
+    the `oc.Device` struct is fully populated, we serialize it into a JSON string:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE70]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'To simplify the interactions with the target device, we created a thin wrapper
+    around the gRPC API. We define a handful of method receivers for the `xrgrpc`
+    type that implement things such as initial connection establishment and deleting
+    or replacing RPCs. This is how we connect and replace the target device’s configuration:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE71]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Looking closer at the `ReplaceConfig` method, we can see exactly how to invoke
+    the required RPC. We dynamically generate a random ID and populate the `ConfigArg`
+    message with the YANG-based JSON payload that we generated with `ygot` a couple
+    of steps before. The inner `ReplaceConfig` method is the one that the `protoc`
+    command automatically generated for us:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE72]'
+  prefs: []
+  type: TYPE_PRE
+- en: The configuration payload we send in this case is a string blob, but we can
+    also encode the content fields with protobuf if the target devices support this.
+    This is what we’ll examine next with a streaming telemetry example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Streaming telemetry from a network device with gRPC
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: gRPC streaming capabilities allow network devices to send data over a persistent
+    TCP connection either continuously (stream) or on demand (poll). We’ll continue
+    with the same program we started earlier and reuse the same connection we set
+    up to configure a network device to subscribe to a telemetry stream.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Even though we initiated a connection to the Cisco IOS XR device, the data now
+    flows in the opposite direction. This means we need to be able to decode the information
+    we receive and there are two different ways of doing this.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once we’ve configured the device, we request it to stream the operational state
+    of all BGP neighbors. In the first scenario, we’ll cover the case where you have
+    the BGP neighbor proto definition to decode the messages you get. Then, we’ll
+    examine a less efficient option where a proto definition is unnecessary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Decoding YANG-defined data with Protobuf
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'We use the `CreateSubs` RPC to subscribe to a telemetry stream. We need to
+    submit the subscription ID we want to stream and choose an encoding option between
+    `gpb` for protobuf or `gpbkv` for an option we’ll explore at the end of this chapter.
+    The following output shows the proto definition of this RPC and its message types:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE73]'
+  prefs: []
+  type: TYPE_PRE
+- en: Similar to the configuration part of the program, we create a helper function
+    to submit the request to the router. The main difference is that now the reply
+    is a data stream. We store the result of `CreateSubs` in a variable we call `st`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For data streams, gRPC gives us the `Recv` method, which blocks until it receives
+    a message. To continue processing in the main thread, we run an anonymous function
+    in a separate goroutine that calls the auto-generated `GetData` method. This method
+    returns the `data` field of each message we get and we send it over a channel
+    (`b`) back to the main goroutine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE74]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `data` field, and hence the data we receive in channel `b`, consist of
+    arrays of bytes that we need to decode. We know this is a streaming telemetry
+    message, so we use its proto-generated code to decode its fields. *Figure 8**.5*
+    shows an example of how we can get to BGP state information by following the proto
+    file definitions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.5 – Protobuf telemetry message (protobuf)](img/B16971_08_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.5 – Protobuf telemetry message (protobuf)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Back in the main goroutine, we listen out for what the `GetSubscription` channel
+    returns and iterate over each message we get. We unmarshal the data received into
+    a `Telemetry` message. At this point, we have access to the general telemetry
+    data, so we can use the auto-generated functions to access some of its fields,
+    such as the timestamp and the encoding path:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE75]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Following that, we extract the content of the `data_bgp` field to access the
+    BGP data encoded with protobuf. Cisco IOS XR lists the items in rows, so for each
+    one, we unmarshal the content into the auto-generated `BgpNbrBag` data structure,
+    from where we can access all operational information of a BGP neighbor. This way,
+    we get the connection state and the IPv4 address of the BGP peer, which we print
+    to the screen:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE76]'
+  prefs: []
+  type: TYPE_PRE
+- en: If you don’t have access to the BGP message definition (proto file), gRPC can
+    still represent the fields with protobuf, but it has to add the name and value
+    type for each one, so the receiving end can parse them. This is what we’ll examine
+    next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Protobuf self-describing messages
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'While self-describing messages in a way defeat the purpose of protobuf by sending
+    unnecessary data, we’ve included an example here to contrast how you could parse
+    a message in this scenario:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 8.6 – Protobuf self-describing telemetry message (JSON)](img/B16971_08_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 8.6 – Protobuf self-describing telemetry message (JSON)
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The telemetry header is the same, but when you choose `gpbkv` as the encoding
+    format, Cisco IOS XR sends the data in the `data_bgpkv` field instead:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE77]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'At this point, what you have is a big JSON file you can navigate using a Go
+    package of your preference. Here, we’ve used `gjson`. To test this program, you
+    can rerun the same program we described earlier with an extra flag to enable the
+    self-describing key-value messages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE78]'
+  prefs: []
+  type: TYPE_PRE
+- en: While this method might seem less involved, not only do you compromise the performance
+    benefits but also, by not knowing the Go data structures beforehand, it opens
+    up room for bugs and typos, it prevents you from taking advantage of the auto-completion
+    features of most IDEs, and it makes your code less explicit. All of that has a
+    negative impact on code development and troubleshooting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we explored different ways to use APIs and RPCs to interact
+    with network devices. One common theme we saw throughout this chapter was having
+    a model for any data we exchange. Although the network community has embraced
+    YANG as the standard language to model network configuration and operational state
+    data, the implementation differences across networking vendors still impede its
+    wide adoption.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapter, we’ll look at how OpenConfig tries to increase the adoption
+    of declarative configuration and model-driven management and operations by defining
+    a set of vendor-neutral models and protocols.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The book’s GitHub repository: [https://github.com/PacktPublishing/Network-Automation-with-Go](https://github.com/PacktPublishing/Network-Automation-with-Go)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'OpenAPI versions: [https://swagger.io/specification/#appendix-a-revision-history](https://swagger.io/specification/#appendix-a-revision-history)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'CUE: [https://cuelang.org/](https://cuelang.org/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch08/cue/template.cue`: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/cue/template.cue](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/cue/template.cue)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'CUE’s *References and Visibility* tutorial: [https://cuelang.org/docs/tutorials/tour/references/](https://cuelang.org/docs/tutorials/tour/references/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `ch08/cue` directory: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/cue](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/cue)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch08/cue/cue_tool.cue`: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/cue/cue_tool.cue](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/cue/cue_tool.cue)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Istio: [https://istio.io/](https://istio.io/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'dagger.io: [https://dagger.io/](https://dagger.io/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Jsonnet: [https://github.com/google/go-jsonnet](https://github.com/google/go-jsonnet)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Dhall: [https://github.com/philandstuff/dhall-golang](https://github.com/philandstuff/dhall-golang)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'JSON-RPC: [https://documentation.nokia.com/srlinux/SR_Linux_HTML_R21-11/SysMgmt_Guide/json-interface.html](https://documentation.nokia.com/srlinux/SR_Linux_HTML_R21-11/SysMgmt_Guide/json-interface.html)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'openconfig/ygot: https://github.com/openconfig/ygot'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Nokia’s YANG models: [https://github.com/nokia/srlinux-yang-models](https://github.com/nokia/srlinux-yang-models)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The YANG browser: [https://yang.srlinux.dev/v21.6.4/](https://yang.srlinux.dev/v21.6.4/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'ygot’s official documentation: [https://github.com/openconfig/ygot#introduction](https://github.com/openconfig/ygot#introduction)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `ch08/json-rpc/main.go` file: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/json-rpc/main.go](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/json-rpc/main.go)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `ch08/json-rpc` directory: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/json-rpc](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/json-rpc)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `yget` library design documentation: [https://github.com/openconfig/ygot/blob/master/docs/design.md#openconfig-path-compression](https://github.com/openconfig/ygot/blob/master/docs/design.md#openconfig-path-compression)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Arista YANG models: [https://github.com/aristanetworks/yang](https://github.com/aristanetworks/yang)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `ch08/restconf` directory: [https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch08/restconf](https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch08/restconf)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `ch08/state` directory: [https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch08/state](https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch08/state)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'IETF draft: [https://datatracker.ietf.org/doc/html/draft-openconfig-netmod-opstate-01](https://datatracker.ietf.org/doc/html/draft-openconfig-netmod-opstate-01)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `ch08/state` program: [https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch08/state](https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch08/state)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch08/state/go.mod`: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/state/go.mod](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/state/go.mod)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The `ch08/protobuf/write` directory: [https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch08/protobuf/write](https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch08/protobuf/write)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ems_grpc.proto`: [https://github.com/nleiva/xrgrpc/blob/master/proto/ems/ems_grpc.proto](https://github.com/nleiva/xrgrpc/blob/master/proto/ems/ems_grpc.proto)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`telemetry.proto`: [https://github.com/Juniper/jtimon/blob/master/telemetry/telemetry.proto](https://github.com/Juniper/jtimon/blob/master/telemetry/telemetry.proto)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`gnmi.proto`: [https://github.com/openconfig/gnmi/blob/master/proto/gnmi/gnmi.proto](https://github.com/openconfig/gnmi/blob/master/proto/gnmi/gnmi.proto)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch08/grpc/proto`: [https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch08/grpc/proto](https://github.com/PacktPublishing/Network-Automation-with-Go/tree/main/ch08/grpc/proto)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch08/grpc/generate_code`: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/grpc/generate_code](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/grpc/generate_code)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

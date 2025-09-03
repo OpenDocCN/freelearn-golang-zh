@@ -1,0 +1,1099 @@
+- en: '10'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Network Monitoring
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Despite the popularity of configuration management, we actually spend more time
+    monitoring networks than configuring them. As networks become more and more complex,
+    with new layers of encapsulation and IP address translations, our ability to understand
+    whether a network functions correctly to let us meet customer **service-level
+    agreements** (**SLAs**) is becoming increasingly difficult.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Engineers working in the cloud infrastructure space have come up with the term
+    *observability*, referring to the ability to reason about the internal state of
+    a system by observing its external outputs. Translated into networking terms,
+    this may include passive monitoring through logs and state telemetry collection
+    or active monitoring using distributed probing, data processing, and visualization.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The ultimate goal of all this is to reduce the **mean time to repair** (**MTTR**),
+    adhere to customer SLAs, and shift to proactive problem resolution. Go is a very
+    popular language of choice for these kinds of tasks, and in this chapter we will
+    examine a few of the tools, packages, and platforms that can help you with network
+    monitoring. Here are the highlights of this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will explore traffic monitoring by looking at how to capture and parse network
+    packets with Go.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Next, we will look at how to process and aggregate data plane telemetry to get
+    meaningful insights into the current network behavior.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We show how you can use active probing to measure network performance, and how
+    to produce, collect, and visualize performance metrics.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We will deliberately avoid talking about YANG-based telemetry, as we covered
+    this already in [*Chapter 8*](B16971_08.xhtml#_idTextAnchor182), *Network APIs*,
+    and [*Chapter 9*](B16971_09.xhtml#_idTextAnchor209), *OpenConfig*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another area that we haven’t touched on so far and that we want to discuss briefly
+    in this chapter is the developer experience. As we write more code, maintaining
+    existing software becomes an important part of our day-to-day operations. We introduce
+    one tool per section of this chapter, acknowledging that we are just scratching
+    the surface and that this topic could be the subject of an entire book. In the
+    end, we don’t strive to give a comprehensive overview of all tools there are out
+    there but just want to give you an idea of what developing Go code in production
+    may feel like.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: You can find the code examples for this chapter in the book’s GitHub repository
+    (see the *Further reading* section), under the `ch10` folder.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Important Note
+  prefs: []
+  type: TYPE_NORMAL
+- en: We recommend you execute the Go programs in this chapter in a virtual lab environment.
+    Refer to the *Appendix* for prerequisites and instructions on how to build the
+    fully configured network topology.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first example we will discuss in the following section explores packet capturing
+    and parsing capabilities in Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data plane telemetry processing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Network activities such as capacity planning, billing, or **distributed denial-of-service**
+    (**DDoS**) attack monitoring require insights into the traffic flowing through
+    a network. One way we can offer such visibility is by deploying a packet sampling
+    technology. The premise is that at a high-enough rate, it’s possible to capture
+    only a randomly sampled subset of packets to build a good understanding of the
+    overall network traffic patterns.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While it’s the hardware that samples the packets, it’s the software that aggregates
+    them into flows and exports them. NetFlow, sFlow, and **IP Flow Information Export**
+    (**IPFIX**) are the three main protocols we use for this, and they define the
+    structure of the payload and what metadata to include with each sampled packet.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of the first steps in any telemetry processing pipeline is information ingestion.
+    In our context, this means receiving and parsing data plane telemetry packets
+    to extract and process flow records. In this section, we will look at how you
+    can capture and process packets with the help of the `google/gopacket` package
+    (see *Further reading*).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Packet capturing
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In [*Chapter 4*](B16971_04.xhtml#_idTextAnchor109), *Networking (TCP/IP) with
+    Go*, we discussed how to build a UDP ping application using the `net` package
+    from Go’s standard library. And while we should probably take a similar approach
+    when building an sFlow collector, we will do something different for the next
+    example.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instead of building a data plane telemetry collector, we designed our application
+    to tap into an existing flow of telemetry packets, assuming the network devices
+    in the topology are sending them to an existing collector somewhere in the network.
+    This allows you to avoid changing the existing telemetry service configuration
+    while still being able to capture and process telemetry traffic. You can use a
+    program like this when you want a transparent tool that can run directly on a
+    network device, on demand, and for a short period of time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the test lab topology, the `cvx` node runs an agent that exports sampled
+    metrics using the sFlow protocol. The sFlow traffic flows toward `host-2`, where
+    it gets intercepted by the example application using a tap:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.1 – sFlow application](img/B16971_10_01.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.1 – sFlow application
+  prefs: []
+  type: TYPE_NORMAL
+- en: To show you the packet-capturing capabilities of the `google/gopacket` package,
+    we intercept all sFlow packets using `pcapgo` – a native Go implementation of
+    the traffic-capturing API in Linux. Although it’s less feature-rich than its counterpart
+    `pcap` and `pfring` packages, the benefit of `pcapgo` is that it doesn’t rely
+    on any external C libraries and can work natively on any Linux distribution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the first part of the `packet-capture` program, which you can find in the
+    `ch10/packet-capture` folder of this book’s GitHub repository, we set up a new
+    `af_packet` socket handler with the `pcapgo.NewEthernetHandle` function, passing
+    it the name of the interface to monitor:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: At this point, `handle` gives us access to all packets on the `eth0` interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Packet filtering
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: While we could just capture all packets through the interface, for the sake
+    of experimenting, we will include an example of how to filter the traffic we capture
+    with a **Berkeley Packet Filter** (**BPF**) program in Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we generate a compiled packet-matching code in a human-readable format,
+    using the `-d` option of the `tcpdump` command to filter IP and UDP packets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, we convert each of the preceding instructions into a corresponding `bpf.Instruction`
+    from the `golang.org/x/net/bpf` package. We assemble these instructions into a
+    set of `[]bpf.RawInstruction` that are ready to load into a BPF virtual machine:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: We can attach the result to the `EthernetHandle` function we created earlier,
+    to act as a packet filter and reduce the number of packets received by the application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In summary, we copy all packets that match the `0x800` EtherType and the `0x11`
+    IP protocol to the user space process, where our Go program runs, while all the
+    other packets, including the ones we match, continue through the network stack.
+    This makes this program completely transparent to any existing traffic flows,
+    and you can use it without having to change the configuration of the sFlow agent.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Packet processing
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'All packets that the kernel sends to the user space become available in the
+    Go application through the `PacketSource` type, which we build by combining the
+    `EthernetHandle` function we created with an Ethernet packet decoder:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'This `PacketSource` structure sends each received and decoded packet over a
+    Go channel, which means we can use a `for` loop to iterate over them one by one.
+    Inside this loop, we use `gopacket` to match packet layers and extract information
+    about L2, L3, and L4 networking headers, including protocol-specific details such
+    as the sFlow payload:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: The benefit of using `gopacket` specifically for sFlow decoding is that it can
+    parse and create another `gopacket.Packet` based on the sampled packet’s headers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Generating traffic
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: To test this Go application, we need to generate some traffic in the lab topology,
+    so the `cvx` device can generate sFlow records about it. Here, we use `microsoft/ethr`
+    – a Go-based traffic generator that offers a user experience and features comparable
+    to `iperf`. It can generate and receive a fixed volume of network traffic and
+    measure bandwidth, latency, loss, and jitter. In our case, we only need it to
+    generate a few low-volume traffic flows over the lab network to trigger the data
+    plane flow sampling.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `packet-capture` application taps into the existing sFlow traffic, parses
+    and extracts flow records, and prints that information on the screen. To test
+    the program, run `make capture-start` from the root of this book’s GitHub repository
+    (see *Further reading*):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: As promised, before we move on to the next section, let’s review the first *developer
+    experience* tool of the chapter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Debugging Go programs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Reading and reasoning about an existing code base is a laborious task, and it
+    gets even harder as programs mature and evolve. This is why, when learning a new
+    language, it’s very important to have at least a basic understanding of the debugging
+    process. Debugging allows us to halt the execution of a program at a pre-defined
+    place and step through the code line by line while examining in-memory variables
+    and data structures.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following example, we use Delve to debug the `packet-capture` program
+    we just ran. Before you can start, you need to generate some traffic through the
+    lab topology with `make traffic-start`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The Delve binary file is already pre-installed in the `host` lab containers,
+    so you can connect to the `host-2` container with the `docker exec -it` command
+    and start the Delve shell with the `dlv` `debug` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once in the `dlv` interactive shell, you can use different built-in commands
+    to control the execution of the program (you can use `help` to view the full list
+    of commands). Set a breakpoint at line 49 of `main.go` and run the program until
+    the point where we receive the first packet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'When execution stops at a breakpoint, you can examine the local variables using
+    the `locals` command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You can print the variable contents on a screen, as in the following example
+    for the `packet` variable:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The text-based navigation and verbosity of the output may be intimidating for
+    beginners, but luckily, we have alternative visualization options.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Debugging from an IDE
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: If debugging in a console is not your preferred option, most of the popular
+    **Integrated Development Environments** (**IDEs**) come with some form of support
+    for Go debugging. For example, Delve integrates with **Visual Studio Code** (**VSCode**)
+    and you can also configure it for remote debugging.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Although you can set up VSCode for remote debugging in different ways, in this
+    example, we run Delve manually inside a container in the `headless` mode while
+    specifying the port at which to listen for incoming connections:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now, we need to tell VSCode how to connect to the remote Delve process. You
+    can do this by including a JSON config file in the `.vscode` folder next to the
+    `main.go` file. Here’s an example file you can find in `ch10/packet-capture/.vscode/launch.json`
+    in this book’s GitHub repository:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'You need to replace the `host` value with the one where the lab is running
+    and then start an instance of VSCode from the root of the Go program (`code ch10/packet-capture`):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.2 – VSCode development environment ](img/B16971_10_02.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.2 – VSCode development environment
+  prefs: []
+  type: TYPE_NORMAL
+- en: In VSCode, now you can go to the debug icon in the left menu to get to **RUN
+    AND DEBUG**, where you should see the **Connect to server** option that reads
+    the preceding JSON config file. Click on the green arrow to connect to the remote
+    debugging process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'At this point, you can navigate through the code and examine local variables
+    inside the VSCode **user interface** (**UI**), while the debugging process is
+    running inside a container:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.3 – VSCode debugging](img/B16971_10_03.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.3 – VSCode debugging
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next section, we will look at how to add value to the data plane telemetry
+    we collect and process by aggregating it to generate a report of the highest bandwidth
+    consumers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Data plane telemetry aggregation
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: After collecting and parsing data plane telemetry, we need to think about what
+    to do with it next. Looking at raw data is not always helpful because of the sheer
+    number of flows and lack of any meaningful context. Hence, the next logical step
+    in a telemetry processing pipeline is data enrichment and aggregation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Telemetry enrichment refers to the process of adding extra metadata to each
+    flow based on some external source of information. For example, these external
+    sources can provide a correlation between a public IP and its country of origin
+    or BGP ASN, or between a private IP and its aggregate subnets or device identity.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another technique that can help us interpret and reason about the telemetry
+    we collect is aggregation. We can combine different flow records either based
+    on the IP prefix boundary or flow metadata, such as a BGP ASN, to help network
+    operators draw meaningful insights and create high-level views of the data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You could build the entire telemetry processing pipeline out of open source
+    components with ready-to-use examples (see *Further reading*) available on the
+    internet, but sooner or later, you might need to write some code to meet your
+    specific business requirements. In the following section, we will work on a scenario
+    where we need to aggregate data plane telemetry to better understand the traffic
+    patterns in our network.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Top talkers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In the absence of long-term telemetry storage, getting a just-in-time snapshot
+    of the highest bandwidth consumers can be quite helpful. We refer to this application
+    as *top talkers*, and it works by displaying a list of network flows that are
+    sorted based on their relative interface bandwidth utilization.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let’s walk through an example Go application that implements this feature.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exploring telemetry data
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: In our `top-talkers` application, we collect sFlow records with `netsampler/goflow2`,
+    a package designed specifically to collect, enrich, and save sFlow, IPFIX, or
+    NetFlow telemetry. This package ingests raw protocol data and produces normalized
+    (protocol-independent) flow records. By default, you can save these normalized
+    records in a file or send them to a Kafka queue. In our case, we store them in
+    memory for further processing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To store the flow records in memory, we save the most relevant fields of each
+    flow record we receive in a user-defined data structure we call `MyFlow`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Additionally, we create a flow key as a concatenation of the ports and IP addresses
+    of the source and destination to uniquely identify each flow:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.4 – A flow key](img/B16971_10_04.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.4 – A flow key
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To help us calculate the final result, we create another data structure we
+    call `topTalker`, which has two fields:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`flowMap`: A map to store a collection of `MyFlow`-type flows. We use the key
+    we created to index them.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Heap`: A helper data structure that keeps track of the most frequently seen
+    flows:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE16]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE17]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE18]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Since we use a high-level sFlow package (`goflow2`), we don’t need to worry
+    about setting up a UDP listener or receiving and decoding packets, but we need
+    to tell `goflow2` the format to report flow records (`json`) and point to a custom
+    transport driver (`tt`) that determines what to do with the data after the sFlow
+    package normalizes the received flow records:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Transport` field in the `utils.StateSFlow` type of the preceding code
+    snippet accepts any type that implements `TransportInterface`. This interface
+    expects a single method (`Send()`) where all the enrichment and aggregation may
+    take place:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Send` method accepts two arguments, one representing the source IP of an
+    sFlow datagram and the second one containing the actual flow record.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Telemetry processing
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'In our implementation of the `Send` method (to satisfy the `TransportInterface`
+    interface), we first parse the input binary data and deserialize it into a `MyFlow`
+    data structure:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Bearing in mind that sFlow can capture packets going in either direction, we
+    need to ensure that both flows count toward the same in-memory flow record. This
+    means creating a special flow key that satisfies the following two conditions:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: It must be the same for both ingress and egress packets of the same flow.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: It must be unique for all bidirectional flows.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We do this by sorting the source and destination IPs when constructing the
+    bidirectional flow key, as the next code snippet shows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With a unique key that represents both directions of a flow, we can save it
+    in the map (`flowMap`) to store in memory. For each received flow record, the
+    `Send` method performs the following checks:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If this is the first time we’ve seen this flow, then we save it on the map and
+    set the count number to `1`.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Otherwise, we update the flow by incrementing its count by one:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now, to display the top talkers in order, we need to sort the flow records we
+    have saved. Here, we use the `container/heap` package from the Go standard library.
+    It implements a sorting algorithm, offering O(log n) (logarithmic) upper-bound
+    guarantees, which means it can do additions and deletions of data very efficiently.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To use this package, you only need to teach it how to compare your items. As
+    you add, remove, or update elements, it will sort them automatically. In our example,
+    we want to sort flow records saved as the `MyFlow` data type. We define `Heap`
+    as a list of pointers to `MyFlow` records. The `Less()` method instructs the `container/heap`
+    package to compare two `MyFlow` elements, based on the `Count` field that stores
+    the number of times we have *seen* a flow record:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'With this, we now have an in-memory flow record store with elements sorted
+    according to their `Count`. We can now iterate over the `Heap` slice and print
+    its elements on the screen. As in the earlier example with `gopacket`, we use
+    `ethr` to generate three UDP flows with different throughputs to get a consistently
+    sorted output. You can trigger the flows in the topology with `make top-talkers-start`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE25]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then, run the Top-talkers Go application with `go run main.go` from within
+    the `host-2` container (`clab-netgo-host-2`) to get a real-time Top-talkers table:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE26]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note that due to low traffic volume, random packet sampling, and limited test
+    duration, your results may be slightly different but should converge to a similar
+    distribution after several test iterations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Testing Go programs
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Code testing is an integral part of any production software development process.
+    Good test coverage improves application reliability and increases tolerance to
+    bugs introduced at later stages of software development. Go has native support
+    for testing with its `testing` package from the standard library and built-in
+    command-line tool, `go test`. With test coverage built into the Go tool, it’s
+    uncommon to see third-party packages used for testing Go code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Table-driven testing is one of the most popular testing methodologies in Go.
+    The idea is to describe test cases as a slice of custom data structures, with
+    each one providing both inputs and expected results for each test case. Writing
+    test cases as a table makes it easier to create new scenarios, consider corner
+    cases, and interpret existing code behaviors.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We can test part of the code of the `top-talkers` example we just reviewed by
+    building a set of table tests for the heap implementation we used to sort the
+    flow records.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s create a test file, `main_test.go`, with a single test function in it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE27]'
+  prefs: []
+  type: TYPE_PRE
+- en: Both the `_test.go` filename suffix and the `Test<Name>` function prefix are
+    naming conventions that allow Go to detect testing code and exclude it during
+    binary compilation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We design each test case to have all the relevant information, including the
+    following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A name to use in error messages
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'A set of unique flows described by their starting counters and resulting positions:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE28]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE29]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE30]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE31]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE32]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE33]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE34]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE35]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE36]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '[PRE37]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: 'Given the preceding definitions, we create a test suite for a different combination
+    of input and output values to cover as many non-repeating scenarios as possible:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE38]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We tie all this together in the body of the `TestHeap` function, where we iterate
+    over all test cases. For each test case, we set up its preconditions, push all
+    flows on the heap, and update their count `timeSeen` number of times:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE39]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once we have updated all flows, we remove them off the heap, one by one, based
+    on the highest count, and check whether the resulting position and count match
+    what we had described in the test case. In case of a mismatch, we generate an
+    error message using the `*testing.T` type injected by the testing package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE40]'
+  prefs: []
+  type: TYPE_PRE
+- en: Thus far, we’ve only discussed data plane telemetry, which is crucial, but not
+    the only element of network monitoring. In the following section, we will explore
+    network control plane telemetry by building a complete end-to-end telemetry processing
+    pipeline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Measuring control plane performance
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Most network engineers are familiar with tools such as `ping`, `traceroute`,
+    and `iperf` to verify network data plane connectivity, reachability, and throughput.
+    At the same time, control plane performance often remains a black box, and we
+    can only assume how long it takes for our network to re-converge. In this section,
+    we aim to address this problem by building a control plane telemetry solution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Modern control plane protocols, such as BGP, distribute large volumes of information
+    from IP routes to MAC addresses and flow definitions. As the size of our networks
+    grows, so does the churn rate of the control plane state, with users, VMs, and
+    applications constantly moving between different locations and network segments.
+    Hence, it’s critical to have visibility of how well our control plane performs
+    to troubleshoot network issues and take any preemptive actions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next code example covers the telemetry processing pipeline we built to
+    monitor the control plane performance of the lab network. At the heart of it,
+    there is a special `bgp-ping` application that allows us to measure the round-trip
+    time of a BGP update. In this solution, we take advantage of the features of the
+    following Go packages and applications:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`jwhited/corebgp`: A pluggable implementation of a BGP finite state machine
+    that allows you to run arbitrary actions for different BGP states.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`osrg/gobgp`: One of the most popular BGP implementations in Go; we use it
+    to encode and decode BGP messages.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`cloudprober/cloudprober`: A flexible distributed probing and monitoring framework.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Prometheus` and `Grafana`: A popular monitoring and visualization software
+    stack.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '![Figure 10.5 – Telemetry pipeline architecture](img/B16971_10_05.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.5 – Telemetry pipeline architecture
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To bring up this entire setup, you can run `make bgp-ping-start` from the root
+    of this book’s GitHub repository (see *Further reading*):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE41]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The final line of the preceding output shows the URL that you can use to access
+    the deployed instance of Grafana, using `admin` as both `username` and `password`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.6 – BGP ping dashboard](img/B16971_10_06.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.6 – BGP ping dashboard
+  prefs: []
+  type: TYPE_NORMAL
+- en: This instance has a pre-created dashboard called `BGP-Ping` that plots the graph
+    of BGP round-trip times in milliseconds.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It’s important to note that there’s a lot more to routing protocol convergence
+    and performance than the update propagation time. Other important factors may
+    include update churn due to transient events or **Forwarding Information Base**
+    (**FIB)** programming time. We focus on a single-dimension metric in this example,
+    but in reality, you may want to consider other performance metrics as well.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Measuring BGP Update propagation time
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As the standard `ping`, the `bgp-ping` application works by sending and receiving
+    probe messages. A sender embeds a probe in a BGP Update message and sends it to
+    its BGP neighbor. We encode the probe as a custom BGP optional transitive attribute,
+    which allows it to propagate transparently throughout the network until it reaches
+    one of the `bgp-ping` responders.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A `bgp-ping` responder recognizes this custom transitive attribute and reflects
+    it back to the sender. This gives the sender a measure of BGP Update propagation
+    delay within the network, which is then reported to an external metric consumer
+    or printed on a screen.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Since the `bgp-ping` application needs to inter-operate with real BGP stacks,
+    at the very least it has to implement the initial exchange of `Open` messages
+    to negotiate the BGP session capabilities, followed by the periodic exchange of
+    `Keepalive` messages. We also need to do the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Send BGP Update messages triggered by different events.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Encode and decode custom BGP attributes.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Let’s see how we can implement these requirements using open source Go packages
+    and applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Event-driven BGP state machine
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: We use CoreBGP (`jwhited/corebgp`) to establish a BGP session with a peer and
+    keep it alive until it’s shut down. This gets us the `Open` and `Keepalive` messages
+    we just discussed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Inspired by the popular DNS server CoreDNS, CoreBGP is a minimalistic BGP server
+    that you can extend through event-driven plugins.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In practice, you extend the initial capabilities by building a custom implementation
+    of the `Plugin` interface. This interface defines different methods that can implement
+    user-defined behavior at certain points of the BGP **finite state** **machine**
+    (**FSM**):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE42]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For the `bpg-ping` application, we only need to send and receive BGP Update
+    messages, so we focus on implementing the following two methods:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`OnEstablished`: To send BGP Update messages.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`handleUpdate`: We use this to process received updates, identify ping requests,
+    and send a response message.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following diagram shows the main functional blocks of this application:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.7 – BGP Ping Design](img/B16971_10_07.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.7 – BGP Ping Design
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s start the code overview by examining the BGP Update handling logic (`handleUpdate`).
+    Since our goal is to parse and process BGP ping probes, we can make sure we discard
+    any other BGP updates early in the code. For every BGP Update message we receive,
+    we check whether any of the BGP attributes have the custom `bgpPingType` transitive
+    attribute we created to signal the probe or ping. We silently ignore BGP updates
+    that don’t have this attribute with a `continue` statement:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE43]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Once we have determined that it’s a BGP ping message, we deal with two possible
+    scenarios:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If it’s a `bgpPingType` path attribute.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'If it’s a `OnEstablished` function:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE44]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The event-driven logic to send BGP updates lives in the `OnEstablished()` method
+    that has a three-way select statement to listen for triggers over Go channels,
+    representing three different states of the `bgp-ping` application:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Responding to a received ping request, triggered by a request coming from the
+    `handleUpdate` function
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Firing a new ping request, triggered by an external signal
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Sending a scheduled withdraw message at the end of the probing cycle:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE45]'
+  prefs: []
+  type: TYPE_PRE
+- en: One caveat of CoreBGP is that it doesn’t include its own BGP message parser
+    or builder. It sends any raw bytes that may confuse or even crash a standard BGP
+    stack, so always use it with caution.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now, we need a way to parse and craft a BGP message, and here is where we can
+    use another Go library called `GoBGP`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Encoding and decoding BGP messages
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: GoBGP is a full-blown BGP stack and supports most of the BGP address families
+    and features. However, since we already use CoreBGP for BGP state management,
+    we limit the use of GoBGP to message encoding and decoding.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For example, whenever we need to build a BGP withdraw update message, we call
+    a helper function (`buildWithdraw`) that uses GoBGP to build the message. GoBGP
+    allows us to include only the relevant information, such as a list of **Network
+    Layer Reachability Information** (**NLRI**), while it takes care of populating
+    the rest of the fields, such as type, length, and building a syntactically correct
+    BGP message:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE46]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Here’s another example of how to use GoBGP to parse a message received by CoreBGP.
+    We take a slice of bytes and use the `ParseBGPBody` function to deserialize it
+    into GoBGP’s `BGPMessage` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE47]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can now further parse this BGP message to extract various path attributes
+    and NLRIs, as we’ve seen in the earlier overview of the `handleUpdate` function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Collecting and exposing metrics
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The `bgp-ping` application can run as a standalone process and print the results
+    on a screen. We also want to be able to integrate our application into more general-purpose
+    system monitoring solutions. To do that, it needs to expose its measurement results
+    in a standard format that an external monitoring system can understand.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can implement this capability natively by adding a web server and publishing
+    your metrics for external consumers, or you can use an existing tool that collects
+    and exposes metrics on behalf of your application. One tool that does this is
+    Cloudprober, which enables automated and distributed probing and monitoring, and
+    offers native Go integration with several external probes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We integrate the `bgp-ping` application with the Cloudprober via its `serverutils`
+    package, which allows you to exchange probe requests and replies over the `bgp-ping`
+    with a `-c` flag, it expects all probe triggers to come from Cloudprober and sends
+    its results back in a `ProbeReply` message:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE48]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The Cloudprober application itself runs as a pre-compiled binary and requires
+    minimal configuration to tell it about the `bgp-ping` application and its runtime
+    options:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE49]'
+  prefs: []
+  type: TYPE_PRE
+- en: All measurement results are automatically published by Cloudprober in a format
+    that most popular cloud monitoring systems can understand.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Storing and visualizing metrics
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: The final stage in this control plane telemetry processing pipeline is metrics
+    storage and visualization. Go is a very popular choice for these systems, with
+    examples including Telegraf, InfluxDB, Prometheus, and Grafana.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The current telemetry processing example includes Prometheus and Grafana with
+    their respective configuration files and pre-built dashboards. The following configuration
+    snippet points Prometheus at the local Cloudprober instance and tells it to scrape
+    all available metrics every 10 seconds:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE50]'
+  prefs: []
+  type: TYPE_PRE
+- en: Although we discuss little of it here, building meaningful dashboards and alerts
+    is as important as doing the measurements. Distributed systems observability is
+    a big topic that is extensively covered in existing books and online resources.
+    For now, we will stop at the point where we see a visual representation of the
+    data in a Grafana dashboard but don’t want to imply that a continuous linear graph
+    of absolute values is enough. Most likely, to make any reasonable assumptions,
+    you’d want to present your data as an aggregated distribution and monitor its
+    outlying values over time, as this would give a better sign of increasing system
+    stress and may serve as a trigger for any further actions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Developing distributed applications
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Building a distributed application, such as `bgp-ping`, can be a major undertaking.
+    Unit testing and debugging can help spot and fix a lot of bugs, but these processes
+    can be time-consuming. In certain cases, when an application has different components,
+    developing your code iteratively may require some manual orchestration. Steps
+    such as building binary files and container images, starting the software process,
+    enabling logging, and triggering events are now something you need to synchronize
+    and repeat for all the components that include your application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The final developer experience tool that we will cover in this chapter was specifically
+    designed to address the preceding issues. Tilt helps developers automate manual
+    steps, and it has native integration with container and orchestration platforms,
+    such as Kubernetes or Docker Compose. You let it know which files to monitor,
+    and it will automatically rebuild your binaries, swap out container images, and
+    restart existing processes, all while showing you the output logs of all applications
+    on a single screen.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'It works by reading a special `Tiltfile` containing a set of instructions on
+    what to build and how to do it. Here’s a snippet from a Tiltfile that automatically
+    launches a `bgp-ping` process inside one of the host containers and restarts it
+    every time it detects a change to `main.go`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE51]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The full `Tiltfile` has two more resources for the other two hosts in our lab
+    network. You can bring up all three parts of the application with `sudo` `tilt
+    up`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE52]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Tilt has both a console (text) and a web UI that you can use to view the logs
+    of all resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.8 – Tilt](img/B16971_10_08.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 10.8 – Tilt
+  prefs: []
+  type: TYPE_NORMAL
+- en: Any change to the source code of the `bgp-ping` application would trigger a
+    restart of all affected resources. By automating a lot of manual steps and aggregating
+    the logs, this tool can simplify the development process of any distributed application.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: This concludes the chapter about network monitoring. We have only touched upon
+    a few selected subjects and admit that the topic of this chapter is too vast to
+    cover in this book. However, we hope we have provided enough resources, pointers,
+    and ideas for you to continue the exploration of network monitoring, as it’s one
+    of the most vibrant and actively growing areas of the network engineering discipline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Book’s GitHub repository: [https://github.com/PacktPublishing/Network-Automation-with-Go](https://github.com/PacktPublishing/Network-Automation-with-Go)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`google/gopacket` package: [https://github.com/google/gopacket](https://github.com/google/gopacket)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`gdb` documentation: [https://go.dev/doc/gdb](https://go.dev/doc/gdb)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`vscode-go`: [https://code.visualstudio.com/docs/languages/go](https://code.visualstudio.com/docs/languages/go)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`ch10/packet-capture/.vscode/launch.json`: [https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch10/packet-capture/.vscode/launch.json](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch10/packet-capture/.vscode/launch.json)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Open source components with ready-to-use examples: [https://github.com/netsampler/goflow2/tree/main/compose/kcg](https://github.com/netsampler/goflow2/tree/main/compose/kcg)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'CoreBGP documentation: [https://pkg.go.dev/github.com/jwhited/corebgp#section-readme](https://pkg.go.dev/github.com/jwhited/corebgp#section-readme)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

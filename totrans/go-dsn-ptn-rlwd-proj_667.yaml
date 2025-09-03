@@ -1,0 +1,324 @@
+- en: Abstracting the avatar URL process
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Since we have three different ways of obtaining the avatar URL in our application,
+    we have reached the point where it would be sensible to learn how to abstract
+    the functionality in order to cleanly implement the options. Abstraction refers
+    to a process in which we separate the idea of something from its specific implementation.
+    The `http.Handler` method is a great example of how a handler will be used along
+    with its ins and outs, without being specific about what action is taken by each
+    handler.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In Go, we start to describe our idea of getting an avatar URL by defining an
+    interface. Let''s create a new file called `avatar.go` and insert the following
+    code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Avatar` interface describes the `GetAvatarURL` method that a type must
+    satisfy in order to be able to get avatar URLs. We took the client as an argument
+    so that we know the user for which the URL to be returned. The method returns
+    two arguments: a string (which will be the URL if things go well) and an error
+    in case something goes wrong.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of the things that could go wrong is simply that one of the specific implementations
+    of `Avatar` is unable to get the URL. In that case, `GetAvatarURL` will return
+    the `ErrNoAvatarURL` error as the second argument. The `ErrNoAvatarURL` error
+    therefore becomes a part of the interface; it's one of the possible returns from
+    the method and something that users of our code should probably explicitly handle.
+    We mention this in the comments part of the code for the method, which is the
+    only way to communicate such design decisions in Go.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Because the error is initialized immediately using `errors.New` and stored in
+    the `ErrNoAvatarURL` variable, only one of these objects will ever be created;
+    passing the pointer of the error as a return is inexpensive. This is unlike Java's
+    checked exceptions which serve a similar purpose where expensive exception objects
+    are created and used as part of the control flow.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The auth service and the avatar's implementation
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The first implementation of `Avatar` we write will replace the existing functionality
+    where we had hardcoded the avatar URL obtained from the auth service. Let''s use
+    a **Test-driven Development** (**TDD**) approach so that we can be sure our code
+    works without having to manually test it. Let''s create a new file called `avatar_test.go`
+    in the `chat` folder:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: This file contains a test for our as-of-yet, nonexistent `AuthAvatar` type's
+    `GetAvatarURL` method. First, it uses a client with no user data and ensures that
+    the `ErrNoAvatarURL` error is returned. After setting a suitable URL, our test
+    calls the method again this time to assert that it returns the correct value.
+    However, building this code fails because the `AuthAvatar` type doesn't exist,
+    so we'll declare `authAvatar` next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before we write our implementation, it's worth noticing that we only declare
+    the `authAvatar` variable as the `AuthAvatar` type but never actually assign anything
+    to it so its value remains `nil`. This is not a mistake; we are actually making
+    use of Go's zero-initialization (or default initialization) capabilities. Since
+    there is no state needed for our object (we will pass `client` in as an argument),
+    there is no need to waste time and memory on initializing an instance of it. In
+    Go, it is acceptable to call a method on a `nil` object, provided that the method
+    doesn't try to access a field. When we actually come to writing our implementation,
+    we will look at a way in which we can ensure this is the case.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s head back over to `avatar.go` and make our test pass. Add the following
+    code at the bottom of the file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we define our `AuthAvatar` type as an empty struct and define the implementation
+    of the `GetAvatarURL` method. We also create a handy variable called `UseAuthAvatar`
+    that has the `AuthAvatar` type but which remains of `nil` value. We can later
+    assign the `UseAuthAvatar` variable to any field looking for an `Avatar` interface
+    type.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The `GetAvatarURL` method we wrote earlier doesn't have a very nice **line of
+    sight**; the happy return is buried within two `if` blocks. See if you can refactor
+    it so that the last line is `return urlStr, nil` and the method exits early if
+    the `avatar_url` field is missing. You can refactor with confidence, since this
+    code is covered by a unit test.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For a little more on the rationale behind this kind of refactor, refer to the
+    article at [http://bit.ly/lineofsightgolang](http://bit.ly/lineofsightgolang).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Normally, the receiver of a method (the type defined in parentheses before the
+    name) will be assigned to a variable so that it can be accessed in the body of
+    the method. Since, in our case, we assume the object can have `nil` value, we
+    can omit a variable name to tell Go to throw away the reference. This serves as
+    an added reminder to ourselves that we should avoid using it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The body of our implementation is relatively simple otherwise: we are safely
+    looking for the value of `avatar_url` and ensuring that it is a string before
+    returning it. If anything fails, we return the `ErrNoAvatarURL` error, as defined
+    in the interface.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s run the tests by opening a terminal and then navigating to the `chat`
+    folder and typing the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: If all is well, our tests will pass and we will have successfully created our
+    first `Avatar` implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using an implementation
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: When we use an implementation, we could refer to either the helper variables
+    directly or create our own instance of the interface whenever we need the functionality.
+    However, this would defeat the object of the abstraction. Instead, we use the
+    `Avatar` interface type to indicate where we need the capability.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For our chat application, we will have a single way to obtain an avatar URL
+    per chat room. So, let''s update the `room` type so it can hold an `Avatar` object.
+    In `room.go`, add the following field definition to the `room struct` type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Update the `newRoom` function so that we can pass in an `Avatar` implementation
+    for use; we will just assign this implementation to the new field when we create
+    our `room` instance:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Building the project now will highlight the fact that the call to `newRoom`
+    in `main.go` is broken because we have not provided an `Avatar` argument; let''s
+    update it by passing in our handy `UseAuthAvatar` variable, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: We didn't have to create an instance of `AuthAvatar`, so no memory was allocated.
+    In our case, this doesn't result in great saving (since we only have one room
+    for our entire application), but imagine the size of the potential savings if
+    our application has thousands of rooms. The way we named the `UseAuthAvatar` variable
+    means that the preceding code is very easy to read and it also makes our intention
+    obvious.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Thinking about code readability is important when designing interfaces. Consider
+    a method that takes a Boolean input just passing in true or false hides the real
+    meaning if you don''t know the argument names. Consider defining a couple of helper
+    constants, as shown in the following short example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Think about which of the following calls to `move` are easier to understand:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'All that is left now is to change `client` to use our new `Avatar` interface.
+    In `client.go`, update the `read` method, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: Here, we are asking the `avatar` instance in `room` to get the avatar URL for
+    us instead of extracting it from `userData` ourselves.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When you build and run the application, you will notice that (although we have
+    refactored things a little) the behavior and user experience hasn't changed at
+    all. This is because we told our room to use the `AuthAvatar` implementation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now let's add another implementation to the room.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The Gravatar implementation
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The Gravatar implementation in `Avatar` will do the same job as the `AuthAvatar`
+    implementation, except that it will generate a URL for a profile picture hosted
+    on [https://en.gravatar.com/](https://en.gravatar.com/). Let''s start by adding
+    a test to our `avatar_test.go` file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Gravatar uses a hash of the e-mail address to generate a unique ID for each
+    profile picture, so we set up a client and ensure `userData` contains an e-mail
+    address. Next, we call the same `GetAvatarURL` method, but this time on an object
+    that has the `GravatarAvatar` type. We then assert that a correct URL was returned.
+    We already know this is the appropriate URL for the specified e-mail address because
+    it is listed as an example in the Gravatar documentation a great strategy to ensure
+    our code is doing what it should be doing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Remember that all the source code for this book is available for download from
+    the publishers and has also been published on GitHub. You can save time on building
+    the preceding core by copying and pasting bits and pieces from [https://github.com/matryer/goblueprints](https://github.com/matryer/goblueprints).
+    Hardcoding things such as the base URL is not usually a good idea; we have hardcoded
+    throughout the book to make the code snippets easier to read and more obvious,
+    but you are welcome to extract them as you go along if you like.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running these tests (with `go test`) obviously causes errors because we haven''t
+    defined our types yet. Let''s head back to `avatar.go` and add the following code
+    while being sure to import the `io` package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We used the same pattern as we did for `AuthAvatar`: we have an empty struct,
+    a helpful `UseGravatar` variable, and the `GetAvatarURL` method implementation
+    itself. In this method, we follow Gravatar''s guidelines to generate an MD5 hash
+    from the e-mail address (after we ensured it was lowercase) and append it to the
+    hardcoded base URL using `fmt.Sprintf`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: The preceding method also suffers from a bad line of sight in code. Can you
+    live with it, or would you want to improve the readability somehow?
+  prefs: []
+  type: TYPE_NORMAL
+- en: It is very easy to achieve hashing in Go thanks to the hard work put in by the
+    writers of the Go standard library. The `crypto` package has an impressive array
+    of cryptography and hashing capabilities all very easy to use. In our case, we
+    create a new `md5` hasher and because the hasher implements the `io.Writer` interface,
+    we can use `io.WriteString` to write a string of bytes to it. Calling `Sum` returns
+    the current hash for the bytes written.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: You might have noticed that we end up hashing the e-mail address every time
+    we need the avatar URL. This is pretty inefficient, especially at scale, but we
+    should prioritize getting stuff done over optimization. If we need to, we can
+    always come back later and change the way this works.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Running the tests now shows us that our code is working, but we haven''t yet
+    included an e-mail address in the `auth` cookie. We do this by locating the code
+    where we assign to the `authCookieValue` object in `auth.go` and updating it to
+    grab the `Email` value from Gomniauth:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The final thing we must do is tell our room to use the Gravatar implementation
+    instead of the `AuthAvatar` implementation. We do this by calling `newRoom` in
+    `main.go` and making the following change:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Build and run the chat program once again and head to the browser. Remember,
+    since we have changed the information stored in the cookie, we must sign out and
+    sign back in again in order to see our changes take effect.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Assuming you have a different image for your Gravatar account, you will notice
+    that the system is now pulling the image from Gravatar instead of the auth provider.
+    Using your browser''s inspector or debug tool will show you that the `src` attribute
+    of the `img` tag has indeed changed:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![The Gravatar implementation](img/00053.jpeg)'
+  prefs: []
+  type: TYPE_IMG
+- en: If you don't have a Gravatar account, you'll most likely see a default placeholder
+    image in place of your profile picture.
+  prefs: []
+  type: TYPE_NORMAL

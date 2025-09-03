@@ -1,0 +1,874 @@
+- en: Event-Driven Architecture
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In the last few chapters, we have looked at issues around stability and performance,
+    and some patterns you can employ in your code, which enable more stable systems.
+    In this chapter, we are going to take a more in-depth look at event-driven architecture.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As your system grows, these patterns become more important; they allow you to
+    loosely couple your microservices, and therefore you are not bound to the same
+    dependencies of intertwined objects common in monolithic applications. We are
+    going to learn that with the right amount of up-front design and effort that loosely
+    coupling your systems with events need not be a painful process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Before we begin, be sure to fetch the source code from [https://github.com/building-microservices-with-go/chapter9](https://github.com/building-microservices-with-go/chapter9)
+  prefs: []
+  type: TYPE_NORMAL
+- en: Differences between synchronous and asynchronous processing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If there is a choice between processing a message synchronously or asynchronously,
+    then I would always choose synchronous as it always makes the application simpler
+    with fewer components parts, the code is easier to understand, tests easier to
+    write, and the system easier to debug.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Asynchronous processing should be a design decision that is driven by need,
+    be that the requirement for decoupling, scale, batch processing, or time-based
+    processing. **Event-Driven Systems** give an ability to scale at much higher things
+    than monolithic systems and the reason for that is that because of the loose coupling
+    the code scales horizontally with both greater granularity and effectiveness.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Another problem with asynchronous processing is the additional burden it adds
+    to your operations. We need to create infrastructure for message queuing and message
+    delivery, this infrastructure needs to be monitored and managed, even if you are
+    using your cloud provider's functionality such as SNS/SQS or PubSub.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There is even a question about whether you should be implementing microservices
+    or building a monolith, however, I think smaller chunks of code are invariably
+    easier to deploy and test at the cost of increased duplication for setup of continuous
+    integration and provisioning of hardware is a one-time hurdle and something that
+    is worth learning. We will look at that in the next chapter when we examine continuous
+    deployment and immutable infrastructure, but for now, let's stick with events.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Having got the warning out of the way, let's retake a look at the difference
+    between the two styles of message processing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Synchronous processing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'With synchronous processing, all the communication to a downstream application
+    happens in the process. A request is sent, and you wait for a reply using the
+    same network connection and not using any callbacks. Synchronous processing is
+    the simplest method of communication; while you are waiting for an answer the
+    downstream service is processing the request. You have to manage the retry logic
+    yourself, and it is typically best used only when you need an immediate reply.
+    Let''s take a look at the following diagram that depicts synchronous processing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/8d3ee88c-2980-4100-bc78-12202c4d5537.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Asynchronous processing
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'With asynchronous processing, all the communication to the downstream application
+    happens out of process leveraging a queue or a message broker as an intermediary.
+    Rather than communicating directly with the downstream service, messages dispatch
+    to a queue such as **AWS SQS/SNS**, **Google Cloud Pub/Sub**, or **NATS.io**.
+    Because there is no processing performed at this layer the only delay is the time
+    it takes to deliver the message, which is very fast, also due to the design of
+    these systems, acceptance, or not of a message is the only situation you must
+    implement. Retry and connection handling logic is delegated to either the message
+    broker or the downstream system as it is the storage of messages for archive or
+    replay:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/6147298f-87a1-4851-a930-06cf7ce3ac53.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Types of asynchronous messages
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Asynchronous processing often comes in two different forms, such as push and
+    pull. The strategy that you implement is dependent upon your requirements, and
+    often a single system implements both patterns. Let's take a look at the two different
+    approaches.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pull/queue messaging
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'The pull pattern is an excellent design where you may have a worker process
+    running, which for example is resizing images. The API would receive the request
+    and then add this to a queue for background processing. The worker process or
+    processes read from the queue retrieving the messages one by one, perform the
+    required work, and then delete the message from the queue. Often there is also
+    a queue commonly called a "dead letter queue" should the worker process fail for
+    any reason then the message would be added to the dead letter queue. The dead
+    letter queue allows the messages to be re-processed in the case of an incremental
+    failure or for debugging purposes. Let''s take a look the following diagram, which
+    summarizes the whole process:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/70b64a3a-ef18-4935-9a7f-912685e2a231.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Implementing a queue-based service in Go is a relatively straightforward task,
+    let''s walk through the example in the source code that accompanies this book.
+    This example uses Redis for storing the messages. Redis is an incredibly fast
+    data store, and, while it is nice to be able to leverage a cloud providers queue
+    rather than managing our infrastructure, this is not always possible. However,
+    even if we are using cloud providers queue the pattern we are about to look at
+    is easily replaceable with a different data store client. If we consider the following
+    listing from the example code in `queue/queue.go`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The first thing we are doing is defining a `Message` object that is used by
+    the system and defines three simple parameters that are serializable to JSON.
+    ID is never populated by the publisher directly instead this is a calculated ID
+    that is unique for every message. Should the consumer need a simple mechanism
+    to determine if a message has already been received and processed, then the ID
+    can be used. The interface for `Queue` defines three simple methods as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`Add(messageName string, payload []byte) error`: `Add` is a convenience method
+    to publish a new message, the sender only needs to provide the name of the message
+    and a slice of byte.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`AddMessage(message Message) error`: `AddMessage` performs the same function
+    as `Add` with the difference that the caller needs to construct a `Message` type
+    and pass this to the method. The implementation of `AddMessage` automatically
+    generates the `ID` field on `Message struct` and overwrites any initial `ID` value.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`StartConsuming(size int, pollInterval time.Duration, callback func(Message)
+    error)`: `StartConsuming` allows a subscriber to retrieve messages from the queue.
+    The first parameter size relates to the batch size, which is returned in any one
+    connection. The `pollInterval` parameter determines how often the client checks
+    for messages on the queue. The `callback` function is executed when messages return
+    from the queue. It has a return parameter of error which when not `nil` informs
+    the client that processing has failed and the message should not be removed from
+    the queue. One thing we need to note is that `StartConsuming` is not a blocking
+    method, after it has registered the callback to the queue it immediately returns.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The implementation at `queue/redis_queue.go` defines the `NewRedisQueue` function,
+    which is a convenience function to create our queue. We are using the `github.com/adjust/rmq`
+    library, which has an excellent implementation on top of Redis queues and in line
+    **27**, we are opening a connection to our Redis data store:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Then on line **29** we need to open a connection to the queue that we are going
+    to read and write from:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `Add` method, which is the implementation of our interface's `Add` method,
+    is merely a convenience method that creates a message from the given parameters
+    and then calls the `AddMessage` function. The `AddMessage` function first generates
+    an ID for the message, in this simple implementation we are just generating a
+    random number and appending it to the current time in nanoseconds, which should
+    give us enough uniqueness without requiring a check to the queue. We then need
+    to convert the message to its JSON representation as a slice of bytes before we
+    are finally publishing the message to the queue on line **54**.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The final part of our implementation is the method that consumes messages from
+    the queue:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `StartConsuming` method only has the responsibility for setting the callback
+    to the queue instance; we then call the methods `StartConsuming` and `AddConsumer`,
+    which are methods on the Redis package. On line **65**, we set the callback consumer
+    to that the queue uses to self rather than the callback passed into the method.
+    The delegate pattern assigned to an internal method allows us to abstract the
+    implementation of the underlying queue from the implementing codebase. When a
+    new message is detected on the queue, the `Consume` method is called passing an
+    instance of `rmq.Delivery`, which is an interface defined in the `rmq` package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The first thing we need to do is unmarshal the message that is passed as a
+    slice of byte into our `Message` structure. If this fails, then we call the `Reject`
+    method on the `Delivery` interface, which pushes the message back onto the queue.
+    Once we have the message in the format that our callback expects we can then execute
+    the `callback` function, which is passed to the `StartConsuming` method. The type
+    of callback is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: It is the responsibility of the code, which implementing this method, to return
+    an error should the processing of the message fail. Returning an error allows
+    our consuming code to call `delivery.Reject()`, which would leave the message
+    in the queue for later processing. When the message processes successfully, we
+    pass a `nil` error and the consumer calls `delivery.Ack()`, which acknowledges
+    that the message is successfully processed and removes it from the queue. These
+    operations are process safe; they should not be available to other consumers so
+    in the instance that we have many workers reading a queue, we can ensure that
+    they are all working from distinct lists.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at the implementation of a service that would write messages
+    to the queue, if we take a look at the example code file at `queue/writer/main.go`
+    we can see that there is a very simple implementation. This is a too simple application
+    for a production system and there is no message validation or security in the
+    handler. However, this example is pared down to the bare minimum to highlight
+    how messages are added to the queue:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: We create an instance of `RedisQueue` and pass it the location of our Redis
+    server and the name of the queue to which we would like to write messages. We
+    then have a very simple implementation of `http.Handler`; this function reads
+    the body of the request as a slice of bytes and calls the `Add` method with the
+    name of the message and the payload. We then check the outcome of this operation
+    before returning and closing the connection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The consumer implementation is even simpler as this code implements a simple
+    worker and does not implement any HTTP-based interface:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Like in the client, we create an instance of our queue and then we call the
+    `StartConsuming` method with our requested parameters and the `callback` function.
+    The `callback` method executes for every message retrieved from the queue, and
+    since we are returning batches of 10 potentially every 100 milliseconds this method
+    could be called in quick succession, and every execution runs in its own `goroutine`,
+    so when writing the implementation, we need to consider this detail. If for example,
+    we were processing the messages and then writing them to a database then the number
+    of connections to the database are not infinite. To determine an appropriate batch
+    size we need to conduct initial testing and follow this up with constant monitoring,
+    in order to tweak the application for optimum performance. These settings should
+    be implemented as parameters so that they are easily changed as the hardware scales.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Push messaging
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Rather than using a queue, sometimes you want a service to act immediately on
+    an event. Your service subscribes to receive messages from a broker such as NATS.io
+    or SNS. When the broker receives a message, dispatched from another service, then
+    the broker notifies all the registered services by making a call to the registered
+    endpoint sending it a copy of the message. The receiver will generally disconnect
+    once the message has been received and assumes that the message processes correctly.
+    This pattern allows the message broker extreme throughput, in the case of NATS.io
+    a single server instance can deliver millions of messages per second. Should the
+    client be unable to process the message, then it must handle the logic to manage
+    this failure. This logic could be to dispatch a notification to the broker or
+    again the message could be added to a dead letter queue for later replay.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/650704ea-e1b3-4c93-836b-cfd12dab6373.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'In this example, we are going to leverage the power of NATS.io to act as a
+    message broker for our system, NATS is an incredibly lightweight application that
+    is written in Go and provides such astounding performance and stability. Looking
+    at `push/writer/main.go`, we can see that there is not very much code we need
+    to write to implement NATS.io:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The first thing we need to do when starting our application is to connect to
+    the NATS server by calling the `Connect` function on the `nats` package:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `url` parameter, which is defined as a string, requires a little clarification.
+    While you can pass a single URL such as `nats://server:port` you can also pass
+    a comma separated list of servers. The reason for this is because of fault tolerance,
+    NATS implements clustering, in our simple example we only have a single instance,
+    however, when running in production you will have multiple instances for redundancy.
+    We then define our `http.Handler` function and expose the `/product` endpoint:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: The implementation of the handler is straightforward and we delegate the work
+    to the `insertProduct` function. Again, in terms of implementation this is brief
+    to highlight the use of publishing a message; in production there would be a higher
+    level of implementation to manage security and validation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'On line **53**, we call the `Publish` method on our client; the method has
+    an incredibly simple signature with the subject and the payload:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: Concerning the subject, we need to consider that this is the same name that
+    the subscriber is going to use and that it must be unique otherwise it is possible
+    that unintended recipients receive the messages and this is an incredibly difficult
+    error to track down. The fully configurable options for NATS are in the GoDoc
+    [https://godoc.org/github.com/nats-io/go-nats](https://godoc.org/github.com/nats-io/go-nats),
+    which is rather comprehensive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now we have seen how easy it is to publish messages to NATS, let''s see how
+    easy it is to consume them. If we take a look at the example code at `push/reader/main.go`,
+    we can see that subscribing to messages is incredibly simple:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Again, we make our connection to the NATS server, but to start receiving events
+    we call the `Subscribe` method on the client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The `Subscribe` method will express interest in the given subject. The subject
+    can have wildcards (partial: `*`, full: `>`). Messages will be delivered to the
+    associated `MsgHandler`.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If no `MsgHandler` is given, the subscription is a synchronous subscription,
+    and it can be polled via `Subscription.NextMsg()`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Unlike in our queue example, we are not polling the NATS server we are exposing
+    an endpoint and registering that with NATS. When the NATS server receives a message,
+    it attempts to forward that to all the registered endpoints. Using the implementation
+    in the previous code sample, we obtain a copy of the message for every worker
+    we have running on the system, which is not ideal. Rather than managing this ourselves,
+    we can use a different method on the API, `QueueSubscribe`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `QueueSubscribe` function creates an asynchronous queue subscriber on the
+    given subject. All subscribers with the same queue name form the queue group and
+    only one member of the group is selected to receive any given message asynchronously.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The signature is like the `Subscribe` method with the exception that we pass
+    an additional parameter, which is the name of the queue or the unique cluster
+    of subscribers who would like to register interest in the given subject.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now we have defined the two main types of asynchronous messaging and looked
+    at the simple implementation of each. Let's take a look at two common patterns
+    that leverage this technique.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Command Query Responsibility Segregation (CQRS)
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: CQRS is an abbreviation for Command Query Responsibility Segregation, a term
+    attributed to Greg Young. The concept is that you use a different model to update
+    information than the model used for reading information. The two main reasons
+    for implementing CQRS are when the storage of a model differs dramatically from
+    the presentation of the model, and when the concepts behind this approach are
+    that attempting to create a model which is optimized for storage and a model which
+    optimized for display might solve neither problem. For this reason, CQRS splits
+    these models into a **Query** model used by the presentation logic and a **Command**
+    model that is used for storage and validation. The other benefit is when we would
+    like to separate load between reads and writes in high-performance applications.
+    The CQRS pattern is not something that is hugely common and certainly should not
+    be used everywhere as it does increase complexity; however, it is a very useful
+    pattern to have in your arsenal.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at the following diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/08eac447-b4d9-4d1f-a639-dbed2064a47f.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: In our example code, we again were leveraging NATS.io to broker the messages.
+    However, this need not be the case. It is a legitimate setup to have a single
+    service that has two separate models for reading and writing. Instead of the complexity
+    of a message broker in process communication could be used just as effectively.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Take a look at the example code at `cCQRS/product_writer/main.go`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'For simplicity, this example uses an in-memory database, `https://github.com/hashicorp/go-memdb`,
+    written by HashiCorp and the bulk of the setup is configuring this data store.
+    We will be separating our data stores for read and write and the reader service
+    does not implement any methods to return the products to the caller. Instead,
+    this responsibility is delegated to a second service that is running a separate
+    database and even a different data model:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Our handler first writes the model to the database and then like our push example
+    we are publishing a message to NATS containing the payload of the message.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Looking at the reader server at `CQRS/product-read/main.go` again we are setting
+    up our data store, however, the model is different from the read model:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Write model**:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: '**Read model**:'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We are also defining an event structure that contains the details for our event
+    received from NATS. In this instance, this structure mirrors the write model;
+    however, this does not always need to be the case:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Upon receipt of a message, we first decode the payload into the expected type
+    `productInsertedEvent` and then we convert this to our product model that is stored
+    in the database. Finally, we store the information in the database creating our
+    copy in a format that our consumers wish to receive:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: When a user calls the `/products` endpoint the data that they get back is that
+    of the locally cached copy, not the master that is stored in a separate service.
+    This process could cause issues with consistency as the two copies of data are
+    eventually consistent and when we implement the CQRS pattern we need to consider
+    this. If we were exposing the stock level, then it may not be desirable to have
+    eventual consistency, however, we can make a design decision that when this information
+    is required we sacrifice performance by making a synchronous call to the stock
+    endpoint.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Domain-Driven Design
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When implementing Event Driven Microservices, you need to have a good grasp
+    of the way your system operates and the way data, and interactions flow from one
+    service to the next. A useful technique for modeling any complex system is Domain-Driven
+    Design.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When it comes to Domain-Driven Design, then there is Vernon Vaughn, whose two
+    books, *Domain-Driven Design Distilled* and *Implementing Domain-Driven Design*,
+    expand upon the seminal and for some slightly difficult to read work by Eric Evans.
+    For newcomers to DDD, I recommend starting with DDD distilled and then moving
+    to read Implementing Domain Driven Design. Reading DDD distilled first gives you
+    a grounding of the terminology before you delve into what is a rather detailed
+    book. DDD is most certainly an advanced topic and not something that can be covered
+    comprehensively in one section of this book, nor do I profess to have the experience
+    to write anything more detailed as DDD is a pattern that is learned by practice.
+    DDD is also a tool for more complex large systems with many stakeholders and many
+    moving parts. Even if you are not working on such a system, the concepts of aggregation
+    and isolation are compelling and applicable to most systems. If nothing else,
+    keep reading to become more proficient at buzzword bingo in your next architecture
+    meeting.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What is DDD?
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'To quote the words of VaughnVernon himself:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '"DDD is a set of tools that assist you in designing and implementing software
+    that delivers high value, both strategically and tactically. Your organization
+    can''t be the best at everything, so it had better choose carefully at what it
+    must excel. The DDD strategic development tools help you and your team make the
+    competitively best software design choices and integration decisions for your
+    business."'
+  prefs: []
+  type: TYPE_NORMAL
+- en: -- Vaughn Vernon
+  prefs: []
+  type: TYPE_NORMAL
+- en: That is quite an introduction; however, I think it highlights the fact that
+    DDD is a tool for designing software and not a software framework. In the dark
+    days, a couple of decades ago software architects and project managers would make
+    the decisions for the design of a software system, often providing very detailed
+    plans that were executed by the development teams. In my experience this was rarely
+    an enjoyable way to work and neither did it produce good quality software and
+    deliver on-time. The agile revolution proposed a different way of working and
+    thankfully has improved the situation. We also now regard ourselves as software
+    engineers rather than developers, I do not believe that this shift is a fashion,
+    but it is driven by the change in the role that we have seen. Your role as someone
+    who creates software is now one of a designer, negotiator of features, architect,
+    mediator, and you are also required to have a full understanding of the materials
+    at your disposal including the reactions to stress and strain. You now mirror
+    the role of a traditional engineer rather than the assembly line worker role that
+    software developers performed in the past.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hopefully, that answers the question that may be in your head as to why you
+    need to learn about DDD in a book about Go. Well, this book was never written
+    to teach you the language, it was designed to show you how you can use it to build
+    successful microservices.
+  prefs: []
+  type: TYPE_NORMAL
+- en: I hear lots of noise surrounding DDD that it is a difficult technique and admittedly
+    when I first read DDD I felt the same way, all this stuff about aggregates, ubiquitous
+    language, domains, and subdomains. However, once I started to think about DDD
+    to engineer separation and thought about many of the problems I have faced in
+    the past with confused domain models then it slowly began to sink in.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical debt
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: If you have ever worked on a monolithic application, you are aware of the coupling
+    and dependency that occurs between objects, this is predominately in the data
+    layer, however, you also often find code that is not implementing correctly and
+    is tightly bound to another object. The problems come when you want to change
+    this system; a change in one area has an undesired impact in another and only
+    one if you are lucky. An enormous effort happens in refactoring the system before
+    changes are made. Often what happens is that the modification is shoehorned into
+    the existing codebase without refactoring and to be brutally honest it would be
+    kinder to the system to take it outside, around the back of the barn and unload
+    two shotgun shells in the back of its head.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Don't fool yourself that you will ever get the opportunity to do this; if you
+    have ever worked on a system of any real age, your job is like Lenin's embalmers.
+    You spend an enormous amount of effort to keep a dead body presentable when you
+    should just dig a hole in the ground and drop it in. DDD can help with understanding
+    the monolith and slowly decoupling it; it is also a tool to prevent the unruly
+    monolith from ever occurring. Let's take a quick look at the technical anatomy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Anatomy of DDD
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The primary part of the strategic design in DDD is to apply a concept called
+    **Bounded Contexts**. Bounded Contexts are a method of segregating your domain
+    into models. Using a technique called **Context Mapping** you can integrate multiple
+    Bounded Contexts by defining both the team and technical relationships that exist
+    between them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The tactical design is where you refine the details of your domain model. In
+    this phase, we learn how to aggregate entities and value objects together.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Strategic design
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: One of the phrases you will hear a lot when dealing with DDD is the term Bounded
+    Contexts. A Bounded Contexts concept is a semantic contextual boundary that is
+    the components inside each boundary has a specific meaning and does specific things.
+    One of the most important of these Bounded Contexts is the **Core Domain**; this
+    is the domain that distinguishes your organization competitively from all the
+    others. We have already mentioned that you cannot do everything and by concentrating
+    on your core domain this should be where you spend most of your time.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Tactical design
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'From the base of strategic design is the tactical design, to quote Vaughn Vernon
+    again:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '"Tactical design is like using a thin brush to paint the finer details of your
+    domain model."'
+  prefs: []
+  type: TYPE_NORMAL
+- en: --Vaughn Vernon
+  prefs: []
+  type: TYPE_NORMAL
+- en: At this stage in the design, we need to start thinking about **Aggregates**
+    and **Domain Events**. An aggregate is composed of entities and value objects.
+    A value object models an immutable whole, it does not have a unique identity and
+    equivalence is determined by comparing the attributes encapsulated by the value
+    types. Domain events are published by an aggregate and subscribed to by interested
+    parties. This subscription could be from the same Bounded Contexts, or it may
+    come from a different source.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ubiquitous language
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The term ubiquitous language in DDD refers to a core language that everyone
+    on the team understands about the software under development. It is entirely possible
+    that a component in a different context and developed by a different team has
+    a different meaning for the same terminology. In fact, they are probably talking
+    about different components from your model.
+  prefs: []
+  type: TYPE_NORMAL
+- en: How you develop your ubiquitous language is an activity that the team will form.
+    You should not put too much emphasis onto using only nouns to describe your model,
+    you should start to build up simple scenarios. Consider our example from the chapter
+    on testing where we used BDD for our functional and integration testing. These
+    are your scenarios; the language of which you write them is your team's ubiquitous
+    language. You should write these scenarios so that they are meaningful to your
+    team and not attempt to write something that is meaningful for the entire department.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Bounded Contexts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: One of the main reasons for using a Bounded Context is that teams often do not
+    know when to stop piling things into their software models. As the team adds more
+    features, the model soon becomes difficult to manage and understand. Not only
+    this, the language of the model starts to become blurred. When software becomes
+    vast and convoluted with many unrelated interconnections, it starts to become
+    what is known as a *Big Ball of Mud*. The big ball of mud is probably far worse
+    than your traditional monolith. Monoliths are not inherently evil just because
+    they are monolithic; monoliths are bad as within them exists a place where good
+    coding standards are long forgotten. The other problem with a Bounded Context
+    that is too large and owned by too many people is that it starts to be difficult
+    to describe it using a ubiquitous language.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Context Mapping
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When two Bounded Contexts in DDD need to integrate the integration is known
+    as Context Mapping. The importance of defining this Context Mapping is that a
+    well-defined contract supports controlled changes over time. In the book *Domain-Driven
+    Design Distilled*, Vaughn Vernon describes the following different kinds of mappings:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Partnership:** The partnership mapping exists when two teams are each responsible
+    for a Bounded Context and have a dependent set of goals.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Shared kernel:** A shared kernel is defined by an intersection of two separate
+    Bounded Contexts and exists when two teams share a small but common model.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Customer-supplier:** A customer-supplier describes a relationship between
+    two Bounded Contexts and their respective teams. The supplier is the upstream
+    context, and the downstream is the customer. The supplier must provide what the
+    customer needs, and the two teams must plan together to meet their expectations.
+    This is a very typical and practical relationship between the teams as long as
+    the supplier still considers the customers need.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Conformist:** A conformist relationship exists when there are upstream, and
+    downstream teams and the upstream team has no motivation to support the specific
+    needs of the downstream team. Rather than translate the upstream ubiquitous language
+    to fit its own needs the downstream team adopts the language of the upstream.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Anti-corruption layer:** This is a standard and recommended model when you
+    are connecting two systems together, the downstream team builds a translation
+    layer between its ubiquitous language and that of the upstream thus isolating
+    it from the upstream.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Open Host Service:** An Open Host Service defines a protocol or interface
+    that gives access to your Bounded Contexts as a set of services. The services
+    are offered via a well-documented API and are simple to consume.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Published language:** A published language is a well-documented information
+    exchange language enabling easy consumption and translation. **XML Schema**, **JSON
+    Schema**, and **RPC** based frameworks such as **Protobufs** are often used.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Separate ways:** In this situation, there is no significant payoff through
+    the consumption of various ubiquitous languages and the team decides to produce
+    their solution inside their Bounded Contexts.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Big ball of mud:** This should be pretty self-explanatory by now and not
+    something a team should aim for; in fact, this is the very thing that DDD attempts
+    to avoid.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Software
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: When we start working with DDD and event-oriented architectures in anger, we
+    soon find that we need some help brokering our messages to ensure the at-least-once
+    and at-most-once delivery that is required by the application. We could, of course,
+    implement our strategy for this. However, there are many open source projects
+    on the internet that handle this capability for us, and soon we find ourselves
+    reaching out to leverage one of these.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Kafka
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Kafka is a distributed streaming platform that allows you to publish and subscribe
+    to streams of records. It lets your store streams of documents in a fault-tolerant
+    way and process streams of records as they occur. It has been designed to be a
+    fast and fault-tolerant system commonly running as a cluster of one or more servers
+    to enable redundancy.
+  prefs: []
+  type: TYPE_NORMAL
+- en: NATS.io
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'NATS.io is an open source messaging system written in Go, and it has the capability
+    to perform two roles such as the at-most-once and at-least-once delivery, lets
+    look at what this means:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**at-most-once delivery**: In the basic mode, NATS can act as a Pub/Sub router,
+    where listening clients can subscribe to message topics and have new messages
+    pushed to them. If a message has no subscriber, then it is sent to `/dev/null`
+    and is not stored internally in the system.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**at-least-once delivery**: When a higher level of service and more stringent
+    delivery guarantees are required NATS can operate in at-least-once delivery mode.
+    In this mode, NATS can no longer function as a standalone entity and needs to
+    be backed by a storage device, which at present support is for file and in-memory.
+    Now, there is no scaling and replication supported with NATS streaming, and this
+    is where Kafka shines. However, we are not all building systems as big as Netflix,
+    and the configuration and management of Kafka is a book in its own right, NATS
+    can be understood very quickly.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: AWS SNS/SQS
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Amazon's **Simple Queue Service** (**SQS**) is a queuing service that allows
+    a publisher to add messages to a queue, which can later be consumed by clients.
+    A message is read and then removed from the queue making it no longer available
+    for other readers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There are two different types of SQS, such as the standard mode, which allows
+    maximum throughput at the expense that a message may be delivered more than once
+    and SQS FIFO, which ensures that messages are only ever delivered once and in
+    the order by which they are received. However, FIFO queues are subject to vastly
+    reduced throughput, and therefore their use must be carefully considered.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Amazon''s **Simple Notification Service** (**SNS**) is a service for coordinating
+    and managing the delivery of queues of messages. SNS stands for Simple Notification
+    Service; you configure a topic that you can publish messages to and then subscribers
+    can register for notifications. SNS can deliver messages to the following different
+    protocols:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: HTTP(S)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Email
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Email-JSON
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: SMS
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: AWS Lambda
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: SQS
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: You may wonder why you would want to add a message to a queue when you can just
+    push a message to the recipient? One of the problems with SNS is that it can only
+    deliver over HTTP to services that are publicly accessible. If your internal workers
+    are not connected to the public internet and from reading [Chapter 8](d38f7017-1c2e-4a12-b1dc-5870121afd4e.xhtml),
+    *Security*, I hope that they are not. Therefore, a pull-based approach may be
+    your only option; reading from a queue is also potentially a better option for
+    managing large streams of messages. You do not need to worry about the availability
+    of SQS (most of the time), and you do not need to implement an HTTP interface
+    for a simple application worker that can poll a queue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Google Cloud Pub/Sub
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Google Cloud Pub/Sub is very like AWS SNS in that it is a messaging middleware,
+    allowing the creation of topics with publishers and subscribers. At the time of
+    writing, there is no formal product on Google Cloud such as SQS. However, it would
+    be trivial to implement something using one of the many data storage options you
+    have available.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we have looked at some of the main patterns for decoupling
+    microservices using events, we have also had an introduction to a modern design
+    methodology for building distributed systems, DDD. With the right tools and upfront
+    design building highly scalable and maintainable systems should not be too challenging
+    and you now have all the information you need to do this with Go. In the final
+    chapter, we are going to look at automated building and deployment of your code,
+    finalizing the information you need to be a successful microservices practitioner.
+  prefs: []
+  type: TYPE_NORMAL

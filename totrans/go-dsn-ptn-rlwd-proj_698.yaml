@@ -1,0 +1,182 @@
+- en: Reading from Twitter
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Now we are able to load the options and make authorized requests to the Twitter
+    API. We are ready to write the code that initiates the connection and continuously
+    reads from the stream until either we call our `closeConn` method or Twitter closes
+    the connection for one reason or another. The structure contained in the stream
+    is a complex one, containing all kinds of information about the tweet who made
+    it and when and even what links or mentions of users occur in the body (refer
+    to Twitter''s API documentation for more details). However, we are only interested
+    in the tweet text itself; so, don''t worry about all the other noise and add the
+    following structure to `twitter.go`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Tip
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'This may feel incomplete, but think about how clear it makes our intentions
+    to other programmers who might see our code: a tweet has some text, and that is
+    all we care about.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using this new structure, in `twitter.go`, add the following `readFromTwitter`
+    function that takes a send only channel called `votes`; this is how this function
+    will inform the rest of our program that it has noticed a vote on Twitter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: In the preceding code, after loading the options from all the polls data (by
+    calling the `loadOptions` function), we use `url.Parse` to create a `url.URL`
+    object that describes the appropriate endpoint on Twitter. We build a `url.Values`
+    object called `query` and set the options as a comma-separated list. As per the
+    API, we make a new `POST` request using the encoded `url.Values` object as the
+    body and pass it to `makeRequest` along with the query object itself. If all is
+    well, we make a new `json.Decoder` from the body of the request and keep reading
+    inside an infinite `for` loop by calling the `Decode` method. If there is an error
+    (probably due to the connection being closed), we simply break the loop and exit
+    the function. If there is a tweet to read, it will be decoded into the `t` variable,
+    which will give us access to the `Text` property (the 140 characters of the tweet
+    itself). We then iterate over all the possible options, and if the tweet has mentioned
+    it, we send it on the `votes` channel. This technique also allows a tweet to contain
+    many votes at the same time, something you may or may not decide to change based
+    on the rules of the election.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'The `votes` channel is send-only (which means we cannot receive on it), since
+    it is of the `chan<- string` type. Think of the little arrow that tells us which
+    way messages will flow: either into the channel (`chan<-`) or out of it (`<-chan`).
+    This is a great way to express intent to other programmers or our future selves-it''s
+    clear that we never intend to read votes using our `readFromTwitter` function;
+    rather, we will only send them on that channel.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Terminating the program whenever `Decode` returns an error doesn't provide a
+    very robust solution. This is because the Twitter API documentation states that
+    the connection will drop from time to time, and clients should consider this when
+    consuming the services. And remember, we are going to terminate the connection
+    periodically too, so we need to think about a way to reconnect once the connection
+    is dropped.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Signal channels
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: A great use of channels in Go is to signal events between code running in different
+    goroutines. We are going to see a real-world example of this when we write our
+    next function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The purpose of the function is to start a goroutine that continually calls
+    the `readFromTwitter` function (with the specified `votes` channel to receive
+    the votes on) until we signal that we want it to stop. And once it has stopped,
+    we want to be notified through another signal channel. The return of the function
+    will be a channel of `struct{}`: a signal channel.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Signal channels have some interesting properties that are worth taking a closer
+    look at. Firstly, the type sent down the channels is an empty `struct{}`, instances
+    of which actually take up zero bytes, since it has no fields. So, `struct{}{}`
+    is a great memory-efficient option for signaling events. Some people use `bool`
+    types, which are also fine, although `true` and `false` both take up a byte of
+    memory.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Head over to [http://play.golang.org](http://play.golang.org) and try this out
+    for yourself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The size of `bool` is one:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'On the other hand, the size of `struct{}{}` is zero:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The signal channels also have a buffer size of 1, which means that execution
+    will not get blocked until something reads the signal from the channel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We are going to employ two signal channels in our code: one that we pass into
+    our function that tells our goroutine that it should stop and another (provided
+    by the function) that signals once the stopping is complete.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In `twitter.go`, add the following function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'In the preceding code, the first argument, `stopchan`, is a channel of type
+    `<-chan struct{}`, a receive-only signal channel. It is this channel that, outside
+    the code, will signal on, which will tell our goroutine to stop. Remember that
+    it''s receive-only inside this function; the actual channel itself will be capable
+    of sending. The second argument is the `votes` channel on which votes will be
+    sent. The return type of our function is also a signal channel of type `<-chan
+    struct{}`: a receive-only channel that we will use to indicate that we have stopped.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: These channels are necessary because our function triggers its own goroutine
+    and immediately returns; so without this, calling code would have no idea whether
+    the spawned code was still running or not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first thing we do in the `startTwitterStream` function is make our `stoppedchan`
+    argument, and defer the sending of `struct{}{}` to indicate that we have finished
+    when our function exits. Note that `stoppedchan` is a normal channel, so even
+    though it is returned as receive-only, we will be able to send it from within
+    this function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We then start an infinite `for` loop in which we select from one of two channels.
+    The first is `stopchan` (the first argument), which would indicate that it was
+    time to stop and return (thus triggering the deferred signaling on `stoppedchan`).
+    If that hasn't happened, we will call `readFromTwitter` (passing in the `votes`
+    channel), which will go and load the options from the database and open the connection
+    to Twitter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When the Twitter connection dies, our code will return, where we sleep for 10
+    seconds using the `time.Sleep` function. This is to give the Twitter API rest
+    in case it closed the connection due to overuse. Once we've rested, we re-enter
+    the loop and check on `stopchan` again to see whether calling code wants us to
+    stop or not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To make this flow clear, we are logging out key statements that will not only
+    help us debug our code, but also let us peek into the inner workings of this somewhat
+    complicated mechanism.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Signal channels are a great solution for simple cases where all code lives inside
+    a single package. If you need to cross API boundaries, the context package is
+    the recommended way to deal with deadlines, cancelation and, stopping since it
+    was promoted to the standard library in Go 1.7.
+  prefs: []
+  type: TYPE_NORMAL

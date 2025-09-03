@@ -1,0 +1,527 @@
+- en: '10'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Session Management
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In [*Chapter 9*](B18295_09.xhtml#_idTextAnchor184)*, Tailwind, Middleware, and
+    CORS*, we created a full-stack app with an independent frontend and backend talking
+    to each other via an API.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this chapter, we’ll bring all of our existing knowledge together, introduce
+    how to create and validate JSON Web Tokens (JWTs) for session management and middleware,
+    set up the basic tenets of using Vue Router with navigation guards, and learn
+    about errors and “catch-all” navigation guards.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We’ll cover the following topics in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Session management and JWTs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: (Re)introducing Vue Router
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Navigation guards
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Defaults and error pages
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: By the end of this chapter, we’ll have an understanding of how to complete and
+    secure a project ready for our waiting users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: All the source code explained in this chapter can be checked out at [https://github.com/PacktPublishing/Full-Stack-Web-Development-with-Go/tree/main/chapter10](https://github.com/PacktPublishing/Full-Stack-Web-Development-with-Go/tree/main/chapter10).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Session management and JWTs
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We looked at session management using cookies previously in [*Chapter 6*](B18295_06.xhtml#_idTextAnchor093),
+    Moving to API-First, using the Gorilla Mux middleware. In our app, we created
+    an in-memory cookie store via the functionality provided by Gorilla sessions:
+    [https://github.com/gorilla/sessions](https://github.com/gorilla/sessions).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We previously implemented our middleware to validate that our user was approved
+    by encoding two values – a user ID we looked up from the database and a `userAuthenticated`
+    Boolean value. This worked well for our use case, but our implementation meant
+    that every call to our API backend required a round trip to the database to check
+    that the user ID was still present, before letting the call continue.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.1: An illustration of login and save API workflows using a session
+    cookie](img/Figure_10.01_B18295.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 10.1: An illustration of login and save API workflows using a session
+    cookie'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This approach is fine and the Gorilla sessions library provides a number of
+    alternative backends to speed things up, such as using Redis and SQLite, but we’re
+    going to look at an alternative approach using JWTs.
+  prefs: []
+  type: TYPE_NORMAL
+- en: What’s a JWT?
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: JWT stands for JSON Web Token. A JWT is a standard for creating data with optional
+    signatures (public or public/private) and/or encryption, with a payload consisting
+    of JSON that asserts a number of what the JWT specification calls claims. You
+    can generate and examine JWTs on the web at `jwt.io`, and these are broken down
+    into three parts, consisting of the header, the payload (with the claims), and
+    the signature. These are then base64-encoded and concatenated together using a
+    . separator, which you can see here.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.2: Color-coded illustration showing the parts of a JWT](img/Figure_10.02_B18295.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 10.2: Color-coded illustration showing the parts of a JWT'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The part that is of interest to us is the payload and the claims. A number
+    of reserved claims exist that we should respect as part of the specification,
+    which are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**iss** (**issuer**): The issuer of the JWT.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**sub** (**subject**): The subject of the JWT (the user).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**aud** (**audience**): The recipient for which the JWT is intended.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**exp** (**expiration time**): The time after which the JWT expires.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**nbf** (**not before time**): The time before which the JWT must not be accepted
+    for processing.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**iat** (**issued at time**): The time at which the JWT was issued. This can
+    be used to determine the age of the JWT.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**jti** (**JWT ID**): A unique identifier. This can be used to prevent the
+    JWT from being replayed (allows a token to be used only once).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'In the library, we’re going to use `go-jwt`, available at [https://github.com/golang-jwt/jwt](https://github.com/golang-jwt/jwt).
+    These standard claims are provided via a Go struct, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We can add to these claims to provide our own additional claims, and in typical
+    Go style, we do so by embedding `StandardClaims` into our own struct, which I’ve
+    called `MyCustomClaims`, as shown here:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you execute this code, you will get the following output:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: When you run the sample code or write your own, it will look slightly different
+    because of the relative expiration in `StandardClaims`, and if you tried decoding
+    the preceding string, chances are that it will show as expired by quite a few
+    seconds!
+  prefs: []
+  type: TYPE_NORMAL
+- en: You may be asking why you should care about JWTs when you've already seen your
+    database-based middleware working. The reason is that we can save a round trip
+    to our database, saving us time and bandwidth.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Because JWTs are signed, we can confidently assume that the provided claims
+    can be asserted to be true so long as the JWT is decoded as we expect. With our
+    JWT-based model, we can instead encode the user details and permissions into the
+    claims on the JWT itself.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![Figure 10.3: An illustration of login and save API workflows using a JWT
+    secured session](img/Figure_10.03_B18295.jpg)'
+  prefs: []
+  type: TYPE_IMG
+- en: 'Figure 10.3: An illustration of login and save API workflows using a JWT secured
+    session'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This all seems great, but there are a number of “gotchas” when working with
+    JWTs, and it’s worth covering them before we start using them in every situation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The “none algorithm” gotcha
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: An unsecured JWT can be created where the “`alg`” header parameter value is
+    set to “`none`” with an empty string for its signature value.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Given that our JWTs are simply base64-encoded payloads, a malicious hacker could
+    decode our JWT, strip off the signature, change the alg parameter to “none” and
+    try to present it back to our API as a valid JWT.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: It’s important that the library you’re using verifies that you’re receiving
+    your JWTs back with the same alg you provided, and you should verify this yourself
+    before using it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The “logout” gotcha
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: When you click to log out of your web app, the common thing to do is to set
+    the cookie expiration to a date in the past, and then the browser will delete
+    the cookie. You should also remove any active session information from your database
+    and/or app. The issue is that with JWTs, it may not work how you expect it to.
+    Because a JWT is self-contained, it will continue to work and be considered valid
+    until it expires – the JWT expiration, not that of the cookie – so if someone
+    were to intercept your JWT, they could continue to access the platform until the
+    JWT expired.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The “banlist” or “stale data” gotcha
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Similar to the logout gotcha, because our JWTs are self-contained, the data
+    stored in them can be stale until refreshed. This can manifest as access rights/permissions
+    becoming out of sync or, worse still, someone being able to continue to log in
+    to your application after you’ve banned them. This is worse in scenarios where
+    you need to be able to block a user in real time – for example, in situations
+    of abuse or poor behavior. Instead, with the JWT model, the user will continue
+    to have access until the token expires.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using JWTs with cookies and our middleware
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: With all of our previous gotchas understood, we’re going to write some simple
+    middleware and cookie handling to build on our simple API service from [*Chapter
+    9*](B18295_09.xhtml#_idTextAnchor184), Tailwind, Middleware, and CORS, combining
+    it with our knowledge from [*Chapter 5*](B18295_05.xhtml#_idTextAnchor070)*, Securing
+    the Backend* *and Middleware*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This code is all provided on GitHub under `chapter10/simple-backend`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting cookies and validation middleware
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'In order to start using our new JWTs, we’re going to write some middleware
+    for the mux to consume that we will inject into all our protected routes. As before,
+    we’re using a signature that the default library uses, where we take in `http.Handler`
+    and return `handlerFunc`. When successful, we call `next.ServerHTTP(http.ResponseWriter,
+    *http.Request`) to continue and indicate the successful handling of a request:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: This code is checking for our cookie, named `jwt-token`, and decodes it with
+    our new `decodeJWTToUser`, checking the value for a valid entry. In our case,
+    we expect `userEmail`, and if it is not present, we simply return an invalid session
+    message. In this example, we then update the expiry time for the JWT and exit
+    the function after setting the latest cookie.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In practice, we would check more strictly to ensure that a small window is kept
+    for valid claims, and we’d then go back to the database to check whether the user
+    still had permission to access our platform.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The functionality we use for setup and manipulation of our cookies is very similar
+    to our previous work in [*Chapter 5*](B18295_05.xhtml#_idTextAnchor070)*, Securing
+    the Backend and Middleware* including with the domain, same-site mode, and, most
+    importantly, HttpOnly and Secure.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We use Secure as good practice to ensure that it’s only ever sent via secure
+    HTTPS (except on localhost for development) as, although we can be confident our
+    JWT is secure, it can still be decoded with tools such as jwt.io:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `HttpOnly` flag is used for us in our cookie package and hasn’t been mentioned
+    before – so, what is it?
+  prefs: []
+  type: TYPE_NORMAL
+- en: Well, by default, when we don’t use `HttpOnly`, our frontend Javascript can
+    read and inspect cookie values. This is useful for setting a temporary state via
+    the frontend and for storing a state that the frontend needs to manipulate. This
+    is fine for a number of scenarios, and your application may have a combination
+    of cookie-handling techniques.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When you use `HttpOnly`, the browser prevents access to the cookie, typically
+    returning an empty string as the result of any values read. This is useful for
+    preventing **Cross-Site Scripting** (**XSS**), where malicious sites try to access
+    your values, and prevents you from sending data to a third-party/attacker’s website.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This doesn’t prevent us from logging in (which wouldn’t be very helpful!). All
+    our API/backend requests can still be performed with all cookies, but we do need
+    to tell our frontend application to do so.
+  prefs: []
+  type: TYPE_NORMAL
+- en: After providing the ability to log in with these additions to our backend, we’re
+    now going to revisit routing so that we can move around within our app.
+  prefs: []
+  type: TYPE_NORMAL
+- en: (Re)introducing Vue Router
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before we dive in, we need to quickly refresh our understanding of how our frontend
+    and backend communicate and ensure that we know how things work.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You may recall from [*Chapter 9*](B18295_09.xhtml#_idTextAnchor184), *Tailwind,
+    Middleware, and CORS* that we set up our `axios` instance (under `src/lib/api.js`).
+    With a few defaults, this is where the `withCredentials` value comes into play:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: We want to ensure that all our hard work with the Secure and `HttpOnly` cookies
+    is preserved when the frontend and backend communicate, and `withCredentials`
+    ensures that all requests to the backend should be made, complete with cookies,
+    auth headers, and so on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’re going to be building on this `axios` instance as we introduce the concept
+    of navigation guards. What we’re going to do before we navigate around our application
+    is fetch/refresh our data from the backend before rendering. This gives us the
+    ability to check whether users should be looking at certain pages, whether they
+    need to be logged in, or whether they shouldn’t be snooping!
+  prefs: []
+  type: TYPE_NORMAL
+- en: With our app now passing our cookies into every request, we can now move into
+    utilizing permissions as we navigate our app using navigation guards.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Navigation guards
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Navigation guards in Vue are fundamental for logged-in users. As with any core
+    functionality of Vue, it’s worth diving into the amazing documentation provided
+    by the Vue team here: [https://router.vuejs.org/guide/advanced/navigation-guards.xhtml](https://router.vuejs.org/guide/advanced/navigation-guards.xhtml).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: A navigation guard is, as the name suggests, a way to cancel or reroute users
+    depending on the results of certain guard rails checks. They can be installed
+    globally – for example, everything is behind a login/paywall – or they can be
+    placed on individual routes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: They are called on a navigation request, in order, and before a component is
+    loaded. They can also be used to retrieve props to be provided to the next pages
+    components and use the syntax of `router.beforeEach` (**to, from**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Previous versions also provided a `next` parameter, but this has been deprecated
+    and shouldn’t be used in modern code.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The functionality of a navigation guard is as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`to`: Provides the target location, where the user is trying to navigate to'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`from`: The current location where the user is coming from'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The job of the guard handler is to assess whether to allow navigation or not.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The handler can do this by returning `false`, a new route location, which is
+    used to manipulate the browser history via a `router.push(``)` to allow additional
+    props, or simply `true` to indicate the navigation is allowed.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Using a simple example from the docs, we can install a global navigation guard
+    on our routes to check the value of the `isAuthenticated` variable before navigating:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: Putting the logic into each route can be a bit ugly. What we will do is expose
+    an endpoint in the backend that returns either a value or even just a 20x HTTP
+    successful response, check for this in our middleware, and if that works, we will
+    allow navigation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the following code, we’ve got an endpoint, `/profile`, exposed on our backend.
+    This can return data or, in this simple case, just a 200/OK response, and we can
+    check that with our `getCheckLogin(`) function.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Our `checkAuth(`) function now checks a meta value for an optional Boolean
+    value called `requiresAuth`. If there’s no authorization required, we navigate
+    successfully; otherwise, we try to access our endpoint. If there’s an error (non-successful)
+    request, we redirect to our login page; otherwise, we allow the navigation to
+    continue:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: These checks can be as complicated as we want in our navigation guards, but
+    remember that you’re calling these on every navigation. You might want to look
+    at state management if you find yourself doing this a lot, such as Pinia (Vue
+    3) or Vuex (if you’re using Vue 2).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To install these checks and values, we simply install the global handler, and
+    for protected routes, we provide the `meta` Boolean. This is shown in the following
+    code snippet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Meta fields are a useful feature. They allow us to attach arbitrary information
+    to our routes, in our situation we’re using the meta information as an indicator
+    to check the authorization. You can find out more about meta here: [https://v3.router.vuejs.org/guide/advanced/meta.xhtml](https://v3.router.vuejs.org/guide/advanced/meta.xhtml).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: With the ability to provide for logged-in and logged-out statuses, we now have
+    a functioning app. One final thing to really polish our app is to provide default
+    and error pages for our users if our app goes wrong or if they land on the wrong
+    page in it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Defaults and error pages
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: With our application now securely communicating to the backend and routing correctly
+    based on authorization, we are almost finished with our core functional requirements.
+  prefs: []
+  type: TYPE_NORMAL
+- en: There’s one final scenario that may arise for our users – the dreaded 404 –
+    the page not found error! Thankfully, Vue Router makes it easy to create a wildcarded
+    “catch-all” route that will be set to redirect users to a specific page if they
+    navigate to somewhere that doesn’t exist.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you know, in Vue, all routes are defined by creating rules on the specific
+    URL path. So, for example, creating a route for a path of `/user` would be caught
+    if the user entered packt.com/user, but it wouldn’t if the user entered `packt.com/my-user`
+    or any other word that is not precisely the one set in the path rule.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To define our catch-all rule in version 4 of the Vue `routervue`-router 4,
+    we will use the following route entry:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We will inject this as the final route in our `router.routes`. The wildcard
+    at the end of the path match means we can navigate to this page and catch the
+    expected route. Alternatively, if that’s too much magic, you can use `path: ‘/*’`
+    and don’t need to worry about catching the intended route.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The best practice for a 404 page not found error would be to provide hints of
+    what went wrong and give the user a way to get home or navigate to a similar page,
+    but that’s a choice you can make for your `NotFound` component.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Excitedly, we’ve now got enough knowledge to complete the development of our
+    full-stack app. In this chapter, we introduced JWT-based tokens, talked about
+    when and why to use them, and covered a few “gotchas.” We then revisited cookie
+    handling between our front and backend parts before, finally, moving on to Vue
+    Router.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Closing off the chapter with Vue Router, we looked at adding navigation guards,
+    looked at how we can use meta values to enhance our development experience and
+    mark pages for authorization, before finishing off by setting up our catch-all
+    error-handling route so that our users have a great experience.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the next chapters, we’ll look at getting our app into production and getting
+    ready for our first users.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Part 4:Release and Deployment
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The objective of this part of the book is to learn about the application release
+    process and cloud deployments as part of the development process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part includes the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 11*](B18295_11.xhtml#_idTextAnchor223), *Feature Flags*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 12*](B18295_12.xhtml#_idTextAnchor241), *Building Continuous Integration*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 13*](B18295_13.xhtml#_idTextAnchor261), *Dockerizing an Application*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 14*](B18295_14.xhtml#_idTextAnchor278), *Cloud Deployment*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

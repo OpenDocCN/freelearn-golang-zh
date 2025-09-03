@@ -1,0 +1,969 @@
+- en: '7'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Unix Sockets
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, you will learn about socket programming, but this time focusing
+    on UNIX sockets. The chapter provides an understanding of how UNIX sockets function,
+    their types, and their role in **inter-process communication** (**IPC**) on UNIX
+    and UNIX-like operating systems such as Linux. You will gain practical knowledge
+    through examples, particularly in creating a UNIX socket server and client using
+    the Go programming language.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This information is crucial for programmers who are interested in developing
+    advanced software systems, particularly those that require efficient IPC mechanisms.
+    Understanding UNIX sockets is essential for system and network programmers, as
+    it allows for the creation of more efficient and secure applications.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In this chapter, we’re going to cover the following main topics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unix sockets
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Building a chat server
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Serving HTTP under Unix sockets
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: By the end of the chapter, you should be able to create and manage UNIX sockets
+    and understand their efficiency, security, and how they are integrated into the
+    filesystem namespace.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introduction to Unix sockets
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: UNIX sockets, also known as UNIX domain sockets, provide a way for processes
+    to communicate with each other on the same machine quickly and efficiently, offering
+    a local alternative to TCP/IP sockets for IPC. This feature is unique to UNIX
+    and UNIX-like operating systems such as Linux.
+  prefs: []
+  type: TYPE_NORMAL
+- en: UNIX sockets can be either stream-oriented (such as TCP) or datagram-oriented
+    (such as UDP). They are represented as filesystem nodes, such as files and directories.
+    However, they are not regular files but special IPC mechanisms.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'There are three key features:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Efficiency**: Data is transferred directly between processes without the
+    need for network protocol overhead.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Filesystem namespace**: UNIX sockets are referenced by filesystem paths.
+    This makes them easy to locate and use but also means they persist in the filesystem
+    until explicitly removed.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Security**: Access to UNIX sockets can be controlled using filesystem permissions,
+    providing a level of security based on user and group IDs.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Moving forward, let’s see how we can actually create a UNIX socket.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating a Unix socket
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Let’s go through a step-by-step example in Go for creating a UNIX socket server
+    and client. After that, we’ll understand how to use `lsof` to inspect the socket:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For socket path and cleanup, perform the following:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '`socketPath := "/tmp/example.sock"` sets the location for the UNIX socket'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`os.Remove(socketPath)` attempts to delete any existing socket file at this
+    location to avoid conflicts when starting the server'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For creating and listening on the UNIX socket:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '`net.Listen("unix", socketPath)` creates the UNIX socket at the given path
+    and starts listening for incoming connections'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`defer listener.Close()` ensures that the socket is closed when the main function
+    exits, releasing system resources'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For graceful shutdown setup:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '`signals := make(chan os.Signal, 1)` sets up a channel to receive operating
+    system signals.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)` configures the program
+    to intercept `SIGINT` and `SIGTERM` signals for graceful shutdown.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`go func() { ... }()` goroutine waits for a signal. Upon receiving one, it
+    closes the listener and removes the socket file, then exits the program.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For connection acceptance loop:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '`for { ... }` loop continuously waits for and accepts new connections'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`listener.Accept()` encounters an error (such as during server shutdown), it
+    logs the error and continues to the next iteration, avoiding a crash'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'For connection management:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Utilizes `defer conn.Close()` to ensure the connection is closed after function
+    execution, releasing resources
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Allocates a byte buffer with `buffer := make([]byte, 1024)` for incoming data
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Reads incoming data using `n, err := conn.Read(buffer)`, handling errors and
+    exiting if any occur
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Displays the received message with `fmt.Println("Received:"`, `string(buffer[:n]))`,
+    showing only the read portion of the buffer
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Constructs a response with `response := []byte("Message received successfully\n")`
+    to acknowledge the received message
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Sends the response back to the client via `conn.Write(response)`, logging errors
+    if the write operation fails
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'We now can run this code by executing the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The output should be as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Going a little deeper into socket creation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'When we call `net.Listen` with a UNIX socket type and a file path, the Go runtime
+    performs two actions under the hood: the socket file descriptor is created in
+    the operating system and Go’s runtime binds the socket to the specified file path.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: From an operating system perspective
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: When I say, “A socket is created in the operating system,” I’m referring to
+    the creation of a socket as an internal resource within the operating system’s
+    kernel. This action is like the operating system setting up a communication endpoint.
+    The socket at this stage is an abstraction managed by the operating system, allowing
+    processes to send and receive data. Note that this socket is not yet associated
+    with a file in the filesystem. It’s an entity that exists in the system’s memory,
+    managed by the kernel’s networking or IPC subsystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: From a filesystem perspective
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: Binding in this context is associating the socket with a specific path in the
+    filesystem. This binding creates a socket file, a special type of file that serves
+    as an entry point or an endpoint for IPC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The “socket file” created in the filesystem is not a regular file that stores
+    data such as text or binary content. Instead, it’s a special type of file (often
+    appearing as a file in directory listings) that represents the socket and provides
+    a way for processes to reference and use it. It’s the point where the abstract
+    socket created by the operating system gets a named representation in the filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Creating the client
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Our client’s primary functions are to connect to a UNIX socket server, send
+    a message, and then close the connection.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To achieve this goal, let’s use the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let’s examine this client code in detail:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`net.Dial("unix", "/tmp/example.sock")` attempts to establish a connection
+    to a UNIX socket server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`"unix"` specifies the connection type, indicating a UNIX socket.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`"/tmp/example.sock"` is the path to the socket file where the server is expected
+    to be listening.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If there’s an error in connecting (such as if the server isn’t running or the
+    socket file doesn’t exist), the error is printed and the program exits.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`defer conn.Close()` ensures that the connection to the socket is closed when
+    the main function exits, irrespective of how it exists. It’s a deferred call,
+    which means it will execute at the end of the `main` function.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`conn.Write([]byte("Hello UNIX socket!\n"))` sends a message to the server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `"Hello UNIX socket!\n"` string is converted into a byte slice as the `Write`
+    method requires a byte slice as input.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The `_` character is used to ignore the first return value, which is the number
+    of bytes written.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If there’s an error in writing to the socket, the error is printed and the program
+    exits.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Buffer creation: `buffer := make([]byte, 1024)` initializes a byte slice with
+    a length of 1,024 bytes to store the response from the server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Read operation: `n, err := conn.Read(buffer)` reads the response from the server
+    into the buffer, where `n` is the number of bytes read and `err` captures any
+    error during the read operation.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: If there’s an error in reading from the socket, the error is printed and the
+    program exits.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`fmt.Println("Server response:", string(buffer[:n]))` prints the response received
+    from the server. `buffer[:n]` converts the read bytes back into a string for display.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Inspecting the socket with lsof
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: On Unix-like systems, the `lsof` to gather relevant information.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To use `lsof` to inspect the socket, we should start the server program so
+    that it creates and listens on the UNIX socket. In the terminal, you can run `lsof`
+    with the `-U` flag (which stands for UNIX sockets) and the `-a` flag to combine
+    the conditions. You can also specify the path to the socket file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: This command will show you details about the UNIX socket, including the `lsof`,
+    you’ll see entries for both the server and the client.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The full version of the client and server can be found in the `ch7/example1`
+    directory of our Git repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Building a chat server
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Before writing any code, we should state our goals for creating this chat system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The chat server is designed to listen on a UNIX socket at `/tmp/chat.sock`.
+    The code should handle creating and managing this socket, ensuring any existing
+    socket file is removed before starting, thereby avoiding conflicts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Upon launching, the server should maintain a continuous loop, perpetually waiting
+    for new client connections. Each successful connection is handled in a separate
+    goroutine, allowing the server to manage multiple clients concurrently.
+  prefs: []
+  type: TYPE_NORMAL
+- en: One of the key features of this server is its ability to manage multiple client
+    connections simultaneously. To achieve this, combining slices to store client
+    connections and a mutex for concurrent access control seems like a good idea,
+    ensuring thread-safe operations on shared data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Whenever a new client connects, the server should send them the entire history
+    of messages, providing a context-rich experience. This historical context is vital
+    in a chat application, allowing newly joined users to catch up on the conversation.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Does it seem like there are too many concerns to handle at once? Don’t worry!
+    We’ll expand the feature in baby steps until we get to the final version of our
+    server.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To help you understand the development of the chat server using UNIX sockets
+    in Go, it’s effective to decompose the final version into simpler, preliminary
+    stages. Each stage will introduce a key feature or concept, building toward the
+    final version. Here’s a step-by-step guide:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Basic UNIX** **socket server**:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Create a simple server that listens on a UNIX socket and can accept a connection:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '**Handling a** **single client**:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Extend the server to read a message from one client and print it to the console:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '**Handling** **multiple clients**:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Modify the server to handle multiple client connections concurrently:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '**Broadcasting messages to** **all clients**:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Implement a feature to broadcast received messages to all connected clients:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '**Adding** **message history**:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Store a history of messages and send it to new clients upon connection:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: Nice! We’ve completed the chat server with all the features. Now, it’s time
+    to create our client.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The client should establish a connection to a server listening on a specific
+    UNIX socket (`/tmp/chat.sock`). After establishing a connection, the client will
+    send a message to the server. Also, the client should handle the response from
+    the server, read it, and display it on the console. Throughout its operations
+    (connecting, sending, and receiving), the client should handle any potential errors,
+    printing them out if they occur. Lastly, the client must ensure that the socket
+    connection is properly closed before exiting, regardless of whether it exits normally
+    or due to an error.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, let’s break down the development of this client into simpler stages:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Establishing a connection to** **the server**:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Create a client that connects to a UNIX socket server:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '**Listening for messages from** **the server**:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Add functionality to listen and print messages from the server:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '**Sending messages to** **the server**:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'Enable the client to send messages to the server:'
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: '`sync.WaitGroup` to manage goroutine synchronization and prevent premature
+    program termination:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: The complete chat client
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Since we’re familiar with the details, let’s look at the complete client code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: Approaching the development as a step-by-step process is helpful in understanding
+    each component’s role in the final program as the complexity increases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now it’s your turn! Spin the server to a couple of clients and play with our
+    chat system.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The full version of the client and server can be found in the `ch7/chat` directory
+    of our GitHub repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Serving HTTP under UNIX domain sockets
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Exposing HTTP APIs under a Unix domain socket? Well, that’s one way to keep
+    things interesting in networking. Let’s explore the benefits of this unconventional
+    approach.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unix domain sockets are a secure choice for services that should remain confined
+    to a specific machine. They offer fine-grained access control through filesystem
+    permissions, making managing who can interact with your HTTP API easier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Why settle for regular old networking when you can have the luxury of lower
+    latency and fewer context switches? This can be especially useful in high-throughput
+    environments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By utilizing Unix domain sockets, you can avoid consuming TCP ports, which may
+    be a limited resource on some systems.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Unix domain sockets eliminate the need to manage IP addresses and port numbers,
+    simplifying setup and configuration, especially for local communication. Also,
+    they seamlessly integrate with the Unix/Linux ecosystem, making them a natural
+    choice for applications deeply embedded in this environment.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For legacy systems or applications with specific protocol requirements, Unix
+    domain sockets may be the best or only option for efficient communication.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To create an HTTP server listening on a Unix domain socket in Go, you can use
+    the `net` and `net/http` packages.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s take a step-by-step approach to explore the server:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'HTTP handler function:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: We start by defining an HTTP handler function using `http.HandleFunc`. This
+    function handles all incoming HTTP requests to the root path (`"/"`) and responds
+    with `"Hello, world!"` using the response writer.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Unix socket and listener setup:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: We specify the Unix socket path as `socketPath`, which is set to `"/tmp/go-server.sock"`.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`net.Listen("unix", socketPath)` sets up a Unix socket server to accept incoming
+    connections on the specified path.'
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We use the standard Go `log` package for basic logging. We log a message when
+    the server is listening on the specified socket path.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Graceful shutdown:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: We created a signal channel, `sigCh`, to capture `SIGINT` (*Ctrl* + *C*) and
+    `SIGTERM` (termination signal) signals for graceful server shutdown
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We use `signal.Notify` to notify the channel when these signals are received
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Goroutine for shutdown:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE22]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: We launch a goroutine to handle graceful shutdown. The goroutine waits for signals
+    on `sigCh`.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: When a signal is received, it logs a message, closes the Unix socket listener
+    using `listener.Close()`, removes the Unix socket file using `os.Remove(socketPath)`,
+    and exits the program with `os.Exit(0)`.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'HTTP server start:'
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: '[PRE23]'
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+- en: We start the HTTP server using `http.Serve(listener, nil)`. It listens for incoming
+    HTTP requests on the Unix socket listener we created earlier.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We handle any errors returned by `http.Serve` and log them if necessary. We
+    also check for the special case `http.ErrServerClosed` to determine whether the
+    server was gracefully shut down.
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Now, let’s tackle the client-side setup after covering the server intricacies.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Client
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: When creating a client for this situation, we can assume the HTTP response body
+    is text-based (plain text).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Note:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If you’re dealing with binary data, you must handle it differently.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s progressively create our client:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE24]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'The three main parts of the code are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`net.Dial` to connect to the Unix socket at `/tmp/go-server.sock`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`/`). The `Host: localhost` header is included to conform to HTTP/1.1 standards.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`bufio.Reader`. The status line and headers are parsed and printed out. The
+    body of the response is then printed out as well.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Now we should explore some of the choices and their details.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The request is intended to be sent over a network connection, such as a Unix
+    domain socket, to an HTTP server. Let’s break down this request into its individual
+    components.
+  prefs: []
+  type: TYPE_NORMAL
+- en: HTTP request line
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '`GET /` `HTTP/1.1\r\n`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`/`).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`/` – This is the path of the resource being requested. `/` signifies the root
+    path, which usually corresponds to the home page or main page of a website or
+    API.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`HTTP/1.1` – This specifies the version of the HTTP protocol being used. HTTP/1.1
+    is a common version that introduces several improvements over HTTP/1.0, such as
+    persistent connections.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`\r\n` – This is a carriage return (`\r`) followed by a line feed (`\n`), which
+    together signify the end of a line in the HTTP protocol. HTTP headers must end
+    with `\r\n`.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: HTTP request header
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '`Host: localhost\r\n`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`Host: localhost` – The host header specifies the server’s domain name (the
+    host) to which the request is being sent. This is mandatory in HTTP/1.1 and is
+    used to distinguish between different domains hosted on the same server (virtual
+    hosting). Here, `localhost` is used as the host.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`\r\n` – Again, the carriage return and line feed signify the end of the header
+    line.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Empty line signifying end of headers
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: '`\``r\n`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This empty line (just `\r\n`) indicates the end of the header section and the
+    beginning of the body section of the HTTP request. Since a GET request does not
+    typically include a body, this line signifies the end of the request.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The textproto package
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: In our program, the `textproto` package is utilized to read and parse the response
+    headers from the HTTP server, but why?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The first motivation is convenience: `textproto` simplifies the process of
+    reading and parsing text-based protocols. Without it, you’d have to manually parse
+    the response, which could be error-prone and inefficient.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Moreover, `textproto` ensures compliance with the text-based protocol’s specifications.
+    It correctly handles nuances such as line endings (`\r\n`) and the format of headers.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It integrates well with Go’s **buffered I/O** (**bufio**), making it efficient
+    for network communication where data may arrive in bursts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While designed with HTTP in mind, `textproto` is versatile enough to be used
+    with other text-based protocols, making it a useful tool in the Go standard library
+    for network programming in general.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we’ve explored our application using UNIX sockets over HTTP, let’s
+    take a look into some important performance considerations to optimize our socket-based
+    applications and the most common use cases.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The full version of the client and server communicating over HTTP can be found
+    in the `ch7/http2unix` directory of our Git repository.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Performance
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: Unix domain sockets don’t require the network stack’s overhead, as there’s no
+    need to route data through the network layers. This reduces the CPU cycles spent
+    on processing network protocols. Unix domain sockets often allow for more efficient
+    data transfer mechanisms within the kernel, such as sending a file, which can
+    reduce the amount of data copying between the kernel and user spaces. They communicate
+    within the same host, so the latency is typically lower than TCP sockets, which
+    may involve more complex routing even when communicating between processes on
+    the same machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'You might ask yourself: *Is it faster than calling the loopback* *interface
+    (localhost)?*'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*Yes!* The loopback interface still goes through the TCP/IP stack, even though
+    it doesn’t leave the machine. This involves more processing, such as packaging
+    data into TCP segments and IP packets.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: They can be more efficient regarding data copying between the kernel and user
+    spaces. Some Unix domain socket implementations allow for zero-copy operations,
+    where data is directly passed between the client and server without redundant
+    copying. This is not possible using TCP/IP since its communication typically involves
+    more data copying between the kernel and user spaces.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Other common use cases
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'Several systems rely on the benefits of Unix domain sockets, such as the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**System V IPC**: This is a category of mechanisms in Unix-like operating systems,
+    including UNIX domain sockets, message queues, semaphore sets, and shared memory.
+    UNIX domain sockets are often used for efficient and fast communication between
+    processes within the same system.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**X Window System (X11)**: X11, the graphical windowing system used in Unix-like
+    operating systems, can use UNIX domain sockets for communication between the X
+    server and client applications. This allows for display and input management.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**D-Bus**: D-Bus is a message bus system used for communication between applications.
+    It is widely used on Linux systems and relies heavily on UNIX domain sockets for
+    local communication between processes.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Systemd**: Systemd, the init system and service manager for Linux, uses UNIX
+    domain sockets for communication between its various components and services.
+    It is integral to the boot process and system management.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**MySQL and PostgreSQL**: These popular relational database management systems
+    can use UNIX domain sockets for local client-server communication. This provides
+    a fast and secure way for applications to connect to the database server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Redis**: Redis, an in-memory key-value store, can use UNIX domain sockets
+    for local client-server communication. This provides low-latency and high-throughput
+    data access.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Nginx and Apache**: These web servers can use UNIX domain sockets to communicate
+    with backend application servers or FastCGI processes. It’s a more efficient way
+    to proxy requests than TCP/IP sockets when both processes are on the same machine.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: With an understanding of UNIX socket use cases, let’s zoom out and summarize
+    what we’ve learned.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this chapter, we have explored the fundamental concepts and practical applications
+    of UNIX sockets. We learned about UNIX sockets and their role in IPC on UNIX and
+    UNIX-like systems. The chapter provided insights into how UNIX sockets differ
+    from TCP/IP sockets, emphasizing their use for local, efficient IPC.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Through examples, you gained hands-on experience in creating and managing a
+    UNIX socket server and client. Also, this chapter highlighted the efficiency of
+    UNIX sockets in data transfer without network protocol overhead and their security
+    aspects controlled by filesystem permissions.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This knowledge is vital for developing efficient and secure software systems,
+    enhancing the reader’s ability to design and implement robust networked applications
+    in IPC scenarios.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Looking ahead, the next chapter, [*Chapter 8*](B21662_08.xhtml#_idTextAnchor179),
+    *Memory Management*, shifts our focus from IPC to the internal workings of the
+    Go runtime and its garbage collector. We will explore how memory is allocated,
+    managed, and optimized.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Part 3: Performance'
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this part, we will take a tour on advanced topics that are crucial for developing
+    high-performance, efficient, and reliable Go applications. This section focuses
+    on memory management, performance analysis. By understanding these concepts, you’ll
+    be better equipped to optimize your Go applications and manage system resources
+    effectively.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This part has the following chapters:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[*Chapter 8*](B21662_08.xhtml#_idTextAnchor179), *Memory Management*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '[*Chapter 9*](B21662_09.xhtml#_idTextAnchor193), *Analysing Performance*'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

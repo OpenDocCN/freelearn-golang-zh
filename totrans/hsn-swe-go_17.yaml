@@ -1,0 +1,1210 @@
+- en: Metrics Collection and Visualization
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '"What''s measured improves."'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '- Peter Drucker'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the previous chapters, we converted our initial monolithic application into
+    a set of microservices that are now running distributed inside our Kubernetes
+    cluster. This paradigm shift introduced a new item to our list of project requirements:
+    as system operators, we must be able to monitor the health of each individual
+    service and be notified when problems arise.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will begin this chapter by comparing the strengths and weaknesses of popular
+    systems for capturing and aggregating metrics. Then we will focus our attention
+    on Prometheus, a popular metrics collection system written entirely in Go. We
+    will explore approaches for instrumenting our code to facilitate the efficient
+    collection and export of metrics. In the last part of this chapter, we will investigate
+    the use of Grafana for visualizing our metrics and the Alertmanager for handling,
+    grouping, deduplicating, and routing incoming alerts to a set of notification
+    system integrations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following topics will be covered in this chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Explaining the differences between essential SRE terms such as SLIs, SLOs, and
+    SLAs
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Comparison of push- and pull-based systems for metrics collection and an analysis
+    of the pros and cons of each approach
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Setting up Prometheus and learning how to instrument your Go applications for
+    collecting and exporting metrics
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Running Grafana as the visualization frontend for our metrics
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Using the Prometheus ecosystem tools to define and handle alerts
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Technical requirements
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The full code for the topics that will be discussed in this chapter has been
+    published in this book's GitHub repository under the `Chapter13` folder.
+  prefs: []
+  type: TYPE_NORMAL
+- en: You can access this book's GitHub repository, which contains all the code and
+    required resources for the chapters in this book, by pointing your web browser
+    to the following URL: [https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang](https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To get you up and running as quickly as possible, each example project includes
+    a Makefile that defines the following set of targets:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Makefile target** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `deps` | Install any required dependencies |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `test` | Run all tests and report coverage |'
+  prefs: []
+  type: TYPE_TB
+- en: '| `lint` | Check for lint errors |'
+  prefs: []
+  type: TYPE_TB
+- en: As with the other chapters in this book, you will need a fairly recent version
+    of Go, which you can download from [https://golang.org/dl](https://golang.org/dl)*.*
+  prefs: []
+  type: TYPE_NORMAL
+- en: To run some of the code in this chapter, you will need to have a working Docker ^([3]) installation
+    on your machine.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Monitoring from the perspective of a site reliability engineer
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: As we saw in [Chapter 1](5ef11f50-0620-4132-8bfe-c30d6c79f2f5.xhtml), *A Bird's-Eye
+    View of Software Engineering*, monitoring the state and performance of software
+    systems is one of the key responsibilities associated with the role of a **site
+    reliability engineer** (**SRE**). Before we delve deeper into the topic of monitoring
+    and alerting, we should probably take a few minutes and clarify some of the SRE-related
+    terms that we will be using in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Service-level indicators (SLIs)
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'An SLI is a type of metric that allows us to quantify the perceived quality
+    of a service from the perspective of the end user. Let''s take a look at some
+    common types of SLIs that can be applied to cloud-based services:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Availability** is defined as the ratio of two quantities: the time that the
+    service can be used by the end user/customer and the total time that the service
+    is deployed (including any downtime). For example, if we were operating a service
+    that was offline for maintenance for about *53* minutes over the course of the *last
+    year*, we could claim that the service had **99.99%** availability for the same
+    period.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Throughput** is defined as the number of requests that a service processes
+    in a given time period (for example, requests per second).'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Latency** is yet another interesting SLI and is defined as the time it takes
+    for the server to process an incoming request and return a response to the client.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Service-level objectives (SLOs)
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Back in [Chapter 5](6e4047ad-1fc1-4c3e-b90a-f27a62d06f17.xhtml), *The Links
+    'R' Us Project*, where the Links 'R' Us project was first introduced, we briefly
+    discussed the concept of SLOs and even provided some example SLOs for the system
+    we would be working on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: An SLO is defined as the range of values for an SLI that allows us to deliver
+    a particular level of service to an end user or customer.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Depending on the underlying SLI, SLOs can either be specified either as a lower
+    bound (SLI >= target), an upper bound (SLI <= target), or both (lower-bound <=
+    SLI >= upper bound).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'SLO definitions generally consist of three parts: a description of the thing
+    that we are measuring (the SLI), the expected service level expressed as a percentage,
+    and the period where the measurement takes place. Let''s take a quick look at
+    some SLO examples:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The system's uptime, when measured in a period of a single month, must be at
+    least 99%
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The response time for 95% of service requests to X, when measured in a period
+    of a year, must not exceed 100 ms
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The CPU utilization for the database, when measured in a period of a day, must
+    be in the range [40%, 70%]
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Service-level agreements (SLAs)
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: An SLA is an implicit or explicit contract between a service provider and one
+    or more service consumers. The SLA outlines a set of SLOs that have to be met
+    and the consequences for both meeting and failing to meet them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Note that, depending on the type of service being offered, the role of the consumer
+    can be fulfilled either by an external third party or an internal company stakeholder.
+    In the former case, an SLA would typically define a list of financial penalties
+    for failing to meet the agreed SLOs. In the latter case, SLA terms can be less
+    strict but must nevertheless be factored in when authoring SLAs for other downstream
+    services.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Having understood these SRE-related terms, let's move on to metrics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exploring options for collecting and aggregating metrics
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The sheer complexity and level of customization that is inherent in modern,
+    microservice-based systems has led to the development of specialized tooling to
+    facilitate the collection and aggregation of metrics.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this section, we will be briefly discussing a few popular pieces of software
+    for achieving this task.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Comparing push versus pull systems
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Monitoring and metrics aggregation systems can be classified into two broad
+    categories based on the entity that initiates the data collection:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: In a **push-based** system, the client (for example, the application or a data
+    collection service running on a node) is responsible for transmitting the metrics
+    data to the metrics aggregation system. Examples of such systems include StatsD ^([11]),
+    Graphite ^([5]), and InfluxDB ^([6]).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: In a **pull-based** system, metrics collection is the responsibility of the
+    metrics aggregation system. In an operation commonly referred to as *scraping*,
+    the metrics system initiates a connection to the metrics producers and retrieves
+    the set of available metrics. Examples of such systems include Nagios ^([7]) and
+    Prometheus ^([10]). We will be exploring Prometheus in more detail in the following
+    section.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'Push- and pull-based systems come with their own set of pros and cons. From
+    a software engineer''s perspective, push systems are oftentimes considered to
+    be easier to interface with. All of the aforementioned push system implementations
+    support a text-based protocol for submitting metrics. You can simply open a socket
+    (TCP or UDP) connection to the metrics collector and start submitting metric values.
+    As a matter of fact, if we were using either StatsD or Graphite and wanted to
+    increment a counter named `requests`, we could do so using nothing more than the
+    standard Unix command-line tools, like so:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: The lack of a proper flow control mechanism is one of the caveats associated
+    with push-based systems. If the rate of metrics production suddenly spikes beyond
+    the collector's ability to process, roll up, and/or index incoming metrics, it
+    is quite possible that the collector will eventually become unavailable or respond
+    to queries with severe lag.
+  prefs: []
+  type: TYPE_NORMAL
+- en: On the other hand, in a pull-based system, the ingestion rate for metrics is
+    under the control of the collector. Collectors can react to sudden spikes in metric
+    production rates by adjusting their scrape rates to compensate.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Pull-based systems are generally considered to be more scalable than their push-based
+    counterparts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For some anecdotal evidence on how a system such as Prometheus can be scaled
+    up to support scraping a large number of nodes, I would definitely recommend checking
+    out Mathew Campbell's fascinating talk on some of the strategies that are used
+    by DigitalOcean to collect metrics at scale ^([1]).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Of course, pull-based systems come with their own set of cons. To begin with,
+    in a pull-based system, the collector needs to be provided with a list of endpoints
+    to scrape! This implies either the need for an operator to manually configure
+    these endpoints or alludes to the availability of some kind of discovery mechanism
+    for automating this process.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Secondly, this model assumes that the collector can **always** establish a connection
+    to the various endpoints. However, this may not always be possible! Consider a
+    scenario where we want to scrape a service that has been deployed to a private
+    subnet. That particular subnet is pretty much locked down and does not allow ingress
+    traffic from the subnet that the collector is deployed to. In such a case, our
+    only option would be to use a push-based mechanism to get the metrics out (while
+    ingress traffic is blocked, egress traffic is typically allowed).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Capturing metrics using Prometheus
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Prometheus is a pull-based metrics collection system that was created at SoundCloud
+    and subsequently released as open source. The following illustration (extracted
+    from the official Prometheus documentation) describes the basic components that
+    comprise the Prometheus ecosystem:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/953555ee-d13c-451e-a8d9-1a0da0b63260.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 1: The Prometheus architecture
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s briefly describe the role of each component shown in the preceding diagram:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The **Prometheus server** is the core component of Prometheus. Its primary responsibility
+    is to periodically scrape the configured set of targets and persist any collected
+    metrics into a time-series database. As a secondary task, the server evaluates
+    an operator-defined list of alert rules and emits alert events each time any of
+    those rules are satisfied.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The **Alertmanager** component ingests any alerts emitted by the Prometheus
+    server and sends notifications through one or more communication channels (for
+    example, email, Slack, or a third-party pager service).
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The service discovery layer enables Prometheus to dynamically update the list
+    of endpoints to scrape by querying an external service (for example, Consul ^([2]))
+    or an API such as the one provided by a container orchestration layer such as
+    Kubernetes.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The **Pushgateway** component emulates a push-based system for collecting metrics
+    from sources that cannot be scraped. This includes both services that are not
+    directly reachable (for example, due to strict network policies) by Prometheus,
+    as well as short-lived batch jobs. These services can push their metrics stream
+    to a gateway, which acts as an intermediate buffer that Prometheus can then scrape
+    like any other endpoint.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Clients retrieve data from Prometheus by submitting queries written in a bespoke
+    query language referred to as **PromQL**. An example of such a client is **Grafana** ^([4]),
+    an open source solution for querying and visualizing metrics.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: We will explore these components in more detail in the following sections.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Supported metric types
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'When it comes to a sophisticated metrics collection system such as Prometheus,
+    you would normally expect support for a wide array of metric types. Unless you
+    have prior experience using Prometheus, you will probably be surprised to find
+    out that it only supports four types of metrics. In practice, however, when these
+    metric types are combined with the expressiveness of the PromQL language, these
+    are all we need to model any type of SLI we can think of! Here is the list of
+    metrics supported by Prometheus:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Counters**: A counter is a cumulative metric whose value *increases monotonically* over
+    time. Counters can be used to track the number of requests to a service, the number
+    of downloads for an application, and so on.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Gauges**: A gauge tracks a single value that can go up or down. A common
+    use case for gauges is to record usage (for example, CPU, memory, and load) stats
+    about a server node and metrics such as the total number of users currently connected
+    to a particular service.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Histograms**: A histogram samples observations and assigns them to a preconfigured
+    number of buckets. At the same time, it keeps track of the total number of items
+    across all buckets, thus making it possible to calculate quantiles and/or aggregations
+    for the histogram contents. Histograms can be used to answer queries such as,
+    "what is the response time for serving 90% of requests in the last hour?"'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Summaries**: Summaries are similar to histograms in that both metric types
+    support bucketing and the calculation of quantiles. However, summaries perform
+    quantile calculations directly on the client and can be used as an alternative
+    for reducing the query load on the server.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Automating the detection of scrape targets
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Prometheus's flexibility really shines when it comes to configuring the set
+    of endpoints to be scraped. In this section, we will examine an indicative list
+    of options for statically or dynamically configuring the set of endpoints that
+    Prometheus pulls metrics from. For the full list of supported discovery options,
+    you can refer to the Prometheus documentation ^([8]).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Static and file-based scrape target configuration
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A static scrape configuration is considered the canonical way of providing
+    scrape targets to Prometheus. The operator includes one or more static configuration
+    blocks in the Prometheus configuration file that define the list of target hosts
+    to be scraped and the set of labels to apply to the scraped metrics. You can see
+    an example of such a block in the following code:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: An issue with the static config approach is that after updating the Prometheus
+    configuration files, we need to restart Prometheus so it can pick up the changes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A better alternative is to extract the static configuration blocks to an external
+    file and then reference that file from within the Prometheus configuration via
+    the `file_sd_config` option:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: When file-based discovery is enabled, Prometheus will watch the specified set
+    of files for changes and automatically reload their contents once a change has
+    been detected.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Querying the underlying cloud provider
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Out of the box, Prometheus can be configured to leverage the native APIs offered
+    by cloud providers such as AWS, GCE, Azure, and OpenStack to detect provisioned
+    compute node instances and make them available as targets for scraping.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Each node discovered by Prometheus is automatically annotated with a series
+    of *provider-specific* meta labels. These labels can then be referenced by operator-defined
+    match rules to filter out any nodes that the operator is not interested in scraping.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As an example, let''s say that we only want to scrape the EC2 instances that
+    contain a tag with the name `scrape` and the value `true`. We can use a configuration
+    block such as the following one to achieve this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: When Prometheus discovers a new EC2 instance, it will automatically iterate
+    its set of tags and generate labels whose names follow the pattern `__meta_ec2_tag_<tagkey>` and
+    set their value to the observed tag value. The filtering rule in the preceding
+    snippet will discard any nodes where the value of the `__meta_ec2_tag_scrape` label
+    does not match the provided regular expression.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Leveraging the API exposed by Kubernetes
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The last scrape target discovery method that we will be discussing in this chapter
+    is highly recommended for workloads running on top of Kubernetes, such as the
+    Links 'R' Us project. Once enabled, Prometheus will invoke the API endpoints exposed
+    by Kubernetes to obtain information about the resource types that the operator
+    is interested in scraping.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Prometheus can be configured to create scrape targets for the following types
+    of Kubernetes resources:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '| **Resource Type** | **Description** |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **node** | Creates a scrape target for each node in the Kubernetes cluster
+    and allows us to collect machine-level metrics that can be exported by running
+    a tool such as node-exporter ^([9]). |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **service** | Scans the Kubernetes `Service` resources and creates a scrape
+    target for each exposed port. Prometheus will then attempt to pull any metrics
+    exposed by the pods behind the service by performing periodic HTTP GET requests
+    to each exposed port at the service''s IP address. This approach relies on the
+    fact that `Service` resources act as load balancers by delegating each incoming
+    request to a different pod and might be a better-performing alternative compared
+    to pulling metrics from all the pods at the same time. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **pod** | Discovers all Kubernetes `Pod` resources and creates a scrape target
+    for each one of their containers. Prometheus will then perform periodic HTTP GET
+    requests to pull the metrics out of each individual container in parallel. |'
+  prefs: []
+  type: TYPE_TB
+- en: '| **ingress** | Creates a target for each path on an `Ingress` resource. |'
+  prefs: []
+  type: TYPE_TB
+- en: In a similar fashion to the cloud-aware discovery implementation, Prometheus
+    will annotate the discovered set of targets with a resource-specific set of meta
+    labels. Based on the previous examples, can you guess what the following configuration
+    block does?
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Since we specified a `role` equal to `endpoints`, Prometheus will obtain the
+    list of pods associated with that service. Prometheus will then create a scrape
+    target for *each pod* if – and only if – their parent **service** contains an
+    annotation with the name `prometheus_scrape` and the value `true`. This trick
+    makes it really easy to enable automatic scraping for any service in our cluster
+    simply by editing Kubernetes manifests.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Instrumenting Go code
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In order for Prometheus to be able to scrape metrics from our deployed services,
+    we need to perform the following sequence of steps:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Define the metrics that we are interested in tracking.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Instrument our code base so that it updates the values of the aforementioned
+    metrics at the appropriate locations.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Collect the metric data and make it available for scraping over HTTP.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: One of the key benefits of microservice-based architectures is that software
+    engineers are no longer constrained by the use of a single programming language
+    for building their services. It is quite common to see microservices written in
+    Go communicating with other services written in Rust or Java. Nevertheless, the
+    need to monitor services across the board still remains ubiquitous.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To make it as easy as possible for software engineers to integrate with Prometheus,
+    its authors provide client libraries for different programming languages. All
+    these clients have one thing in common: they handle all the low-level details
+    involved in registering and exporting Prometheus metrics.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The examples in the following sections have a dependency on the official Go
+    client package for Prometheus. You can install it by executing the following command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: Registering metrics with Prometheus
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: '`promauto` is a subpackage of the Prometheus client that defines a set of convenience
+    helpers for creating and registering metrics with the minimum possible amount
+    of code. Each of the constructor functions from the `promauto` package returns
+    a Prometheus metric instance that we can immediately use in our code.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a quick look at how easy it is to register and populate some of
+    the most common metrics types supported by Prometheus. The first metric type that
+    we will be instantiating is a simple counter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Each Prometheus metric must be assigned a unique name. If we attempt to register
+    a metric with the same name twice, we will get an error. What's more, when registering
+    a new metric, we can optionally specify a help message that provides additional
+    information about the metric's purpose.
+  prefs: []
+  type: TYPE_NORMAL
+- en: As shown in the preceding code snippet, once we obtain a counter instance, we
+    can use the `Inc` method to increment its value and the `Add` method to add an
+    arbitrary positive value to the counter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The next type of metric that we will be instantiating is a gauge. Gauges are
+    quite similar to counters with the exception that their value can go either up
+    or down. In addition to the `Inc` and `Add` methods, gauge instances also provide
+    the `Dec` and `Sub` methods. The following block of code defines a gauge metric
+    for tracking the number of pending items in a queue:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: To conclude our experimentation with the different types of Prometheus metrics,
+    we will create a histogram metric. The `NewHistorgram` constructor expects the
+    caller to specify a strictly ascending list of `float64` values that describe
+    the width of each bucket that's used by the histogram.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The following example uses the `LinearBuckets` helper from the `prometheus` package
+    to generate `20` distinct buckets with a width of `100` units. The lower bound
+    of the *left-most* histogram bucket will be set to the value `0`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: Adding values to a histogram instance is quite trivial. All we need to do is
+    simply invoke its `Observe` method and pass the value we wish to track as an argument.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Vector-based metrics
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: One of the more interesting Prometheus features is its support for partitioning
+    collected samples across one or more dimensions (*labels*, in Prometheus terminology).
+    If we opt to use this feature, instead of having a single metric instance, we
+    can work with a **vector** of metric values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In the following example, we have just launched an A/B test for a new website
+    layout and we are interested in tracking the number of user registrations for
+    each of the page layouts that we are actively trialing:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: This time, instead of a single counter, we will be creating a vector of counters
+    where every sampled value will be automatically tagged with a label named `layout`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To increment or add value to this metric, we need to obtain the correct counter
+    by invoking the variadic `WithLabelValues` method on the `regCountVec` variable.
+    This method expects a string value for each defined dimension and returns the
+    counter instance that corresponds to the provided label values.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Exporting metrics for scraping
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: After registering our metrics with Prometheus and instrumenting our code to
+    update them where needed, the only additional thing that we need to do is expose
+    the collected values over HTTP so that Prometheus can scrape them.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `promhttp` subpackage from the Prometheus client package provides a convenience
+    helper function called `Handler` that returns an `http.Handler` instance that
+    encapsulates all the required logic for exporting collected metrics in the format
+    expected by Prometheus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The exported data will not only include the metrics that have been registered
+    by the developer but it will also contain an extensive list of metrics that pertain
+    to the Go runtime. Some examples of such metrics are as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The number of active goroutines
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Information about stack and heap allocation
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Performance statistics for the Go garbage collector
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following example demonstrates a minimal, self-contained hello-world kind
+    of application that defines a counter metric and exposes two HTTP routes: `/ping` and `/metrics`.
+    The handler for the first route increments the counter, while the latter exports
+    the collected Prometheus metrics:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Try to compile and run the preceding example. You can find its sources in the `Chapter13/prom_http` folder
+    in this book's GitHub repository. While the example is running, switch to another
+    Terminal and execute a few `curl localhost:8080/ping` commands to increment the
+    `pingapp_pings_total` counter.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Then, execute a `curl localhost:8080/metrics` command and examine the list
+    of exported metrics. The following screenshot displays the last few lines of output
+    upon executing the preceding command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/22c28d11-1d02-4142-894b-20fe34be89bc.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 2: A subset of the metrics that have been exported by our example Go
+    application
+  prefs: []
+  type: TYPE_NORMAL
+- en: As you can see, the output includes not only the current value of the `pingapp_pings_total`
+    counter but also several other important metrics that the Prometheus client automatically
+    captured from the Go runtime for us.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Visualizing collected metrics using Grafana
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: By this point, you should have already selected a suitable metrics collection
+    solution for your applications and instrumented your code base to emit the metrics
+    that you are interested in tracking. To make sense of the collected data and reason
+    about it, we need to visualize it.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For this task, we will be using Grafana ^([4]) as our tool of choice. Grafana
+    offers a convenient, end-to-end solution that can be used to retrieve metrics
+    from a variety of different data sources and construct dashboards for visualizing
+    them. The supported list of data sources includes Prometheus, InfluxDB, Graphite,
+    Google Stackdriver, AWS CloudWatch, Azure Monitor, SQL databases (MySQL, Postgres,
+    and SQL Server), and Elasticsearch.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'If you have already set up one of the preceding data sources and want to evaluate
+    Grafana, the easiest way to do so is to spin up a Docker container using the following
+    command:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: You can then point your browser at `http://localhost:3000`, log in with the
+    preceding credentials, and follow one of the several comprehensive guides available
+    at Grafana's website to configure your first dashboard.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In terms of supported visualization widgets, the standard Grafana installation
+    supports the following widget types:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Graph**: A flexible visualization component that can plot single- and multi-series
+    line charts or bar charts. Furthermore, graph widgets can be configured to display
+    multiple series in overlapping or stacked mode.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Logs panel**: A list of log entries that are obtained by a compatible data
+    source (for example, Elasticsearch) whose contents are correlated with the information
+    displayed by another widget.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Singlestat**: A component that condenses a series into a single value by
+    applying an aggregation function (for example, min, max, avg, and so on). This
+    component may optionally be configured to display a sparkline chart or to be rendered
+    as a gauge.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Heatmap**: A specialized component that renders the changes in a histogram''s
+    set of values over time. As shown in the following screenshot, heatmaps comprise a
+    set of vertical slices where each slice depicts the histogram values at a particular
+    point in time. Contrary to a typical histogram plot, where bar heights represent
+    the count of items in a particular bucket, heatmaps apply a color map to visualize
+    the frequency of items within each vertical slice.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Table**: A component that is best suited for rendering series in tabular
+    format.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'The following screenshot demonstrates the built-in Grafana widgets as they
+    would appear in an example dashboard:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![](img/97b28620-80fc-4f2c-b42c-6016705b374a.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 3: An example dashboard built with Grafana
+  prefs: []
+  type: TYPE_NORMAL
+- en: Apart from the default, built-in widgets, the operator can install additional
+    widget types by leveraging Grafana's plugin mechanism. Examples of such widgets
+    include world map, radar, pie, and bubble charts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Prometheus as an end-to-end solution for alerting
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: By instrumenting our applications and deploying the necessary infrastructure
+    for scraping metrics, we now have the means for evaluating the SLIs for each of
+    our services. Once we define a suitable set of SLOs for each of the SLIs, the
+    next item on our checklist is to deploy an alert system so that we can be automatically
+    notified every time that our SLOs stop being met.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'A typical alert specification looks like this:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '*When the value of metric **X **exceeds threshold **Y** for **Z** time units,
+    then execute actions **a1, a2, a[n]***'
+  prefs: []
+  type: TYPE_NORMAL
+- en: What is the first thought that springs to mind when you hear a fire alarm going
+    off? Most people will probably answer something along the lines of, *there might
+    be a fire nearby*. People are naturally conditioned to assume that alerts are
+    always temporally correlated with an issue that must be addressed immediately.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When it comes to monitoring the health of production systems, having alerts
+    in place that require the immediate intervention of a human operator once they
+    trigger is pretty much a standard operating procedure. However, this is not the
+    only type of alert that an SRE might encounter when working on such a system.
+    Oftentimes, being able to proactively detect and address issues before they get
+    out of hand and become a risk for the stability of production systems is the only
+    thing that stands between a peaceful night's sleep and that dreaded 2 AM page
+    call.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Here is an example of a proactive alert: an SRE sets up an alert that fires
+    once the disk usage on a database node exceeds 80% of the available storage capacity.
+    Note that when the alarm does fire, the database is still working without any
+    issue. However, in this case, the SRE is provided with ample time to plan and
+    execute the required set of steps (for example, schedule a maintenance window
+    to resize the disk assigned to the DB) to rectify the issue with the minimum disruption
+    possible to the database service.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Contrast the preceding case with a different scenario where the SRE is paged
+    because the database did run out of space and, as a result, several services with
+    a downstream dependency on the database are now offline. This is a particularly
+    stressful situation for an SRE to be in as the system is already experiencing
+    downtime.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Using Prometheus as a source for alert events
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'In order to use Prometheus as an alert-generating source, operators must define
+    a collection of alert rules that Prometheus should monitor. The alert rule definitions
+    live in external YAML files that are imported by the main Prometheus configuration
+    file using a `rule_files` block, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: Prometheus organizes multiple alert rules into **groups**. Rules within a group
+    are always evaluated *sequentially* while each group is evaluated in *parallel*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let''s take a look at the structure of a simple alert definition. The following
+    snippet defines an alert group with the name `example` that contains a single
+    alert definition:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: Each alert block must always be assigned a unique name, as well as a **PromQL**
+    (short for **Prometheus query language**) expression that Prometheus will recalculate
+    each time it evaluates the alert rule. In the preceding example, the rule expression
+    is satisfied once the value of the `up` metric becomes equal to zero.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The optional `for` clause can be used to defer the triggering of the alert until
+    a particular time period elapses, during which the alert expression must always
+    be satisfied. In this example, the alert will only fire if the `up` metric remains
+    zero for at least 5 minutes.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `labels` block allows us to attach one or more labels to the alert. In
+    this case, we tag the alert with a `severity: page` annotation to advise the component
+    that''s responsible for handling the alert that it should page the SRE that is
+    currently on call.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, the `annotations` block allows the operator to store additional bits
+    of information, such as detailed descriptions of the alert or a URL pointing to
+    a playbook for dealing with this kind of alert.
+  prefs: []
+  type: TYPE_NORMAL
+- en: A playbook is a succinct document that distills the best practices for resolving
+    a particular problem. These documents are authored in advance and are normally
+    attached to all outgoing notifications that are triggered due to an alert.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When an SRE gets paged, being able to access the playbook associated with a
+    particular alert is an invaluable asset for quickly diagnosing the root cause
+    of the problem and reducing the **mean time to resolution** (**MTTR**).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Handling alert events
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Prometheus will periodically evaluate the configured set of alert rules and
+    emit alert events when the preconditions for a rule are met. By design, the Prometheus
+    server is only responsible for emitting alert events; it does not include any
+    logic whatsoever for processing alerts.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The actual processing of emitted alert events is handled by the Alertmanager
+    component. The Alertmanager ingests the alert events emitted by Prometheus and
+    is responsible for grouping, deduplicating, and routing each alert to the appropriate
+    notification integrations (referred to as **receivers** in Alertmanager terminology).
+  prefs: []
+  type: TYPE_NORMAL
+- en: We will begin our brief tour of the Alertmanager component by elaborating on
+    how operators can use its built-in grouping and filtering functionality to manage
+    incoming alert events. Next, we will learn about the basics of defining alert
+    receivers and configuring routing rules to ensure that alerts are always delivered
+    to the correct receiver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Grouping alerts together
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Dealing with a large volume of alerts that fire concurrently certainly seems
+    like a daunting task from an SRE's point of view. To cut through the noise, Alertmanager
+    allows operators to specify a set of rules for grouping together alerts based
+    on the content of the labels that have been assigned to each alert event by Prometheus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To understand how alert grouping works, let's picture a scenario where 100 microservices
+    are all trying to connect to a Kafka queue that is currently unavailable. *Each*
+    of the services fires a high-priority alert, which, in turn, causes a new page
+    notification to be sent to the SRE that is currently on-call. As a result, the
+    SRE will get swamped with hundreds of page notifications about exactly the same
+    issue!
+  prefs: []
+  type: TYPE_NORMAL
+- en: To avoid situations like this, a much better solution would be to edit the Prometheus
+    alert rule definition and ensure that all alert events for the queue service are
+    annotated with a particular label, for example, `component=kafka`. Then, we can
+    instruct the Alertmanager to group alerts based on the value of the `component` label
+    and consolidate all those related to Kafka into a *single page notification*.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Selectively muting alerts
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Another handy Alertmanager feature that you should be aware of is **alert inhibition**.
+    This feature allows the operator to *mute* notifications for a set of alerts when
+    a specific alert is currently firing.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'When the Alertmanager loads its configuration file, it looks for the list of
+    alert inhibition rules under the top-level `inhibit_rules` key. Each rule entry
+    must adhere to the following schema:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `source_match` and `source_match_re` blocks work as selectors for the alert
+    that activates the inhibition rule. The difference between the two blocks is that `source_match` attempts
+    an exact match, whereas `source_math_re` matches label values of incoming alerts
+    against a regular expression.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `target_match` and `target_match_re` blocks are used to select the set of
+    alerts that will be suppressed while the inhibition rule is active.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, the `equal` block prevents the inhibition rule from activating unless
+    the source and target rules have the same value for the specified labels.
+  prefs: []
+  type: TYPE_NORMAL
+- en: To prevent an alert from inhibiting itself, alerts that match both the source
+    and the target side of a rule are not allowed to be inhibited.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'As a proof of concept, let''s try to define a rule that suppresses any alert
+    that fires during the weekend. A prerequisite for setting up this rule is to create
+    a Prometheus alert that **only** fires during the weekend. Then, we can add the
+    following block to the Alertmanager''s configuration file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: When the `Weekend` alert is firing, any other alert (excluding itself) will
+    be automatically muted!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Configuring alert receivers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'A receiver is nothing more than a fancy way of referring to a collection of
+    notification integrations that can send out alerts through various channels. Out
+    of the box, the Alertmanager supports the following integrations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '**Email**: Send out an email with alert details'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Slack/Hipchat/WeChat**: Post alert details to a chat service'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**PagerDuty/Opsgenie/VictorOps**: Send a page notification to the SRE currently
+    on call'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**WebHooks**: An escape hatch for implementing custom integrations'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'When the Alertmanager loads its configuration file, it looks for the list of
+    receiver definitions under the top-level `receivers` key. Each receiver block
+    must adhere to the following schema:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: Each receiver must be assigned a unique name that, as we will see in the following
+    section, can be referenced by one or more routing rules. The operator must then
+    specify a configuration for each notification mechanism that should be activated
+    when an alert reaches the receiver.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'However, if the operator does not provide **any** configuration block, the
+    receiver behaves like a black hole: any alert that reaches it simply gets dropped.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Routing alerts to receivers
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'Now, let''s take a closer look at the tree-based mechanism used by the Alertmanager
+    for routing incoming alerts to a particular receiver. The top-level section of
+    the Alertmanager''s configuration file must **always** define a `route` block.
+    The block represents the root node of the tree and can contain the following set
+    of fields:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`match`: Specifies a set of label values that must match the values from the
+    incoming alert to consider the current route node as matched.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`match_re`: Similar to `match`, with the exception that label values are matched
+    against a regular expression.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`receiver`: The name of the receiver to deliver the incoming alert to if the
+    alert matches the current route.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`group_by`: A list of label names to group incoming alerts by.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`routes`: A set of child `route` blocks. If an alert does not match any of
+    the child routes, it will be handled based on the configuration parameters of
+    the current route.'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: 'To understand how tree-based routing works in practice, let''s step through
+    a simple example. For the purpose of this example, the Alertmanager configuration
+    file contains the following routing configurations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Let''s see how the Alertmanager figures out the appropriate receiver for various
+    incoming alerts by inspecting their label annotations:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: If an incoming alert includes a `service` label whose value matches either `cockroachdb` or `cassandra`,
+    the Alertmanager will dispatch the alert to the `page-SRE-on-call` receiver.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: On the other hand, if the alert includes a `team` label whose value is equal
+    to `backend`, the Alertmanager will dispatch it to the `notify-ops-channel-on-slack` receiver.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: Any other incoming alert that doesn't match any of the two child routes will
+    be dispatched to the `default` receiver by default.
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: This completes our tour of the Alertmanager tool. Granted, configuring alert
+    rules for your applications can, at first, seem like a daunting task. Hopefully,
+    the knowledge you've obtained by reading this chapter will allow you to begin
+    experimenting with Prometheus and set up a few rudimentary Alertmanager test rules.
+    With a little bit of practice and once you get the hang of the rule syntax, you
+    will find that writing more sophisticated rules for monitoring your production
+    applications will become a breeze!
+  prefs: []
+  type: TYPE_NORMAL
+- en: Summary
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: At the start of this chapter, we talked about the pros and cons of using a metrics
+    collection system such as Prometheus to scrape and aggregate metrics data from
+    not only our deployed applications but also from our infrastructure (for example, Kubernetes
+    master/worker nodes).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Then, we learned how to leverage the official Prometheus client package for
+    Go to instrument our code and export the collected metrics over HTTP so that they
+    can be scraped by Prometheus. Next, we extolled the benefits of using Grafana
+    for building dashboards by pulling in metrics from heterogeneous sources. In the
+    final part of this chapter, we learned how to define alert rules in Prometheus
+    and gained a solid understanding of using the Alertmanager tool to group, deduplicate,
+    and route alert events that are emitted by Prometheus.
+  prefs: []
+  type: TYPE_NORMAL
+- en: By exploiting the knowledge gained from this chapter, you will be able to instrument
+    your Go code-base and ensure that important metrics for your applications' state
+    and performance can be collected, aggregated and visualized. Moreover, if your
+    current role also includes SRE responsibilities, you can subsequently feed these
+    metrics into an alerting system and receive real-time notifications when the SLAs
+    and SLOs for your services are not met.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Next up, we will cover a few interesting ideas for extending what we have built
+    in this book so as to further your understanding of the material.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Questions
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: What is the difference between an SLI and an SLO?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Explain how SLAs work.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the difference between a push- and pull-based metrics collection system?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Would you use a push- or pull-based system to scrape data from a tightly locked
+    down (that is, no ingress) subnet?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: What is the difference between a Prometheus counter and a gauge metric?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Why is it important for page notifications to be accompanied by a link to a
+    playbook?
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Further reading
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Campbell, Matthew: *Scaling to a Million Machines with Prometheus* (PromCon
+    2016): [https://promcon.io/2016-berlin/talks/scaling-to-a-million-machines-with-prometheus](https://promcon.io/2016-berlin/talks/scaling-to-a-million-machines-with-prometheus)
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Consul**: Secure service networking: [https://consul.io](https://consul.io)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Docker**: Enterprise container platform: [https://www.docker.com](https://www.docker.com)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Grafana**: The open observability platform: [https://grafana.com/](https://grafana.com/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Graphite**: An enterprise-ready monitoring tool that runs equally well on
+    cheap hardware or a cloud infrastructure: [https://graphiteapp.org/](https://graphiteapp.org/)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**InfluxDB**: A time-series database designed to handle high write and query
+    loads: [https://www.influxdata.com/products/influxdb-overview](https://www.influxdata.com/products/influxdb-overview)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Nagios**: The industry standard In IT infrastructure monitoring: [https://www.nagios.org](https://www.nagios.org)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Prometheus**: Configuration options: [https://prometheus.io/docs/prometheus/latest/configuration/configuration](https://prometheus.io/docs/prometheus/latest/configuration/configuration)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Prometheus**: Exporter for machine metrics: [https://github.com/prometheus/node_exporter](https://github.com/prometheus/node_exporter)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**Prometheus**: Monitoring system and time-series database: [https://prometheus.io](https://prometheus.io)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '**StatsD**: Daemon for easy but powerful stats aggregation: [https://github.com/statsd/statsd](https://github.com/statsd/statsd)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL

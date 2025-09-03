@@ -1,0 +1,286 @@
+- en: Implementation
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'The very beginning is a request type. According to the description, it must
+    hold the string that will enter the pipeline as well as the handler function:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: Where is the `return`? We have a `Data` field of type `interface{}` so we can
+    use it to pass a string. By using an interface, we can reuse this type for a `string`,
+    an `int`, or a `struct` data type. The receiver is the one who must know how to
+    deal with the incoming interface.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The `Handler` field has the type `Request` handler, which we haven''t defined
+    yet:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: A request handler is any function that accepts an interface as its first argument,
+    and returns nothing. Again, we see the `interface{}`, where we would usually see
+    a string. This is one of the receivers we mentioned previously, which we'll need
+    to cast the incoming result.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'So, when sending a request, we must fill it with some value in the `Data` field
+    and implement a handler; for example:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: The handler is defined by using a closure. We again check the type if the interface
+    (and we defer the call to the `Done()` method at the end). In case of an improper
+    interface, we simply print its contents and return. If the casting is OK, we also
+    print them, but here is where we will usually do something with the result of
+    the operation; we have to use type casting to retrieve the contents of the `interface{}`
+    (which is a string). This must be done in every step in the pipeline, although
+    it will introduce a bit of overhead.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now we need a type that can handle `Request` types. Possible implementations
+    are virtually infinite, so it is better to define an interface first:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `WorkerLauncher` interface must implement only the `LaunchWorker(chan Request)`
+    method. Any type that implements this interface will have to receive a channel
+    of `Request` type to satisfy it. This channel of the `Request` type is the single
+    entrance point to the pipeline.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The dispatcher
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'Now, to launch workers in parallel and handle all the possible incoming channels,
+    we''ll need something like a dispatcher:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: A `Dispatcher` interface can launch an injected `WorkerLaunchers` type in its
+    own `LaunchWorker` method. The `Dispatcher` interface must use the `LaunchWorker`
+    method of any of the `WorkerLauncher` types to initialize a pipeline. This way
+    we can reuse the `Dispatcher` interface to launch many types of `WorkerLaunchers`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: When using `MakeRequest(Request)`, the `Dispatcher` interface exposes a nice
+    method to inject a new `Request` into the workers pool.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Finally, the user must call stop when all Goroutines must be finished. We must
+    handle graceful shutdown in our apps, and we want to avoid Goroutine leaks.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We have enough interfaces, so let''s start with the dispatcher which is a bit
+    less complicated:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Our `dispatcher` structure stores a channel of `Request` type in one of its
+    fields. This is going to be the single point of entrance for requests in any pipeline.
+    We said that it must implement three methods, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: In this example, the `Dispatcher` interface doesn't need to do anything special
+    to itself before launching a worker, so the `LaunchWorker` method on the `Dispatcher`
+    simply executes the `LaunchWorker` method of the incoming `WorkerLauncher,`which
+    also has a `LaunchWorker` method to initiate itself. We have previously defined
+    that a `WorkerLauncher` type needs at least an ID and a channel for incoming requests,
+    so that's what we are passing through.
+  prefs: []
+  type: TYPE_NORMAL
+- en: It may seem unnecessary to implement the `LaunchWorker` method in the `Dispatcher`
+    interface. In different scenarios, it could be interesting to save running worker
+    IDs in the dispatcher to control which ones are up or down; the idea is to hide
+    launching implementation details. In this case, the `Dispatcher` interface is
+    merely acting as a Facade design pattern hiding some implementation details from
+    the user.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The second method is `Stop`. It closes the incoming requests channel, provoking
+    a chain reaction. We saw in the pipeline example that, when closing the incoming
+    channel, each for-range loop within the Goroutines breaks and the Goroutine is
+    also finished. In this case, when closing a shared channel, it will provoke the
+    same reaction, but in every listening Goroutine, so all pipelines will be stopped.
+    Cool, huh?
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Request implementation is very simple; we just pass the request in the argument
+    to the channel of incoming requests. The Goroutine will block there forever until
+    the opposite end of the channel retrieves the request. Forever? That seems like
+    a lot if something happens. We can introduce a timeout, as follows:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'If you remember from previous chapters, we can use select to control which
+    operation is performed over a channel. Like a `switch` case, just one operation
+    can be executed. In this case, we have two different operations: sending and receiving.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The first case is a sending operation--try to send this, and it will block there
+    until someone takes the value in the opposite side of the channel. Not a huge
+    improvement, then. The second case is a receiving operation; it will be triggered
+    after 5 seconds if the upper request can't be sent successfully, and the function
+    will return. It would be very convenient to return an error here, but to make
+    things simple, we will leave it empty
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Finally, in the dispatcher, for convenience, we will define a `Dispatcher`
+    creator:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: By using this function instead of creating the dispatcher manually, we can simply
+    avoid small mistakes, such as forgetting to initialize the channel field. As you
+    can see, the `b` argument refers to the buffer size in the channel.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The pipeline
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+- en: 'So, our dispatcher is done and we need to develop the pipeline described in
+    the acceptance criteria. First, we need a type to implement the `WorkerLauncher`
+    type:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `PreffixSuffixWorker` variable stores an ID, a string to prefix, and another
+    string to suffix the incoming data of the `Request` type. So, the values to prefix
+    and append will be static in these fields, and we will take them from there.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will implement the `LaunchWorker` method later and begin with each step
+    in the pipeline. According to *first acceptance criteria*, the incoming string
+    must be uppercase. So, the uppercase method will be the first step in our pipeline:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Good. As in the previous chapter, a step in the pipeline accepts a channel of
+    incoming data and returns a channel of the same type. It has a very similar approach
+    to the examples we developed in the previous chapter. This time, though, we aren't
+    using package functions, and uppercase is part of the `PreffixSuffixWorker` type
+    and the incoming data is a `struct` instead of an `int`.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The `msg` variable is a `Request` type and it will have a handler function and
+    data in the form of an interface. The `Data` field should be a string, so we type
+    cast it before using it. When type casting a value, we will receive the same value
+    with the requested type and a `true` or `false` flag (represented by the `ok`
+    variable). If the `ok` variable is `false`, the cast could not be done and we
+    won't throw the value down the pipeline. We stop this `Request` here by sending
+    a `nil` to the handler (which will also provoke a type-casting error).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Once we have a nice string in the `s` variable, we can uppercase it and store
+    it again in the `Data` field to send down the pipeline to the next step. Be aware
+    that the value will be sent as an interface again, so the next step will need
+    to cast it again. This is the downside of using this approach.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'With the first step done, let''s continue with the second. According to the
+    *second acceptance criteria* now, a predefined text must be appended. This text
+    is the one stored in the `suffixS` field:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: The `append` function has the same structure as the `uppercase` function. It
+    receives and returns a channel of incoming requests, and launches a new Goroutine
+    that iterates over the incoming channel until it is closed. We need to type cast
+    the incoming value, as mentioned previously.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In this step in the pipeline the incoming string is uppercase (after doing a
+    type assertion). To append any text to it, we just need to use the `fmt.Sprintf()`
+    function, as we have done many times before, which formats a new string with the
+    provided data. In this case, we pass the value of the `suffixS` field as the second
+    value, to append it to the end of the string.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Just the last step in the pipeline is missing, the prefix operation:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: What's calling your attention in this function? Yes, it doesn't return any channel
+    now. We could have done this entire pipeline in two ways. I suppose you have realized
+    that we have used a `Future` handler function to execute with the final result
+    in the pipeline. A second approach would be to pass a channel to return the data
+    back to its origin. In some cases, a Future would be enough, while in others it
+    could be more convenient to pass a channel so that it can be connected to a different
+    pipeline (for example).
+  prefs: []
+  type: TYPE_NORMAL
+- en: In any case, the structure of a step in a pipeline must be very familiar to
+    you already. We cast the value, check the result of the casting, and send nil
+    to the handler if anything went wrong. But, in case everything was OK, the last
+    thing to do is to format the text again to place the `prefixS` field at the beginning
+    of the text, to send the resulting string back to the origin by calling the request's
+    handler.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Now, with our worker almost finished, we can implement the `LaunchWorker` method:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: That's all for workers! We simply pass the returning channels to the next steps
+    in the Pipeline, as we did in the previous chapter. Remember that the pipeline
+    is executed from inside to outside of the calls. So, what's the order of execution
+    of any incoming data to the pipeline?
+  prefs: []
+  type: TYPE_NORMAL
+- en: The data enters the pipeline through the Goroutine launched in the `uppercase`
+    method.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Then, it goes to the Goroutine launched in `append`.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Finally, in enters the Goroutine launched in `prefix` method, which doesn't
+    return anything but executes the handler after prefixing the incoming string with
+    more data.
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Now we have a full pipeline and a dispatcher of pipelines. The dispatcher will
+    launch as many instances of the pipelines as we want to route the incoming requests
+    to any available worker.
+  prefs: []
+  type: TYPE_NORMAL
+- en: If none of the workers takes the request within 5 seconds, the request is lost.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Let's use this library in a small app.
+  prefs: []
+  type: TYPE_NORMAL
