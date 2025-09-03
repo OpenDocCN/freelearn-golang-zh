@@ -1,533 +1,787 @@
 - en: '7'
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: '7'
 - en: Out-of-the-Box Features
+  id: totrans-1
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 开箱即用的功能
 - en: Since writing production-ready APIs is more complicated than sending requests
     and receiving responses, gRPC has a lot more to offer than the simple communication
     patterns we saw. In this chapter, we are going to see the most important features
     that we can use in order to make our APIs robust, efficient, and secure.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于编写生产就绪的API比发送请求和接收响应要复杂得多，因此gRPC比我们看到的简单通信模式提供了更多功能。在本章中，我们将看到我们可以使用的一些最重要的功能，以便使我们的API更加健壮、高效和安全。
 - en: 'In this chapter, we are going to cover the following topics:'
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们将涵盖以下主题：
 - en: Dealing with errors, cancellation, and deadlines
+  id: totrans-4
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 处理错误、取消和截止日期
 - en: Sending HTTP headers
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 发送HTTP头
 - en: Encrypting data over the wire
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在线加密数据
 - en: Providing extra logic with interceptors
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用拦截器提供额外的逻辑
 - en: Balancing requests to different servers
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 调度到不同服务器的请求
 - en: By the end of the chapter, we will have learned about the most important features
     that come right out of the box when we use gRPC.
+  id: totrans-9
   prefs: []
   type: TYPE_NORMAL
+  zh: 到本章结束时，我们将了解到使用gRPC时直接提供的最重要的功能。
 - en: Technical requirements
+  id: totrans-10
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: For this chapter, you will find the relevant code in the folder called `chapter7`
     in the accompanying GitHub repository ([https://github.com/PacktPublishing/gRPC-Go-for-Professionals/tree/main/chapter7](https://github.com/PacktPublishing/gRPC-Go-for-Professionals/tree/main/chapter7)).
+  id: totrans-11
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于本章，你将在附带的GitHub仓库中找到名为`chapter7`的文件夹中的相关代码([https://github.com/PacktPublishing/gRPC-Go-for-Professionals/tree/main/chapter7](https://github.com/PacktPublishing/gRPC-Go-for-Professionals/tree/main/chapter7))。
 - en: 'In the last section, I will use Kubernetes to show client-side load balancing.
     I assume that you already have Docker installed and a Kubernetes cluster. This
     can be done any way you want, but I provide a Kind ([https://kind.sigs.k8s.io/](https://kind.sigs.k8s.io/))
     configuration to spin up a cluster easily and locally. This configuration is situated
     under the `k8s` folder of `chapter7` and in the file called `kind.yaml`. Once
     Kind is installed, you can use it like so:'
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 在上一节中，我将使用Kubernetes来展示客户端负载均衡。我假设你已经安装了Docker并且有一个Kubernetes集群。你可以以任何你想要的方式完成这件事，但我提供了一个Kind
+    ([https://kind.sigs.k8s.io/](https://kind.sigs.k8s.io/)) 配置，以便轻松且本地地启动一个集群。这个配置位于`chapter7`的`k8s`文件夹中，在名为`kind.yaml`的文件中。一旦安装了Kind，你可以这样使用它：
 - en: '[PRE0]'
+  id: totrans-13
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: 'And you can dispose of it by running the following command:'
+  id: totrans-14
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以通过运行以下命令来丢弃它：
 - en: '[PRE1]'
+  id: totrans-15
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: Handling errors
+  id: totrans-16
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 处理错误
 - en: Up until now, we have not discussed potential errors that could appear within
     or outside of the business logic. This is obviously not great for a production-ready
     API, so we are going to see how to solve them. In this section, we are going to
     concentrate our efforts on the RPC endpoint called `AddTask`.
+  id: totrans-17
   prefs: []
   type: TYPE_NORMAL
+  zh: 到目前为止，我们还没有讨论可能出现在业务逻辑内部或外部的潜在错误。这对于一个生产就绪的API来说显然不是很好，因此我们将看到如何解决这些问题。在本节中，我们将集中精力解决名为`AddTask`的RPC端点。
 - en: Before starting to code, we need to understand how errors work in gRPC, but
     this should not be hard because they are pretty similar to what we are used to
     in REST APIs.
+  id: totrans-18
   prefs: []
   type: TYPE_NORMAL
+  zh: 在开始编码之前，我们需要了解gRPC中错误的工作方式，但这不应该很难，因为它们与我们习惯的REST API非常相似。
 - en: 'Errors are returned with the help of a wrapper struct called `Status`. This
     struct can be built in multiple ways but the ones we are interested in this section
     are the following:'
+  id: totrans-19
   prefs: []
   type: TYPE_NORMAL
+  zh: 错误是通过一个名为`Status`的包装结构返回的。这个结构可以以多种方式构建，但本节中我们感兴趣的是以下几种：
 - en: '[PRE2]'
+  id: totrans-20
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: They both take a message for the error and an error code. Let us focus on the
     codes since the messages are just strings describing the error. The status codes
     are predefined codes that are consistent across the different implementations
     of gRPC. It is similar to the HTTP codes such as `404` and `500`, but the main
     difference is that they have more descriptive names and that they are much fewer
     codes than in HTTP (16 in total).
+  id: totrans-21
   prefs: []
   type: TYPE_NORMAL
+  zh: 它们都接受一个错误消息和一个错误代码。让我们专注于代码，因为消息只是描述错误的字符串。状态代码是预定义的代码，它们在不同的gRPC实现中是一致的。它与HTTP代码（如`404`和`500`）类似，但主要区别是它们有更描述性的名称，并且比HTTP中的代码少得多（总共16个）。
 - en: 'To see all these codes, you can head to the gRPC Go documentation ([https://pkg.go.dev/google.golang.org/grpc/codes#Code](https://pkg.go.dev/google.golang.org/grpc/codes#Code)).
     It contains good explanations for each of the errors and it is less ambiguous
     than HTTP codes, so do not be afraid. For this section though, we are interested
     in two common errors:'
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 要查看所有这些代码，你可以访问gRPC Go文档（[https://pkg.go.dev/google.golang.org/grpc/codes#Code](https://pkg.go.dev/google.golang.org/grpc/codes#Code)）。它包含了每个错误的良好解释，并且比HTTP代码更不模糊，所以不要害怕。不过，对于本节，我们感兴趣的两种常见错误是：
 - en: '`InvalidArgument`'
+  id: totrans-23
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`InvalidArgument`'
 - en: '`Internal`'
+  id: totrans-24
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`Internal`'
 - en: The first one indicates that the client has specified an argument that is not
     correct for the proper functioning of the endpoint. The second indicates that
     an expected property of the system is broken.
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 第一个表示客户端指定了一个不适用于端点正常工作的参数。第二个表示系统的一个预期属性已损坏。
 - en: '`InvalidArgument` is perfect for validating inputs. We are going to use that
     in `AddTask` to make sure that the description of a `Task` is not empty (a task
     without a description is useless) and that a due date is specified and not in
     the past. Note that we make the due date required, but if you wanted to make it
     optional, we could just check if the `DueDate` property in the request was `nil`
     and act accordingly:'
+  id: totrans-26
   prefs: []
   type: TYPE_NORMAL
+  zh: '`InvalidArgument`非常适合验证输入。我们将在`AddTask`中使用它来确保`Task`的描述不为空（没有描述的任务是无用的），并且已指定截止日期且不在过去。注意，我们使截止日期成为必需的，但如果你希望使其可选，我们只需检查请求中的`DueDate`属性是否为`nil`并相应地处理：'
 - en: '[PRE3]'
+  id: totrans-27
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: These checks will make sure that we have only useful tasks in our database,
     and that our due dates are in the future.
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 这些检查将确保我们的数据库中只有有用的任务，并且我们的截止日期在将来。
 - en: Finally, we have another error that could come from the `addTask` function,
     which would be an error relayed from the database. We could do extensive checks
     to create more precise error codes depending on each database error, but in our
     case, for simplicity, we are simply going to say that any database error is an
     `Internal` error.
+  id: totrans-29
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们还有一个可能来自`addTask`函数的错误，这将是数据库传递的错误。我们可以进行广泛的检查，根据每个数据库错误创建更精确的错误代码，但在这个例子中，为了简单起见，我们只是简单地说任何数据库错误都是`Internal`错误。
 - en: 'We are going to get the potential error from the `addTask` function and do
     something similar to what we did for our `InvalidArgument`, but this time, it
     will be an `Internal` code, and we are going to use the `Errorf` function to relay
     the details of the error:'
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将从`addTask`函数获取潜在的错误，并执行与我们对`InvalidArgument`所做类似的操作，但这次将是一个`Internal`代码，我们将使用`Errorf`函数来传递错误的详细信息：
 - en: '[PRE4]'
+  id: totrans-31
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'Now, we are done with the server side. We can switch to the client side – if
     you didn’t notice before, we are already “handling” errors in `addTask`. We have
     the following lines:'
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，我们已经完成了服务器端。我们可以切换到客户端 - 如果你之前没有注意到，我们已经在`addTask`中“处理”错误了。我们有以下几行：
 - en: '[PRE5]'
+  id: totrans-33
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'Of course, clients might do fancier error handling or even recovery, but our
     goal for now is to see that our server errors are correctly propagated to the
     client. To test the `InvalidArgument` error, we can simply try to add a `Task`
     without a description. At the end of `main`, we can add the following:'
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 当然，客户端可能会进行更复杂的错误处理或甚至恢复，但我们的目标现在是要确保我们的服务器错误被正确地传递给客户端。为了测试`InvalidArgument`错误，我们可以简单地尝试添加一个没有描述的`Task`。在`main`的末尾，我们可以添加以下内容：
 - en: '[PRE6]'
+  id: totrans-35
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'Then, we run our server:'
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们运行我们的服务器：
 - en: '[PRE7]'
+  id: totrans-37
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: 'And our client should return the expected error:'
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: 而我们的客户端应该返回预期的错误：
 - en: '[PRE8]'
+  id: totrans-39
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'Then, we can check the due date error by providing a `Time` instance that is
     in the past:'
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们可以通过提供一个过去时间的`Time`实例来检查截止日期错误：
 - en: '[PRE9]'
+  id: totrans-41
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'We should get the following:'
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们应该得到以下结果：
 - en: '[PRE10]'
+  id: totrans-43
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: 'And finally, we are not going to show the `Internal` error because this would
     make us create a fake error in the in-memory database, but understand that it
     will return the following:'
+  id: totrans-44
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们不会显示`Internal`错误，因为这会使我们在内存数据库中创建一个假错误，但请理解它将返回以下内容：
 - en: '[PRE11]'
+  id: totrans-45
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: 'Before finishing this section, it is important to also understand how we can
     check the type of an error and act accordingly. We are going to basically panic
     but with more readable messages. For example, imagine the situation in which we
     have the following code:'
+  id: totrans-46
   prefs: []
   type: TYPE_NORMAL
+  zh: 在完成本节之前，了解我们如何检查错误的类型并相应地采取行动也很重要。我们基本上会恐慌，但会有更易读的消息。例如，想象以下代码的情况：
 - en: '[PRE12]'
+  id: totrans-47
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: 'Instead, we are going to print this:'
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 相反，我们将打印以下内容：
 - en: '[PRE13]'
+  id: totrans-49
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: 'To do that, we are going to modify `addTask` such that if there is an error,
     we will try to convert it into a status with the `FromError` function – if the
     conversion is done correctly, we will print the error code and the error message,
     and if it did not convert into a status, we will just panic as before:'
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了做到这一点，我们将修改`addTask`，使其在出现错误时尝试使用`FromError`函数将其转换为状态——如果转换正确完成，我们将打印错误代码和错误消息；如果没有转换为状态，我们将像以前一样直接panic：
 - en: '[PRE14]'
+  id: totrans-51
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: 'And now, after running the client with one of the errors we defined earlier,
     we can get the following:'
+  id: totrans-52
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，在运行了之前定义的错误之一后，我们可以得到以下结果：
 - en: '[PRE15]'
+  id: totrans-53
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: Bazel
+  id: totrans-54
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: Bazel
 - en: Important note
+  id: totrans-55
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要提示
 - en: The commands presented here are needed every time you update the imports related
     to gRPC. For the sake of simplicity, we show it only once in this chapter and
     we assume you will be able to do it in the other sections.
+  id: totrans-56
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里展示的命令每次更新与gRPC相关的导入时都需要使用。为了简化，我们只在本章中展示一次，并假设你将在其他部分中能够做到这一点。
 - en: 'As we are going to add more dependencies throughout this chapter, we will need
     to update our `BUILD` files. If we try to run the server with Bazel, right now,
     we will get an error that says the following:'
+  id: totrans-57
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于我们将在本章中添加更多依赖项，我们需要更新我们的`BUILD`文件。如果我们现在尝试使用Bazel运行服务器，我们会得到一个错误，显示以下内容：
 - en: '[PRE16]'
+  id: totrans-58
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: 'To solve this problem, we can just run the `gazelle` command, like so:'
+  id: totrans-59
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了解决这个问题，我们只需运行`gazelle`命令，如下所示：
 - en: '[PRE17]'
+  id: totrans-60
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: 'And then, we will be able to run the server and client correctly:'
+  id: totrans-61
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们就能正确地运行服务器和客户端：
 - en: '[PRE18]'
+  id: totrans-62
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: To conclude, we saw that we can create an error on the server side with the
     `Error` and `Errorf` functions from the `status` package. We have multiple error
     codes that we can choose from. We only saw two, but they are common ones. And
     finally, on the client side, we saw that we can act accordingly depending on the
     error code by transforming a Golang error into a Status and writing conditions
     based on the status code.
+  id: totrans-63
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结一下，我们看到了我们可以在服务器端使用`status`包中的`Error`和`Errorf`函数创建一个错误。我们有多个错误代码可供选择。我们只看到了两个，但它们是常见的。最后，在客户端，我们看到了我们可以根据错误代码相应地采取行动，通过将Go错误转换为状态并根据状态码编写条件。
 - en: Canceling a call
+  id: totrans-64
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 取消调用
 - en: When you want to stop a call depending on certain conditions or interrupt a
     long-lived stream, gRPC provides you with cancellation functions that you can
     execute at any time.
+  id: totrans-65
   prefs: []
   type: TYPE_NORMAL
+  zh: 当你想根据某些条件停止一个调用或中断一个长时间运行的流时，gRPC为你提供了可以在任何时候执行的取消函数。
 - en: If you have worked with Go on any distributed system code or API before, you
     probably saw a type called `context`. This is the idiomatic way to provide request-scoped
     information and signal across the API’s actors, and this is an important piece
     of gRPC.
+  id: totrans-66
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你之前在任何分布式系统代码或API中使用过Go，你可能见过一个名为`context`的类型。这是提供请求范围信息和在API的参与者之间传递信号的习惯用法，这也是gRPC的一个重要组成部分。
 - en: 'If you did not pay attention, up until now, we used `context.Background()`
     every time we made a request. In the Golang documentation, this is described as
     returning “*a non-nil, empty Context. It is never cancelled, has no values, and
     has no deadline*.” As you can guess, this alone is not suitable for production-ready
     APIs for the following reasons:'
+  id: totrans-67
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你没有注意到，到目前为止，我们每次发起请求时都使用了`context.Background()`。在Go文档中，这被描述为返回“*一个非空、空的上下文。它永远不会取消，没有值，也没有截止日期*。”正如你可以猜到的，仅此不足以用于生产就绪的API，以下是一些原因：
 - en: What if the user wants to kill the request early?
+  id: totrans-68
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果用户想要提前终止请求怎么办？
 - en: What if the API call never returns?
+  id: totrans-69
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果API调用永远不会返回怎么办？
 - en: What if we need the server to be aware of global values (e.g., an authentication
     token)?
+  id: totrans-70
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果我们需要服务器知道全局值（例如，一个认证令牌）怎么办？
 - en: In this section, let us focus on the first question, and in the next two sections,
     we will answer the others.
+  id: totrans-71
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本节中，让我们专注于第一个问题，在接下来的两个部分中，我们将回答其他问题。
 - en: 'To gain the ability to cancel a call, we will be using the `WithCancel` function
     from the `context` package ([https://pkg.go.dev/context#WithCancel](https://pkg.go.dev/context#WithCancel)).
     This function will return the constructed context and a `cancel` function that
     we can execute to interrupt the call made with the context. So, now, instead of
     only using `context.Background()`, we will create a context like so:'
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了获得取消调用的能力，我们将使用`context`包中的`WithCancel`函数（[https://pkg.go.dev/context#WithCancel](https://pkg.go.dev/context#WithCancel)）。这个函数将返回构建的上下文和一个`cancel`函数，我们可以执行它来中断使用上下文进行的调用。所以，现在，我们不仅使用`context.Background()`，我们将创建一个上下文，如下所示：
 - en: '[PRE19]'
+  id: totrans-73
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: Notice that this is important to call the `cancel` function at the end of the
     function to release the resources associated with the context. To make sure that
     the function is called, we can use a `defer`. However, this does not mean we cannot
     call the function before the end of the function.
+  id: totrans-74
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意，在函数末尾调用 `cancel` 函数是很重要的，以释放与上下文相关的资源。为了确保函数被调用，我们可以使用 `defer`。然而，这并不意味着我们不能在函数结束之前调用该函数。
 - en: As an example, we will create a fictional requirement. It is fictional because
     we are going to improve/remove the code we will write in this section in the following
     ones. The fictional requirement is to cancel a `ListTasks` call once we get an
     overdue `Task`. We can agree that it does not make sense in terms of features
     but regardless, this section’s goal is to try to cancel a call.
+  id: totrans-75
   prefs: []
   type: TYPE_NORMAL
+  zh: 作为例子，我们将创建一个虚构的需求。它是虚构的，因为我们将改进/删除在本节中将要编写的代码。虚构的需求是在我们收到逾期 `Task` 后取消 `ListTasks`
+    调用。我们可以同意，从功能的角度来看，这没有意义，但无论如何，本节的目标是尝试取消一个调用。
 - en: 'To implement such a feature, we will create the context with the `WithCancel`
     function, pass this context to the `ListTasks` API endpoint, and finally, we are
     going to add another `if` in the reading loop checking whether there is an `overdue`.
     If this is the case, we will call the `cancel` function:'
+  id: totrans-76
   prefs: []
   type: TYPE_NORMAL
+  zh: 要实现这样的功能，我们将使用 `WithCancel` 函数创建上下文，将此上下文传递给 `ListTasks` API 端点，最后，我们将在读取循环中添加另一个
+    `if`，检查是否存在逾期任务。如果确实如此，我们将调用 `cancel` 函数：
 - en: '[PRE20]'
+  id: totrans-77
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: Note that we could be breaking instead of calling the `cancel` function directly.
     Then the `defer` `cancel()` would kick in and the server would stop working. However,
     I decided to directly call `cancel` and let the client-side loop run because I
     want to show you that we will receive an error when canceling a call.
+  id: totrans-78
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意，我们可能会选择断开连接而不是直接调用 `cancel` 函数。然后，`defer cancel()` 将触发，服务器将停止工作。然而，我决定直接调用
+    `cancel` 并让客户端循环运行，因为我想要展示，当我们取消调用时，我们会收到一个错误。
 - en: 'Now, we need to be aware that `cancel` takes time to propagate over the network
     and thus the server might continue to run without us knowing. To inspect what
     the server is sending, we are simply going to print the `Task` on the terminal
     before sending it to the client:'
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，我们需要意识到 `cancel` 需要时间在网络中传播，因此服务器可能会在我们不知道的情况下继续运行。为了检查服务器发送的内容，我们将在将其发送到客户端之前，在终端上简单地打印出
+    `Task`：
 - en: '[PRE21]'
+  id: totrans-80
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: 'And finally, I want to mention that we do not need to add any code in the client’s
     `main` and this is because we already saw that we have tasks that are overdue
     when we run the current `main` code. The first overdue should appear in the `update`
     section:'
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我想提到，我们不需要在客户端的 `main` 函数中添加任何代码，这是因为我们已经看到，当我们运行当前的 `main` 代码时，我们会遇到逾期任务。第一个逾期任务应该出现在
+    `update` 部分：
 - en: '[PRE22]'
+  id: totrans-82
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: This is because, if you remember, we updated the `Id` value and the description
     of that `Task` and we set the rest of the properties of `Task` to the default
     values. This means that `Done` will be set to `false` and `DueDate` to an empty
     time object.
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: 这是因为，如果你记得，我们更新了 `Id` 值和那个 `Task` 的描述，并将 `Task` 的其余属性设置为默认值。这意味着 `Done` 将设置为
+    `false`，`DueDate` 将设置为空的时间对象。
 - en: 'Now, we can run the server like so:'
+  id: totrans-84
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，我们可以这样运行服务器：
 - en: '[PRE23]'
+  id: totrans-85
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: 'Then, we run the client:'
+  id: totrans-86
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们运行客户端：
 - en: Important note
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要提示
 - en: Before running the following code, make sure that you have commented the function
     calls that panic. This includes the two `addTask` that we added in the previous
     section.
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: 在运行以下代码之前，请确保你已经注释掉了会导致恐慌的函数调用。这包括我们在上一节中添加的两个 `addTask`。
 - en: '[PRE24]'
+  id: totrans-89
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: 'You should notice, on the client side, that everything runs correctly and that
     nothing was canceled even if the `update` section contains the following message:'
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: 你应该在客户端注意到一切运行正常，即使 `update` 部分包含以下消息，也没有任何内容被取消：
 - en: '[PRE25]'
+  id: totrans-91
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: The reason for this is that, the server does not know that the call has been
     canceled. To solve this problem, we can make the server cancel-aware.
+  id: totrans-92
   prefs: []
   type: TYPE_NORMAL
+  zh: 原因是服务器不知道调用已被取消。为了解决这个问题，我们可以使服务器能够感知取消。
 - en: 'To do that, we need to check the context’s `Done` channel. This channel will
     be closed when the cancel is propagated to the server and, in the cancel example,
     the context will have an error equal to `context.Canceled`. When we have this
     event, we know that the server needs to return and effectively stop working on
     the rest of the requests:'
+  id: totrans-93
   prefs: []
   type: TYPE_NORMAL
+  zh: 要做到这一点，我们需要检查上下文的 `Done` 通道。当取消传播到服务器时，此通道将被关闭，在取消示例中，上下文将有一个等于 `context.Canceled`
+    的错误。当我们有这个事件时，我们知道服务器需要返回并有效地停止处理剩余的请求：
 - en: '[PRE26]'
+  id: totrans-94
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: There are a couple of things to note before running this code.
+  id: totrans-95
   prefs: []
   type: TYPE_NORMAL
+  zh: 在运行此代码之前，有几个需要注意的事项。
 - en: The first one is that, when dealing with `stream`, we can get the context by
     using the `Context()` function available in the generated stream type (in our
     case, `pb.TodoService_ListTasksServer`).
+  id: totrans-96
   prefs: []
   type: TYPE_NORMAL
+  zh: 第一件事是，当处理`stream`时，我们可以通过使用生成的流类型（在我们的案例中是`pb.TodoService_ListTasksServer`）中可用的`Context()`函数来获取上下文。
 - en: And secondly, note that we are intentionally sleeping 1 millisecond per call
     of the closure. This would not happen in production; we would have a default branch
     instead. This is done so that the server has time to notice the cancellation.
     Note that this number is arbitrary; it is the smallest amount of time for me to
     notice the cancel error on my machine. You might need to make it larger, or you
     can make it smaller.
+  id: totrans-97
   prefs: []
   type: TYPE_NORMAL
+  zh: 其次，请注意，我们故意在每个闭包调用中暂停1毫秒。在生产环境中不会发生这种情况；我们会有一个默认分支。这样做是为了让服务器有时间注意到取消操作。请注意，这个数字是任意的；这是我能在我的机器上注意到取消错误的最小时间。你可能需要将其设置得更大，或者你可以将其设置得更小。
 - en: 'Now, we can run the server like so:'
+  id: totrans-98
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，我们可以这样运行服务器：
 - en: '[PRE27]'
+  id: totrans-99
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: 'Then, we can run the client:'
+  id: totrans-100
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们可以再次运行客户端：
 - en: '[PRE28]'
+  id: totrans-101
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: 'Finally, you should also notice that on the server side, you get the following
     message:'
+  id: totrans-102
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，你应该注意，在服务器端，你会收到以下信息：
 - en: '[PRE29]'
+  id: totrans-103
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: To conclude, we saw how we can use `context.WithCancel()` to create a cancellable
     context. We also saw that this function returns a `cancel` function, which we
     need to call at the end of the scope to release the resources attached to the
     context, but we can also call it earlier to cancel depending on some condition.
     And finally, we saw that we can make the server cancel-aware so that it does not
     execute more work than needed.
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结来说，我们看到了如何使用`context.WithCancel()`创建一个可取消的上下文。我们还看到这个函数返回一个`cancel`函数，我们需要在作用域结束时调用它来释放上下文关联的资源，但我们也可以根据某些条件提前调用它。最后，我们看到了如何让服务器知道取消操作，这样它就不会执行超过所需的工作。
 - en: Specifying deadlines
+  id: totrans-105
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 指定截止日期
 - en: Deadlines are the most important thing when we are dealing with asynchronous
     communication. This is because a call could never return due to network or other
     problems. That is why Google recommends that we set a deadline for each of our
     RPC calls. Fortunately for us, this is as easy as canceling a call.
+  id: totrans-106
   prefs: []
   type: TYPE_NORMAL
+  zh: 在处理异步通信时，截止日期是最重要的事情。这是因为通话可能因为网络或其他问题而永远无法返回。这就是为什么谷歌建议我们为每个RPC调用设置一个截止日期。幸运的是，对我们来说，这就像取消一个调用一样简单。
 - en: The first thing that we need to do, on the client side, is to create a context.
     This is similar to the `WithCancel` function, but this time, we will use `WithTimeout`.
     It takes a parent context like `WithCancel` but on top of that, it takes a `Time`
     instance representing the maximum amount of time for which we are willing to wait
     for a server answer.
+  id: totrans-107
   prefs: []
   type: TYPE_NORMAL
+  zh: 在客户端，我们首先需要做的是创建一个上下文。这类似于`WithCancel`函数，但这次，我们将使用`WithTimeout`。它接受一个父上下文，就像`WithCancel`一样，但除此之外，它还接受一个`Time`实例，表示我们愿意等待服务器回答的最大时间。
 - en: 'Instead of `WithCancel` in `printTasks`, we are now going to have the following
     context:'
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`printTasks`中的`WithCancel`代替，我们现在将使用以下上下文：
 - en: '[PRE30]'
+  id: totrans-109
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: Obviously, a timeout of 1 millisecond is way too low to let the server answer,
     but this is done on purpose so that we can get a `DeadlineExceeded` error. In
     real-life scenarios, we would need to set the timeout depending on the requirements
     set for the service. This is very much dependent on your use case and the service’s
     job, so you will need to experiment and track the average amount of time in which
     your server will respond.
+  id: totrans-110
   prefs: []
   type: TYPE_NORMAL
+  zh: 显然，1毫秒的超时时间对于让服务器回答来说太低了，但我们故意这样做是为了得到一个`DeadlineExceeded`错误。在现实场景中，我们需要根据为服务设定的要求来设置超时。这非常依赖于你的用例和服务的任务，所以你需要进行实验并跟踪服务器响应的平均时间。
 - en: 'That is everything we need to make a deadline in gRPC. We can now run our server:'
+  id: totrans-111
   prefs: []
   type: TYPE_NORMAL
+  zh: 这就是我们在gRPC中设置截止日期所需的一切。我们现在可以运行我们的服务器：
 - en: '[PRE31]'
+  id: totrans-112
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: 'Then, we can run the client:'
+  id: totrans-113
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们可以运行客户端：
 - en: '[PRE32]'
+  id: totrans-114
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: We can see that the first `ListTasks`, as expected, failed.
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以看到，第一个`ListTasks`正如预期的那样失败了。
 - en: Now, while this is all you need to set deadlines up, you can also make the server
     aware of the `DeadlineExceeded` error. Even if this is technically already done
     because we are returning `ctx.Err()` when the `Done` channel closes, we still
     want to print a message saying that the deadline has been exceeded.
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，虽然这已经是你设置截止日期所需的一切，但你也可以让服务器知道`DeadlineExceeded`错误。即使从技术上讲这已经完成，因为我们当`Done`通道关闭时返回`ctx.Err()`，我们仍然想打印一条消息，说明截止日期已经超过。
 - en: 'To do so, this is like the `Canceled` error, but this time, we are going to
     add a `DeadlineExceeded` branch in the `switch` on `ctx.Err()`:'
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: 要做到这一点，这就像`Canceled`错误一样，但这次，我们将在`ctx.Err()`的`switch`上添加一个`DeadlineExceeded`分支：
 - en: '[PRE33]'
+  id: totrans-118
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: 'And if we rerun our server and client, we now should have the following message
     on the terminal running the server:'
+  id: totrans-119
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们重新运行服务器和客户端，现在应该在运行服务器的终端上看到以下消息：
 - en: '[PRE34]'
+  id: totrans-120
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: To conclude, we saw that, similarly to `WithCancel`, we can use `WithTimeout`
     in order to create a deadline for a call. It is recommended to always set a deadline
     since we might never get an answer back from the server. And finally, we also
     saw how to make the server deadline-aware so that it does not work more than needed.
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结来说，我们看到了，类似于`WithCancel`，我们可以使用`WithTimeout`来为调用创建一个截止日期。建议始终设置一个截止日期，因为我们可能永远也收不到服务器的回答。最后，我们还看到了如何使服务器具有截止日期意识，以便它不会过度工作。
 - en: Sending metadata
+  id: totrans-122
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 发送元数据
 - en: Another feature that builds upon contexts is the possibility to pass metadata
     through calls. In gRPC, these metadata can be HTTP headers or HTTP trailers. They
     are both a list of key-value pairs that are used for many purposes such as passing
@@ -536,107 +790,159 @@
     are simply headers that are sent after a message and not before. They are less
     used by developers but are used by gRPC to implement streaming interfaces. Anyway,
     if you are interested, you can look at the `grpc.SetTrailer` function ([https://pkg.go.dev/google.golang.org/grpc#SetTrailer](https://pkg.go.dev/google.golang.org/grpc#SetTrailer)).
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 基于上下文构建的另一个特性是可以通过调用传递元数据。在gRPC中，这些元数据可以是HTTP头或HTTP尾迹。它们都是键值对列表，用于多种目的，例如传递身份验证令牌和数字签名、数据完整性等。在本节中，我们将主要关注通过头传递元数据。尾迹是发送在消息之后而不是之前的头。开发者较少使用，但gRPC使用它来实现流接口。无论如何，如果你感兴趣，可以查看`grpc.SetTrailer`函数（[https://pkg.go.dev/google.golang.org/grpc#SetTrailer](https://pkg.go.dev/google.golang.org/grpc#SetTrailer)）。
 - en: Our use case will be to pass an auth token to the `UpdateTasks` RPC endpoint,
     and after checking it, we will decide to either update the task or return an `Unauthenticated`
     error. Obviously, we are not going to deal with how to generate the `auth` token
     because this is an implementation detail, but we are going to simply have `authd`
     as the right token and everything else will be considered incorrect.
+  id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们的用例是将身份验证令牌传递给`UpdateTasks` RPC端点，并在检查之后，我们将决定是更新任务还是返回一个`Unauthenticated`错误。显然，我们不会处理如何生成`auth`令牌，因为这是一个实现细节，但我们将简单地使用`authd`作为正确的令牌，其他所有内容都将被视为不正确。
 - en: 'Let us start from the server side. The server is receiving the data from the
     context; thus, we are going to use the `FromIncomingContext` function from the
     `metadata` package in gRPC. This will return a map and whether there is some metadata
     or not. In `UpdateTasks`, we can do the following:'
+  id: totrans-125
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们从服务器端开始。服务器正在接收上下文中的数据；因此，我们将使用gRPC中`metadata`包的`FromIncomingContext`函数。这将返回一个映射和是否有元数据。在`UpdateTasks`中，我们可以做以下操作：
 - en: '[PRE35]'
+  id: totrans-126
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: 'We can now check whether the auth token was provided. To do that, this is a
     simple usage of the Golang map. We try to access the `auth_token` element in the
     `md` map. It will return values and a Boolean saying whether the key is in the
     map or not. If it is, we are going to check that there is only one value and that
     this value is equal to `"authd"`. And if it is not, we will return an `Unauthenticated`
     error:'
+  id: totrans-127
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们现在可以检查是否提供了身份验证令牌。为此，这是一个简单的Golang映射使用。我们尝试访问`md`映射中的`auth_token`元素。它将返回值和一个布尔值，表示键是否在映射中。如果是，我们将检查只有一个值，并且这个值等于`"authd"`。如果不是，我们将返回一个`Unauthenticated`错误：
 - en: '[PRE36]'
+  id: totrans-128
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: That is all for the server; we return an error if there is no metadata, if there
     is metadata but no `auth_token`, if there is an `auth_token` with multiple values,
     and if the `auth_token` value is different from `"authd"`.
+  id: totrans-129
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于服务器来说，这就是全部了；如果没有元数据，如果有元数据但没有`auth_token`，如果有多个值的`auth_token`，以及如果`auth_token`的值与`"authd"`不同，我们将返回一个错误。
 - en: 'We can now go to the client to send the appropriate header. This can be done
     with another function from the `metadata` package called `AppendToOutgoingContext`.
     We know that we already have a context created before calling the endpoint, so
     we are just going to append `auth_token` to it. This is as easy as the following:'
+  id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们可以转到客户端发送适当的头信息。这可以通过`metadata`包中的另一个函数`AppendToOutgoingContext`来完成。我们知道在调用端点之前我们已经创建了一个上下文，所以我们只需将`auth_token`附加到它。这就像以下这样简单：
 - en: '[PRE37]'
+  id: totrans-131
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: 'We override the context that we created with a new context containing the key
     value pair. Note that the key-value pairs can be interleaved. This means that
     we can have the following:'
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们通过包含键值对的新的上下文来覆盖我们创建的上下文。请注意，键值对可以交错。这意味着我们可以有如下情况：
 - en: '[PRE38]'
+  id: totrans-133
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE38]'
 - en: Here, `K` stands for key, and `V` stands for value.
+  id: totrans-134
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这里，`K`代表键，`V`代表值。
 - en: 'We can now run the server:'
+  id: totrans-135
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们可以运行服务器：
 - en: '[PRE39]'
+  id: totrans-136
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE39]'
 - en: 'And then we run the client:'
+  id: totrans-137
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后我们运行客户端：
 - en: '[PRE40]'
+  id: totrans-138
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE40]'
 - en: 'And everything should go well. However, if you set a value for `auth_token`
     different from `"authd"`, you should get the following message:'
+  id: totrans-139
   prefs: []
   type: TYPE_NORMAL
+  zh: 一切都应该顺利。然而，如果你为`auth_token`设置了不同于`"authd"`的值，你应该得到以下消息：
 - en: '[PRE41]'
+  id: totrans-140
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE41]'
 - en: 'If you do not set the `auth_token` header, you will see this:'
+  id: totrans-141
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你没有设置`auth_token`头信息，你会看到以下内容：
 - en: '[PRE42]'
+  id: totrans-142
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE42]'
 - en: 'And imagine you set multiple values to `auth_token`, like so:'
+  id: totrans-143
   prefs: []
   type: TYPE_NORMAL
+  zh: 假设你为`auth_token`设置了多个值，如下所示：
 - en: '[PRE43]'
+  id: totrans-144
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE43]'
 - en: 'You should get the following error:'
+  id: totrans-145
   prefs: []
   type: TYPE_NORMAL
+  zh: 你应该得到以下错误：
 - en: '[PRE44]'
+  id: totrans-146
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE44]'
 - en: To conclude, we saw how to get metadata from a context with the `metadata.FromIncomingContext`
     function and all the possible errors that can arise when we do so. We also saw
     how to actually send metadata from the client by appending a key-value pair to
     a context with the `metadata.AppendToOutgoingContext` function.
+  id: totrans-147
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结来说，我们看到了如何使用`metadata.FromIncomingContext`函数从上下文中获取元数据，以及当我们这样做时可能出现的所有可能的错误。我们还看到了如何通过使用`metadata.AppendToOutgoingContext`函数将键值对附加到上下文中来实际从客户端发送元数据。
 - en: External logic with interceptors
+  id: totrans-148
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用拦截器的外部逻辑
 - en: While some headers might be applicable to only one endpoint, most often, we
     want to be able to apply the same logic across different endpoints. In the case
     of the `auth_token` header, if we have multiple routes that can only be called
@@ -645,461 +951,699 @@
     distract developers when finding the heart of the endpoint. This is why we will
     use an authentication interceptor. We will extract that authentication logic and
     it will be called before each call in the API.
+  id: totrans-149
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然某些头信息可能只适用于一个端点，但大多数情况下，我们希望能够在不同的端点之间应用相同的逻辑。在`auth_token`头信息的情况下，如果我们有多个路由，只有在用户登录时才能调用，我们不希望重复我们在上一节中做的所有检查。这会使代码膨胀；它不可维护；并且可能会在开发者寻找端点核心时分散他们的注意力。这就是为什么我们将使用身份验证拦截器。我们将提取那个身份验证逻辑，它将在API中的每次调用之前被调用。
 - en: Our interceptors will be called `authInterceptor`. The interceptor on the server
     side will simply do all the checks we did in the previous section, and then if
     everything goes well, the execution of the endpoint will be launched. Otherwise,
     the interceptor will return the error and the endpoint will not be called.
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们的拦截器将被命名为`authInterceptor`。服务器端的拦截器将简单地执行我们在上一节中做的所有检查，如果一切顺利，将启动端点的执行。否则，拦截器将返回错误，端点将不会被调用。
 - en: 'To define a server side interceptor, we have two possibilities. The first one
     is used when we work with a unary RPC endpoint (e.g., `AddTasks`). The interceptor
     function will look like the following:'
+  id: totrans-151
   prefs: []
   type: TYPE_NORMAL
+  zh: 要定义服务器端拦截器，我们有两种可能性。第一种是在我们使用单一RPC端点（例如，`AddTasks`）时使用。拦截器函数将如下所示：
 - en: '[PRE45]'
+  id: totrans-152
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE45]'
 - en: 'And then we have interceptors working on streams. They look like the following:'
+  id: totrans-153
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后我们有了在流上工作的拦截器。它们看起来如下所示：
 - en: '[PRE46]'
+  id: totrans-154
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE46]'
 - en: They look very similar. The main difference is the parameters’ type. Now, we
     are not going to use all the parameters for our use case, so I will encourage
     you to check the documentation ([https://pkg.go.dev/google.golang.org/grpc](https://pkg.go.dev/google.golang.org/grpc))
     for `UnaryServerInterceptor` and `StreamServerInterceptor`, and play with them.
+  id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: 它们看起来非常相似。主要区别是参数的类型。现在，我们不会使用所有参数来处理我们的用例，所以我鼓励您查看文档（[https://pkg.go.dev/google.golang.org/grpc](https://pkg.go.dev/google.golang.org/grpc)）中的`UnaryServerInterceptor`和`StreamServerInterceptor`，并尝试使用它们。
 - en: 'Let us start with the unary interceptor that will be used by `AddTasks`. We
     will first extract the check into a function that will be shared across the interceptors.
     In a file called `interceptors.go`, we can write the following:'
+  id: totrans-156
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们从 `AddTasks` 将会使用的单一拦截器开始。我们首先将检查提取到一个函数中，该函数将在拦截器之间共享。在一个名为 `interceptors.go`
+    的文件中，我们可以编写以下内容：
 - en: '[PRE47]'
+  id: totrans-157
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE47]'
 - en: 'There is nothing different from what we did directly in `UpdateTasks`. But
     now, writing our interceptor is simple. We will just call the `validateAuthToken`
     function and check for errors. If there is one, we will return it directly. And
     if there is not, we are going to call the `handler` function, which effectively
     calls the endpoint:'
+  id: totrans-158
   prefs: []
   type: TYPE_NORMAL
+  zh: 这与我们直接在 `UpdateTasks` 中所做的没有区别。但现在，编写我们的拦截器很简单。我们只需调用 `validateAuthToken` 函数并检查错误。如果有错误，我们将直接返回它。如果没有错误，我们将调用
+    `handler` 函数，这实际上会调用端点：
 - en: '[PRE48]'
+  id: totrans-159
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE48]'
 - en: 'We can do the same for streams. The only thing that will change is the arguments
     of the handler and how we get the context:'
+  id: totrans-160
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以对流做同样的操作。唯一会改变的是处理器的参数以及我们如何获取上下文：
 - en: '[PRE49]'
+  id: totrans-161
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE49]'
 - en: 'Now, you might be thinking that we have functions but nobody to call them.
     And you are entirely right. We need to register these interceptors so that our
     server knows that they exist. This is done in `server/main.go` where we can add
     the interceptors as options to the gRPC server. Right now, we create the server
     like so:'
+  id: totrans-162
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，你可能认为我们有函数，但没有人来调用它们。你完全正确。我们需要注册这些拦截器，以便我们的服务器知道它们的存在。这是在 `server/main.go`
+    中完成的，在那里我们可以将拦截器作为选项添加到 gRPC 服务器中。目前，我们创建服务器的方式如下：
 - en: '[PRE50]'
+  id: totrans-163
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE50]'
 - en: 'And to add the interceptors, we can simply add them to the `opts` variable:'
+  id: totrans-164
   prefs: []
   type: TYPE_NORMAL
+  zh: 要添加拦截器，我们只需将它们添加到 `opts` 变量中：
 - en: '[PRE51]'
+  id: totrans-165
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE51]'
 - en: 'We can now run the server:'
+  id: totrans-166
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们现在可以运行服务器：
 - en: Important note
+  id: totrans-167
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要提示
 - en: Before running the server, you can delete the whole authentication logic in
     the `UpdateTasks` function in `server/impl.go`. This is not needed anymore since
     the interceptors will authenticate requests automatically.
+  id: totrans-168
   prefs: []
   type: TYPE_NORMAL
+  zh: 在运行服务器之前，您可以在 `server/impl.go` 中的 `UpdateTasks` 函数中删除整个认证逻辑。由于拦截器将自动认证请求，这不再需要。
 - en: '[PRE52]'
+  id: totrans-169
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE52]'
 - en: 'Then, we can run the client:'
+  id: totrans-170
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们可以运行客户端：
 - en: '[PRE53]'
+  id: totrans-171
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE53]'
 - en: As expected, we get an error because we never added the `auth_token` header
     in the `addTask` function on the client side.
+  id: totrans-172
   prefs: []
   type: TYPE_NORMAL
+  zh: 如预期的那样，我们得到了一个错误，因为我们从未在客户端的 `addTask` 函数中添加 `auth_token` 标题。
 - en: 'Obviously, we do not want to add the header to all our calls by hand. We will
     create a client-side interceptor that will add it for us before proceeding to
     send the request. On the client side, we have two ways of defining an interceptor.
     For the unary calls, we have the following:'
+  id: totrans-173
   prefs: []
   type: TYPE_NORMAL
+  zh: 显然，我们不想手动将标题添加到所有的调用中。我们将创建一个客户端拦截器，在发送请求之前为我们添加它。在客户端，我们有两种定义拦截器的方式。对于单一调用，我们有以下内容：
 - en: '[PRE54]'
+  id: totrans-174
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE54]'
 - en: 'And for streams, we have this:'
+  id: totrans-175
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于流，我们有以下内容：
 - en: '[PRE55]'
+  id: totrans-176
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE55]'
 - en: As you can see, there are many more parameters on this side. And, while most
     parameters are not important for our use case, I encourage you to check the documentation
     ([https://pkg.go.dev/google.golang.org/grpc](https://pkg.go.dev/google.golang.org/grpc))
     for `UnaryClientInterceptor` and `StreamClientInterceptor`, and play around with
     them.
+  id: totrans-177
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，这一侧有更多的参数。而且，尽管大多数参数对我们用例来说并不重要，但我鼓励您查看 `UnaryClientInterceptor` 和 `StreamClientInterceptor`
+    的文档 ([https://pkg.go.dev/google.golang.org/grpc](https://pkg.go.dev/google.golang.org/grpc))，并尝试使用它们。
 - en: In the client-side interceptors, we are going to simply create a new context
     and append the metadata before calling the endpoint. We do not even need to create
     a separate function to share the logic since this is as simple as calling the
     `AppendToOutgoingContext` function that we saw earlier.
+  id: totrans-178
   prefs: []
   type: TYPE_NORMAL
+  zh: 在客户端拦截器中，我们将简单地创建一个新的上下文，并在调用端点之前附加元数据。我们甚至不需要创建一个单独的函数来共享逻辑，因为这就像调用我们之前看到的
+    `AppendToOutgoingContext` 函数一样简单。
 - en: 'In `client/interceptors.go`, we can write the following:'
+  id: totrans-179
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 `client/interceptors.go` 中，我们可以编写以下内容：
 - en: '[PRE56]'
+  id: totrans-180
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE56]'
 - en: 'And finally, as in the server, we also need to register these interceptors.
     This time, these interceptors will be registered by adding `DialOptions` to the
     `Dial` function we use in `main`. Right now, you should have something like:'
+  id: totrans-181
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，就像在服务器中一样，我们还需要注册这些拦截器。这次，这些拦截器将通过将 `DialOptions` 添加到我们在 `main` 中使用的 `Dial`
+    函数来注册。目前，你应该有如下内容：
 - en: '[PRE57]'
+  id: totrans-182
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE57]'
 - en: 'We can now add the interceptors like so:'
+  id: totrans-183
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们现在可以添加拦截器如下：
 - en: '[PRE58]'
+  id: totrans-184
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE58]'
 - en: 'As they are registered, we can run our server:'
+  id: totrans-185
   prefs: []
   type: TYPE_NORMAL
+  zh: 当它们被注册后，我们可以运行我们的服务器：
 - en: '[PRE59]'
+  id: totrans-186
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE59]'
 - en: 'Then, we can run the client:'
+  id: totrans-187
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们可以运行客户端：
 - en: Important note
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要提示
 - en: Before running the client, you can delete the call to `AppendToOutgoingContext`
     present in `updateTask` in the `client/main.go` file. This is not needed anymore
     since the interceptors will do it automatically.
+  id: totrans-189
   prefs: []
   type: TYPE_NORMAL
+  zh: 在运行客户端之前，你可以在`client/main.go`文件中的`updateTask`中删除对`AppendToOutgoingContext`的调用。由于拦截器会自动执行，所以这不再需要。
 - en: '[PRE60]'
+  id: totrans-190
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE60]'
 - en: And all the calls should now go through without any errors.
+  id: totrans-191
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在所有的调用都应该没有错误地通过。
 - en: To conclude, in this section, we saw that we can write unary and stream interceptors
     on both the server and client sides. The goal of these interceptors is to automatically
     do some repetitive work across multiple endpoints. In our example, we automated
     the adding and checking of the `auth_token` header for authentication.
+  id: totrans-192
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结来说，在本节中，我们看到了我们可以在服务器和客户端的两侧编写单一和流拦截器。这些拦截器的目标是自动在多个端点之间执行一些重复性工作。在我们的例子中，我们自动化了`auth_token`头部的添加和检查以进行身份验证。
 - en: Compressing the payload
+  id: totrans-193
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 压缩有效载荷
 - en: While Protobuf serializes data into binary and this involves much smaller payloads
     than text data, we can apply compression on top of the binary. gRPC provides us
     with the gzip Compressor ([https://pkg.go.dev/google.golang.org/grpc/encoding/gzip](https://pkg.go.dev/google.golang.org/grpc/encoding/gzip))
     and for more advanced use cases, lets us write our own Compressor ([https://pkg.go.dev/google.golang.org/grpc/encoding](https://pkg.go.dev/google.golang.org/grpc/encoding)).
+  id: totrans-194
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然 Protobuf 将数据序列化为二进制格式，这比文本数据涉及更小的有效载荷，但我们可以在二进制数据上应用压缩。gRPC为我们提供了gzip Compressor
+    ([https://pkg.go.dev/google.golang.org/grpc/encoding/gzip](https://pkg.go.dev/google.golang.org/grpc/encoding/gzip))，并且对于更高级的使用场景，允许我们编写自己的Compressor
+    ([https://pkg.go.dev/google.golang.org/grpc/encoding](https://pkg.go.dev/google.golang.org/grpc/encoding))。
 - en: Now, before diving into how to use the gzip Compressor, it is important to understand
     that lossless compression might result in a bigger payload size. If your payload
     does not contain repetitive data, which is what gzip detects and compresses, you
     will send more bytes than needed. So, you will need to experiment with a typical
     payload and see how gzip affects its size.
+  id: totrans-195
   prefs: []
   type: TYPE_NORMAL
+  zh: 在深入探讨如何使用gzip Compressor之前，重要的是要理解无损压缩可能会导致更大的有效载荷大小。如果你的有效载荷不包含重复数据，这正是gzip检测并压缩的数据，你将发送比所需的更多字节。所以，你需要对典型的有效载荷进行实验，看看gzip如何影响其大小。
 - en: 'To show an example of that, I included in the `helpers` folder a file called
     `gzip.go`, which contains a helper function called `compressedSize`. This function
     returns the original size of the serialized data and its size after gzip compression:'
+  id: totrans-196
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了展示一个例子，我在`helpers`文件夹中包含了一个名为`gzip.go`的文件，该文件包含一个名为`compressedSize`的辅助函数。这个函数返回序列化数据的原始大小及其经过gzip压缩后的大小：
 - en: '[PRE61]'
+  id: totrans-197
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE61]'
 - en: 'As this is a generic function, we can use it with any message. We can start
     with a message that would not be suitable to compress: `Int32Value`. So, in the
     `main` function of the file, we are going to create an instance of `Int32Value`,
     pass it through the `compressedSize` function, and we are going to print both
     the original and the new size:'
+  id: totrans-198
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于这是一个通用函数，我们可以用它来处理任何消息。我们可以从一个不适合压缩的消息开始：`Int32Value`。所以，在文件的`main`函数中，我们将创建一个`Int32Value`实例，通过`compressedSize`函数传递它，并将打印原始大小和新大小：
 - en: '[PRE62]'
+  id: totrans-199
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE62]'
 - en: 'And if we run this, we should get the following:'
+  id: totrans-200
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们运行这个程序，我们应该得到以下结果：
 - en: '[PRE63]'
+  id: totrans-201
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE63]'
 - en: 'The compressed payload is five times bigger than the original one. That is
     definitely something to avoid in production. Now obviously, most of the time,
     we do not send such simple messages, so let us see a more concrete example. We
     are going to use the `Task` message that we defined earlier in the book:'
+  id: totrans-202
   prefs: []
   type: TYPE_NORMAL
+  zh: 压缩后的有效载荷是原始大小的五倍。这绝对是在生产环境中需要避免的事情。显然，大多数时候，我们不会发送如此简单的消息，所以让我们看看一个更具体的例子。我们将使用本书中定义的`Task`消息：
 - en: '[PRE64]'
+  id: totrans-203
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE64]'
 - en: 'Then, we can compile it with the following command:'
+  id: totrans-204
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们可以使用以下命令来编译它：
 - en: '[PRE65]'
+  id: totrans-205
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE65]'
 - en: 'And after that, we can now create an instance of `Task` and pass it the `compressedSize`
     function to see the result of compression:'
+  id: totrans-206
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们现在可以创建一个`Task`实例，并将`compressedSize`函数传递给它，以查看压缩的结果：
 - en: '[PRE66]'
+  id: totrans-207
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE66]'
 - en: 'And if we run it, we should get the following sizes:'
+  id: totrans-208
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们运行它，我们应该得到以下大小：
 - en: '[PRE67]'
+  id: totrans-209
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE67]'
 - en: This is better than the previous example, but this is still not efficient since
     we are sending more bytes than needed. So, in the cases we saw previously, it
     would not make sense to use gzip compression.
+  id: totrans-210
   prefs: []
   type: TYPE_NORMAL
+  zh: 这比之前的例子要好，但仍然不够高效，因为我们发送的字节比所需的更多。所以，在之前我们看到的情况下，使用gzip压缩是没有意义的。
 - en: 'Lastly, let us see an example of when compression is useful. Let us say that
     most of our `Task` instances have long descriptions. For example, we could have
     something like so:'
+  id: totrans-211
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，让我们看看压缩何时有用。假设我们的大部分`Task`实例都有很长的描述。例如，我们可能像这样：
 - en: '[PRE68]'
+  id: totrans-212
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE68]'
 - en: 'Then, running the `compressedSize` function will give us the following sizes:'
+  id: totrans-213
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，运行`compressedSize`函数将给出以下大小：
 - en: '[PRE69]'
+  id: totrans-214
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE69]'
 - en: The lesson here is that we need to know our data before enabling gzip compression
     in gRPC. Now, let us see how to enable it.
+  id: totrans-215
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里的教训是，在gRPC中启用gzip压缩之前，我们需要了解我们的数据。现在，让我们看看如何启用它。
 - en: 'On the server side (`server/main.go`), this is as easy as adding the following
     import:'
+  id: totrans-216
   prefs: []
   type: TYPE_NORMAL
+  zh: 在服务器端（`server/main.go`），这就像添加以下导入一样简单：
 - en: '[PRE70]'
+  id: totrans-217
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE70]'
 - en: Notice that we add an underscore before it in order to avoid getting an error
     from the compiler saying that we are not using the import.
+  id: totrans-218
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意，我们在它前面添加一个下划线，以避免编译器错误，错误信息是我们在不使用导入的情况下操作。
 - en: That is all for the server. On the client side, there is a little bit more code,
     but this is also simple. We can enable compression on all the RPC endpoints by
     adding `DialOption` or we can enable it for a single endpoint by adding `CallOption`
     ([https://pkg.go.dev/google.golang.org/grpc#CallOption](https://pkg.go.dev/google.golang.org/grpc#CallOption)).
+  id: totrans-219
   prefs: []
   type: TYPE_NORMAL
+  zh: 那就是服务器端的全部内容。在客户端，代码稍微多一点，但这也很简单。我们可以通过添加`DialOption`来为所有RPC端点启用压缩，或者我们可以通过添加`CallOption`来为单个端点启用压缩（[https://pkg.go.dev/google.golang.org/grpc#CallOption](https://pkg.go.dev/google.golang.org/grpc#CallOption)）。
 - en: 'For the first option, we can simply add the following:'
+  id: totrans-220
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于第一个选项，我们可以简单地添加以下内容：
 - en: '[PRE71]'
+  id: totrans-221
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE71]'
 - en: gzip adds the same import as the one in the server without the preceding underscore.
+  id: totrans-222
   prefs: []
   type: TYPE_NORMAL
+  zh: gzip添加了与服务器中相同的作用，但没有前面的下划线。
 - en: 'And for adding compression per call, we can add `CallOption`. If we wanted
     to add gzip compression to `AddTask` calls, we would have the following:'
+  id: totrans-223
   prefs: []
   type: TYPE_NORMAL
+  zh: 而对于按调用添加压缩，我们可以添加`CallOption`。如果我们想将gzip压缩添加到`AddTask`调用中，我们会得到以下内容：
 - en: '[PRE72]'
+  id: totrans-224
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE72]'
 - en: To conclude, we saw that always adding compression is not a good idea and we
     should only add it after testing it on our data. Then, we saw how we can register
     the gzip compressor on the server and client. And finally, we saw that we can
     enable compression globally or per call.
+  id: totrans-225
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结一下，我们看到了总是添加压缩不是一个好主意，我们应该在测试我们的数据后再添加它。然后，我们看到了如何在服务器和客户端注册gzip压缩器。最后，我们看到了我们可以全局或按调用启用压缩。
 - en: Securing connections
+  id: totrans-226
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 保护连接
 - en: Up until now, we have not made our connections secure – we used insecure credentials.
     In gRPC, we can use TLS, mTLS, and ATLS connections. The first uses a one-way
     authentication where the client can verify the server’s identity. The second one
     is a two-way communication where the server verifies the client’s identity and
     the client verifies the server’s. And finally, ATLS is similar to TLS but designed
     and optimized for Google’s use.
+  id: totrans-227
   prefs: []
   type: TYPE_NORMAL
+  zh: 到目前为止，我们还没有使我们的连接安全——我们使用了不安全的凭证。在gRPC中，我们可以使用TLS、mTLS和ATLS连接。第一个使用单向认证，客户端可以验证服务器的身份。第二个是双向通信，服务器验证客户端的身份，客户端验证服务器的。最后，ATLS类似于TLS，但设计和优化了Google的使用。
 - en: 'mTLS and ATLS are worth exploring if you are working on smaller-scale communication
     or working with Google Cloud, respectively. If you are interested in mTLS, you
     should check the mTLS folder in the `grpc-go` GitHub repository: [https://github.com/grpc/grpc-go/tree/master/examples/features/encryption/mTLS](https://github.com/grpc/grpc-go/tree/master/examples/features/encryption/mTLS).
     And if you want to use ATLS, check out this link: [https://grpc.io/docs/languages/go/alts/](https://grpc.io/docs/languages/go/alts/).
     However, in our case, we are going to see the most frequently used form of encryption,
     which is TLS.'
+  id: totrans-228
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你正在处理较小规模的通信或与Google Cloud合作，那么mTLS和ATLS都值得探索。如果你对mTLS感兴趣，你应该检查`grpc-go` GitHub仓库中的mTLS文件夹：[https://github.com/grpc/grpc-go/tree/master/examples/features/encryption/mTLS](https://github.com/grpc/grpc-go/tree/master/examples/features/encryption/mTLS)。如果你想使用ATLS，查看这个链接：[https://grpc.io/docs/languages/go/alts/](https://grpc.io/docs/languages/go/alts/)。然而，在我们的情况下，我们将看到最常用的加密形式，即TLS。
 - en: To do so, we are going to need to create some self-signed certificates. Obviously,
     in production, these certificates will be automatically created with something
     such as Let’s Encrypt. However, once these certificates are available, the overall
     settings are the same.
+  id: totrans-229
   prefs: []
   type: TYPE_NORMAL
+  zh: 要这样做，我们需要创建一些自签名的证书。显然，在生产环境中，这些证书将自动通过类似Let’s Encrypt的工具创建。然而，一旦这些证书可用，整体设置是相同的。
 - en: 'Now, for the sake of simplicity, we are going to download these certificates
     from the examples in the `grpc-go` repository. These certificates can also be
     found in the `certs` directory under the `chapter7` folder. We first need to get
     the server certificate and its key:'
+  id: totrans-230
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，为了简化，我们将从`grpc-go`存储库中的示例下载这些证书。这些证书也可以在`chapter7`文件夹下的`certs`目录中找到。我们首先需要获取服务器证书及其密钥：
 - en: '[PRE73]'
+  id: totrans-231
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE73]'
 - en: 'And then we need to get the **Certificate Authority** (**CA**) certificate:'
+  id: totrans-232
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后我们需要获取**证书颁发机构**（**CA**）证书：
 - en: '[PRE74]'
+  id: totrans-233
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE74]'
 - en: 'Now, we can start with the server. We will add the credentials as `ServerOption`
     because we want all our calls to be encrypted. To create the credentials, we can
     use a function called `NewServerTLSFromFile` from gRPC’s `credential` package.
     It reads two files, the server certificate and the server key:'
+  id: totrans-234
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，我们可以从服务器开始。我们将添加凭证作为`ServerOption`，因为我们希望所有调用都加密。为了创建凭证，我们可以使用gRPC的`credential`包中的`NewServerTLSFromFile`函数。它读取两个文件，服务器证书和服务器密钥：
 - en: '[PRE75]'
+  id: totrans-235
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE75]'
 - en: 'And once this is created, we can use the `grpc.Creds` function, which creates
     a `ServerOption`:'
+  id: totrans-236
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦创建，我们就可以使用`grpc.Creds`函数，该函数创建一个`ServerOption`：
 - en: '[PRE76]'
+  id: totrans-237
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE76]'
 - en: 'Let’s see what happens when we now try to run the server:'
+  id: totrans-238
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们看看现在尝试运行服务器会发生什么：
 - en: '[PRE77]'
+  id: totrans-239
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE77]'
 - en: 'Then, we run the client:'
+  id: totrans-240
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们运行客户端：
 - en: '[PRE78]'
+  id: totrans-241
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE78]'
 - en: We get an error that basically tells us that the client was not able to connect
     to the server. To solve this, we need to go to the client side and create the
     `DialOption` for the credentials.
+  id: totrans-242
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们得到一个错误，基本上告诉我们客户端无法连接到服务器。为了解决这个问题，我们需要转到客户端并创建凭证的`DialOption`。
 - en: This time, we will use the `NewClientTLSFromFile` function, which takes the
     CA certificate. For testing purposes, we will add the host URL as a second argument
     (the certificate domain is *.test.example.com).
+  id: totrans-243
   prefs: []
   type: TYPE_NORMAL
+  zh: 这次，我们将使用`NewClientTLSFromFile`函数，该函数接受CA证书。为了测试目的，我们将添加主机URL作为第二个参数（证书域是*.test.example.com）。
 - en: '[PRE79]'
+  id: totrans-244
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE79]'
 - en: And to add the credentials, we use a function called W`ithTransportCredentials`,
     which creates a `DialOption`.
+  id: totrans-245
   prefs: []
   type: TYPE_NORMAL
+  zh: 要添加凭证，我们使用一个名为W`ithTransportCredentials`的函数，该函数创建一个`DialOption`。
 - en: '[PRE80]'
+  id: totrans-246
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE80]'
 - en: Note that we remove the insecure credentials since we now want to encrypt the
     communication.
+  id: totrans-247
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意，我们移除了不安全的凭证，因为我们现在想要加密通信。
 - en: 'Let us now rerun the server:'
+  id: totrans-248
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们现在重新运行服务器：
 - en: '[PRE81]'
+  id: totrans-249
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE81]'
 - en: 'Then, we do the same for the client:'
+  id: totrans-250
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们对客户端做同样的操作：
 - en: '[PRE82]'
+  id: totrans-251
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE82]'
 - en: Everything goes well – we should pass through all the calls that we passed previously
     but now our communication is secure.
+  id: totrans-252
   prefs: []
   type: TYPE_NORMAL
+  zh: 一切顺利——我们应该通过所有之前通过的调用，但现在我们的通信是安全的。
 - en: Bazel
+  id: totrans-253
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: Bazel
 - en: In order to run the code we wrote in this section with Bazel, we need to include
     the certificate files in our `BUILD` files. This can be done by exporting them
     and adding them as `data` to the `server_lib` and `client_lib` targets.
+  id: totrans-254
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了使用Bazel运行我们在这个部分编写的代码，我们需要在`BUILD`文件中包含证书文件。这可以通过导出它们并将它们作为`data`添加到`server_lib`和`client_lib`目标中来实现。
 - en: 'To export the files, we need to create a `BUILD.bazel` file in the `certs`
     folder that contains the following:'
+  id: totrans-255
   prefs: []
   type: TYPE_NORMAL
+  zh: 要导出文件，我们需要在`certs`文件夹中创建一个`BUILD.bazel`文件，该文件包含以下内容：
 - en: '[PRE83]'
+  id: totrans-256
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE83]'
 - en: 'Then, in the server `BUILD` file, we can now add a dependency on `server_cert`
     and `server_key` like so (in `server/BUILD.bazel`):'
+  id: totrans-257
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，在服务器的`BUILD`文件中，我们现在可以添加对`server_cert`和`server_key`的依赖，如下所示（在`server/BUILD.bazel`中）：
 - en: '[PRE84]'
+  id: totrans-258
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE84]'
 - en: 'And finally, we can add the dependency to `ca_cert` in the client like so (in
     `client/BUILD.bazel`):'
+  id: totrans-259
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们可以在客户端添加对`ca_cert`的依赖，如下所示（在`client/BUILD.bazel`中）：
 - en: '[PRE85]'
+  id: totrans-260
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE85]'
 - en: You should now be able to run the server and the client correctly with Bazel
     as we showed in the previous chapters.
+  id: totrans-261
   prefs: []
   type: TYPE_NORMAL
+  zh: 你现在应该能够像前几章中展示的那样，使用Bazel正确运行服务器和客户端。
 - en: To conclude, we saw that we need to have a server certificate and a server key
     file to create a connection on the server side, and we need to have a CA certificate
     on the client side. We also worked with self-signed certificates but in production,
     these certificates should be generated for us. And finally, we saw how to create
     `ServerOption` and `DialOption` to enable TLS in gRPC.
+  id: totrans-262
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结一下，我们了解到创建服务器端连接需要服务器证书和服务器密钥文件，而在客户端则需要CA证书。我们还使用了自签名证书，但在生产环境中，这些证书应由我们生成。最后，我们看到了如何创建`ServerOption`和`DialOption`以在gRPC中启用TLS。
 - en: Distributing requests with load balancing
+  id: totrans-263
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用负载均衡分发请求
 - en: 'Load balancing in general is a complex topic. There are many ways of implementing
     it. gRPC provides, by default, client-side load balancing. This is a less popular
     choice than look-aside or proxy load-balancing because it involves “knowing” all
@@ -1108,8 +1652,10 @@
     If you want to know more about how to choose the correct [load balancing for your
     use case, check t](https://grpc.io/blog/grpc-load-balancing/)his documentation:
     [https://grpc.io/blog/grpc-load-balancing/](https://grpc.io/blog/grpc-load-balancing/).'
+  id: totrans-264
   prefs: []
   type: TYPE_NORMAL
+  zh: 通常来说，负载均衡是一个复杂的话题。有许多种实现它的方法。gRPC默认提供客户端负载均衡。相比于旁路或代理负载均衡，这并不是一个特别受欢迎的选择，因为它需要“知道”所有服务器的地址，并在客户端拥有复杂的逻辑，但它有一个优点，那就是可以直接与服务器通信，从而实现低延迟通信。如果你想了解更多关于如何为你的用例选择正确的[负载均衡方法，请查看以下文档](https://grpc.io/blog/grpc-load-balancing/)：[https://grpc.io/blog/grpc-load-balancing/](https://grpc.io/blog/grpc-load-balancing/)。
 - en: To see the power of client-side load balancing, we will deploy three instances
     of our server to Kubernetes and let the client balance the load across them. I
     created the Docker images beforehand so that we do not have to go through all
@@ -1117,37 +1663,52 @@
     them both in the `server` and `client` folders. There are extensively documented.
     Furthermore, I uploaded the images on Docker Hub so that we can pull them easily
     ([https://hub.docker.com/r/clementjean/grpc-go-packt-book/tags](https://hub.docker.com/r/clementjean/grpc-go-packt-book/tags)).
+  id: totrans-265
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了看到客户端负载均衡的力量，我们将部署我们的服务器在Kubernetes上的三个实例，并让客户端在这三个实例之间进行负载均衡。我事先创建了Docker镜像，这样我们就不必在这里经历所有这些步骤。如果你对检查Docker文件感兴趣，你可以在`server`和`client`文件夹中看到它们。它们有详细的文档。此外，我还将镜像上传到了Docker
+    Hub，这样我们就可以轻松地拉取它们（[https://hub.docker.com/r/clementjean/grpc-go-packt-book/tags](https://hub.docker.com/r/clementjean/grpc-go-packt-book/tags)）。
 - en: 'Before deploying the server and client, let us see what we need to change in
     terms of code. On the server side, we will simply print every request we receive.
     This is done with an interceptor that looks like the following (in `server/interceptors.go`):'
+  id: totrans-266
   prefs: []
   type: TYPE_NORMAL
+  zh: '在部署服务器和客户端之前，让我们看看在代码方面我们需要做哪些更改。在服务器端，我们将简单地打印出我们收到的每个请求。这是通过一个类似于以下拦截器来完成的（在`server/interceptors.go`中）:'
 - en: '[PRE86]'
+  id: totrans-267
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE86]'
 - en: This simply prints which method has been called and continues the execution.
+  id: totrans-268
   prefs: []
   type: TYPE_NORMAL
+  zh: 这只是简单地打印出被调用的方法并继续执行。
 - en: 'After that, these interceptors need to be registered in an Interceptor Chain.
     This is because we already have our authentication Interceptor, and gRPC accepts
     only one call of `grpc.UnaryInterceptor` and `grpc.StreamInterceptor`. We can
     now merge, in `server`/`main.go`, two Interceptors of the same type (unary or
     stream) like so:'
+  id: totrans-269
   prefs: []
   type: TYPE_NORMAL
+  zh: 之后，这些拦截器需要在拦截器链中注册。这是因为我们已经有了一个认证拦截器，而gRPC只接受一个`grpc.UnaryInterceptor`和`grpc.StreamInterceptor`的调用。现在，我们可以在`server`/`main.go`中将相同类型（单一或流）的两个拦截器合并：
 - en: '[PRE87]'
+  id: totrans-270
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE87]'
 - en: That is all for the server side. Let us now focus on the client. We are going
     to add a `DialOption` with the `grpc.WithDefaultServiceConfig` function. This
     takes a JSON string as a parameter, which represents a global client configuration
     for the service and its methods. If you are interested in diving into [the configuration,
     you can check the following documentation:](https://github.com/grpc/grpc/blob/master/doc/service_config.md)
     [https://github.com/grpc/grpc/blob/master/doc/service_config.md](https://github.com/grpc/grpc/blob/master/doc/service_config.md).
+  id: totrans-271
   prefs: []
   type: TYPE_NORMAL
+  zh: 服务器端的介绍就到这里。现在让我们专注于客户端。我们将使用`grpc.WithDefaultServiceConfig`函数添加一个`DialOption`。这个函数需要一个JSON字符串作为参数，它代表服务及其方法的全局客户端配置。如果你对深入了解[配置感兴趣，可以查看以下文档](https://github.com/grpc/grpc/blob/master/doc/service_config.md)：[https://github.com/grpc/grpc/blob/master/doc/service_config.md](https://github.com/grpc/grpc/blob/master/doc/service_config.md)。
 - en: For us, the configuration will be simple; we will simply say that our client
     should use the `round_robin` load-balancing policy. The default policy is called
     `pick_first`. This is saying that the client will try to connect to all the available
@@ -1155,29 +1716,43 @@
     the requests to that address. `round_robin` is different. It will try to connect
     to all the addresses available. And then, it will forward requests to each server
     in turn.
+  id: totrans-272
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于我们来说，配置将会很简单；我们只需说明我们的客户端应该使用`round_robin`负载均衡策略。默认策略被称为`pick_first`。这意味着客户端将尝试连接到所有可用的地址（由DNS解析），一旦它能够连接到一个地址，它将把所有请求发送到该地址。`round_robin`则不同。它将尝试连接到所有可用的地址。然后，它将依次将请求转发到每个服务器。
 - en: 'To set up the `round_robin` balancing, we just need to add one `DialOption`
     in `client/main.go`, like so:'
+  id: totrans-273
   prefs: []
   type: TYPE_NORMAL
+  zh: 要设置 `round_robin` 负载均衡，我们只需要在 `client/main.go` 中添加一个 `DialOption`，如下所示：
 - en: '[PRE88]'
+  id: totrans-274
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE88]'
 - en: 'Finally, one last thing to note is that the load balancing only works with
     the DNS scheme. This means that we will change the way we run our client. Before,
     we had the following:'
+  id: totrans-275
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，有一点需要注意，负载均衡只与 DNS 方案一起工作。这意味着我们将改变运行客户端的方式。之前，我们有以下内容：
 - en: '[PRE89]'
+  id: totrans-276
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE89]'
 - en: 'Now, we will need to prepend the `dns:///` scheme, like so:'
+  id: totrans-277
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，我们需要在前面添加 `dns:///` 方案，如下所示：
 - en: '[PRE90]'
+  id: totrans-278
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE90]'
 - en: Now, we are ready to talk about deploying our application. Let us start deploying
     the server. The first thing that we are going to need is a headless service. This
     is done by setting `ClusterIP` to `None`, which allows the client to find all
@@ -1185,220 +1760,327 @@
     DNS A record, which indicates the IP of the instance. On top of that, we are going
     to expose port `50051` to our server and make the selector equal to `todo-server`
     so that all the Pods with that selector will be exposed.
+  id: totrans-279
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，我们准备讨论部署我们的应用程序。让我们开始部署服务器。我们首先需要的是一个无头服务。这是通过将 `ClusterIP` 设置为 `None` 来实现的，这允许客户端通过
+    DNS 找到所有服务器实例。每个服务器实例都将有自己的 DNS A 记录，该记录指示实例的 IP。在此基础上，我们将向服务器公开端口 `50051` 并使选择器等于
+    `todo-server`，这样所有具有该选择器的 Pods 都将被公开。
 - en: 'Right now, in `k8s/server.yaml`, we have the following:'
+  id: totrans-280
   prefs: []
   type: TYPE_NORMAL
+  zh: 目前，在 `k8s/server.yaml` 中，我们有以下内容：
 - en: '[PRE91]'
+  id: totrans-281
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE91]'
 - en: After that, we are going to create a Deployment of 3 instances. We are going
     to make sure that these Deployments have the right label for the service to find
     them and we are going to expose port `50051`.
+  id: totrans-282
   prefs: []
   type: TYPE_NORMAL
+  zh: 之后，我们将创建一个包含 3 个实例的 Deployment。我们将确保这些 Deployment 有正确的标签，以便服务能够找到它们，并且我们将公开端口
+    `50051`。
 - en: 'We can now add the following after the service:'
+  id: totrans-283
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们现在可以在服务之后添加以下内容：
 - en: '[PRE92]'
+  id: totrans-284
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE92]'
 - en: 'We can now deploy the server instances by using the following command:'
+  id: totrans-285
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们现在可以通过以下命令部署服务器实例：
 - en: '[PRE93]'
+  id: totrans-286
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE93]'
 - en: 'And a little bit later, we should be have the following Pods (the names might
     be different):'
+  id: totrans-287
   prefs: []
   type: TYPE_NORMAL
+  zh: 稍后，我们应该有以下的 Pods（名称可能不同）：
 - en: '[PRE94]'
+  id: totrans-288
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE94]'
 - en: Next, we need to create a Pod for the client. Normally, if the client is not
     a microservice, we would not have to deploy it in Kubernetes. However, since our
     client is a simple Go app, it would be easier to deploy it in a container to talk
     to our server instances.
+  id: totrans-289
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，我们需要为客户端创建一个 Pod。通常，如果客户端不是一个微服务，我们就不需要将其部署到 Kubernetes 中。然而，由于我们的客户端是一个简单的
+    Go 应用程序，将其部署到容器中与我们的服务器实例通信会更容易一些。
 - en: 'In `k8s/client.yaml`, we have the following simple Pod:'
+  id: totrans-290
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 `k8s/client.yaml` 中，我们有以下简单的 Pod：
 - en: '[PRE95]'
+  id: totrans-291
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE95]'
 - en: 'We can now run the client by using the following command:'
+  id: totrans-292
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们现在可以通过以下命令运行客户端：
 - en: '[PRE96]'
+  id: totrans-293
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE96]'
 - en: 'And after a few seconds, we should get a similar output (or error instead of
     completed):'
+  id: totrans-294
   prefs: []
   type: TYPE_NORMAL
+  zh: 几秒钟后，我们应该得到类似的输出（或者错误而不是完成）：
 - en: '[PRE97]'
+  id: totrans-295
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE97]'
 - en: 'Now, the most important thing is to see the actual effects of load-balancing.
     To do that, we will take each server name and execute a `kubectl logs` command
     for each:'
+  id: totrans-296
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，最重要的是看到负载均衡的实际效果。为了做到这一点，我们将对每个服务器名称执行一个 `kubectl logs` 命令：
 - en: '[PRE98]'
+  id: totrans-297
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE98]'
 - en: Now, you might have different results, but you should be able to see that the
     load was distributed across the different instances. One more thing to note is
     that, as we are not using a real database, the logs for the `todo-client` should
     not be correct. This is because we might have a `Task` on server 1 and ask to
     list the `Task` for server 2, which does not know about the `Task` we want. In
     production, we would use a real database, and that should not happen.
+  id: totrans-298
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，你可能会有不同的结果，但你应该能够看到负载被分配到不同的实例上。还有一点需要注意，因为我们没有使用真实的数据库，所以 `todo-client`
+    的日志可能是不正确的。这是因为我们可能在服务器 1 上有一个 `Task`，并要求列出服务器 2 的 `Task`，而服务器 2 并不知道我们想要的 `Task`。在生产环境中，我们会使用真实的数据库，这种情况不应该发生。
 - en: To conclude, we saw that the default load-balancing policy is `pick_first`,
     which attempts to connect to all the available addresses, in order, until it finds
     one that is reachable and sends all the requests to it. Then, we used a `round_robin`
     load-balancing policy, which sends requests to each of the servers in turn. And
     finally, we saw that setting up client-side load-balancing is simple in terms
     of gRPC code. All the rest of the configuration is mostly some DevOps work.
+  id: totrans-299
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结来说，我们看到了默认的负载均衡策略是 `pick_first`，它尝试按顺序连接到所有可用的地址，直到找到一个可到达的地址，并将所有请求发送给它。然后，我们使用了一个
+    `round_robin` 负载均衡策略，它依次将请求发送到每个服务器。最后，我们看到了在 gRPC 代码中设置客户端负载均衡是简单的。其余的配置主要是 DevOps
+    的工作。
 - en: Summary
+  id: totrans-300
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 摘要
 - en: In this chapter, we saw the key features that we get out of the box when using
     gRPC. We saw that we return errors with error codes and messages. There are way
     fewer error codes in gRPC than in HTTP, which makes them less ambiguous.
+  id: totrans-301
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们看到了使用gRPC时默认获得的关键特性。我们了解到我们通过错误代码和消息返回错误。与HTTP相比，gRPC中的错误代码要少得多，这使得它们更不容易产生歧义。
 - en: After that, we saw that we can use the context to make a call cancelable and
     specify deadlines. These features are important for making reliable calls and
     making sure that if something goes wrong on the server side before returning,
     our client is not waiting indefinitely.
+  id: totrans-302
   prefs: []
   type: TYPE_NORMAL
+  zh: 之后，我们看到了我们可以使用上下文来使调用可取消并指定截止日期。这些特性对于确保在服务器端返回之前如果出现问题，我们的客户端不会无限期地等待，以及进行可靠调用非常重要。
 - en: With context and interceptors, we also saw that we can send metadata and use
     them to validate requests. In our case, we checked for an authentication token
     every time a request was made. On the client side, we saw that interceptors can
     automatically add the metadata for us. This is especially useful for metadata
     that is shared across services and/or endpoints.
+  id: totrans-303
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用上下文和中间件，我们还看到了我们可以发送元数据并使用它们来验证请求。在我们的案例中，我们每次请求时都会检查认证令牌。在客户端，我们看到了中间件可以自动为我们添加元数据。这对于在服务和/或端点之间共享的元数据特别有用。
 - en: Then, we saw how we can encrypt communication over the network. We used TLS,
     as this is the most common way to do so. We saw that, once we have our certificates,
     we can simply create a `ServerOption` and a `DialOption` to let the server and
     client know how to understand each other.
+  id: totrans-304
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们看到了如何加密网络通信。我们使用了TLS，因为这是最常见的加密方式。我们看到了一旦我们有了证书，我们就可以简单地创建一个`ServerOption`和一个`DialOption`，让服务器和客户端知道如何相互理解。
 - en: After that, we saw how we can compress payloads. And most importantly, we saw
     when this might be useful and when it is not.
+  id: totrans-305
   prefs: []
   type: TYPE_NORMAL
+  zh: 之后，我们看到了如何压缩数据包。最重要的是，我们看到了何时这可能是有用的，何时则不是。
 - en: And finally, we used client-side load-balancing with a `round_robin` policy
     to distribute requests across different instances of our server.
+  id: totrans-306
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们使用了客户端负载均衡，采用`round_robin`策略，将请求分配到我们服务器的不同实例。
 - en: In the next chapter, we will see more essential features of the kind we saw
     in this chapter. We are going to introduce the concept of middleware and see how
     to use different kinds of middleware to make our APIs more solid.
+  id: totrans-307
   prefs: []
   type: TYPE_NORMAL
+  zh: 在下一章中，我们将看到更多与本章类似的重要特性。我们将介绍中间件的概念，并了解如何使用不同类型的中间件来使我们的API更加稳固。
 - en: Quiz
+  id: totrans-308
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 测验
 - en: What is the context used for?
+  id: totrans-309
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 上下文用于什么？
 - en: Passing metadata between the client and server
+  id: totrans-310
   prefs:
   - PREF_IND
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在客户端和服务器之间传递元数据
 - en: Making calls cancelable
+  id: totrans-311
   prefs:
   - PREF_IND
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使调用可取消
 - en: Specifying a timeout
+  id: totrans-312
   prefs:
   - PREF_IND
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 指定超时
 - en: All of the above
+  id: totrans-313
   prefs:
   - PREF_IND
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 所有上述内容
 - en: What is an interceptor used for?
+  id: totrans-314
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 中间件用于什么？
 - en: Sharing logic across endpoints
+  id: totrans-315
   prefs:
   - PREF_IND
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在端点之间共享逻辑
 - en: Intercepting malicious data
+  id: totrans-316
   prefs:
   - PREF_IND
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 拦截恶意数据
 - en: What is the potential problem of using compression in gRPC?
+  id: totrans-317
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用gRPC中压缩的潜在问题是什么？
 - en: There is no problem
+  id: totrans-318
   prefs:
   - PREF_IND
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 没有问题
 - en: There is the possibility that the payload gets corrupted
+  id: totrans-319
   prefs:
   - PREF_IND
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 存在数据包损坏的可能性
 - en: There is the possibility that the payload gets bigger
+  id: totrans-320
   prefs:
   - PREF_IND
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 存在数据包变大的可能性
 - en: Answers
+  id: totrans-321
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 答案
 - en: D
+  id: totrans-322
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: D
 - en: A
+  id: totrans-323
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: A
 - en: C
+  id: totrans-324
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: C
 - en: Challenges
+  id: totrans-325
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 挑战
 - en: Implement more errors on the server side. An example might be handling the errors
     coming out of `updateTask` and `deleteTasks`, which are talking to the database.
+  id: totrans-326
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在服务器端实现更多错误。一个例子可能是处理来自`updateTask`和`deleteTasks`的错误，它们正在与数据库通信。
 - en: As deadlines can save time and resources, it is important to specify them. Make
     all calls to our client have a deadline of 200 milliseconds.
+  id: totrans-327
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 由于截止日期可以节省时间和资源，因此指定它们很重要。确保所有调用到我们的客户端都有200毫秒的截止日期。
 - en: Create a client-side Interceptor that logs the requests the client sends.
+  id: totrans-328
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 创建一个客户端中间件，用于记录客户端发送的请求。

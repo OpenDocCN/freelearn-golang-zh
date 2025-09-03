@@ -1,294 +1,414 @@
 - en: Building Distributed Graph-Processing Systems
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 构建分布式图处理系统
 - en: '"A distributed system is one in which the failure of a computer you didn''t
     even know existed can render your own computer unusable."'
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: '"一个分布式系统是这样的一个系统，其中你甚至不知道存在的计算机的故障可以使你自己的计算机无法使用。"'
 - en: '- Leslie Lamport'
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: '- 莱斯利·兰波特'
 - en: The master/worker pattern is a popular approach for building fault-tolerant,
     distributed systems. The first part of this chapter explores this pattern in depth
     with a focus on some of the more challenging aspects of distributed systems, such
     as node discovery and error handling.
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 主/工作模式是构建容错、分布式系统的一种流行方法。本章的第一部分深入探讨了这种模式，重点关注分布式系统的一些更具挑战性的方面，如节点发现和错误处理。
 - en: In the second part of this chapter, we will apply the master/worker pattern
     to build, from scratch, a distributed graph-processing system that can handle
     massive graphs whose size exceeds the memory capacity of most modern compute nodes.
     Finally, in the last part of this chapter, we will apply everything learned so
     far to create a distributed version of the PageRank calculator service for the
     Links 'R' Us project.
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章的第二部分，我们将应用主/工作模式从头开始构建一个分布式图处理系统，该系统能够处理大小超过大多数现代计算节点内存容量的大规模图。最后，在本章的最后部分，我们将应用到目前为止所学的一切来创建Links
+    'R' Us项目的PageRank计算服务的分布式版本。
 - en: 'The following topics will be covered in this chapter:'
+  id: totrans-5
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将涵盖以下主题：
 - en: The application of the master/worker model for distributed computation
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 分布式计算中应用主/工作模型
 - en: Strategies for discovering master and worker nodes
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 发现主节点和工作节点的策略
 - en: Approaches for dealing with errors
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 处理错误的策略
 - en: Using the master/worker model to execute the graph-based algorithms from [Chapter
     8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based Data Processing*,
     in a distributed fashion
+  id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用主/工作模型以分布式方式执行第8章中基于图的算法，*基于图的数据处理*
 - en: Creating the distributed version of the Links 'R' Us PageRank calculator service
     and deploying it to Kubernetes
+  id: totrans-10
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 创建Links 'R' Us PageRank计算服务的分布式版本并将其部署到Kubernetes
 - en: Technical requirements
+  id: totrans-11
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: The full code for all topics discussed within this chapter has been published
     to this book's GitHub repository in the `Chapter12` folder.
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章讨论的所有主题的完整代码已发布到本书的GitHub仓库的`Chapter12`文件夹中。
 - en: 'You can access the GitHub repository that contains the code and all required
     resources for each one of this book''s chapters by pointing your web browser at
     the following URL: [https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang](https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang).'
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 您可以通过将您的网络浏览器指向以下URL来访问包含本书每个章节代码和所有必需资源的GitHub仓库：[https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang](https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang)。
 - en: 'Each example project for this chapter includes a common Makefile that defines
     the following set of targets:'
+  id: totrans-14
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章的每个示例项目都包含一个通用的Makefile，它定义了以下一组目标：
 - en: '| **Makefile target** | **Description** |'
+  id: totrans-15
   prefs: []
   type: TYPE_TB
+  zh: '| **Makefile目标** | **描述** |'
 - en: '| `deps` | Install any required dependencies. |'
+  id: totrans-16
   prefs: []
   type: TYPE_TB
+  zh: '| `deps` | 安装任何必需的依赖项。 |'
 - en: '| `test` | Run all tests and report coverage. |'
+  id: totrans-17
   prefs: []
   type: TYPE_TB
+  zh: '| `test` | 运行所有测试并报告覆盖率。 |'
 - en: '| `lint` | Check for lint errors. |'
+  id: totrans-18
   prefs: []
   type: TYPE_TB
+  zh: '| `lint` | 检查lint错误。 |'
 - en: As with all other chapters from this book, you will need a fairly recent version
     of Go, which you can download at [https://golang.org/dl/](https://golang.org/dl/).
+  id: totrans-19
   prefs: []
   type: TYPE_NORMAL
+  zh: 与本书的所有其他章节一样，您需要一个相当新的Go版本，您可以在[https://golang.org/dl/](https://golang.org/dl/)下载。
 - en: To run some of the code in this chapter, you will need to have a working Docker
     ^([2]) installation on your machine. Furthermore, for the last part of this chapter,
     you will need access to a Kubernetes cluster. If you don't have access to a Kubernetes
     cluster for testing, you can simply follow the instructions laid out in the following
     sections to set up a small cluster on your laptop or workstation.
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 要运行本章中的一些代码，您需要在您的机器上安装一个工作的Docker ^([2])安装。此外，对于本章的最后部分，您需要访问一个Kubernetes集群。如果您没有访问Kubernetes集群进行测试，您可以简单地遵循以下部分中概述的说明，在您的笔记本电脑或工作站上设置一个小型集群。
 - en: Introducing the master/worker model
+  id: totrans-21
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 介绍主/工作模型
 - en: The master/worker model is a commonly used pattern for building distributed
     systems that have been around for practically forever. When building a cluster
     using this model, nodes can be classified into two distinct groups, namely, masters
     and workers.
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 主/工作模型是构建分布式系统的常用模式，这种模式已经存在了很长时间。当使用此模型构建集群时，节点可以分为两个不同的组，即主节点和工人节点。
 - en: 'The key responsibility of worker nodes is to perform compute-intensive tasks
     such as the following:'
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: 工作节点的主要责任是执行以下计算密集型任务：
 - en: Video transcoding
+  id: totrans-24
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 视频转码
 - en: Training large-scale neural networks with millions of parameters
+  id: totrans-25
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用数百万参数训练大规模神经网络
 - en: Calculating **Online Analytical Processing** (**OLAP**) queries
+  id: totrans-26
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 计算**在线分析处理**（**OLAP**）查询
 - en: Running a **Continuous Integration** (**CI**) pipeline
+  id: totrans-27
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 运行**持续集成**（**CI**）管道
 - en: Executing map-reduce operations on massive datasets
+  id: totrans-28
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在大规模数据集上执行map-reduce操作
 - en: 'On the other hand, master nodes are typically assigned the role of the coordinator.
     To this end, they are responsible for the following:'
+  id: totrans-29
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，主节点通常被分配协调者的角色。为此，它们负责以下任务：
 - en: Discovering and keeping track of available worker nodes
+  id: totrans-30
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 发现并跟踪可用的工人节点
 - en: Breaking down jobs into smaller tasks and distributing them to each connected
     worker
+  id: totrans-31
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 将工作分解成更小的任务并将它们分配给每个连接的工人
 - en: Orchestrating the execution of a job and ensure that any errors are properly
     detected and handled
+  id: totrans-32
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 协调作业的执行并确保任何错误都得到适当的检测和处理
 - en: Ensuring that masters are highly available
+  id: totrans-33
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 确保主节点的高可用性
 - en: In a system built using the master/worker model, losing one or more worker nodes
     due to crashes or network partitions is not a big issue. The master can detect
     this and work around the problem by re-distributing the workload to the remaining
     workers.
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 在使用主/工作模型构建的系统中，由于崩溃或网络分区而丢失一个或多个工作节点并不是一个大问题。主节点可以检测到这一点，并通过将工作负载重新分配给剩余的工人来解决这个问题。
 - en: A crucial piece of advice when designing distributed systems is to make sure
     that your system does not contain **Single Points of Failure** (**SPoFs**).
+  id: totrans-35
   prefs: []
   type: TYPE_NORMAL
+  zh: 设计分布式系统时的一条重要建议是确保你的系统不包含**单点故障**（**SPoFs**）。
 - en: On the other hand, the loss of the master node will most certainly take the
     entire system offline! Fortunately, there are a few different approaches at our
     disposal for making sure that master nodes are highly available, which we'll cover
     next.
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，主节点的丢失很可能会使整个系统离线！幸运的是，我们有几种不同的方法可以确保主节点的高可用性，我们将在下一节中介绍。
 - en: The leader-follower configuration
+  id: totrans-37
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 领导者-跟随者配置
 - en: The **leader-follower** configuration achieves high availability by introducing
     multiple master nodes to the cluster. The master nodes implement a leader-election
     algorithm and, after a few rounds of voting, they assign the role of the cluster
     leader to one of the master nodes.
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: '**领导者-跟随者**配置通过向集群引入多个主节点来实现高可用性。主节点实现了一个领导者选举算法，经过几轮投票后，它们将集群领导者的角色分配给主节点中的一个。'
 - en: From that point onward, the leader is responsible for coordinating the execution
     of any future jobs and each worker node is instructed to connect to it.
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: 从那时起，领导者负责协调任何未来作业的执行，每个工作节点都被指示连接到它。
 - en: The non-leader master nodes (followers) utilize a heartbeat mechanism to continuously
     monitor the health status of the active leader. If the leader fails to acknowledge
     a specific number of sequential heartbeat requests, the other master nodes assume
     that the leader is dead and automatically hold a new election round for selecting
     a new leader for the cluster.
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 非领导者主节点（跟随者）使用心跳机制来持续监控活动领导者的健康状态。如果领导者未能确认一定数量的连续心跳请求，其他主节点将假定领导者已死亡，并自动进行新一轮选举，以选择集群的新领导者。
 - en: Meanwhile, the workers attempt to reconnect to the master and eventually establish
     a connection to the newly elected cluster leader.
+  id: totrans-41
   prefs: []
   type: TYPE_NORMAL
+  zh: 同时，工人尝试重新连接到主节点，并最终与新选出的集群领导者建立连接。
 - en: The multi-master configuration
+  id: totrans-42
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 多主配置
 - en: In a **multi-master** configuration, we still spin up multiple master node instances.
     However, as the name implies, there isn't really a designated leader for the cluster.
     In a multi-master cluster, we don't need to provide a mechanism for workers to
     figure out which node is the leader; they can freely connect to any of the master
     nodes.
+  id: totrans-43
   prefs: []
   type: TYPE_NORMAL
+  zh: 在**多主配置**中，我们仍然启动多个主节点实例。然而，正如其名称所暗示的，集群实际上并没有指定的领导者。在多主集群中，我们不需要为工作节点提供确定哪个节点是领导者的机制；它们可以自由连接到任何主节点。
 - en: While this type of configuration has much better throughput characteristics
     than the equivalent leader-follower configuration, it comes with an important
     caveat, that is, all master nodes must share the same view of the cluster's state
     *at all times*.
+  id: totrans-44
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然这种配置的吞吐量特性比等效的领导者-跟随者配置要好得多，但它有一个重要的注意事项，即所有主节点必须始终共享集群状态的相同视图。
 - en: Consequently, masters are required to implement some kind of distributed consensus
     algorithm such as Paxos ^([3]) or Raft ^([5]) to ensure that mutations to the
     cluster's state are processed by all masters in the same order.
+  id: totrans-45
   prefs: []
   type: TYPE_NORMAL
+  zh: 因此，主节点需要实现某种分布式一致性算法，如Paxos ^([3]) 或 Raft ^([5])，以确保对集群状态的更改由所有主节点以相同的顺序处理。
 - en: Strategies for discovering nodes
+  id: totrans-46
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 发现节点的策略
 - en: 'For the workers to be able to connect to the master, they first need to be
     aware of its existence! Depending on our particular use case, the following discovery
     strategies can be used:'
+  id: totrans-47
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了让工作节点能够连接到主节点，它们首先需要知道其存在！根据我们的特定用例，可以使用以下发现策略：
 - en: '**Connecting to a bootstrap node**: This discovery strategy assumes that one
     of the master nodes (commonly referred to as the **bootstrap** node) is reachable
     at an IP address that is known beforehand. Both masters and workers attempt to
     establish an initial connection to the bootstrap node and obtain information about
     the other nodes of the cluster using a **gossip** protocol.'
+  id: totrans-48
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**连接到引导节点**: 这种发现策略假设其中一个主节点（通常称为**引导节点**）可以在事先已知的IP地址上访问。主节点和工作节点都尝试与引导节点建立初始连接，并使用**八卦协议**获取有关集群中其他节点信息。'
 - en: '**Using an external discovery service**: This strategy relies on the presence
     of an external discovery service that we can query to obtain information about
     all services running inside our cluster. Consul ^([1]) is a very popular solution
     for implementing this particular pattern.'
+  id: totrans-49
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**使用外部发现服务**: 这种策略依赖于存在一个外部发现服务，我们可以查询它以获取有关集群内运行的所有服务的信息。Consul ^([1]) 是实现这种特定模式的一个非常流行的解决方案。'
 - en: '**Locating nodes using DNS records**: If our system is deployed inside an environment
     that allows us to create and manipulate local DNS records (for example, Kubernetes),
     we can generate **A records** that point to the leader of the cluster. Workers
     can look up the leader via a simple DNS query.'
+  id: totrans-50
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**使用DNS记录定位节点**: 如果我们的系统部署在一个允许我们创建和操作本地DNS记录的环境中（例如，Kubernetes），我们可以生成指向集群领导者的**A记录**。工作节点可以通过简单的DNS查询查找领导者。'
 - en: Recovering from errors
+  id: totrans-51
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 从错误中恢复
 - en: Distributed systems are inherently complex. While executing a job in a master/worker
     setup, numerous things can go wrong, for instance, processes can run out of memory
     and crash or simply become non-responsive, network packets might be dropped, or
     network devices might fail and hence lead to network splits. When building distributed
     systems, we must not only anticipate the presence of errors but we should also
     devise strategies for dealing with them once they occur.
+  id: totrans-52
   prefs: []
   type: TYPE_NORMAL
+  zh: 分布式系统本质上是复杂的。在主/工作节点设置中执行任务时，可能会出现许多问题，例如，进程可能耗尽内存并崩溃或简单地变得无响应，网络数据包可能丢失，或网络设备可能故障，从而导致网络分裂。在构建分布式系统时，我们不仅要预见错误的存在，还应该制定在错误发生时的应对策略。
 - en: 'In this section, we will discuss the following approaches for recovering from
     errors in a master/worker system:'
+  id: totrans-53
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本节中，我们将讨论在主/工作节点系统中从错误中恢复的以下方法：
 - en: '**Restart on error**: This kind of strategy is better suited for workloads
     whose calculations are idempotent. Once a fatal error is detected, the master
     asks all workers to abort the current job and restart the workload from scratch.'
+  id: totrans-54
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**错误重试**: 这种策略更适合那些计算幂等的负载。一旦检测到致命错误，主节点会要求所有工作节点终止当前任务，并从零开始重新启动工作负载。'
 - en: '**Re-distribute the workload to healthy workers**: This strategy is quite effective
     for systems that can dynamically change the assigned workloads while a job is
     executing. If any of the workers goes offline, the master can re-distribute its
     assigned workload to the remaining workers.'
+  id: totrans-55
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**将工作负载重新分配给健康的工作者**：这种策略对于在作业执行过程中可以动态更改分配的工作负载的系统非常有效。如果有任何工作者离线，主节点可以将分配给它的工作负载重新分配给剩余的工作者。'
 - en: '**Use a checkpoint mechanism**: This strategy is best suited for long-running
     workloads that involve non-idempotent calculations. While the job is executing,
     the master periodically asks the workers to create a *checkpoint*, a snapshot
     of their current internal state. If an error occurs, instead of restarting the
     job from scratch, the master asks the workers to restore their state from a particular
     checkpoint and resume the execution of the job.'
+  id: totrans-56
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**使用检查点机制**：这种策略最适合涉及非幂等计算的长时间运行的工作负载。在作业执行期间，主节点会定期要求工作者创建一个*检查点*，即他们当前内部状态的快照。如果发生错误，而不是从头开始重新启动作业，主节点要求工作者从特定的检查点恢复他们的状态并继续执行作业。'
 - en: Out-of-core distributed graph processing
+  id: totrans-57
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 离核分布式图处理
 - en: Back in [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based
     Data Processing**,* we designed and built our very own system for implementing
     graph-based algorithms based on the **Bulk Synchronous Parallel** (**BSP**) model.
     Admittedly, our final implementation was heavily influenced by the ideas from
     the Google paper describing Pregel ^([4]), a system that was originally built
     by Google engineers to tackle graph-based computation at scale.
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: 回到[第8章](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml)，*基于图的数据处理*，我们设计和构建了我们自己的系统，用于基于**批量同步并行**（**BSP**）模型实现图算法。诚然，我们的最终实现受到了谷歌论文中描述的Pregel
+    ^([4])的想法的很大影响，这是一个最初由谷歌工程师构建的系统，用于处理大规模的图计算。
 - en: While the `bspgraph` package from [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based
     Data Processing**,* can automatically distribute the graph computation load among
     a pool of workers, it is still limited to running on a single compute node. As
@@ -296,64 +416,85 @@
     will eventually reach a point where the PageRank computation will simply take
     too long. Updating the PageRank scores for the entire graphs might take a day
     or, worse, even days!
+  id: totrans-59
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然[第8章](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml)中的`bspgraph`包，*基于图的数据处理*，能够自动在多个工作者之间分配图计算负载，但它仍然局限于在单个计算节点上运行。随着我们的Links
+    'R' Us爬虫不断为链接索引增加越来越多的链接，我们最终会达到一个点，此时PageRank的计算将变得过于耗时。更新整个图的PageRank分数可能需要一天，甚至更糟，几天时间！
 - en: We can try to buy ourselves some time by **scaling up**, in other words, running
     our PageRank calculator service on the most powerful (CPU-wise) machine we can
     get our hands on from our cloud provider. That would give us some breathing room
     until the graph becomes too large to fit in memory! Once we reach this point,
     our only viable alternative is to **scale out**, or launch multiple compute nodes
     and assign a section of the, now massive, graph to each node.
+  id: totrans-60
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以通过**扩展规模**来为自己争取一些时间，换句话说，在我们的云提供商那里运行我们能够获取到的最强大的（从CPU的角度来看）机器上的PageRank计算器服务。这将给我们一些喘息的空间，直到图变得太大而无法装入内存！一旦我们达到这个点，我们唯一的可行选择就是**扩展规模**，或者启动多个计算节点，并将现在庞大的图的一部分分配给每个节点。
 - en: In the following sections, we will be applying (quite literally!) everything
     that we have learned so far to build, from scratch, a distributed version of the
     `bspgraph` package, which will live in the `Chapter12/dbspgraph` folder, which
     you can browse at this book's GitHub repository.
+  id: totrans-61
   prefs: []
   type: TYPE_NORMAL
+  zh: 在接下来的章节中，我们将（非常直接地！）应用到目前为止所学的所有知识，从头开始构建`bspgraph`包的分布式版本，它将位于`Chapter12/dbspgraph`文件夹中，您可以在本书的GitHub仓库中浏览。
 - en: As we did in the previous chapters, we will be once again applying the SOLID
     principles for our design to re-use as much code as possible. To this end, the
     new package will be nothing more than a sophisticated wrapper that transparently
     imbues any existing `bspgraph.Graph` instance with distributed computing superpowers!
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如我们在前面的章节中所做的那样，我们再次将SOLID原则应用于我们的设计，以尽可能多地重用代码。为此，新的包将仅仅是一个复杂的包装器，它透明地将分布式计算超级能力注入任何现有的`bspgraph.Graph`实例中！
 - en: This practically means that we can design and test our algorithms on a single
     machine using the `bspgraph` framework from [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based
     Data Processing*, and once satisfied with their output, switch to `dsbpgraph`
     for out-of-core processing.
+  id: totrans-63
   prefs: []
   type: TYPE_NORMAL
+  zh: 这实际上意味着我们可以在单个机器上使用[第8章](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml)，*基于图的数据处理*中的`bspgraph`框架设计和测试我们的算法，一旦对它们的输出满意，就可以切换到`dsbpgraph`进行离核处理。
 - en: As we all are aware, building distributed systems is a difficult task. In an
     attempt to minimize the complexity of the system we will be creating and make
     the code easier to follow, we will be splitting the implementation into a bunch
     of smaller, independent components and dedicate a section to the implementation
     of each one. Don't worry though—by the end of this chapter, you will have a clear
     understanding of how all of the bits and bobs fit together!
+  id: totrans-64
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如我们所意识到的，构建分布式系统是一项艰巨的任务。为了尽量减少我们创建的系统的复杂性并使代码更容易理解，我们将把实现拆分成许多更小、更独立的组件，并为每个组件的实现分配一个部分。不过，不用担心——在本章结束时，你将对所有这些组件如何组合在一起有一个清晰的理解！
 - en: Describing the system architecture, requirements, and limitations
+  id: totrans-65
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 描述系统架构、需求和限制
 - en: The title of this chapter alludes to the type of architecture that we will be
     using for our distributed graph-processing framework; unsurprisingly, it will
     be based on the **master/worker** pattern.
+  id: totrans-66
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章的标题暗示了我们将为分布式图处理框架使用的架构类型；不出所料，它将基于**主/工作**模式。
 - en: To better understand the role of the master and the worker nodes in our design,
     we will first need to do a quick refresher on how the `bspgraph` package from
     [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based Data Processing*,
     works. If you haven't already read [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based
     Data Processing*, I would recommend doing so before continuing.
+  id: totrans-67
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了更好地理解我们在设计中的主节点和工作节点的作用，我们首先需要快速回顾一下[第8章](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml)，*基于图的数据处理*中`bspgraph`包的工作原理。如果你还没有阅读[第8章](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml)，*基于图的数据处理*，我建议在继续之前先阅读。
 - en: The `bspgraph` package executes graph algorithms using the **Bulk Synchronous
     Model** (**BSP**). To this end, the chosen algorithm is essentially executed in
     sequential steps (super-steps). During each super-step, the framework invokes,
     **in parallel**, a user-defined **compute function** for every vertex in the graph.
+  id: totrans-68
   prefs: []
   type: TYPE_NORMAL
+  zh: '`bspgraph`包使用**批量同步模型**（**BSP**）执行图算法。为此，所选算法基本上是按顺序步骤（超级步骤）执行的。在每个超级步骤中，框架**并行**调用用户定义的**计算函数**，针对图中的每个顶点。'
 - en: The compute function can access both the **local** vertex state and **global**
     graph state (aggregator instances that model counters, min/max trackers, and so
     on). Vertices communicate with each other by exchanging messages. Any message
@@ -362,60 +503,82 @@
     next super-step, the framework waits for all compute functions to return and any
     in-flight messages to be queued for delivery. This reflects the *synchronous*
     behavior of the BSP model.
+  id: totrans-69
   prefs: []
   type: TYPE_NORMAL
+  zh: 计算函数可以访问**本地**顶点状态和**全局**图状态（模型计数器、最小/最大跟踪器等聚合实例）。顶点通过交换消息相互通信。在超级步骤期间发布的任何消息都会**排队**，并在**下一个**超级步骤中交付给预期的接收者。最后，在开始执行下一个超级步骤之前，框架等待所有计算函数返回，并将任何在途消息排队以交付。这反映了BSP模型的**同步**行为。
 - en: 'So, what would it take to implement the same process in a distributed manner?
     Let''s see:'
+  id: totrans-70
   prefs: []
   type: TYPE_NORMAL
+  zh: 那么，要如何以分布式方式实现相同的过程呢？让我们看看：
 - en: First of all, both the master and the workers need to run exactly the same compute
     functions. That's pretty easy to do since we will first develop our algorithm
     using the `bspgraph` package and then use the `dbspgraph` package to execute it
     either on a master or worker node.
+  id: totrans-71
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 首先，主节点和工作节点都需要运行完全相同的计算函数。这很容易做到，因为我们首先将使用`bspgraph`包开发我们的算法，然后使用`dbspgraph`包在主节点或工作节点上执行它。
 - en: Secondly, to enforce the synchronous aspects of the BSP model, we must introduce
     some kind of concurrency primitive to ensure that all workers execute the super-steps
     in **lock-step**. This primitive, which we will be referring to as a **step barrier**, will
     be implemented by the **master** node.
+  id: totrans-72
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 其次，为了强制执行BSP模型的同步方面，我们必须引入某种并发原语以确保所有工人在**同步**执行超级步骤。这个原语，我们将称之为**步骤屏障**，将由**主节点**实现。
 - en: 'As you probably guessed, the master will not really do any computation work;
     it will rather play the role of the coordinator for the execution of the graph
     algorithm. More specifically, the master will be responsible for the following:'
+  id: totrans-73
   prefs: []
   type: TYPE_NORMAL
+  zh: 如你所猜，主节点实际上不会进行任何计算工作；它将扮演图算法执行的协调者角色。更具体地说，主节点将负责以下工作：
 - en: Provide an endpoint for workers to connect to and wait for job assignments.
+  id: totrans-74
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 为工人提供一个连接并等待工作分配的端点。
 - en: Calculate and broadcast the partition assignments for each worker.
+  id: totrans-75
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 计算并广播每个工人的分区分配。
 - en: Coordinate the execution of each super-step with the help of a barrier primitive.
+  id: totrans-76
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在屏障原语的帮助下协调每个超级步骤的执行。
 - en: Keep track of the **global** state of the graph algorithm currently executing.
     This includes not only the current super-step but also global aggregator values.
     The master must collect the partial aggregator values from each worker, update
     its state, and broadcast the new global state to all workers.
+  id: totrans-77
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 跟踪当前正在执行的图算法的**全局**状态。这包括不仅当前的超级步骤，还包括全局聚合器值。主节点必须从每个工人收集部分聚合器值，更新其状态，并将新的全局状态广播到所有工人。
 - en: Relay messages between workers. The master is aware of the partition assignments
     for each worker and can route messages by consulting the destination ID.
+  id: totrans-78
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在工人之间中继消息。主节点了解每个工人的分区分配，并且可以通过查询目的地ID来路由消息。
 - en: Monitor the state of each worker and broadcast a job abort request if an error
     occurs or any worker crashes.
+  id: totrans-79
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 监控每个工人的状态，并在发生错误或任何工人崩溃时广播作业中止请求。
 - en: On the other hand, the role of the worker is much simpler. Every worker connects
     to the master and waits for a job assignment. Once a new job is received, the
     worker initializes its local graph with the vertices and edges that correspond
@@ -424,33 +587,43 @@
     graph algorithm in lock-step with the other workers until the user-defined termination
     condition for the algorithm is met. Any outgoing message whose destination is
     not a local graph vertex will be automatically relayed via the master node.
+  id: totrans-80
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，工人的角色要简单得多。每个工人连接到主节点并等待工作分配。一旦接收到新的工作，工人就会使用分配给它的**通用唯一标识符**（**UUID**）范围内的顶点和边初始化其本地图。然后，通过与主节点（通过屏障）的协调，工人在与其他工人保持同步的情况下执行图算法，直到满足算法的用户定义的终止条件。任何目的地不是本地图顶点的输出消息将通过主节点自动中继。
 - en: To be able to properly partition the graph and relay messages between workers,
     our only prerequisite is that vertex IDs are always valid UUIDs. If the underlying
     graph representation uses a different type of ID (for example, an integer value),
     the end user will need to manually re-map them to UUIDs during the graph initialization
     step.
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了能够正确分区图并在工人之间中继消息，我们唯一的先决条件是顶点ID始终是有效的UUID。如果底层图表示使用不同类型的ID（例如，一个整数值），最终用户需要在图初始化步骤中将它们手动重新映射到UUID。
 - en: Modeling a state machine for executing graph computations
+  id: totrans-82
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 建立用于执行图计算的有限状态机模型
 - en: 'To execute a graph algorithm, the `bspgraph` package provides the `Executor`
     type, a convenience helper that orchestrates the execution of the individual super-steps
     and allows the end user to define a set of optional callbacks that the executor
     invokes, if defined, at the various computation stages. The set of optional callbacks
     includes the following:'
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了执行图算法，`bspgraph`包提供了`Executor`类型，这是一个方便的辅助工具，它协调执行单个超级步骤，并允许最终用户定义一组可选的回调函数，如果定义了，执行器将在各种计算阶段调用这些回调函数。这组可选回调函数包括以下内容：
 - en: 'The `PRE_STEP` callback: This is invoked *before* executing a super-step. This
     hook enables the end user to perform any required algorithm-specific initialization
     steps before the following super-step. For instance, some algorithms might require
     resetting the value stored in one or more aggregators before each super-step.'
+  id: totrans-84
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`PRE_STEP`回调：这个回调在执行超级步骤之前调用。这个钩子允许最终用户在下一个超级步骤之前执行任何所需的算法特定初始化步骤。例如，某些算法可能在每个超级步骤之前需要重置存储在一个或多个聚合器中的值。'
 - en: 'The `POST_STEP` callback: This is invoked *after* executing a super-step. A
     typical use case for this hook is to perform additional calculations and update
     the global aggregator values. For example, to calculate an average value, we could
@@ -458,542 +631,779 @@
     function invocations during the super-step. Then, in the `POST_STEP` callback,
     we can simply fetch their values, calculate the average, and record it in another
     aggregator.'
+  id: totrans-85
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`POST_STEP`回调：这个回调在执行超级步骤后调用。这个钩子的典型用例是在超级步骤中执行额外的计算并更新全局聚合器值。例如，为了计算平均值，我们可以设置两个聚合器，一个计数器和一个小计，它们在超级步骤期间通过计算函数调用进行更新。然后，在`POST_STEP`回调中，我们可以简单地获取它们的值，计算平均值，并将其记录在另一个聚合器中。'
 - en: 'The `POST_STEP_KEEP_RUNNING` callback: This is invoked after `POST_STEP` and
     its role is to decide whether the algorithm has completed its execution or additional
     super-steps are required. Some typical examples of stop conditions are given as
     follows:'
+  id: totrans-86
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`POST_STEP_KEEP_RUNNING`回调：这个回调在`POST_STEP`之后调用，其作用是决定算法是否已完成其执行或需要额外的超级步骤。以下是一些典型的停止条件示例：'
 - en: A particular super-step number is reached.
+  id: totrans-87
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 达到特定的超级步骤编号。
 - en: No more vertices are active (for example, the shortest path algorithm from [Chapter
     8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based Data Processing*).
+  id: totrans-88
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 没有更多的顶点处于活动状态（例如，来自[第8章](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml)，*基于图的数据处理*）。
 - en: An aggregator value reaches a threshold (for example, the PageRank calculator).
+  id: totrans-89
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 聚合器值达到阈值（例如，PageRank计算器）。
 - en: 'If we treat these callbacks as states in a state machine model, its state diagram
     will look as follows:'
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们将这些回调视为状态机模型中的状态，其状态图将如下所示：
 - en: '![](img/9b48463a-8269-4785-bfc8-1502019c003b.png)'
+  id: totrans-91
   prefs: []
   type: TYPE_IMG
+  zh: '![图片](img/9b48463a-8269-4785-bfc8-1502019c003b.png)'
 - en: 'Figure 1: The state diagram for the bspgraph package'
+  id: totrans-92
   prefs: []
   type: TYPE_NORMAL
+  zh: 图1：bspgraph包的状态图
 - en: While the preceding model works quite nicely when we are running on a single
     node, it is not quite enough when the graph is executing in a distributed fashion.
     Why is that? Well, remember that in the distributed version, each worker operates
     on a *subset* of the graph. Consequently, at the end of the algorithm's execution,
     each worker will have access to a subset of the solution.
+  id: totrans-93
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们在单个节点上运行时，前面的模型运行得相当好，但当图以分布式方式执行时，这还不够。为什么是这样呢？记住，在分布式版本中，每个工作器都在图的**子集**上操作。因此，算法执行结束时，每个工作器都将能够访问解决方案的子集。
 - en: A state machine is a popular mathematical model of computation. The model defines
     a set of computation states, rules for transitioning from one state to another,
     and an abstract machine that performs a particular computation task.
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 状态机是计算的一个流行数学模型。该模型定义了一组计算状态、从一个状态转换到另一个状态的规则以及执行特定计算任务的抽象机器。
 - en: At any point in time, the machine can only reside in **one** of the allowed
     states. Whenever the machine executes a computation step, the transition rules
     are consulted to select the next stage to transition to.
+  id: totrans-95
   prefs: []
   type: TYPE_NORMAL
+  zh: 在任何时刻，机器只能处于允许的**一个**状态。每当机器执行计算步骤时，都会咨询转换规则以选择下一个要过渡到的阶段。
 - en: 'We can''t really say that the algorithm has, in fact, completed *unless* the
     results from **all** workers have been successfully persisted! Therefore, for
     the distributed case, we need to extend our state diagram so that it looks as
     follows:'
+  id: totrans-96
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们不能真正地说算法已经完成，**除非**所有工作者的结果都已被成功持久化！因此，对于分布式情况，我们需要扩展我们的状态图，使其看起来如下所示：
 - en: '![](img/a7920933-c3ad-46aa-bd9d-509f22e9b696.png)'
+  id: totrans-97
   prefs: []
   type: TYPE_IMG
+  zh: '![图片](img/a7920933-c3ad-46aa-bd9d-509f22e9b696.png)'
 - en: 'Figure 2: The state diagram for the dbspgraph package'
+  id: totrans-98
   prefs: []
   type: TYPE_NORMAL
+  zh: 图2：dbspgraph包的状态图
 - en: 'Let''s take a quick look at what happens while inside the three new states
     that we just introduced to the state machine:'
+  id: totrans-99
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们快速看一下在刚刚引入到状态机中的三个新状态内部会发生什么：
 - en: Once the `POST_STEP_KEEP_RUNNING` callback decides that the terminal condition
     for the graph algorithm execution has been met, we move to the `EXECUTED_GRAPH`
     step, where each worker attempts to persist its local calculation results.
+  id: totrans-100
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一旦`POST_STEP_KEEP_RUNNING`回调决定图算法执行的终止条件已经满足，我们就进入`EXECUTED_GRAPH`步骤，其中每个工作节点都尝试持久化其本地计算结果。
 - en: Workers reach the `PERSISTED_RESULTS` state once they have successfully persisted
     their local calculation results to the backing store.
+  id: totrans-101
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 工作者在成功将本地计算结果持久化到后端存储后，会达到`PERSISTED_RESULTS`状态。
 - en: Finally, workers reach the `JOB_COMPLETED` state. When in this state, they are
     free to reset their internal state and wait for a new job.
+  id: totrans-102
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 最后，工作节点达到`JOB_COMPLETED`状态。在这个状态下，它们可以自由地重置内部状态并等待新的作业。
 - en: Establishing a communication protocol between workers and masters
+  id: totrans-103
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 在工作节点和主节点之间建立通信协议
 - en: A key prerequisite for implementing any kind of distributed system is to introduce
     a protocol that will allow the various system components to communicate with each
     other. The same requirement also applies to the distributed graph processing system
     that we are building in this chapter.
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: 实施任何类型的分布式系统的关键前提是引入一个协议，允许各种系统组件相互通信。同样的要求也适用于我们在本章中构建的分布式图处理系统。
 - en: As the workers and masters communicate with each other over network links, we
     will be applying the concepts learned in [Chapter 9](b3edd7bf-fd1d-4203-bd96-9113cdbb2422.xhtml), *Communicating
     with the Outside World*, and use gRPC as our transport layer.
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于工作节点和主节点通过网络链路进行通信，我们将应用在[第9章](b3edd7bf-fd1d-4203-bd96-9113cdbb2422.xhtml)，“与外界通信”中学到的概念，并使用gRPC作为我们的传输层。
 - en: The message and RPC definitions from the following sections can be found in
     the `Chapter12/dbspgraph/api` folder in this book's GitHub repository.
+  id: totrans-106
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下章节中的消息和RPC定义可以在本书GitHub仓库的`Chapter12/dbspgraph/api`文件夹中找到。
 - en: Defining a job queue RPC service
+  id: totrans-107
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 定义一个作业队列RPC服务
 - en: We will be taking a slightly unorthodox approach and start by defining our one
     and only RPC first. The reason for this is that the selection of the RPC type
     (unary versus stream) will greatly influence the way we define the various payloads.
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将采取一种稍微非传统的做法，首先定义我们唯一的RPC。这样做的原因是，RPC类型的选择（单一与流式）将极大地影响我们定义各种有效载荷的方式。
 - en: For example, if we opt to use a streaming RPC, we will need to define a kind
     of envelope message that can represent the different types of messages exchanged
     between the master and the workers. On the other hand, if we decide in favor of
     unary RPCs, we can presumably define multiple methods and avoid the need for envelope
     messages.
+  id: totrans-109
   prefs: []
   type: TYPE_NORMAL
+  zh: 例如，如果我们选择使用流式RPC，我们需要定义一种可以表示主节点和工作节点之间交换的不同类型消息的封装消息。另一方面，如果我们决定采用单一RPC，我们可能定义多个方法，从而避免需要封装消息。
 - en: 'Without further ado, let''s take a look at the RPC definition for our job queue:'
+  id: totrans-110
   prefs: []
   type: TYPE_NORMAL
+  zh: 不再赘述，让我们来看看我们作业队列的RPC定义：
 - en: '[PRE0]'
+  id: totrans-111
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: As you can see, we will actually be using a *bi-directional streaming* RPC!
     This comes with a cost; we need to define two envelope messages, one for workers
     and one for the master. So, what was the deciding factor that drove us to the
     ostensibly more complicated solution of bi-directional streaming?
+  id: totrans-112
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，我们实际上将使用一种*双向流式*RPC！这带来了一定的成本；我们需要定义两个封装消息，一个用于工作节点，一个用于主节点。那么，是什么决定因素驱使我们选择了看似更复杂的双向流式解决方案？
 - en: The answer has to do with the way that gRPC schedules messages for delivery.
     If you carefully examine the gRPC specification, you will notice that *only* streaming
     RPCs guarantees that messages will be delivered in the order in which they were
     published.
+  id: totrans-113
   prefs: []
   type: TYPE_NORMAL
+  zh: 答案与gRPC调度消息交付的方式有关。如果您仔细检查gRPC规范，您会注意到*只有*流式RPC保证了消息将按照它们发布的顺序交付。
 - en: This fact is of paramount importance for our particular use case, that is, if
     we are not able to enforce in-order message delivery, a worker waiting on a barrier
     could potentially handle a message before exiting the barrier. As a result, the
     worker would not only behave in a non-deterministic way (good luck debugging that!),
     but the algorithm would also produce the wrong results.
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个事实对我们特定的用例至关重要，也就是说，如果我们不能强制执行按顺序的消息传递，等待在屏障上的工作节点可能会在退出屏障之前处理一条消息。结果，工作节点不仅会以非确定性的方式行为（调试起来很幸运！），算法还会产生错误的结果。
 - en: Another benefit of the stream-based approach is that we can exploit the heartbeat
     mechanism that is inherently built into gRPC and efficiently detect whether a
     worker's connection to the master gets severed.
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: 基于流的方法的另一个好处是，我们可以利用gRPC内建的心跳机制，有效地检测工作节点与主节点的连接是否被切断。
 - en: Establishing protocol buffer definitions for worker payloads
+  id: totrans-116
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为工作节点负载建立协议缓冲区定义
 - en: 'As we saw in the previous section, we need to define an envelope message for
     worker payloads:'
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如我们在上一节中看到的，我们需要为工作节点负载定义一个信封消息：
 - en: '[PRE1]'
+  id: totrans-118
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: 'With the help of the `oneof` type, we can emulate a message union. A `WorkerPayload`
     can contain either a `Step` message or a `RelayMessage` message. The `Step` message
     is more interesting, so we will examine its definition first:'
+  id: totrans-119
   prefs: []
   type: TYPE_NORMAL
+  zh: 通过`oneof`类型，我们可以模拟消息联合。`WorkerPayload`可以包含`Step`消息或`RelayMessage`消息。`Step`消息更有趣，因此我们将首先检查其定义：
 - en: '[PRE2]'
+  id: totrans-120
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: 'The `Step` message will be sent by the worker to enter the master''s barrier
     for a particular execution step. The barrier type is indicated by the `type` field,
     which can take any of the nested `Type` values. These values correspond to the
     steps from the state diagram we saw before. Depending on the step type, the worker
     will transmit its **local** state to the master under the following situations:'
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Step`消息将由工作节点发送，以进入主节点的特定执行步骤的屏障。屏障类型由`type`字段指示，该字段可以采用任何嵌套的`Type`值。这些值对应于我们之前看到的州图中的步骤。根据步骤类型，工作节点将在以下情况下将其**本地**状态传输给主节点：'
 - en: When entering the barrier for the `POST` step, the worker will fetch the **partial**
     local aggregator (in [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based
     Data Processing*, we referred to them as **deltas**) values, marshal them into
     an `Any` message, and add them into a map where the keys correspond to the aggregator
     names.
+  id: totrans-122
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 当进入`POST`步骤的屏障时，工作节点将检索**部分**本地聚合器（在[第8章](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml)，*基于图的数据处理*，我们称它们为**delta**）值，将它们序列化到`Any`消息中，并将它们添加到一个映射中，其中键对应于聚合器名称。
 - en: When entering the barrier for the `POST_KEEP_RUNNING` step, the worker will
     populate the `activeInStep` field with the number of **local** vertices that were
     active in the step.
+  id: totrans-123
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 当进入`POST_KEEP_RUNNING`步骤的屏障时，工作节点将使用在步骤中活跃的**本地**顶点的数量填充`activeInStep`字段。
 - en: 'The other type of message that a worker can send is `RelayMessage`. This message
     requests the master to relay a message to the worker that is responsible for handling
     its destination ID. The definition is quite simple and given as follows:'
+  id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 工作节点可以发送的另一种消息类型是`RelayMessage`。此消息请求主节点将消息中继给负责处理其目标ID的工作节点。定义相当简单，如下所示：
 - en: '[PRE3]'
+  id: totrans-125
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: The `destination` field encodes the destination ID (a UUID) while the `message`
     field contains the actual message contents serialized as an `Any` value.
+  id: totrans-126
   prefs: []
   type: TYPE_NORMAL
+  zh: '`destination`字段编码了目标ID（一个UUID），而`message`字段包含实际的消息内容，序列化为`Any`值。'
 - en: Establishing protocol buffer definitions for master payloads
+  id: totrans-127
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为主节点负载建立协议缓冲区定义
 - en: 'Now, let''s take a look at the protocol buffer definition for the payloads
     sent by the master to the individual workers:'
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，让我们看一下主节点发送给单个工作节点的负载的协议缓冲区定义：
 - en: '[PRE4]'
+  id: totrans-129
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'When a worker connects to the job queue, it blocks until the master assigns
     it a new job by sending out a `JobDetails` message:'
+  id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: 当工作节点连接到作业队列时，它将阻塞，直到主节点通过发送`JobDetails`消息分配给它一个新的作业：
 - en: '[PRE5]'
+  id: totrans-131
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: The `job_id` field contains a unique ID for the job to be executed while `created_at`
     encodes the job creation timestamp. The `partition_from_uuid` and `partition_to_uuid`
     fields define the extents of the UUID range assigned to this worker by the master.
     Workers are expected to use this information to load the appropriate section of
     the graph in memory.
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: '`job_id`字段包含将要执行的任务的唯一ID，而`created_at`字段则编码了任务的创建时间戳。`partition_from_uuid`和`partition_to_uuid`字段定义了由主节点分配给该工作节点的UUID范围的边界。工作节点应使用这些信息来加载内存中适当的图部分。'
 - en: To enter a barrier for a particular step, workers send a `Step` message to the
     master. Once all workers reach the same barrier, the master will broadcast a notification
     to exit the barrier by sending back a `Step` message with the same step type.
+  id: totrans-133
   prefs: []
   type: TYPE_NORMAL
+  zh: 要进入特定步骤的屏障，工作节点将向主节点发送`Step`消息。一旦所有工作节点达到相同的屏障，主节点将通过发送带有相同步骤类型的`Step`消息来广播退出屏障的通知。
 - en: 'However, when a `Step` message originates from the master node, the two state-related
     fields are used to push the new **global** state to each worker:'
+  id: totrans-134
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，当`Step`消息来自主节点时，两个状态相关字段用于将新的**全局**状态推送到每个工作节点：
 - en: When exiting the barrier for the `POST` step, the master will send back the
     new **global** aggregator values, which have been calculated by applying the deltas
     sent in by each worker. Workers are expected to overwrite their local aggregator
     values with the values received by the master.
+  id: totrans-135
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 当退出`POST`步骤的屏障时，主节点将发送回由每个worker发送的delta计算出的新的**全局**聚合器值。预期worker将使用从主节点接收到的值覆盖其本地的聚合器值。
 - en: When exiting the barrier for the `POST_KEEP_RUNNING` step, the master will send
     back the **global** number of vertices that were active during the last step.
     Workers are expected to use this global value to test the stop condition for the
     algorithm.
+  id: totrans-136
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 当退出`POST_KEEP_RUNNING`步骤的屏障时，主节点将发送回上一步中活跃的**全局**顶点数。预期worker将使用这个全局值来测试算法的停止条件。
 - en: Finally, if the master receives a relay request, it examines its destination
     to select the worker responsible for dealing with it and simply forwards the message
     over the gRPC stream.
+  id: totrans-137
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，如果主节点收到一个中继请求，它会检查其目的地以选择负责处理该请求的worker，并简单地通过gRPC流转发消息。
 - en: Defining abstractions for working with bi-directional gRPC streams
+  id: totrans-138
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 定义用于处理双向gRPC流的抽象
 - en: As we saw in [Chapter 9](b3edd7bf-fd1d-4203-bd96-9113cdbb2422.xhtml),* Communicating
     with the Outside World,* bi-directional gRPC streams are full-duplex; the receive
     and send channels operate independently of each other. However, reading from a
     gRPC stream is a blocking operation. Therefore, to process both sides of the stream,
     we need to spin up some goroutines.
+  id: totrans-139
   prefs: []
   type: TYPE_NORMAL
+  zh: 如我们在[第9章](b3edd7bf-fd1d-4203-bd96-9113cdbb2422.xhtml)，“与外部世界通信”中看到的，双向gRPC流是全双工的；接收和发送通道独立于彼此操作。然而，从gRPC流中读取是一个阻塞操作。因此，为了处理流的两侧，我们需要启动一些goroutine。
 - en: Another important caveat of gRPC streams is that, while we can call `Recv` and
     `Send` from different goroutines, calling each of these methods concurrently from
     different goroutines is not safe and can lead to data loss! Therefore, we need
     a mechanism to *serialize* send and receive operations on the gRPC stream. The
     kind of obvious Go primitives for exactly this type of task are channels.
+  id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: gRPC流的另一个重要注意事项是，虽然我们可以从不同的goroutine调用`Recv`和`Send`，但不同goroutine中并发调用这些方法是不安全的，可能会导致数据丢失！因此，我们需要一个机制来对gRPC流上的发送和接收操作进行*序列化*。对于这种类型的任务，Go的明显原始原语是通道。
 - en: To make our life a bit easier and isolate the rest of our code from having to
     deal with the underlying gRPC streams, we will go ahead and introduce a set of
     abstractions to wrap the gRPC streams and provide a clean, channel-based interface
     for reading and writing from/to the stream.
+  id: totrans-141
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了让我们的工作更加轻松，并使我们的代码其余部分免于处理底层的gRPC流，我们将引入一组抽象来封装gRPC流，并提供一个干净、基于通道的接口，用于从/向流中读取和写入。
 - en: Remote worker stream
+  id: totrans-142
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 远程worker流
 - en: '`remoteWorkerStream`, the definition of which is shown in the following listing,
     is used by the master to wrap an incoming worker connection:'
+  id: totrans-143
   prefs: []
   type: TYPE_NORMAL
+  zh: '`remoteWorkerStream`，其定义如下所示，被主节点用于封装传入的worker连接：'
 - en: '[PRE6]'
+  id: totrans-144
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'As you can see in the preceding code, `remoteWorkerStream` defines three channels
     for interacting with the stream:'
+  id: totrans-145
   prefs: []
   type: TYPE_NORMAL
+  zh: 如前述代码所示，`remoteWorkerStream`定义了三个通道以与流交互：
 - en: '`recvMsgCh` is used for receiving payloads sent in by the worker.'
+  id: totrans-146
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`recvMsgCh`用于接收worker发送的数据负载。'
 - en: '`sendMsgCh` is used for sending payloads from the master to the worker.'
+  id: totrans-147
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`sendMsgCh`用于从主节点向worker发送数据负载。'
 - en: '`sendErrCh` allows the master to disconnect the worker connection with or without
     an error code.'
+  id: totrans-148
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`sendErrCh`允许主节点带或不带错误代码地断开worker连接。'
 - en: 'The code that interacts with a remote worker stream can use the following methods
     to obtain the appropriate channel instance for reads and writes as well as for
     closing the stream:'
+  id: totrans-149
   prefs: []
   type: TYPE_NORMAL
+  zh: 与远程worker流交互的代码可以使用以下方法来获取读取和写入的适当通道实例，以及关闭流的操作：
 - en: '[PRE7]'
+  id: totrans-150
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: 'The `remoteWorkerStream` struct also includes two fields (protected by a mutex)
     for tracking the connection status for the remote worker. While the master is
     coordinating the execution of a job, it must monitor the health of each individual
     worker and abort the job if any of the workers suddenly disconnects. To do so,
     the master can register a disconnect callback via the following method:'
+  id: totrans-151
   prefs: []
   type: TYPE_NORMAL
+  zh: '`remoteWorkerStream`结构还包括两个字段（由互斥锁保护），用于跟踪远程worker的连接状态。在主节点协调作业执行时，它必须监控每个单独的worker的健康状况，并在任何worker突然断开连接时终止作业。为此，主节点可以通过以下方法注册断开回调：'
 - en: '[PRE8]'
+  id: totrans-152
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: Since `SetDisconnectCallback` may be invoked *after* the worker stream has already
     disconnected, the stream uses the Boolean `disconnected` field to keep track of
     this event and automatically invokes the provided callback if it is required.
+  id: totrans-153
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于 `SetDisconnectCallback` 可能在工作流已经断开连接之后被调用，因此流使用布尔 `disconnected` 字段来跟踪此事件，并在需要时自动调用提供的回调。
 - en: 'All we need to do to create a new `remoteWorkerStream` instance is to invoke
     its constructor and pass the gRPC stream as an argument. The constructor implementation
     (shown in the following) will initialize the various buffered channels required
     for working with the stream:'
+  id: totrans-154
   prefs: []
   type: TYPE_NORMAL
+  zh: 要创建一个新的 `remoteWorkerStream` 实例，我们只需调用其构造函数并将 gRPC 流作为参数传递。构造函数实现（如下所示）将初始化与流交互所需的各个缓冲通道：
 - en: '[PRE9]'
+  id: totrans-155
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'The `HandleSendRecv` method implements the required logic for working with
     the underlying stream. As you can see in the following snippet, it first creates
     a cancelable context, which is always canceled when the method returns. Then,
     it spins up a goroutine to asynchronously handle the receiving end of the stream. The
     method then enters an infinite `for` loop, where it processes the sending end
     of the stream until either the stream is gracefully closed or an error occurs:'
+  id: totrans-156
   prefs: []
   type: TYPE_NORMAL
+  zh: '`HandleSendRecv` 方法实现了与底层流交互所需逻辑。正如您在下面的代码片段中可以看到的，它首先创建了一个可取消的上下文，该方法返回时上下文总是被取消。然后，它启动一个
+    goroutine 来异步处理流的接收端。该方法随后进入一个无限 `for` 循环，在该循环中处理流的发送端，直到流优雅地关闭或发生错误：'
 - en: '[PRE10]'
+  id: totrans-157
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: 'As far as the send implementation is concerned, the previous code uses a `select`
     block to wait for one of the following events:'
+  id: totrans-158
   prefs: []
   type: TYPE_NORMAL
+  zh: 在发送实现方面，前面的代码使用 `select` 块等待以下事件之一：
 - en: A payload is emitted via `sendMsgCh`. In this case, we attempt to send it through
     the stream and return any error to the caller.
+  id: totrans-159
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 通过 `sendMsgCh` 发射一个有效载荷。在这种情况下，我们尝试通过流发送它，并将任何错误返回给调用者。
 - en: An error is emitted via `sendErrCh` or the channel is closed (see the `Close`
     method implementation a few lines up). If no error has occurred, the method returns
     with a `nil` error. Otherwise, we use the `grpc/status` package to tag the error
     with the gRPC specific `codes.Aborted` error code and return the error to the
     caller.
+  id: totrans-160
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果通过 `sendErrCh` 发射错误或通道关闭（请参阅上面几行的 `Close` 方法实现），则通过 `grpc/status` 包将特定的 `codes.Aborted`
+    错误代码标记为错误，并将错误返回给调用者。如果没有发生错误，则方法返回一个 `nil` 错误。否则，我们使用 `grpc/status` 包将特定的 `codes.Aborted`
+    错误代码标记为错误，并将错误返回给调用者。
 - en: Finally, if the context is canceled by the `handleRecv` goroutine, we exit with
     a typed `errJobAborted` error message.
+  id: totrans-161
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 最后，如果上下文被 `handleRecv` goroutine 取消，我们将以一个类型化的 `errJobAborted` 错误消息退出。
 - en: 'Let''s now take a closer look at the implementation of the `handleRecv` method:'
+  id: totrans-162
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，让我们更详细地看看 `handleRecv` 方法的实现：
 - en: '[PRE11]'
+  id: totrans-163
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: Calling the stream's `Recv` method blocks until either a message becomes available
     or the remote connection is severed. If we receive an incoming message from the
     worker, a `select` block is used to either enqueue the message to the `recvMsgCh`
     or to exit the goroutine if the context is canceled (for example, `HandleSendRecv`
     exits due to an error).
+  id: totrans-164
   prefs: []
   type: TYPE_NORMAL
+  zh: 调用流的 `Recv` 方法会阻塞，直到有消息可用或远程连接断开。如果我们从工作进程接收到传入的消息，将使用 `select` 块将消息入队到 `recvMsgCh`
+    或在上下文被取消时退出 goroutine（例如，`HandleSendRecv` 由于错误而退出）。
 - en: 'On the other hand, if we do detect an error, we always assume that the client
     disconnected and invoke the `handleDisconnect` helper method before canceling
     the context and exiting the goroutine:'
+  id: totrans-165
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，如果我们检测到错误，我们总是假设客户端断开连接，在取消上下文和退出 goroutine 之前调用 `handleDisconnect` 辅助方法：
 - en: '[PRE12]'
+  id: totrans-166
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: The preceding implementation is pretty straightforward. The `mu` lock is acquired
     and a check is performed to see whether a disconnect callback has been specified.
     If that's the case, then the callback is invoked and then the `disconnected` flag
     is set to `true` to keep track of the disconnect event.
+  id: totrans-167
   prefs: []
   type: TYPE_NORMAL
+  zh: 前面的实现相当直接。获取 `mu` 锁并检查是否指定了断开连接回调。如果是这样，则调用回调并将 `disconnected` 标志设置为 `true`
+    以跟踪断开事件。
 - en: Remote master stream
+  id: totrans-168
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 远程主流
 - en: 'Next, we will move to the worker side and examine the equivalent stream helper
     for handling a connection to the master node. The definition of the `remoteMasterStream`
     type is pretty much the same as `remoteWorkerStream`, given as follows:'
+  id: totrans-169
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，我们将转向工作端，并检查处理与主节点连接的等效流辅助方法。`remoteMasterStream` 类型的定义与 `remoteWorkerStream`
+    几乎相同，如下所示：
 - en: '[PRE13]'
+  id: totrans-170
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: 'Once the worker connects to the master node and receives a job assignment,
     it will invoke the `newRemoteMasterStream` function to wrap the obtained stream
     connection with a `remoteMasterStream` instance:'
+  id: totrans-171
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦工作节点连接到主节点并接收到一个作业分配，它将调用 `newRemoteMasterStream` 函数来使用 `remoteMasterStream`
+    实例包装获得的流连接：
 - en: '[PRE14]'
+  id: totrans-172
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: As you can see in the previous code snippet, the constructor creates a cancelable
     context and allocates a pair of channels to be used for interfacing with the stream.
+  id: totrans-173
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您在前面的代码片段中所见，构造函数创建了一个可取消的上下文，并为与流进行接口交互分配了一对通道。
 - en: 'Just as we did for the `remoteWorkerStream` implementation, we will define
     a pair of convenience methods for accessing these channels, as follows:'
+  id: totrans-174
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如我们在 `remoteWorkerStream` 实现中所做的那样，我们将定义一对便利方法来访问这些通道，如下所示：
 - en: '[PRE15]'
+  id: totrans-175
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: The `HandleSendRecv` method is responsible for receiving incoming messages from
     the master and for transmitting outgoing messages from the worker.
+  id: totrans-176
   prefs: []
   type: TYPE_NORMAL
+  zh: '`HandleSendRecv` 方法负责接收来自主节点的传入消息，以及从工作节点发送出去的消息。'
 - en: 'As you can see in the following block of code, the implementation is more or
     less the same as the `remoteWorkerStream` implementation with two small differences.
     Can you spot them? Take a look:'
+  id: totrans-177
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您在下面的代码块中所见，实现方式与 `remoteWorkerStream` 实现大致相同，但有两大小的区别。你能找到它们吗？看看：
 - en: '[PRE16]'
+  id: totrans-178
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: The first difference has to do with the way we handle errors returned by the
     stream's `Send` method. If the worker closes the send stream while the preceding block
     of code is attempting to send a payload to the master, `Send` will return an `io.EOF`
     error to let us know that we cannot send any more messages through the stream.
     Since the worker is the one that controls the send stream, we treat `io.EOF` errors
     as *expected* and ignore them.
+  id: totrans-179
   prefs: []
   type: TYPE_NORMAL
+  zh: 第一个区别在于我们处理流 `Send` 方法返回的错误的方式。如果工作节点在尝试将有效载荷发送到主节点的前一个代码块中关闭发送流，`Send` 将返回一个
+    `io.EOF` 错误，以让我们知道我们无法通过该流发送任何更多消息。由于工作节点是控制发送流的一方，我们将 `io.EOF` 错误视为*预期*并忽略它们。
 - en: Secondly, as the worker is the initiator of the RPC, it is not allowed to terminate
     the send stream with a specific error code as we did in the case of the master
     stream implementation. Consequently, for this implementation, there is no need
     to maintain (and poll) a dedicated error channel.
+  id: totrans-180
   prefs: []
   type: TYPE_NORMAL
+  zh: 其次，由于工作节点是 RPC 的发起者，它不允许像我们在主节点流实现中那样，使用特定的错误代码来终止发送流。因此，对于这种实现，没有必要维护（并轮询）一个专用的错误通道。
 - en: 'On the other hand, the following receive side code is implemented in exactly
     the same way as `remoteMasterStream`:'
+  id: totrans-181
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，以下接收端代码的实现方式与 `remoteMasterStream` 完全相同：
 - en: '[PRE17]'
+  id: totrans-182
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: 'To actually shut down the stream and cause the `HandleSendRecv` method to exit,
     the worker can invoke the `Close` method of `remoteMasterStream`:'
+  id: totrans-183
   prefs: []
   type: TYPE_NORMAL
+  zh: 要实际关闭流并使 `HandleSendRecv` 方法退出，工作节点可以调用 `remoteMasterStream` 的 `Close` 方法：
 - en: '[PRE18]'
+  id: totrans-184
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: The `Close` method first cancels the context monitored by the `select` blocks
     in both the receive and send code. As we discussed a few lines preceding, the
     latter action will cause any pending `Send` calls to fail with an `io.EOF` error
     and allow the `HandleSendRecv` method to return. Furthermore, the cancelation
     of the context enables the `handleRecv` goroutine to also return, hence ensuring
     that our implementation is not leaking any goroutines.
+  id: totrans-185
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Close` 方法首先取消接收和发送代码中由 `select` 块监控的上下文。正如我们在几行之前讨论的那样，后者的操作将导致任何挂起的 `Send`
+    调用因 `io.EOF` 错误而失败，并允许 `HandleSendRecv` 方法返回。此外，上下文的取消使 `handleRecv` 协程也能返回，从而确保我们的实现没有泄漏任何协程。'
 - en: Creating a distributed barrier for the graph execution steps
+  id: totrans-186
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为图执行步骤创建分布式屏障
 - en: A barrier can be thought of as a rendezvous point for a set of processes. Once
     a process enters the barrier, it is prevented from making any progress until all
     other expected processes also enter the barrier.
+  id: totrans-187
   prefs: []
   type: TYPE_NORMAL
+  zh: 屏障可以被视为一组进程的会合点。一旦一个进程进入屏障，它将阻止它继续进行任何进展，直到所有其他预期的进程也进入屏障。
 - en: 'In Go, we could model a barrier with the help of the `sync.WaitGroup` primitive,
     as follows:'
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 Go 中，我们可以使用 `sync.WaitGroup` 原语来帮助建模一个屏障，如下所示：
 - en: '[PRE19]'
+  id: totrans-189
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: To guarantee that each worker executes the various stages of the graph state
     machine in lock-step with the other workers, we must implement a similar barrier
     primitive. However, as far as our particular application is concerned, the goroutines
     that we are interested in synchronizing execute on different hosts. This obviously
     complicates things as we now need to come up with a distributed barrier implementation!
+  id: totrans-190
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了确保每个工作器与其他工作器以锁步的方式执行图状态机的各个阶段，我们必须实现一个类似的屏障原语。然而，就我们的特定应用程序而言，我们感兴趣同步的goroutines在不同的主机上执行。这显然使事情变得复杂，因为我们现在需要提出一个分布式屏障实现！
 - en: As we mentioned in the previous section, the master node will serve the role
     of the coordinator for the distributed barrier. To make the code easier to follow,
     in the following subsections, we will split our distributed barrier implementations
     into a worker-side and master-side implementation and examine them separately
     of each other.
+  id: totrans-191
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如我们在上一节中提到的，主节点将作为分布式屏障的协调者。为了使代码更容易理解，在接下来的小节中，我们将把我们的分布式屏障实现分为工作器端和主节点端实现，并分别检查它们。
 - en: Implementing a step barrier for individual workers
+  id: totrans-192
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为单个工作器实现步骤屏障
 - en: The `workerStepBarrier` type encapsulates the required logic for enabling a
     worker to enter the barrier for a particular graph execution step and to wait
     until the master notifies the worker that it can now exit the barrier.
+  id: totrans-193
   prefs: []
   type: TYPE_NORMAL
+  zh: '`workerStepBarrier`类型封装了使工作器能够进入特定图执行步骤并等待主节点通知工作器可以现在退出屏障所需的逻辑。'
 - en: 'The `workerStepBarrier` type is defined as follows:'
+  id: totrans-194
   prefs: []
   type: TYPE_NORMAL
+  zh: '`workerStepBarrier`类型定义如下：'
 - en: '[PRE20]'
+  id: totrans-195
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: 'To understand how these fields are initialized, let''s take a look at the constructor
     for a new barrier instance:'
+  id: totrans-196
   prefs: []
   type: TYPE_NORMAL
+  zh: 要了解这些字段是如何初始化的，让我们看看新屏障实例的构造函数：
 - en: '[PRE21]'
+  id: totrans-197
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: As you can see, the constructor accepts a context and a `remoteMasterStream`
     instance as an argument. The context allows the barrier code to block until either
     a notification is received by the master or the context gets canceled (for example, because
     the worker is shutting down).
+  id: totrans-198
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，构造函数接受一个上下文和一个`remoteMasterStream`实例作为参数。上下文允许屏障代码阻塞，直到主节点收到通知或上下文被取消（例如，因为工作器正在关闭）。
 - en: To allow the worker to block until a notification is received from the master,
     the constructor will allocate a separate channel for each type of step that we
     want to create a barrier for. When the protoc compiles our protocol buffer definitions
@@ -1002,28 +1412,38 @@
     model `enum` types as `int32` values). The constructor exploits the presence of
     this map to automatically generate the required number of channels using a plain
     `for` loop block.
+  id: totrans-199
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了允许工作器在接收到主节点的通知之前阻塞，构造函数将为我们要为创建屏障的每种步骤类型分配一个单独的通道。当protoc将我们的协议缓冲定义编译成Go代码时，它还将提供一个方便的`Step_Type`映射，该映射通常用于获取步骤类型的字符串表示（协议缓冲将`enum`类型建模为`int32`值）。构造函数利用这个映射，通过一个简单的`for`循环块自动生成所需数量的通道。
 - en: 'When the worker wants to enter the barrier for a particular step, it creates
     a new `Step` message with the local state that it wants to share with the master
     and invokes the blocking `Wait` method, which is shown as follows:'
+  id: totrans-200
   prefs: []
   type: TYPE_NORMAL
+  zh: 当工作器想要进入特定步骤的屏障时，它会创建一个新的`Step`消息，其中包含它想要与主节点共享的本地状态，并调用阻塞的`Wait`方法，如下所示：
 - en: '[PRE22]'
+  id: totrans-201
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: The `Wait` method consists of two basic parts. After validating the step type,
     the implementation tries to push a new `WorkerPayload` into `remoteMasterStream`
     so it can be sent to the master via the gRPC stream.
+  id: totrans-202
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Wait`方法由两个基本部分组成。在验证步骤类型后，实现尝试将新的`WorkerPayload`推入`remoteMasterStream`，以便通过gRPC流发送给主节点。'
 - en: Once the payload is successfully enqueued, the worker then waits on the appropriate
     channel for the specified step type and the master broadcasts a `Step` message
     to all workers to let them know that they can exit the barrier. Once that message
     is received, it is returned to the caller, which is then free to perform the required
     chunk of work for implementing this particular graph computation step.
+  id: totrans-203
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦有效加载了负载，工作器就会在适当的通道上等待指定的步骤类型，而主节点向所有工作器广播一个`Step`消息，告知它们可以退出屏障。一旦收到该消息，它就会返回给调用者，然后调用者就可以自由地执行实现此特定图计算步骤所需的工作块。
 - en: 'By now, you are probably wondering who is responsible for publishing the master''s
     broadcast step to the channel that the `Wait` method is trying to read from. To
     enforce a clear separation of concerns (and to make testing easier), the barrier
@@ -1031,79 +1451,113 @@
     responses from the master. Instead, it provides a `Notify` method that another
     component (the job coordinator) will invoke once a step message is received by
     the master:'
+  id: totrans-204
   prefs: []
   type: TYPE_NORMAL
+  zh: 到目前为止，你可能想知道谁负责将主节点的广播步骤发布到`Wait`方法尝试读取的通道。为了强制执行关注点的清晰分离（并使测试更容易），屏障实现不关心从主节点读取响应的低级细节。相反，它提供了一个`Notify`方法，一旦主节点收到步骤消息，另一个组件（作业协调器）将调用此方法：
 - en: '[PRE23]'
+  id: totrans-205
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: The code in the `Notify` method's implementation examines the step type field
     and uses it to select the channel for publishing the `Step` response.
+  id: totrans-206
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Notify`方法实现中的代码检查步骤类型字段，并使用它来选择发布`Step`响应的通道。'
 - en: Now, let's move on to examine the equivalent step barrier implementation for
     the master side.
+  id: totrans-207
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，让我们继续检查主节点侧的等效步骤屏障实现。
 - en: Implementing a step barrier for the master
+  id: totrans-208
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为主节点实现步骤屏障
 - en: 'Now, let''s take a look at the other half of the barrier implementation logic
     that runs on the master node. The `masterStepBarrier` type, the definition of
     which is given as follows, is admittedly more interesting as it contains the actual
     barrier synchronization logic:'
+  id: totrans-209
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，让我们看看运行在主节点上的屏障实现逻辑的另一部分。`masterStepBarrier`类型，其定义如下，确实更有趣，因为它包含了实际的屏障同步逻辑：
 - en: '[PRE24]'
+  id: totrans-210
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: 'One key difference is that the `masterStepBarrier` type defines two types of
     channels:'
+  id: totrans-211
   prefs: []
   type: TYPE_NORMAL
+  zh: 一个关键的区别是，`masterStepBarrier`类型定义了两种类型的通道：
 - en: '**Wait channel**: It is a channel for which the barrier monitors for incoming
     `Step` messages from workers.'
+  id: totrans-212
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**等待通道**：这是一个屏障监控来自工作者`Step`消息的通道。'
 - en: '**Notify channel**: It is a channel where remote worker streams will block
     waiting for a `Step` message to be broadcast by the master node.'
+  id: totrans-213
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**通知通道**：这是一个远程工作流将阻塞等待主节点广播`Step`消息的通道。'
 - en: As you can see by skimming through the constructor logic for creating the master
     barrier, we automatically create the required set of channels by iterating the
     `Step_Type` variable that the protoc generated for use when the protocol buffer
     definitions were compiled.
+  id: totrans-214
   prefs: []
   type: TYPE_NORMAL
+  zh: 通过浏览创建主屏障的构造函数逻辑，我们可以看到我们自动通过迭代protoc为在编译协议缓冲定义时使用而生成的`Step_Type`变量来创建所需的通道集。
 - en: 'What''s more, when creating a new barrier, the caller is expected to also provide
     the number of workers that are expected to join the barrier as an argument:'
+  id: totrans-215
   prefs: []
   type: TYPE_NORMAL
+  zh: 更重要的是，当创建一个新的屏障时，调用者还应该提供一个参数，即预期将加入屏障的工作者数量：
 - en: '[PRE25]'
+  id: totrans-216
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: In the previous section, we saw that, when the worker invokes the `Wait` method
     on `workerStepBarrier`, a `Step` message is published via `remoteMasterStream`.
     Now, we will examine what happens on the receiving end. Once the published `Step`
     message is received, the master invokes the `Wait` method on `masterStepBarrier`.
+  id: totrans-217
   prefs: []
   type: TYPE_NORMAL
+  zh: 在上一节中，我们看到了当工作者在`workerStepBarrier`上调用`Wait`方法时，通过`remoteMasterStream`发布了一个`Step`消息。现在，我们将检查接收端发生了什么。一旦接收到发布的`Step`消息，主节点就会在`masterStepBarrier`上调用`Wait`方法。
 - en: 'In principle, this is nothing more than a good old unary RPC implemented over
     a gRPC stream! Here is what happens inside the master''s `Wait` method:'
+  id: totrans-218
   prefs: []
   type: TYPE_NORMAL
+  zh: 从原则上讲，这不过是在gRPC流上实现的一个古老的单一RPC！以下是主节点的`Wait`方法内部发生的情况：
 - en: '[PRE26]'
+  id: totrans-219
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: The implementation first attempts to publish the incoming `Step` message to
     the *wait* channel responsible for handling the barrier for the step advertised
     by the `Step` message's `type` field. This bit of code will block until the master
     is ready to enter the same barrier (or the context expires due to the master shutting
     down).
+  id: totrans-220
   prefs: []
   type: TYPE_NORMAL
+  zh: 实现首先尝试将传入的`Step`消息发布到负责处理由`Step`消息的`type`字段所宣布的步骤的`wait`通道。这段代码将阻塞，直到主节点准备好进入相同的屏障（或由于主节点关闭而超时）。
 - en: Following a successful write to the *wait* channel, the code will then block
     a second time waiting for a notification from the master to be published to the
     appropriate *notify* channel for the step type. Once the `Step` response from
@@ -1111,25 +1565,33 @@
     The caller is then responsible for transmitting the `Step` message back to the
     worker, where it will be provided as an argument to the worker barrier's `Notify`
     method.
+  id: totrans-221
   prefs: []
   type: TYPE_NORMAL
+  zh: 在成功写入`wait`通道之后，代码将再次阻塞，等待来自主节点的通知发布到适当的*notify*通道，以便为步骤类型提供。一旦从主节点接收到的`Step`响应从队列中取出，`Wait`将解除阻塞并返回`Step`给调用者。然后，调用者负责将`Step`消息传回工人，其中它将作为工人屏障的`Notify`方法的参数提供。
 - en: 'When the master node is ready to enter the barrier for a particular step, it
     invokes the blocking `WaitForWorkers` method providing the step type as an argument.
     This method, the implementation of which is shown as follows, is equivalent to
     the worker side''s `Wait` method:'
+  id: totrans-222
   prefs: []
   type: TYPE_NORMAL
+  zh: 当主节点准备好进入特定步骤的屏障时，它将提供步骤类型作为参数调用阻塞的`WaitForWorkers`方法。此方法，其实现如下所示，与工人侧的`Wait`方法等效：
 - en: '[PRE27]'
+  id: totrans-223
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: The purpose of the preceding method is to wait until the expected number of
     workers join the barrier for the particular step type (via the `Wait` method)
     and to collect the individual `Step` messages published by each worker. To this
     end, the code first initializes a slice with enough capacity to hold the incoming
     messages and performs `numWorkers` reads from the appropriate *wait* channel for
     the step.
+  id: totrans-224
   prefs: []
   type: TYPE_NORMAL
+  zh: 前述方法的目的是在预期的工人数量通过`Wait`方法加入特定步骤类型的屏障之前等待，并收集每个工人发布的单个`Step`消息。为此，代码首先初始化一个足够容纳传入消息的切片，并从适当的*wait*通道为步骤执行`numWorkers`次读取。
 - en: Once all workers have joined the barrier, `WaitForWorkers` unblocks and returns
     the slice of `Step` messages to the caller. At this point, while all workers are
     still blocked, the master is now within what is referred to as a *critical section*,
@@ -1137,81 +1599,115 @@
     For instance, while inside the critical section for `POST_STEP`, the master will
     iterate the workers' step messages and apply the partial aggregator deltas from
     each worker into its own global aggregator state.
+  id: totrans-225
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦所有工人加入屏障，`WaitForWorkers`解除阻塞并返回`Step`消息的切片给调用者。在此点，尽管所有工人仍然阻塞，但主节点现在处于所谓的*关键部分*中，它可以以**原子**方式自由实现所需的任何操作。例如，在`POST_STEP`的关键部分内部，主节点将迭代工人的步骤消息并将每个工人的部分聚合器增量应用到其自己的全局聚合器状态中。
 - en: 'Then, once the master is ready to exit its critical section, it invokes the
     `NotifyWorkers` method with a `Step` message to be broadcast to the workers currently
     blocked on the barrier:'
+  id: totrans-226
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，一旦主节点准备好退出其关键部分，它将使用要广播给当前在屏障上阻塞的工人的`Step`消息调用`NotifyWorkers`方法：
 - en: '[PRE28]'
+  id: totrans-227
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: All `NotifyWorkers` needs to do is to push `numWorkers` copies of the master's
     `Step` message to the appropriate notification channel for the barrier step. Writing
     to the notification channel unblocks the callers of the `Wait` method and allows
     the step message to be propagated back to the worker.
+  id: totrans-228
   prefs: []
   type: TYPE_NORMAL
+  zh: '`NotifyWorkers`需要做的只是将主节点的`Step`消息的`numWorkers`个副本推送到屏障步骤的适当通知通道。写入通知通道将解除`Wait`方法的调用者，并允许步骤消息传播回工人。'
 - en: 'Does all of this seem confusing to you? The following diagram visualizes all
     the barrier-related interactions between the master and the server and will hopefully
     allow you to connect the dots:'
+  id: totrans-229
   prefs: []
   type: TYPE_NORMAL
+  zh: 这一切看起来对你来说是否很困惑？以下图表可视化了主节点与服务器之间所有与屏障相关的交互，并希望帮助你连接这些点：
 - en: '![](img/3ca08530-9b38-4b6b-8b4f-7a6fea7b2912.png)'
+  id: totrans-230
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/3ca08530-9b38-4b6b-8b4f-7a6fea7b2912.png)'
 - en: 'Figure 3: An end-to-end illustration of the barrier interactions between the
     master and the worker'
+  id: totrans-231
   prefs: []
   type: TYPE_NORMAL
+  zh: 图3：主节点与工人之间屏障交互的端到端示意图
 - en: 'Here is a brief summary of what''s going on in the preceding diagram:'
+  id: totrans-232
   prefs: []
   type: TYPE_NORMAL
+  zh: 下面是对前面图表中发生的事情的简要总结：
 - en: The master calls `WaitForWorkers` for the `POST` step and blocks.
+  id: totrans-233
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 主节点对`POST`步骤调用`WaitForWorkers`并阻塞。
 - en: The worker calls `Wait` for the `POST` step on its local barrier instance and
     blocks.
+  id: totrans-234
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 工人对其本地屏障实例上的`POST`步骤调用`Wait`并阻塞。
 - en: A `Step` message is published by through `remoteMasterStream`.
+  id: totrans-235
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 通过`remoteMasterStream`发布`Step`消息。
 - en: The piece of code on the master side that processes incoming worker messages
     receives the worker's `Step` message and invokes `Wait` on the master barrier
     and blocks.
+  id: totrans-236
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 主侧处理传入的工人消息的代码块接收工人的`Step`消息，并在主屏障上调用`Wait`并阻塞。
 - en: As the required number of workers (one in this example) has joined the barrier,
     the master's `WaitForWorkers` call unblocks allowing the master to enter a critical
     section where the master executes its step-specific logic.
+  id: totrans-237
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 随着所需的工作者数量（本例中为一个）已加入屏障，主节点的 `WaitForWorkers` 调用解除阻塞，允许主节点进入一个关键部分，在那里主节点执行其特定步骤的逻辑。
 - en: The master then invokes `NotifyWorkers` with a new `Step` message for the `POST`
     step.
+  id: totrans-238
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后，主节点调用 `NotifyWorkers` 并传递一个新的 `Step` 消息用于 `POST` 步骤。
 - en: The `Wait` method on the master side now unblocks and the `Step` message that
     the master just broadcast is sent back through the stream to the worker.
+  id: totrans-239
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 主节点上的 `Wait` 方法现在解除阻塞，并且主节点刚刚广播的 `Step` 消息通过流发送回工作者。
 - en: Upon receiving the `Step` response from the master, the worker's `Wait` method
     unblocks and the worker is now free to execute its own step-specific logic.
+  id: totrans-240
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 当从主节点收到 `Step` 响应时，工作者的 `Wait` 方法解除阻塞，工作者现在可以自由地执行其自己的特定步骤逻辑。
 - en: Creating custom executor factories for wrapping existing graph instances
+  id: totrans-241
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为包装现有图实例创建自定义执行器工厂
 - en: In [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based Data
     Processing*, we explored the use of the `bspgraph` package to implement a few
     popular graph-based algorithms such as Dijkstra's shortest path, graph coloring,
@@ -1220,15 +1716,24 @@
     of having our algorithm implementations *directly* invoke the `Executor` types
     constructor, we allowed the end users to optionally specify a custom executor
     factory for obtaining an `Executor` instance.
+  id: totrans-242
   prefs: []
   type: TYPE_NORMAL
+  zh: 在[第 8 章](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml)，*基于图的数据处理*中，我们探讨了使用 `bspgraph`
+    包来实现一些流行的基于图的算法，如迪杰斯特拉最短路径、图着色和 PageRank。为了协调上述算法的端到端执行，我们依赖于包提供的 `Executor` 类型的
+    API。然而，我们不是直接让我们的算法实现调用 `Executor` 类型的构造函数，而是允许最终用户可选地指定一个自定义执行器工厂来获取 `Executor`
+    实例。
 - en: 'Any Go function that satisfies the following signature can be effectively used
     in place of the default constructor for a new `Executor` constructor:'
+  id: totrans-243
   prefs: []
   type: TYPE_NORMAL
+  zh: 任何满足以下签名的 Go 函数都可以有效地用作新 `Executor` 构造函数的默认构造函数：
 - en: '[PRE29]'
+  id: totrans-244
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: The key benefit of this approach is that the executor factory is given full
     access to the *algorithm-specific* callbacks for the various stages of the computation.
     In this chapter, we will be exploiting this mechanism to intercept and decorate
@@ -1236,155 +1741,220 @@
     the barrier primitive that we built in the previous section. The patched callbacks
     will then be passed to the original `Executor` constructor and the result will
     be returned to the caller.
+  id: totrans-245
   prefs: []
   type: TYPE_NORMAL
+  zh: 这种方法的关键好处是执行器工厂可以完全访问*特定算法*的回调，用于计算的各个阶段。在本章中，我们将利用这种机制来拦截并装饰用户定义的回调，以必要的粘合逻辑与我们在上一节中构建的屏障原语进行接口。然后，修补后的回调将被传递给原始
+    `Executor` 构造函数，并将结果返回给调用者。
 - en: This little trick, while completely *transparent* to the original algorithm
     implementation, is all that we really need to ensure that all callbacks are executed
     in lock-step with all other workers.
+  id: totrans-246
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个小技巧，虽然对原始算法实现完全*透明*，但我们确实需要确保所有回调都与其他所有工作者同步执行。
 - en: The workers' executor factory
+  id: totrans-247
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 工人的执行器工厂
 - en: 'To create a suitable executor factory for workers, we can use the following
     helper function:'
+  id: totrans-248
   prefs: []
   type: TYPE_NORMAL
+  zh: 要为工作者创建合适的执行器工厂，我们可以使用以下辅助函数：
 - en: '[PRE30]'
+  id: totrans-249
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: 'The `newWorkerExecutorFactory` function expects two arguments, namely a `Serializer`
     instance and an initialized `workerStepBarrier` object. The serializer instance
     is responsible for serializing and unserializing the aggregator values to and
     from the `any.Any` protocol buffer messages that workers exchange with the master
     when they enter or exit the various step barriers. In the following code, you
     can see the definition of the `Serializer` interface:'
+  id: totrans-250
   prefs: []
   type: TYPE_NORMAL
+  zh: '`newWorkerExecutorFactory` 函数期望两个参数，即一个 `Serializer` 实例和一个初始化的 `workerStepBarrier`
+    对象。序列化器实例负责将聚合值序列化和反序列化到 `any.Any` 协议缓冲消息中，这些消息是工作者在进入或退出各种步骤屏障时与主节点交换的。在下面的代码中，你可以看到
+    `Serializer` 接口的定义：'
 - en: '[PRE31]'
+  id: totrans-251
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: As you can see in the preceding code snippet, the `newWorkerExecutorFactory`
     function allocates a new `workerExecutorFactory` value and returns a closure that
     satisfies the `ExecutorFactory` signature. When the generated factory function
     is invoked, its implementation captures the original callbacks and invokes the
     real executor constructor with a set of patched callbacks.
+  id: totrans-252
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您在前面的代码片段中看到的，`newWorkerExecutorFactory`函数分配一个新的`workerExecutorFactory`值，并返回一个满足`ExecutorFactory`签名的闭包。当生成的工厂函数被调用时，其实现捕获原始回调并使用一组修补后的回调调用实际的执行器构造函数。
 - en: 'Let''s take a look at what happens inside each one of the patched callbacks,
     starting with the one responsible for handling the `PRE` step:'
+  id: totrans-253
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们看看修补后的回调中每个发生的事情，从负责处理`PRE`步骤的那个开始：
 - en: '[PRE32]'
+  id: totrans-254
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: 'As you can see, the callback immediately joins the barrier and, once instructed
     to exit, it invokes the original (if defined) `PRE` step callback. The following
     code shows the next callback on our list, invoked immediately after executing
     a graph super-step:'
+  id: totrans-255
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，回调立即加入屏障，一旦被指示退出，它将调用原始（如果已定义）的`PRE`步骤回调。下面的代码显示了我们的列表中的下一个回调，在执行图超级步骤后立即调用：
 - en: '[PRE33]'
+  id: totrans-256
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: We mentioned before that, during the `POST` step, workers must transmit their
     partial aggregator deltas to the master when they enter the `POST` step barrier.
     This is exactly what happens in the preceding previous snippet.
+  id: totrans-257
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们之前提到，在`POST`步骤中，当工作者进入`POST`步骤屏障时，必须将他们的部分聚合器增量传输给主节点。这正是前一个代码片段中发生的事情。
 - en: The `serializeAggregatorDeltas` helper function iterates the list of aggregators
     that are defined on the graph and uses the provided `Serializer` instance to convert
     them into `map[string]*any.Any`. The map with the serialized deltas is then attached
     to a `Step` message and sent to the master via the barrier's `Wait` method.
+  id: totrans-258
   prefs: []
   type: TYPE_NORMAL
+  zh: '`serializeAggregatorDeltas`辅助函数遍历图上定义的聚合器列表，并使用提供的`Serializer`实例将它们转换为`map[string]*any.Any`。然后，带有序列化增量的映射附加到`Step`消息上，并通过屏障的`Wait`方法发送给主节点。'
 - en: The master tallies the deltas from each worker and broadcasts back a new `Step`
     message that contains the updated set of global aggregator values. Once we receive
     the updated message, we invoke the `setAggregatorValues` helper, which unserializes
     the incoming `map[string]*any.Any` map entries and overwrites the aggregator values
     for the local graph instance. Before returning, the callback wrapper invokes the
     original user-defined `POST` step callback if one is actually defined.
+  id: totrans-259
   prefs: []
   type: TYPE_NORMAL
+  zh: 主节点汇总每个工作者的增量，并广播一个新的`Step`消息，其中包含更新后的全局聚合器值集。一旦我们收到更新消息，我们就调用`setAggregatorValues`辅助函数，该函数反序列化传入的`map[string]*any.Any`映射条目，并覆盖本地图实例的聚合器值。在返回之前，回调包装器如果实际定义了，将调用原始用户定义的`POST`步骤回调。
 - en: 'The last callback wrapper implementation that we will inspect is the one invoked
     for the `POST_KEEP_RUNNING` step, given as follows:'
+  id: totrans-260
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将要检查的最后一个是用于`POST_KEEP_RUNNING`步骤的回调包装器实现，如下所示：
 - en: '[PRE34]'
+  id: totrans-261
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: As with every other callback wrapper implementation, the first thing we do is
     to enter the barrier for the current step type. Note that the outgoing `Step`
     message includes the **local** number of active vertices in this step. The response
     we get back from the master includes the **global** number of active vertices,
     which is the actual value that must be passed to the user-defined callback for
     this step.
+  id: totrans-262
   prefs: []
   type: TYPE_NORMAL
+  zh: 与其他每个回调包装器实现一样，我们首先进入当前步骤类型的屏障。请注意，出去的`Step`消息包括此步骤中活动的**本地**顶点数。我们从主节点收到的响应包括**全局**的活动顶点数，这是必须传递给用户定义回调的实际值。
 - en: The master's executor factory
+  id: totrans-263
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 主节点的执行器工厂
 - en: 'The code for generating an executor factory for the master is quite similar;
     to avoid repeating the same code blocks again, we will only list the implementations
     for each one of the individual callback wrappers, starting with `preStepCallback`:'
+  id: totrans-264
   prefs: []
   type: TYPE_NORMAL
+  zh: 生成主节点执行器工厂的代码相当相似；为了避免再次重复相同的代码块，我们只列出每个单独回调包装器的实现，从`preStepCallback`开始：
 - en: '[PRE35]'
+  id: totrans-265
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: Compared to the worker-side implementation, the master behaves a bit differently.
     To begin with, the master waits until all workers enter the barrier. Then, with
     the help of the `masterStepBarrier` primitive, it broadcasts a notification message
     that unblocks the workers and allows both the master and the workers to execute
     the same user-defined callback for the step.
+  id: totrans-266
   prefs: []
   type: TYPE_NORMAL
+  zh: 与工作者端实现相比，主节点的行为略有不同。首先，主节点会等待所有工作者进入屏障。然后，借助`masterStepBarrier`原语，它广播一个通知消息，解除工作者的阻塞，并允许主节点和工作者执行相同的用户定义回调步骤。
 - en: 'Let''s now see what happens inside the callback override for the `POST` step:'
+  id: totrans-267
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们看看`POST`步骤的回调覆盖内部发生了什么：
 - en: '[PRE36]'
+  id: totrans-268
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: Once again, the master waits for all workers to enter the barrier but this time,
     it collects the `Step` messages sent in by each individual worker. Then, the master
     begins its critical section where it iterates the list of collected `Step` messages
     and applies the partial deltas to its own aggregator. Finally, the new global
     aggregator values are serialized via a call to the `serializeAggregatorValues`
     helper and broadcast back to each worker.
+  id: totrans-269
   prefs: []
   type: TYPE_NORMAL
+  zh: 再次，主节点等待所有工作者进入屏障，但这次，它收集每个个别工作者发送的`Step`消息。然后，主节点进入其关键部分，迭代收集的`Step`消息列表并将其部分增量应用到自己的聚合器中。最后，通过调用`serializeAggregatorValues`辅助函数将新的全局聚合器值序列化，并广播回每个工作者。
 - en: 'As expected, the callback wrapper for the `POST_STEP_KEEP_RUNNING` step follows
     exactly the same pattern:'
+  id: totrans-270
   prefs: []
   type: TYPE_NORMAL
+  zh: 如预期的那样，`POST_STEP_KEEP_RUNNING`步骤的回调包装器遵循完全相同的模式：
 - en: '[PRE37]'
+  id: totrans-271
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: Inside the master's critical section, the individual `ActiveInStep` counts reported
     by each worker are aggregated and the result is broadcast back to each worker.
     After exiting the barrier, the master invokes the user-defined callback for the
     step.
+  id: totrans-272
   prefs: []
   type: TYPE_NORMAL
+  zh: 在主节点的关键部分中，每个工作者报告的`ActiveInStep`计数被汇总，并将结果广播回每个工作者。退出屏障后，主节点调用用户定义的步骤回调。
 - en: Coordinating the execution of a graph job
+  id: totrans-273
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 协调图作业的执行
 - en: So far, we have created the necessary abstractions for reading from and writing
     to the bi-directional stream established between the workers and the master. What's
     more, we have implemented a distributed barrier primitive that serves as a rendezvous
     point for the various graph compute steps that are asynchronously executed by
     the worker and the master nodes.
+  id: totrans-274
   prefs: []
   type: TYPE_NORMAL
+  zh: 到目前为止，我们已经创建了从工作者和主节点之间建立的双向流中读取和写入所需的抽象。更重要的是，我们已经实现了一个分布式屏障原语，它作为工作者和主节点节点异步执行的各个图计算步骤的会合点。
 - en: Finally, we have defined a set of custom executor factories that enable us to
     wrap any existing algorithm built with the help of the `bspgraph` package and
     transparently allow it to use the barrier primitive to ensure that the graph computations
     are executed in lock-step across all workers.
+  id: totrans-275
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们定义了一组自定义执行器工厂，使我们能够将任何使用`bspgraph`包构建的现有算法包装起来，并透明地允许它使用屏障原语以确保图计算在所有工作者上同步执行。
 - en: One thing that we should keep in mind is that running the graph compute algorithm
     to completion is not a sufficient condition to treat a distributed *compute job*
     as being complete! We still have to ensure that the results of the computation
@@ -1392,136 +1962,190 @@
     trivial; many things can go wrong while the workers attempt to save their progress
     as the workers might crash, the store might not be reachable, or a various host
     of random, network-related failures might occur.
+  id: totrans-276
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们应该记住的一件事是，将图计算算法运行到完成并不是将分布式**计算作业**视为完成的充分条件！我们仍然必须确保计算结果在没有错误的情况下持久化到稳定存储。后一项任务绝非易事；在工作者尝试保存进度时，可能会出现许多问题，因为工作者可能会崩溃，存储可能不可达，或者可能发生各种随机的、与网络相关的故障。
 - en: As the old saying goes—building distributed systems is hard! To this end, we
     need to introduce an **orchestration layer**—in other words, a mechanism that
     will combine all of the components that we have built so far and include all of
     the required logic to coordinate the end-to-end execution of a distributed computation
     job. Should any error occur (at a worker, the master, or both), the coordinator
     should detect it and signal all workers to abort the job.
+  id: totrans-277
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如古语所说——构建分布式系统是困难的！为此，我们需要引入一个**编排层**——换句话说，一个将我们迄今为止构建的所有组件组合在一起并包含协调分布式计算作业端到端执行所需的所有逻辑的机制。如果发生任何错误（在工作者、主节点或两者中），协调器应检测到它并向所有工作者发出终止作业的信号。
 - en: Simplifying end user interactions with the dbspgraph package
+  id: totrans-278
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 简化与dbspgraph包的最终用户交互
 - en: This chapter explores the various components of the distributed job runner implementation
     in detail. Nevertheless, we would rather want to keep all of the internal details
     hidden from the intended user of the `dbspgraph` package.
+  id: totrans-279
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章详细探讨了分布式作业运行器实现的各种组件。尽管如此，我们更愿意将所有内部细节隐藏给`dbspgraph`包的预期用户。
 - en: 'Essentially, we need to come up with a simplified API that the end users will
     use to interact with our package. As it turns out, this is quite easy to do. Assuming
     that the end users have already created (and tested) their graph algorithm with
     the help of the `bspgraph` package, they only need to provide a simple adaptor
     for interacting with the algorithm implementation. The set of required methods
     is encapsulated in the `Runner` interface definition, which is outlined as follows:'
+  id: totrans-280
   prefs: []
   type: TYPE_NORMAL
+  zh: 实际上，我们需要想出一个简化的API，让最终用户能够与我们的包交互。结果证明，这相当容易做到。假设最终用户已经在`bspgraph`包的帮助下创建（并测试）了他们的图算法，他们只需要提供一个简单的适配器来与算法实现交互。所需的方法封装在`Runner`接口定义中，概述如下：
 - en: '[PRE38]'
+  id: totrans-281
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE38]'
 - en: 'The first argument to each one of the `Runner` methods is a structure that
     contains metadata about the currently executing job. The `Details` type mirrors
     the fields of the `JobDetails` protocol buffer message that the master broadcasts
     to each worker and is defined as follows:'
+  id: totrans-282
   prefs: []
   type: TYPE_NORMAL
+  zh: 每个`Runner`方法的第一个参数是一个包含当前执行作业元数据的结构。`Details`类型反映了`JobDetails`协议缓冲消息的字段，该消息由主节点广播给每个工作节点，并定义如下：
 - en: '[PRE39]'
+  id: totrans-283
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE39]'
 - en: The `StartJob` method provides a hook for allowing the end users to initialize
     a `bspgraph.Graph` instance, load the appropriate set of data (vertices and edges),
     and use the provided `ExecutorFactory` argument to create a new `Executor` instance,
     which `StartJob` returns to the caller. As you probably guessed, our code will
     invoke `StartJob` with the appropriate custom execution factory depending on whether
     the code is executing on a worker or master node.
+  id: totrans-284
   prefs: []
   type: TYPE_NORMAL
+  zh: '`StartJob`方法提供了一个钩子，允许最终用户初始化一个`bspgraph.Graph`实例，加载适当的数据集（顶点和边），并使用提供的`ExecutorFactory`参数创建一个新的`Executor`实例，`StartJob`将此实例返回给调用者。正如你可能猜到的，我们的代码将根据代码是在工作节点还是主节点上执行，使用适当的自定义执行工厂调用`StartJob`。'
 - en: Once both the master and workers have completed the execution of the graph,
     we will arrange things so that the `CompleteJob` method is invoked. This is where
     the end user is expected to extract the computed application-specific results
     from the graph and persist them to the stable store.
+  id: totrans-285
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦主节点和工作节点都完成了图的执行，我们将安排调用`CompleteJob`方法。这是最终用户从图中提取计算的应用特定结果并将其持久化到稳定存储的地方。
 - en: On the other hand, should an error occur either while running the algorithm
     or while attempting to persist the results, our job coordinator will invoke the
     `AbortJob` method to notify the end user and let them properly clean up or take
     any required action for rolling back any changes already persisted to disk.
+  id: totrans-286
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，如果在运行算法或尝试持久化结果时发生错误，我们的作业协调器将调用`AbortJob`方法来通知最终用户，并让他们适当地清理或采取任何必要的操作以回滚已持久化到磁盘的任何更改。
 - en: The worker job coordinator
+  id: totrans-287
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 工作节点作业协调器
 - en: 'We will start by examining the coordinator logic that the worker side executes.
     Let''s take a quick look at the constructor for the `workerJobCoordinator` type:'
+  id: totrans-288
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将首先检查工作节点端执行的协调器逻辑。让我们快速看一下`workerJobCoordinator`类型的构造函数：
 - en: '[PRE40]'
+  id: totrans-289
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE40]'
 - en: 'The constructor expects an external context as an argument as well as a configuration
     object, which includes the following:'
+  id: totrans-290
   prefs: []
   type: TYPE_NORMAL
+  zh: 构造函数期望一个外部上下文作为参数，以及一个包含以下内容的配置对象：
 - en: The job metadata
+  id: totrans-291
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 作业元数据
 - en: A `remoteMasterStream` instance, which we will use to interact with the master
+  id: totrans-292
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个`remoteMasterStream`实例，我们将用它来与主节点交互
 - en: A user-provided job `Runner` implementation
+  id: totrans-293
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 用户提供的作业`Runner`实现
 - en: A user-provided `Serializer` instance to be used by both the executor factory
     (marshaling aggregator values) and for marshaling outgoing graph messages that
     need to be relayed through the master node
+  id: totrans-294
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个用户提供的`Serializer`实例，将被执行器工厂（序列化聚合值）和用于序列化需要通过主节点中继的输出图消息使用
 - en: Before proceeding, the constructor creates a new *cancelable* context (`jobCtx`),
     which wraps the caller-provided context. The `jobCtx` instance is then used as
     an argument for creating a `workerStepBarrier` instance. This approach allows
     the coordinator to fully control the life cycle of the barrier.
+  id: totrans-295
   prefs: []
   type: TYPE_NORMAL
+  zh: 在继续之前，构造函数创建一个新的**可取消**的上下文（`jobCtx`），它封装了调用者提供的上下文。然后，`jobCtx`实例被用作创建`workerStepBarrier`实例的参数。这种方法允许协调器完全控制屏障的生命周期。
 - en: If an error occurs, the coordinator can simply invoke the `cancelJobCtx` function
     and automatically have the barrier shut down. Of course, the same tear-down semantics
     also apply if the external context happens to expire.
+  id: totrans-296
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果发生错误，协调器可以简单地调用`cancelJobCtx`函数，并自动关闭屏障。当然，如果外部上下文意外过期，同样的拆除语义也适用。
 - en: Running a new job
+  id: totrans-297
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 运行一个新作业
 - en: 'Once the worker receives a new job assignment from the master, it calls the
     coordinator''s constructor and then invokes its `RunJob` method, which blocks
     until the job either completes or an error occurs:'
+  id: totrans-298
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦工作者从主节点接收到新的作业分配，它将调用协调器的构造函数，然后调用其`RunJob`方法，该方法会阻塞，直到作业完成或发生错误：
 - en: '[PRE41]'
+  id: totrans-299
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE41]'
 - en: 'Let''s break down the `RunJob` implementation into smaller chunks and go through
     each one:'
+  id: totrans-300
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们将`RunJob`实现分解成更小的块，并逐一分析：
 - en: '[PRE42]'
+  id: totrans-301
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE42]'
 - en: The very first thing that `RunJob` does is to create a `workerExecutor` factory
     using the configured serializer and the barrier instance that the constructor
     already set up. Then, the `StartJob` method of the user-provided `job.Runner`
     is invoked to initialize the graph and return an `Executor` value that we can
     use. Note that, up to this point, *our code* is totally oblivious to how the user-defined
     algorithm works!
+  id: totrans-302
   prefs: []
   type: TYPE_NORMAL
+  zh: '`RunJob`首先做的事情是使用配置的序列化器和构造函数已经设置好的屏障实例创建一个`workerExecutor`工厂。然后，调用用户提供的`job.Runner`的`StartJob`方法来初始化图，并返回一个我们可以使用的`Executor`值。注意，到目前为止，*我们的代码*对用户定义的算法是如何工作的完全一无所知！'
 - en: The next step entails the extraction of the `bspgraph.Graph` instance from the
     returned `Executor` instance and the registration of a `bspgraph.Relayer` helper,
     which the graph will automatically invoke when a vertex attempts to send a message
@@ -1530,230 +2154,324 @@
     following sections where we will be discussing the concept of message relaying
     in more detail. This completes all of the required initialization steps. We are
     now ready to commence the execution of the graph compute job!
+  id: totrans-303
   prefs: []
   type: TYPE_NORMAL
+  zh: 下一步包括从返回的`Executor`实例中提取`bspgraph.Graph`实例，并注册一个`bspgraph.Relayer`辅助器，当顶点尝试发送一个本地图实例无法识别的ID的消息时，图会自动调用该辅助器。我们将在后续章节中详细讨论消息中继的概念时，更详细地查看`relayNonLocalMessage`方法的实现。这完成了所有必要的初始化步骤。我们现在可以开始执行图计算作业了！
 - en: 'To not only monitor the health of the connection to the master but also asynchronously
     process any incoming payloads, we will spin up a goroutine:'
+  id: totrans-304
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了不仅监控与主节点的连接健康，还异步处理任何传入的有效载荷，我们将启动一个goroutine：
 - en: '[PRE43]'
+  id: totrans-305
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE43]'
 - en: While our goroutine is busy processing incoming payloads, `RunJob` invokes the
     `runJobToCompletion` helper method that advances through the various stages of
     the graph execution's state machine. If an error occurs, we invoke the user's
     `AbortJob` method and then proceed to check the cause of the error.
+  id: totrans-306
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们的goroutine正忙于处理传入的有效载荷时，`RunJob`会调用`runJobToCompletion`辅助方法，该方法会遍历图执行状态机的各个阶段。如果发生错误，我们会调用用户的`AbortJob`方法，然后继续检查错误的原因。
 - en: 'If the job execution failed due to a context cancelation, we replace the error
     with the more meaningful, typed `errJobAborted` error. On the other hand, if the
     `handleMasterPayloads` method reported a more interesting error, we overwrite
     the returned error value with the reported error:'
+  id: totrans-307
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果作业执行失败是由于上下文取消，我们将错误替换为更有意义、类型化的`errJobAborted`错误。另一方面，如果`handleMasterPayloads`方法报告了一个更有趣的错误，我们将覆盖返回的错误值以报告的错误：
 - en: '[PRE44]'
+  id: totrans-308
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE44]'
 - en: Before returning, we cancel the job context to trigger a teardown of not only
     the barrier but also the spawned payload-handling goroutine and `Wait` on the
     wait group until the goroutine exits.
+  id: totrans-309
   prefs: []
   type: TYPE_NORMAL
+  zh: 在返回之前，我们取消作业上下文以触发不仅屏障的拆除，还包括生成的有效载荷处理goroutine，并在等待组上`Wait`，直到goroutine退出。
 - en: Transitioning through the stages of the graph's state machine
+  id: totrans-310
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 通过图的状态机阶段进行转换
 - en: The role of the `runJobToCompletion` method is to execute all stages of the
     graph's state machine until either the job completes or an error occurs.
+  id: totrans-311
   prefs: []
   type: TYPE_NORMAL
+  zh: '`runJobToCompletion`方法的作用是执行图状态机的所有阶段，直到作业完成或发生错误。'
 - en: As you can see in the following code snippet, we request from the executor instance
     to run the graph algorithm until its termination condition is met. Then, the worker
     reports its success to the master by joining the barrier for the `EXECUTED_GRAPH`
     step.
+  id: totrans-312
   prefs: []
   type: TYPE_NORMAL
+  zh: 如以下代码片段所示，我们请求执行器实例运行图算法，直到满足其终止条件。然后，工作者通过加入`EXECUTED_GRAPH`步骤的屏障向主节点报告其成功。
 - en: Once all other workers reach the barrier, the master unblocks us and we proceed
     to invoke the `CompleteJob` method on the user-provided `job.Runner` instance.
     Then, we notify the master that the calculations have been stored by joining the
     barrier for the `PERSISTED_RESULTS` step.
+  id: totrans-313
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦所有其他工作者都到达了屏障，主节点将解除对我们的阻塞，然后我们继续在用户提供的`job.Runner`实例上调用`CompleteJob`方法。然后，我们通过加入`PERSISTED_RESULTS`步骤的屏障来通知主节点计算结果已经被存储。
 - en: 'After the master unblocks us for the last time, we notify the master that we
     have reached the final stage of the state machine by joining the barrier for the
     `COMPLETED_JOB` step:'
+  id: totrans-314
   prefs: []
   type: TYPE_NORMAL
+  zh: 在主节点最后一次解除对我们的阻塞后，我们通过加入`COMPLETED_JOB`步骤的屏障来通知主节点我们已经到达了状态机的最终阶段：
 - en: '[PRE45]'
+  id: totrans-315
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE45]'
 - en: When all workers reach the `COMPLETED_JOB` step, the master will **terminate
     the connected job stream** with a `grpc.OK` code. Due to the way that gRPC schedules
     message transmissions, there is no guarantee that the code will be received by
     the worker before the stream is actually torn down (in the latter case, we might
     get back an `io.EOF` error).
+  id: totrans-316
   prefs: []
   type: TYPE_NORMAL
+  zh: 当所有工作者都达到`COMPLETED_JOB`步骤时，主节点将使用`grpc.OK`代码**终止连接的作业流**。由于gRPC安排消息传输的方式，无法保证代码会在实际断开流之前被工作者接收（在后一种情况下，我们可能会收到`io.EOF`错误）。
 - en: Keep in mind, however, that the master will only disconnect us once all workers
     reach the last barrier and report that they have successfully persisted their
     local results. This is the reason why we can safely omit the error check in the
     last `barrier.Wait` call.
+  id: totrans-317
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，请记住，主节点只有在所有工作者都到达最后一个屏障并报告他们已成功持久化本地结果后才会与我们断开连接。这就是为什么我们可以在最后的`barrier.Wait`调用中安全地省略错误检查。
 - en: Handling incoming payloads from the master
+  id: totrans-318
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 处理来自主节点的传入有效载荷
 - en: As we saw in the previous section, the body of the payload-handling goroutine
     first registers a disconnect callback with the master stream and then delegates
     the payload processing to the auxiliary `handleMasterPayloads` method.
+  id: totrans-319
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如我们在上一节中看到的，处理有效载荷的goroutine的主体首先在主节点流上注册一个断开回调，然后将有效载荷处理委托给辅助的`handleMasterPayloads`方法。
 - en: 'This way, if we suddenly lose the connection to the master, we can simply cancel
     the job context and cause the job to abort with an error. The following disconnect
     callback implementation is quite simple:'
+  id: totrans-320
   prefs: []
   type: TYPE_NORMAL
+  zh: 这样，如果我们突然失去了与主节点的连接，我们只需取消作业上下文并导致作业因错误而中止。以下断开回调实现相当简单：
 - en: '[PRE46]'
+  id: totrans-321
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE46]'
 - en: The `handleMasterPayloads` method implements a long-running event processing
     loop. A `select` block watches for either an incoming payload or the cancelation
     of the job context.
+  id: totrans-322
   prefs: []
   type: TYPE_NORMAL
+  zh: '`handleMasterPayloads`方法实现了一个长时间运行的事件处理循环。一个`select`块监视传入的有效载荷或作业上下文的取消。'
 - en: 'If the context gets canceled or the `masterStream` closes the channel that
     we currently read from, the method returns:'
+  id: totrans-323
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果上下文被取消或`masterStream`关闭了我们当前正在读取的通道，该方法将返回：
 - en: '[PRE47]'
+  id: totrans-324
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE47]'
 - en: 'Once a valid payload is received from the master, we examine its content and
     execute the appropriate action depending on the payload type:'
+  id: totrans-325
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦从主节点接收到有效的有效载荷，我们就检查其内容，并根据有效载荷类型执行相应的操作：
 - en: '[PRE48]'
+  id: totrans-326
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE48]'
 - en: If the master relayed a message to us, the handler invokes the `deliverGraphMessage`
     method (see the next section), which attempts to deliver the message to the intended
     recipient. If the message delivery attempt fails, the error is recorded in the
     `asyncWorkerErr` variable and the job context is canceled before returning.
+  id: totrans-327
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果主节点向我们转发了消息，处理程序将调用`deliverGraphMessage`方法（见下一节），尝试将消息传递给预期的接收者。如果消息传递尝试失败，错误将被记录在`asyncWorkerErr`变量中，并在返回之前取消作业上下文。
 - en: The other type of payload that we can receive from the master is a `Step` message,
     which the master broadcasts to notify workers that they can exit a barrier they
     are currently waiting on. All we need to do is to invoke the barrier's `Notify`
     method with the obtained `Step` message as an argument.
+  id: totrans-328
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以从主节点接收到的另一种有效载荷是`Step`消息，主节点通过广播此消息来通知工作者他们可以退出他们当前正在等待的屏障。我们所需做的只是使用获取到的`Step`消息作为参数调用屏障的`Notify`方法。
 - en: Using the master as an outgoing message relay
+  id: totrans-329
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 将主节点用作出站消息中继
 - en: As we saw in the `RunJob` method's initialization block, once we gain access
     to an executor instance for the graph, we register a `bspgraph.Replayer` instance
     which serves as an escape hatch for relaying messages destined for vertices, which
     are managed by a different graph instance.
+  id: totrans-330
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如我们在`RunJob`方法初始化块中看到的，一旦我们获得了图执行器实例，我们就注册一个`bspgraph.Replayer`实例，该实例作为中继消息的逃生门，这些消息是针对由不同图实例管理的顶点的。
 - en: 'This is how the `relayNonLocalMessage` helper method is implemented:'
+  id: totrans-331
   prefs: []
   type: TYPE_NORMAL
+  zh: 这就是`relayNonLocalMessage`辅助方法是如何实现的：
 - en: '[PRE49]'
+  id: totrans-332
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE49]'
 - en: We invoke the user-defined serializer to marshal the application-specific graph
     message into an `any.Any` protocol buffer message and attach it to a new `WorkerPayload`
     instance as `RelayMessage`. The implementation then blocks until the message is
     successfully enqueued to the `masterStream` outgoing payload channel or the job
     context gets canceled.
+  id: totrans-333
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们调用用户定义的序列化器将应用程序特定的图消息序列化为`any.Any`协议缓冲消息，并将其附加到新的`WorkerPayload`实例作为`RelayMessage`。然后实现将阻塞，直到消息成功入队到`masterStream`输出负载通道或作业上下文被取消。
 - en: 'On the other hand, when the master relays an incoming graph message to this
     worker, the coordinator''s `handleMasterPayloads` method will invoke the `deliverGraphMessage`
     method, the listing of which follows:'
+  id: totrans-334
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，当主节点将传入的图消息转发给这个工作节点时，协调器的`handleMasterPayloads`方法将调用`deliverGraphMessage`方法，其列表如下所示：
 - en: '[PRE50]'
+  id: totrans-335
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE50]'
 - en: This time, the serializer is used to unpack the incoming `any.Any` message back
     to a type that is compatible with the `message.Message` interface, which is expected
     by the graph's `SendMessage` method. As the intended recipient is a local vertex,
     all we need to do is to pretend we are a local graph vertex and simply invoke
     the graph's `SendMessage` method with the appropriate destination ID and message
     payload.
+  id: totrans-336
   prefs: []
   type: TYPE_NORMAL
+  zh: 这次，序列化器被用来将传入的`any.Any`消息解包回与`message.Message`接口兼容的类型，这是图`SendMessage`方法所期望的。由于预期的接收者是本地顶点，我们只需要假装自己是本地图顶点，并简单地使用适当的目的地ID和消息负载调用图的`SendMessage`方法。
 - en: The master job coordinator
+  id: totrans-337
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 主作业协调器
 - en: In this section, we will explore the implementation of the job coordinator component
     that is responsible for orchestrating the execution of a distributed graph computation
     job on the master node.
+  id: totrans-338
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本节中，我们将探讨负责在主节点上协调执行分布式图计算作业的作业协调器组件的实现。
 - en: 'In a similar fashion to how the worker job coordinator was implemented, we
     will start by defining a configuration struct to hold the necessary details for
     creating a new coordinator instance and then proceed to define the `masterJobCoordinator`
     type:'
+  id: totrans-339
   prefs: []
   type: TYPE_NORMAL
+  zh: 与实现工作节点作业协调器的方式类似，我们首先定义一个配置结构体来保存创建新协调器实例所需的所有必要细节，然后继续定义`masterJobCoordinator`类型：
 - en: '[PRE51]'
+  id: totrans-340
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE51]'
 - en: As you can see, the configuration options for the master coordinator are pretty
     much the same as the worker variant with the only exception being that the master
     coordinator is additionally provided with a slice of `remoteWorkerStream` instances.
     It corresponds to the workers that the master has assigned to this particular
     job. The same symmetry pattern between the two job coordinators types is also
     quite evident in the set of fields in the `masterJobCoordinator` definition.
+  id: totrans-341
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，主协调器的配置选项与工作节点变体几乎相同，唯一的区别是主协调器还额外提供了一部分`remoteWorkerStream`实例。这对应于主节点分配给这个特定作业的工作节点。在`masterJobCoordinator`定义的字段集中，两种作业协调器类型之间的相同对称模式也非常明显。
 - en: 'Once the master node has gathered enough workers for running a new job, it
     will call the `newMasterJobCoordinator` constructor, the implementation of which
     is shown as follows:'
+  id: totrans-342
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦主节点收集到足够的工人来运行新的作业，它将调用`newMasterJobCoordinator`构造函数，其实现如下所示：
 - en: '[PRE52]'
+  id: totrans-343
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE52]'
 - en: One of the key responsibilities of the master coordinator is to evenly split
     the UUID space into chunks and assign each chunk to one of the workers. To this
     end, before allocating a new coordinator instance, the constructor will first
     create a new partition range (see [Chapter 10](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml),
     *Building, Packaging, and Deploying Software*, for details on the `Range` type)
     using the extents provided by the caller via the `job.Details` parameter.
+  id: totrans-344
   prefs: []
   type: TYPE_NORMAL
+  zh: 主协调器的一个重要职责是将UUID空间均匀分割成块，并将每个块分配给一个工作节点。为此，在分配新的协调器实例之前，构造函数将首先使用调用者通过`job.Details`参数提供的范围创建一个新的分区范围（有关`Range`类型的详细信息，请参阅[第10章](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml)，*构建、打包和部署软件*）。
 - en: Given that our proposed cluster configuration uses a single master and multiple
     workers, the extents from the job details parameter will always cover the **entire**
     UUID space.
+  id: totrans-345
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于我们提出的集群配置使用单个主节点和多个工作节点，作业详情参数的范围将始终覆盖整个UUID空间。
 - en: Running a new job
+  id: totrans-346
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 运行新的作业
 - en: 'Once the master node creates a new `masterJobCoordinator` instance, it invokes
     its `RunJob` method to kick off the execution of the job. Since the method is
     a bit lengthy, we will break it down into a set of smaller blocks:'
+  id: totrans-347
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦主节点创建一个新的`masterJobCoordinator`实例，它将调用其`RunJob`方法以启动作业的执行。由于该方法有点长，我们将将其分解为一系列较小的块：
 - en: '[PRE53]'
+  id: totrans-348
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE53]'
 - en: The first two lines in the previous block should look a bit familiar. We are
     following exactly the same initialization pattern as we did with the worker coordinator's
     implementation, which is we first create our custom executor factory and invoke
     the user-provided `StartJob` method to obtain an executor for the graph algorithm.
     Then, we iterate the list of worker streams and invoke the `publishJobDetails`
     helper to construct and send a `JobDetails` payload to each connected worker.
+  id: totrans-349
   prefs: []
   type: TYPE_NORMAL
+  zh: 上一段代码的前两行应该看起来有些熟悉。我们遵循与工作者协调器实现完全相同的初始化模式，即我们首先创建我们的自定义执行器工厂，并调用用户提供的`StartJob`方法以获取图算法的执行器。然后，我们遍历工作者流列表，并调用`publishJobDetails`辅助函数来构造并发送`JobDetails`负载到每个已连接的工作者。
 - en: But how does the `publishJobDetails` method actually figure what UUID range
     to include in each outgoing `JobDetails` message? If you recall from [Chapter
     10](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml), *Building, Packaging, and Deploying
@@ -1762,469 +2480,678 @@
     UUID values that correspond to the beginning and end of the requested partition.
     So, all we need to do here is to treat the worker's index in the worker list as
     the partition number assigned to the worker!
+  id: totrans-350
   prefs: []
   type: TYPE_NORMAL
+  zh: 但是`publishJobDetails`方法实际上是如何确定每个发出的`JobDetails`消息中应包含哪个UUID范围的？如果您还记得[第10章](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml)，*构建、打包和部署软件*，`Range`类型提供了`PartitionExtents`便利方法，它给出一个在`[0,
+    numPartitions)`范围内的分区号。它返回对应于请求分区开始和结束的UUID值。因此，我们在这里需要做的只是将工作者在工作者列表中的索引视为分配给工作者的分区号！
 - en: Once the `JobDetails` payloads are broadcast by the master and received by the
     workers, each worker will create its own local job coordinator and begin executing
     the job just as we saw in the previous section.
+  id: totrans-351
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦`JobDetails`负载由主进程广播并由工作者接收，每个工作者将创建自己的本地作业协调器并开始执行作业，就像我们在上一节中看到的那样。
 - en: 'As the master is dealing with multiple worker streams, we need to spin up a
     goroutine for handling incoming payloads from each worker. To ensure that all
     goroutines properly exit before `RunJob` returns, we will make use of `sync.WaitGroup`:'
+  id: totrans-352
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于主进程正在处理多个工作流，我们需要为每个工作流启动一个goroutine来处理来自每个工作者的传入负载。为了确保在`RunJob`返回之前所有goroutine都正确退出，我们将使用`sync.WaitGroup`：
 - en: '[PRE54]'
+  id: totrans-353
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE54]'
 - en: 'While our goroutines are busy handling incoming payloads, the master executes
     the various stages of the graph''s state machine:'
+  id: totrans-354
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们的goroutine忙于处理传入的负载时，主进程执行图状态机的各个阶段：
 - en: '[PRE55]'
+  id: totrans-355
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE55]'
 - en: Once the job execution completes (with or without an error), the job context
     is canceled to send a stop signal to any still-running payload processing goroutines.
     The `RunJob` method then blocks until all goroutines exit and then returns.
+  id: totrans-356
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦作业执行完成（无论是否有错误），作业上下文将被取消以发送停止信号给任何仍在运行的负载处理goroutine。然后`RunJob`方法会阻塞，直到所有goroutine退出，然后返回。
 - en: Transitioning through the stages for the graph's state machine
+  id: totrans-357
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 通过图状态机的阶段进行转换
 - en: 'The `runJobToCompletion` implementation for the master job coordinator is nearly
     identical to the one used by the worker:'
+  id: totrans-358
   prefs: []
   type: TYPE_NORMAL
+  zh: 主作业协调器的`runJobToCompletion`实现几乎与工作者使用的相同：
 - en: '[PRE56]'
+  id: totrans-359
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE56]'
 - en: Again, the user-defined algorithm is executed until the terminating condition
     is met. Assuming that no error occurred, the master simply waits for all workers
     to transition through the remaining steps of the graph execution state machine
     (`EXECUTED_GRAPH`, `PERSISTED_RESULTS`, and `COMPLETED_JOB`).
+  id: totrans-360
   prefs: []
   type: TYPE_NORMAL
+  zh: 再次，用户定义的算法会一直执行，直到满足终止条件。假设没有发生错误，主进程只需等待所有工作者过渡到图执行状态机的剩余步骤（`EXECUTED_GRAPH`、`PERSISTED_RESULTS`和`COMPLETED_JOB`）。
 - en: Note that, in the preceding implementation, the master does not invoke `NotifyWorkers`
     on the barrier for the `COMPLETED_JOB` step. This is intentional; once all workers
     reach this stage, there is no further operation that needs to be performed. We
     can simply go ahead and close each workers' job stream.
+  id: totrans-361
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意，在前面的实现中，主进程没有在`COMPLETED_JOB`步骤的屏障上调用`NotifyWorkers`。这是故意的；一旦所有工作者达到这个阶段，就没有进一步的操作需要执行。我们可以简单地继续关闭每个工作者的作业流。
 - en: Handling incoming worker payloads
+  id: totrans-362
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 处理传入的工作者负载
 - en: 'The `handleWorkerPayloads` method is responsible for handling incoming payloads
     from a particular worker. The method blocks waiting for either a new incoming
     payload to appear or the job context to be canceled:'
+  id: totrans-363
   prefs: []
   type: TYPE_NORMAL
+  zh: '`handleWorkerPayloads` 方法负责处理来自特定工作负载的进入负载。该方法阻塞，等待出现新的进入负载或作业上下文被取消：'
 - en: '[PRE57]'
+  id: totrans-364
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE57]'
 - en: Incoming payloads contain either a message relay request or a `Step` message,
     which the worker sends to request admission to the barrier for a particular type
     of step.
+  id: totrans-365
   prefs: []
   type: TYPE_NORMAL
+  zh: 进入的负载包含消息中继请求或 `Step` 消息，工作负载通过发送请求加入特定类型的屏障来发送这些消息。
 - en: In the latter case, the `Step` message from the worker is passed as an argument
     to the master barrier's `Wait` method. As we explained in a previous section,
     the `Wait` method blocks until the master invokes the `NotifyWorkers` method with
     its own `Step` message.
+  id: totrans-366
   prefs: []
   type: TYPE_NORMAL
+  zh: 在后一种情况下，工作负载的 `Step` 消息被传递给主屏障的 `Wait` 方法。正如我们在前面的部分中解释的，`Wait` 方法会阻塞，直到主调用
+    `NotifyWorkers` 方法并传递其自己的 `Step` 消息。
 - en: Once that occurs, the new step message is wrapped in `MasterPayload` and transmitted
     to the worker via the stream.
+  id: totrans-367
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦发生这种情况，新的步骤消息被封装在 `MasterPayload` 中，并通过流传输给工作负载。
 - en: Relaying messages between workers
+  id: totrans-368
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 在工作负载之间中继消息
 - en: 'For the master to be able to relay messages between workers, it needs to be
     able to *efficiently* answer the following question: "*given a destination ID,
     which partition does it belong to?"*'
+  id: totrans-369
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了主能够在中继工作负载之间传递消息，它需要能够 **高效地** 回答以下问题：“*给定一个目标 ID，它属于哪个分区？*”
 - en: 'This certainly sounds like a query that the `Range` type should be able to
     answer! To jog your memory, this is what the `Range` type definition from [Chapter
     10](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml), *Building, Packaging, and Deploying
     Software,* looks like:'
+  id: totrans-370
   prefs: []
   type: TYPE_NORMAL
+  zh: 这听起来确实像 `Range` 类型应该能够回答的查询！为了唤起你的记忆，这是 [第 10 章](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml)，*构建、打包和部署软件*
+    中 `Range` 类型定义的样子：
 - en: '[PRE58]'
+  id: totrans-371
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE58]'
 - en: 'The `start` field keeps track of the range''s start UUID while `rangeSplits[p]`
     tracks the **end** UUID value for the *p[th]* partition. Therefore, the UUID range
     for a partition *p* can be calculated as follows:'
+  id: totrans-372
   prefs: []
   type: TYPE_NORMAL
+  zh: '`start` 字段跟踪范围的起始 UUID，而 `rangeSplits[p]` 跟踪第 *p* 个分区的 **结束** UUID 值。因此，分区
+    *p* 的 UUID 范围可以按以下方式计算：'
 - en: '![](img/5d0221d8-5929-4223-be6f-2b5b8d013afd.png)'
+  id: totrans-373
   prefs: []
   type: TYPE_IMG
+  zh: '![图片](img/5d0221d8-5929-4223-be6f-2b5b8d013afd.png)'
 - en: Before we examine how the UUID-to-partition number query is actually implemented,
     try as a simple thought exercise to think of an algorithm for answering this type
     of query (no peeking!).
+  id: totrans-374
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们检查 UUID 到分区号查询的实际实现之前，尝试作为一个简单的思维练习来思考回答这种查询的算法（不要偷看！）。
 - en: One way to achieve this is to iterate the `rangeSplits` slice and locate a range
     that includes the specified ID. While this naive approach would yield the correct
     answer, it will unfortunately not scale in a scenario where you might have hundreds
     of workers exchanging messages with each other.
+  id: totrans-375
   prefs: []
   type: TYPE_NORMAL
+  zh: 实现这一目标的一种方法是通过迭代 `rangeSplits` 切片来定位包含指定 ID 的范围。虽然这种原始方法会得到正确答案，但不幸的是，在可能有数百个工作负载相互交换消息的场景中，它将无法扩展。
 - en: Can we do any better? The answer is yes. We can exploit the observation that
     the values in the `rangeSplits` field are stored in sorted order and use the handy
     `Search` function from the Go `sort` package to perform a binary search.
+  id: totrans-376
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们能做得更好吗？答案是肯定的。我们可以利用观察到的 `rangeSplits` 字段中的值是按顺序存储的，并使用 Go `sort` 包中的 `Search`
+    函数来执行二分查找。
 - en: 'Here is a much more efficient implementation of this type of query:'
+  id: totrans-377
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里是这种类型查询的一个更高效的实现：
 - en: '[PRE59]'
+  id: totrans-378
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE59]'
 - en: The `sort.Search` function executes a binary search on a slice and returns the
     *smallest* index for which a user-defined predicate function returns **true**.
     Our predicate function checks that the provided ID value is *strictly less* than
     the end UUID of the partition currently being scanned.
+  id: totrans-379
   prefs: []
   type: TYPE_NORMAL
+  zh: '`sort.Search` 函数在切片上执行二分查找，并返回用户定义的谓词函数返回 **true** 的 **最小** 索引。我们的谓词函数检查提供的
+    ID 值是否严格小于当前正在扫描的分区末端的 UUID。'
 - en: 'Now that we have the means to efficiently answer UUID-to-partition queries,
     let''s take a look at the implementation of the `relayMessageToWorker` method,
     which is invoked by the worker payload handler for message relay requests:'
+  id: totrans-380
   prefs: []
   type: TYPE_NORMAL
+  zh: 既然我们已经有了高效回答 UUID 到分区查询的手段，让我们看看 `relayMessageToWorker` 方法的实现，该方法由工作负载处理程序在消息中继请求时调用：
 - en: '[PRE60]'
+  id: totrans-381
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE60]'
 - en: The first thing we need to do is to parse the destination ID and make sure that
     it actually contains a valid UUID value.
+  id: totrans-382
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们需要做的第一件事是解析目标 ID 并确保它确实包含一个有效的 UUID 值。
 - en: Then, we call the `PartitionForID` helper to look up the index of the partition
     that the destination ID belongs to and forward the message to the worker assigned
     to it.
+  id: totrans-383
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们调用 `PartitionForID` 辅助函数来查找目标 ID 所属的分区索引，并将消息转发给分配给该分区的工作者。
 - en: What if it turns out that the worker that asked us to relay the message in the
     first place is *also* the one we need to relay the message to? In such a scenario,
     we will treat the destination ID as being invalid and abort the job with an error.
     The justification for this decision is that if the local graph was aware of that
     particular destination, it would simply locally enqueue the message for delivery
     instead of attempting to relay it through the master node.
+  id: totrans-384
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果最初要求我们转发的消息的工作者也是我们需要转发消息的工作者，会怎样？在这种情况下，我们将目标 ID 视为无效，并带有错误终止作业。这个决定的理由是，如果本地图知道那个特定的目标，它将简单地在本地上将消息排队以供发送，而不是尝试通过主节点转发它。
 - en: Defining package-level APIs for working with master and worker nodes
+  id: totrans-385
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 定义用于与主节点和工作节点一起工作的包级 API
 - en: At this point, we have implemented all required internal components for running
     both the master and the server nodes. All we need to do now is to define the necessary
     APIs for allowing the end users to create and operate new workers and master instances.
+  id: totrans-386
   prefs: []
   type: TYPE_NORMAL
+  zh: 到目前为止，我们已经实现了运行主节点和服务器节点所需的所有内部组件。我们现在需要定义必要的 API，以便最终用户能够创建和操作新的工作者和主实例。
 - en: Instantiating and operating worker nodes
+  id: totrans-387
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 实例化和操作工作者节点
 - en: 'To create a new worker, the user of the package invokes the `NewWorker` constructor,
     which returns a new `Worker` instance. The definition of the `Worker` type looks
     as follows:'
+  id: totrans-388
   prefs: []
   type: TYPE_NORMAL
+  zh: 要创建一个新的工作者，包的用户调用 `NewWorker` 构造函数，该函数返回一个新的 `Worker` 实例。`Worker` 类型的定义如下所示：
 - en: '[PRE61]'
+  id: totrans-389
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE61]'
 - en: 'The `Worker` type stores the following:'
+  id: totrans-390
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Worker` 类型存储以下内容：'
 - en: The client gRPC connection to the master
+  id: totrans-391
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 客户端 gRPC 连接到主节点
 - en: An instance of the `JobQueueClient` that the protoc compiler has automatically
     generated for us from the RPC definition for the job queue
+  id: totrans-392
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 由 protoc 编译器自动为我们从作业队列的 RPC 定义生成的 `JobQueueClient` 实例
 - en: The required components for interfacing with the user's **bspgraph**-based algorithm
     implementation (that is, a job `Runner` and `Serializer` for graph messages and
     aggregator values)
+  id: totrans-393
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 与用户基于 **bspgraph** 的算法实现（即，用于图消息和聚合值的作业 `Runner` 和 `Serializer`）交互所需的组件
 - en: 'After obtaining a new `Worker` instance, the user has to connect to the master
     by invoking the worker''s `Dial` method:'
+  id: totrans-394
   prefs: []
   type: TYPE_NORMAL
+  zh: 在获取一个新的 `Worker` 实例后，用户必须通过调用工作者的 `Dial` 方法来连接到主节点：
 - en: '[PRE62]'
+  id: totrans-395
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE62]'
 - en: 'Once a connection to the master has been successfully established, the user
     can ask the worker to fetch and execute the next job from the master by invoking
     the worker''s `RunJob` method. Let''s see what happens within that method:'
+  id: totrans-396
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦成功建立与主节点的连接，用户可以通过调用工作者的 `RunJob` 方法请求工作者从主节点获取并执行下一个作业。让我们看看这个方法内部发生了什么：
 - en: '[PRE63]'
+  id: totrans-397
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE63]'
 - en: 'First of all, the worker makes an RPC call to the job queue and obtains a gRPC
     stream. Then, the worker invokes the `waitForJob` helper, which performs a blocking
     `Recv` operation on the stream and waits for the master to publish a job details
     payload. After the payload is obtained, its contents are validated and unpacked
     into a `job.Details` instance, which is returned to the `RunJob` method:'
+  id: totrans-398
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先，工作者向作业队列发起 RPC 调用，并获取一个 gRPC 流。然后，工作者调用 `waitForJob` 辅助函数，在流上执行阻塞的 `Recv`
+    操作，并等待主节点发布作业详情有效负载。在获取有效负载后，其内容得到验证并解包到 `job.Details` 实例中，该实例被返回给 `RunJob` 方法：
 - en: '[PRE64]'
+  id: totrans-399
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE64]'
 - en: Next, the worker initializes the required components for executing the job.
     As you can see in the previous code, we create a wrapper for the stream and pass
     it as an argument to the job coordinator constructor.
+  id: totrans-400
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，工作者初始化执行作业所需的所有组件。正如您在前面的代码中所看到的，我们为流创建了一个包装器，并将其作为参数传递给作业协调器构造函数。
 - en: 'We are now ready to delegate the job execution to the coordinator! However,
     before we do that, there is one last thing we need to do, that is, we need to
     fire up a dedicated goroutine for handling the send and receive ends of the wrapped
     stream:'
+  id: totrans-401
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们已经准备好将作业执行委托给协调器！然而，在我们这样做之前，我们还需要做最后一件事，那就是我们需要启动一个专门的 goroutine 来处理包装流的发送和接收端：
 - en: '[PRE65]'
+  id: totrans-402
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE65]'
 - en: 'Finally, we invoke the coordinator''s `RunJob` method and emit a logline depending
     on whether the job succeeded or failed:'
+  id: totrans-403
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们调用协调器的 `RunJob` 方法，并发出一条日志行，根据作业是否成功或失败：
 - en: '[PRE66]'
+  id: totrans-404
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE66]'
 - en: Just as we did so far with all other blocks of code that spin up goroutines,
     before returning from the `RunJob` method, we terminate the RPC stream (but leave
     the client connection intact for the next RPC call) and wait until the stream-handling
     goroutines cleanly exits.
+  id: totrans-405
   prefs: []
   type: TYPE_NORMAL
+  zh: 就像我们之前处理所有启动goroutines的代码块一样，在从`RunJob`方法返回之前，我们终止了RPC流（但保留了客户端连接以供下一次RPC调用使用），并等待直到处理流的goroutines干净地退出。
 - en: Let's move on to defining the necessary APIs for creating new master instances.
+  id: totrans-406
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们继续定义创建新主机实例所需的API。
 - en: Instantiating and operating master nodes
+  id: totrans-407
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 实例化和操作主节点
 - en: 'As you probably guessed, the `Master` type would encapsulate the implementation
     details for creating and operating a master node. Let''s take a quick look into
     its constructor:'
+  id: totrans-408
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如你所猜测的，`Master`类型将封装创建和操作主节点实现细节。让我们快速看一下其构造函数：
 - en: '[PRE67]'
+  id: totrans-409
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE67]'
 - en: 'The constructor expects a `MasterConfig` object as an argument that defines
     the following:'
+  id: totrans-410
   prefs: []
   type: TYPE_NORMAL
+  zh: 构造函数期望一个`MasterConfig`对象作为参数，该对象定义了以下内容：
 - en: It defines the address where the master node will be listening for incoming
     connections.
+  id: totrans-411
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它定义了主节点将监听传入连接的地址。
 - en: It defines the `job.Runner` instance for interfacing with the user-defined graph
     algorithm.
+  id: totrans-412
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它定义了用于与用户定义的图算法接口的`job.Runner`实例。
 - en: It defines `Serializer` for marshaling and unmarshaling aggregator values. Note
     that, in contrast to the worker implementation, the master only relays messages
     between the workers and never needs to peek into the actual message contents.
     Therefore, masters require a much simpler serializer implementation.
+  id: totrans-413
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它定义了用于序列化和反序列化聚合值的`Serializer`。请注意，与工人实现不同，主机只在工人之间中继消息，永远不需要查看实际消息内容。因此，主机需要一个更简单的序列化实现。
 - en: Besides allocating a new `Master` object, the constructor also creates and attaches
     to it a *worker pool*. We haven't really mentioned the concept of a **worker pool**
     in this chapter, so right about now, you are probably wondering about its purpose.
+  id: totrans-414
   prefs: []
   type: TYPE_NORMAL
+  zh: 除了分配一个新的`Master`对象外，构造函数还创建并附加了一个*工作池*。我们在这章中并没有真正提到工作池的概念，所以现在你可能想知道它的用途。
 - en: A worker pool serves as a waiting area for connected workers until the master
     is asked by the end user to begin the execution of a new job. New workers may
     connect to (or disconnect from) the master at any point in time. By design, workers
     are not allowed to join a job that is *already being executed*. Instead, they
     will always be added to the pool where they will wait for the next job run.
+  id: totrans-415
   prefs: []
   type: TYPE_NORMAL
+  zh: 工作池作为连接的工人等待区，直到最终用户要求主机开始执行新作业。新工人可以在任何时候连接到（或从）主机。按照设计，工人不允许加入正在执行的作业。相反，他们总是被添加到池中，在那里他们等待下一次作业运行。
 - en: When the end user requests a new job execution from the master, the required
     number of workers for the job is extracted from the pool and the job details are
     broadcast to them.
+  id: totrans-416
   prefs: []
   type: TYPE_NORMAL
+  zh: 当最终用户从主机请求新的作业执行时，从池中提取所需的工人数量，并将作业详情广播给他们。
 - en: The implementation of the worker pool contains quite a bit of boilerplate code,
     which has been omitted in the interest of brevity. However, if you're interested
     in delving deeper, you can explore its source code by examining the contents of the
     `worker_pool.go` file, which can be found in the `Chapter12/dbspgraph` package in
     this book's GitHub repository.
+  id: totrans-417
   prefs: []
   type: TYPE_NORMAL
+  zh: 工作池的实现包含相当多的样板代码，为了简洁起见，这里省略了。然而，如果你对深入了解感兴趣，可以通过检查本书GitHub仓库中`Chapter12/dbspgraph`包中的`worker_pool.go`文件来探索其源代码。
 - en: Handling incoming gRPC connections
+  id: totrans-418
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 处理传入的gRPC连接
 - en: 'While the constructor returns a new and configured `Master` instance, it does
     not automatically start the master''s gRPC server. Instead, this task is left
     to the end user, who must manually invoke the master''s `Start` method:'
+  id: totrans-419
   prefs: []
   type: TYPE_NORMAL
+  zh: 构造函数返回一个新的配置好的`Master`实例，但它不会自动启动主机的gRPC服务器。相反，这项任务留给了最终用户，用户必须手动调用主机的`Start`方法：
 - en: '[PRE68]'
+  id: totrans-420
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE68]'
 - en: As is customary when launching gRPC servers in Go, we first need to create a
     new `net.Listener` instance, then create the gRPC server instance and serve it
     on the listener we just created. Of course, before invoking the `Serve` method
     on the server, we need to register a handler for incoming RPCs that adheres to
     the interface that protoc generated for us.
+  id: totrans-421
   prefs: []
   type: TYPE_NORMAL
+  zh: 在Go中启动gRPC服务器时，惯例是首先创建一个新的`net.Listener`实例，然后创建gRPC服务器实例，并在我们刚刚创建的监听器上提供服务。当然，在调用服务器上的`Serve`方法之前，我们需要注册一个处理传入RPC的处理器，该处理器遵循protoc为我们生成的接口。
 - en: To avoid polluting the public API of the `Master` type with the RPC method signatures,
     we employ a small trick—we define an *un-exported* shim that implements the required
     interface and registers it with our gRPC server.
+  id: totrans-422
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了避免将RPC方法签名污染`Master`类型的公共API，我们采用了一个小技巧——我们定义了一个*未导出*的适配器，该适配器实现了所需接口，并将其注册到我们的gRPC服务器上。
 - en: 'The implementation of the handler for the `JobStream` RPC is just a handful
     of lines:'
+  id: totrans-423
   prefs: []
   type: TYPE_NORMAL
+  zh: '`JobStream` RPC处理器的实现只有几行代码：'
 - en: '[PRE69]'
+  id: totrans-424
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE69]'
 - en: In the interest of making debugging easier, the RPC handler will check whether
     it can access any peer-related information for the connected worker and include
     them in a log message. Next, the incoming stream is wrapped in `remoteWorkerStream`
     and added to the pool, where it will wait until a new job is ready to run.
+  id: totrans-425
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了使调试更容易，RPC处理器将检查它是否可以访问连接的工作流的任何相关 peer 信息，并将它们包含在日志消息中。接下来，传入的流被包装在`remoteWorkerStream`中并添加到池中，它将等待直到有新的作业准备运行。
 - en: The gRPC semantics for handling streaming RPCs dictate that the stream will
     be automatically closed once the RPC handler returns. Therefore, we want our RPC
     handler to block until either a job completes or an error occurs. An easy way
     to achieve this is to make a synchronous call to the wrapped stream's `HandleSendRecv`
     method.
+  id: totrans-426
   prefs: []
   type: TYPE_NORMAL
+  zh: 处理流式RPC的gRPC语义规定，一旦RPC处理器返回，流将自动关闭。因此，我们希望我们的RPC处理器阻塞，直到作业完成或发生错误。实现这一点的简单方法是同步调用包装流的`HandleSendRecv`方法。
 - en: Running a new job
+  id: totrans-427
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 运行新的作业
 - en: 'After the end user starts the master''s gRPC server, they can request a new
     job execution by invoking the master''s `RunJob` method, the signature of which
     is as follows:'
+  id: totrans-428
   prefs: []
   type: TYPE_NORMAL
+  zh: 在最终用户启动主gRPC服务器后，他们可以通过调用主服务器的`RunJob`方法来请求新的作业执行，该方法的签名如下：
 - en: '[PRE70]'
+  id: totrans-429
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE70]'
 - en: Because the worker requirements generally vary depending on the algorithm to
     be executed, the end user must specify, in advance, the minimum number of workers
     required for the job as well as a timeout for acquiring the required workers.
+  id: totrans-430
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于工作流需求通常取决于要执行的算法，最终用户必须提前指定作业所需的最低工作流数量以及获取所需工作流的超时时间。
 - en: 'If the number of workers is not important from the user''s perspective, they
     can specify a zero value for the `minWorkers` argument. Doing so serves as a hint
     to the master to either select all workers currently available in the pool or
     to block until at least one of the following conditions is satisfied:'
+  id: totrans-431
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果从用户的角度来看工作流数量不重要，他们可以为`minWorkers`参数指定零值。这样做作为对主服务器的提示，要么选择池中当前所有可用的工人，要么阻塞直到满足以下条件之一：
 - en: At least one worker joins the pool.
+  id: totrans-432
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 至少有一个工作流加入池中。
 - en: The specified acquire timeout (if non-zero) expires.
+  id: totrans-433
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 指定的获取超时（如果非零）到期。
 - en: 'Let''s break down the `RunJob` methods into chunks, starting from the code
     that acquires the required workers from the pool:'
+  id: totrans-434
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们将`RunJob`方法分解成几个部分，从从池中获取所需工作流的代码开始：
 - en: '[PRE71]'
+  id: totrans-435
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE71]'
 - en: If `workerAcquireTimeout` is specified, the preceding code snippet will automatically
     wrap the externally provided context with a context that expires after the specified
     timeout and pass it to the pool's `ReserveWorkers` method.
+  id: totrans-436
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果指定了`workerAcquireTimeout`，前面的代码片段将自动将外部提供的上下文包装在一个在指定超时后过期的上下文中，并将其传递给池的`ReserveWorkers`方法。
 - en: 'With the required number of workers streams in hand, the next step entails
     the allocation of a UUID for the job and the creation of a new `job.Details` instance
     with a partition assignment that covers the entire UUID space:'
+  id: totrans-437
   prefs: []
   type: TYPE_NORMAL
+  zh: 在手头有所需数量的工作流后，下一步包括为作业分配一个UUID以及创建一个新的`job.Details`实例，该实例具有覆盖整个UUID空间的分区分配：
 - en: '[PRE72]'
+  id: totrans-438
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE72]'
 - en: 'Before commencing execution of the job, we need to create a new job coordinator
     instance:'
+  id: totrans-439
   prefs: []
   type: TYPE_NORMAL
+  zh: 在开始执行作业之前，我们需要创建一个新的作业协调器实例：
 - en: '[PRE73]'
+  id: totrans-440
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE73]'
 - en: 'After this initialization step, we can invoke the `RunJob` method and run the
     job to completion:'
+  id: totrans-441
   prefs: []
   type: TYPE_NORMAL
+  zh: 在此初始化步骤之后，我们可以调用`RunJob`方法并运行作业直到完成：
 - en: '[PRE74]'
+  id: totrans-442
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE74]'
 - en: If the job execution fails, we invoke the `Close` method on each worker stream
     passing along the error returned by the coordinator's `RunJob` method. Calling
     `Close` on `remoteWorkerStream` allows the `HandleSendRecv` call from the RPC
     handler to return with an error that gRPC will automatically propagate back to
     the worker.
+  id: totrans-443
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果作业执行失败，我们将对每个工作流调用`Close`方法，并将协调器`RunJob`方法返回的错误传递过去。在`remoteWorkerStream`上调用`Close`允许RPC处理器的`HandleSendRecv`调用返回一个错误，gRPC会自动将此错误传播回工作流。
 - en: On the other hand, if the work completes without any error, we invoke `Close`
     with a `nil` error value. This action has exactly the same effect (that is, it
     terminates the RPC) but in the latter case, no error is returned to the worker.
+  id: totrans-444
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，如果工作没有出现任何错误，我们将使用一个`nil`错误值调用`Close`。这个操作具有完全相同的效果（即，终止RPC），但在后一种情况下，不会向工作者返回任何错误。
 - en: Deploying a distributed version of the Links 'R' Us PageRank calculator
+  id: totrans-445
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 部署Links 'R' Us PageRank计算器的分布式版本
 - en: The PageRank calculator is the only component of the Links 'R' Us project that
     we haven't yet been able to horizontally scale on Kubernetes. Back in [Chapter
     8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based Data Processing**,*
     where we used the `bspgraph` package to implement the PageRank algorithm, I promised
     you that a few chapters down the road, we would take the PageRank calculator code,
     and **without any code modifications**, enable it to run in distributed mode.
+  id: totrans-446
   prefs: []
   type: TYPE_NORMAL
+  zh: PageRank计算器是Links 'R' Us项目中我们尚未能够在Kubernetes上水平扩展的唯一组件。在[第8章](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml)，“基于图的数据处理”中，我们使用`bspgraph`包来实现PageRank算法，我承诺在接下来的几章中，我们将对PageRank计算器代码进行操作，**无需任何代码修改**，使其能够在分布式模式下运行。
 - en: After completing this chapter, I strongly recommend, as a fun learning exercise,
     taking a look at using the `dbspgraph` package to build a distributed version
     of either the graph coloring or the shortest path algorithms from [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based
     Data Processing*.
+  id: totrans-447
   prefs: []
   type: TYPE_NORMAL
+  zh: 完成本章后，我强烈建议作为一个有趣的学习练习，查看使用`dbspgraph`包构建[第8章](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml)，“基于图的数据处理”中的图着色或最短路径算法的分布式版本。
 - en: In this section, we will leverage all of the work we have done so far in this
     chapter to achieve this goal! I would like to point out that while this section
     will exclusively focus on the PageRank calculator service, everything we discuss
     here can also be applied to any of the other graph algorithms that we implemented
     in [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml), *Graph-Based Data
     Processing*.
+  id: totrans-448
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本节中，我们将利用本章迄今为止所做的一切工作来实现这一目标！我想指出的是，尽管本节将专门关注PageRank计算器服务，但我们在这里讨论的所有内容也可以应用于我们在[第8章](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml)，“基于图的数据处理”中实现的任何其他图算法。
 - en: Retrofitting master and worker capabilities to the PageRank calculator service
+  id: totrans-449
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 将主节点和工作节点的能力集成到PageRank计算器服务中
 - en: Logically, we don't want to implement a new PageRank service from scratch, especially
     given the fact that we already created a standalone (albeit not distributed) version
     of this service in the previous chapter.
+  id: totrans-450
   prefs: []
   type: TYPE_NORMAL
+  zh: 从逻辑上讲，我们不想从头开始实现一个新的PageRank服务，尤其是考虑到我们已经在上一章中创建了一个独立（尽管不是分布式）的该服务版本。
 - en: What we will actually be doing is making a copy of the standalone PageRank calculator
     service from [Chapter 11](dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml), *Splitting
     Monoliths into Microservices,* and adapt it to use the APIs exposed by the `dbspgraph`
@@ -2233,393 +3160,569 @@
     highlight the bits that need to be changed. As always, the full source for the
     service is available in the `Chapter12/linksrus/pagerank` package in this book's
     GitHub repository if you want to take a closer look.
+  id: totrans-451
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们实际上要做的就是复制[第11章](dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml)，“将单体拆分为微服务”中的独立PageRank计算器服务，并使其适应使用本章中`dbspgraph`包公开的API。由于我们的副本将与原始服务共享大部分代码，我们将省略所有共享的实现细节，仅突出需要更改的部分。一如既往，如果您想更仔细地查看，服务的完整源代码可在本书GitHub仓库的`Chapter12/linksrus/pagerank`包中找到。
 - en: Before we proceed, we need to decide whether we will create a separate binary
     for the master and the worker. Taking into account that a fairly large chunk of
     the code is shared between the master and the workers, we are probably better
     off producing a single binary and introducing a command-line flag (we will call
     it `mode`) to select between master or worker mode.
+  id: totrans-452
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们继续之前，我们需要决定是否为主节点和工作节点创建单独的二进制文件。考虑到主节点和工作节点之间有相当大的代码共享部分，我们可能最好生成一个单一的二进制文件，并引入一个命令行标志（我们将称之为`mode`）来选择主节点或工作节点模式。
 - en: 'Depending on the selected mode, the service will do the following:'
+  id: totrans-453
   prefs: []
   type: TYPE_NORMAL
+  zh: 根据所选模式，服务将执行以下操作：
 - en: 'When in *worker* mode: It creates a `dbspgraph.Worker` object, calls its `Dial`
     method, and finally calls the `RunJob` method to wait until the master publishes
     a new job.'
+  id: totrans-454
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 当处于 *worker* 模式时：它创建一个 `dbspgraph.Worker` 对象，调用其 `Dial` 方法，并最终调用 `RunJob` 方法等待主节点发布新的作业。
 - en: 'When in *master* mode: It creates a `dbspgraph.Master` object, calls its `Start`
     method, and periodically invokes the `RunJob` method to trigger a PageRank score
     refresh job.'
+  id: totrans-455
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 当处于 *master* 模式时：它创建一个 `dbspgraph.Master` 对象，调用其 `Start` 方法，并定期调用 `RunJob` 方法以触发
+    PageRank 分数刷新作业。
 - en: Serializing PageRank messages and aggregator values
+  id: totrans-456
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 序列化 PageRank 消息和聚合值
 - en: 'A prerequisite for creating a new `dbspgraph.Master` instance or a `dbspgraph.Worker`
     instance is to provide a suitable, **application-specific** serializer for both
     aggregator values and any message that can potentially be exchanged between the
     graph nodes. For this particular application, graph vertices distribute their
     accumulated PageRank scores to their neighbors by exchanging `IncomingScore` messages:'
+  id: totrans-457
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建新的 `dbspgraph.Master` 实例或 `dbspgraph.Worker` 实例的前提是提供适合的、**特定于应用程序**的序列化器，用于聚合值和任何可能在不同图节点之间交换的消息。对于这个特定的应用程序，图顶点通过交换
+    `IncomingScore` 消息将它们累积的 PageRank 分数分配给它们的邻居：
 - en: '[PRE75]'
+  id: totrans-458
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE75]'
 - en: 'In addition, as you can see from the following snippet, which was taken from
     the PageRank calculator implementation, our serializer implementation also needs
     to be able to properly handle `int` and `float64` used by the calculator''s aggregator
     instances:'
+  id: totrans-459
   prefs: []
   type: TYPE_NORMAL
+  zh: 此外，正如以下代码片段所示，该片段来自 PageRank 计算器实现，我们的序列化器实现还需要能够正确处理计算器聚合实例使用的 `int` 和 `float64`：
 - en: '[PRE76]'
+  id: totrans-460
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE76]'
 - en: The main benefit of having full control over the serializer used by both the
     master and the workers is that we get to choose the appropriate serialization
     format for our particular use case. Under normal circumstances, protocol buffers
     would be the most logical candidate.
+  id: totrans-461
   prefs: []
   type: TYPE_NORMAL
+  zh: 控制主节点和工作者节点使用的序列化器的最大好处是我们能够为特定的用例选择合适的序列化格式。在正常情况下，协议缓冲区将是最佳选择。
 - en: However, given that we only really need to support serialization of `int` and
     `float64` values, using protocol buffers would probably be overkill. Instead,
     we will implement a much simpler serialization protocol.
+  id: totrans-462
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，鉴于我们实际上只需要支持 `int` 和 `float64` 类型的序列化，使用协议缓冲区可能有些过度。相反，我们将实现一个更简单的序列化协议。
 - en: 'First, let''s take a look at how the `Serialize` method is implemented:'
+  id: totrans-463
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先，让我们看看 `Serialize` 方法的实现：
 - en: '[PRE77]'
+  id: totrans-464
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE77]'
 - en: 'The preceding implementation uses a type switch to detect the type of value
     that was passed as an argument to `Serialize`. The method sets the `TypeUrl` field
     to a single-character value, which corresponds to the type of the encoded value:'
+  id: totrans-465
   prefs: []
   type: TYPE_NORMAL
+  zh: 上述实现使用类型切换来检测传递给 `Serialize` 方法的参数的类型。该方法将 `TypeUrl` 字段设置为单个字符值，该值对应于编码值的类型：
 - en: '`"i"`: This specifies an integer value'
+  id: totrans-466
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`"i"`：这指定了一个整数值'
 - en: '`"f"`: This specifies a float64 value'
+  id: totrans-467
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`"f"`：这指定了一个 `float64` 值'
 - en: '`"m"`: This specifies a float64 value from `IncomingScoreMessage`'
+  id: totrans-468
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`"m"`：这指定了来自 `IncomingScoreMessage` 的 `float64` 值'
 - en: Values are encoded as variable-length integers with the help of the `PutVarint`
     and `PutUvarint` functions provided by the `binary` package that ships with the
     Go standard library.
+  id: totrans-469
   prefs: []
   type: TYPE_NORMAL
+  zh: 值被编码为变长整数，这是通过 Go 标准库中 `binary` 包提供的 `PutVarint` 和 `PutUvarint` 函数实现的。
 - en: Note that floating-point values cannot be encoded directly to a `Varint`; we
     must first convert them into their equivalent `uint64` representation via `math.Float64bits`.
     The encoded values are stored in a byte buffer and attached as a payload to the
     `any.Any` message, which is returned to the caller.
+  id: totrans-470
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意，浮点值不能直接编码到 `Varint` 中；我们必须首先通过 `math.Float64bits` 将其转换为等效的 `uint64` 表示。编码的值存储在字节数组缓冲区中，并将其作为有效载荷附加到返回给调用者的
+    `any.Any` 消息中。
 - en: 'The `Unserialize` method, the implementation of which is shown as follows,
     simply reverses the encoding steps:'
+  id: totrans-471
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Unserialize` 方法，其实现如下，简单地反转了编码步骤：'
 - en: '[PRE78]'
+  id: totrans-472
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE78]'
 - en: To unserialize a value contained within an `any.Any` message, we check the contents
     of the `TypeUrl` field and, depending on the type of encoded data, decode its
     variable-length integer representation using either the `Varint` or `Uvarint`
     method.
+  id: totrans-473
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了反序列化 `any.Any` 消息中包含的值，我们检查 `TypeUrl` 字段的值，并根据编码数据的类型，使用 `Varint` 或 `Uvarint`
+    方法解码其变长整数表示。
 - en: For floating-point values, we use the `math.Float64frombits` helper to convert
     the decoded unsigned `Varint` representation of the float back into a `float64`
     value. Finally, if the `any.Any` value encodes `IncomingScoreMessage`, we create
     and return a new message instance that embeds the floating-point score value that
     we just decoded.
+  id: totrans-474
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于浮点值，我们使用`math.Float64frombits`辅助函数将解码后的无符号`Varint`表示的浮点数转换回`float64`值。最后，如果`any.Any`值编码了`IncomingScoreMessage`，我们创建并返回一个新的消息实例，该实例包含我们刚刚解码的浮点分数值。
 - en: Defining job runners for the master and the worker
+  id: totrans-475
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 定义主节点和工作节点的工作运行器
 - en: The step for completing the distributed version of the Links 'R' Us PageRank
     calculation service is to provide a `job.Runner` implementation that will allow
     the `dbspgraph` package to interface with the PageRank calculator component that
     includes the graph-based algorithm that we want to execute.
+  id: totrans-476
   prefs: []
   type: TYPE_NORMAL
+  zh: 完成“链接'R'我们”页面排名计算服务的分布式版本的一步是提供一个`job.Runner`实现，这将允许`dbspgraph`包与包括我们想要执行的基于图的算法在内的页面排名计算组件进行接口交互。
 - en: 'As a reminder, this is the interface that we need to implement:'
+  id: totrans-477
   prefs: []
   type: TYPE_NORMAL
+  zh: 作为提醒，这是我们需要的实现接口：
 - en: '[PRE79]'
+  id: totrans-478
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE79]'
 - en: The glue logic for masters and workers has a different set of requirements.
     For example, the master will not perform any graph-related computations apart
     from processing the aggregator deltas sent in by the workers.
+  id: totrans-479
   prefs: []
   type: TYPE_NORMAL
+  zh: 主节点和工作节点的粘合逻辑有不同的要求。例如，主节点除了处理工作者发送的聚合器增量之外，不会执行任何与图相关的计算。
 - en: Therefore, the master does not need to load any graph data into memory. On the
     other hand, workers not only need to load a subset of the graph data, but they
     also need to persist the computation results once the job execution completes.
+  id: totrans-480
   prefs: []
   type: TYPE_NORMAL
+  zh: 因此，主节点不需要将任何图数据加载到内存中。另一方面，工作者不仅需要加载图数据的一个子集，而且在工作执行完成后，他们还需要持久化计算结果。
 - en: Consequently, we need to provide not one but two `job.Runner` implementations—one
     for the master and one for workers.
+  id: totrans-481
   prefs: []
   type: TYPE_NORMAL
+  zh: 因此，我们需要提供两个`job.Runner`实现——一个用于主节点，一个用于工作者。
 - en: Implementing the job runner for master nodes
+  id: totrans-482
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 实现主节点的工作运行器
 - en: 'Let''s begin by examining the rather trivial `StartJob` method implementation
     for the master node:'
+  id: totrans-483
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们先来检查一下主节点相对简单的`StartJob`方法实现：
 - en: '[PRE80]'
+  id: totrans-484
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE80]'
 - en: 'The `StartJob` method records the time when the job was started and performs
     the following three tasks:'
+  id: totrans-485
   prefs: []
   type: TYPE_NORMAL
+  zh: '`StartJob`方法记录了工作开始的时间，并执行以下三个任务：'
 - en: It resets the graph's internal state. This is important as the calculator component
     instance is re-used between subsequent job runs.
+  id: totrans-486
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 它重置了图的内部状态。这很重要，因为计算器组件实例在后续的工作运行中会被重复使用。
 - en: It overrides the calculator component's executor factory with the version provided
     by the `dbspgraph` package.
+  id: totrans-487
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 它覆盖了计算器组件的执行器工厂，使用`dbspgraph`包提供的版本。
 - en: It invokes the calculator's `Executor` method, which uses the installed factory
     to create and return a new `bspgraph.Executor` instance.
+  id: totrans-488
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 它调用计算器的`Executor`方法，该方法使用安装的工厂创建并返回一个新的`bspgraph.Executor`实例。
 - en: 'Next, we will examine the implementation of the `AbortJob` and `CompleteJob`
     methods:'
+  id: totrans-489
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，我们将检查`AbortJob`和`CompleteJob`方法的实现：
 - en: '[PRE81]'
+  id: totrans-490
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE81]'
 - en: As far as the `AbortJob` method is concerned, there isn't really anything special
     that we need to do when a job fails. Therefore, we just provide an empty stub
     for it.
+  id: totrans-491
   prefs: []
   type: TYPE_NORMAL
+  zh: 关于`AbortJob`方法，当工作失败时，我们实际上不需要做任何特别的事情。因此，我们只是为它提供了一个空的存根。
 - en: The `CompleteJob` method does nothing more than log the run time for the job
     and the *total* number of processed page links. As you probably noticed, the latter
     value is obtained by directly querying the value of the global `page_count` aggregator,
     which is registered by the calculator component when it sets up its internal state.
+  id: totrans-492
   prefs: []
   type: TYPE_NORMAL
+  zh: '`CompleteJob`方法所做的只是记录工作的运行时间和*总*处理的页面链接数。正如你可能注意到的，后者的值是通过直接查询全局`page_count`聚合器的值获得的，该聚合器是在计算器组件设置其内部状态时注册的。'
 - en: The worker job runner
+  id: totrans-493
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 工作者工作运行器
 - en: 'The worker''s `StartJob` implementation is slightly more complicated as we
     need to load the vertices and edges that correspond to the UUID range assigned
     to us by the master node. Fortunately, we have already written all of the required
     bits of code in [Chapter 11](dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml),* Splitting
     Monoliths into Microservices,* so we can just go ahead and invoke the loading
     functions with the appropriate arguments:'
+  id: totrans-494
   prefs: []
   type: TYPE_NORMAL
+  zh: 工作者`StartJob`的实现稍微复杂一些，因为我们需要加载由主节点分配给我们的UUID范围对应的顶点和边。幸运的是，我们已经在[第11章](dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml)，“将单体拆分为微服务”中编写了所有必需的代码片段，因此我们可以直接使用适当的参数调用加载函数：
 - en: '[PRE82]'
+  id: totrans-495
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE82]'
 - en: 'The `CompleteJob` method contains the necessary logic for updating the Links
     ''R'' Us document index with the fresh PageRank scores that we just calculated.
     Let''s take a look at its implementation:'
+  id: totrans-496
   prefs: []
   type: TYPE_NORMAL
+  zh: '`CompleteJob` 方法包含将我们刚刚计算的全新 PageRank 分数更新到 Links ''R'' Us 文档索引所需的逻辑。让我们看看它的实现：'
 - en: '[PRE83]'
+  id: totrans-497
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE83]'
 - en: The preceding block of code for persisting the calculation results should seem
     familiar to you as it has been copied verbatim from [Chapter 11](dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml),
     *Splitting Monoliths into Microservices*. The `Scores` convenience method iterates
     the graph vertices and invokes the `persistScore` callback with the vertex ID
     and PageRank score as arguments.
+  id: totrans-498
   prefs: []
   type: TYPE_NORMAL
+  zh: 上述用于持久化计算结果的代码块应该对你来说很熟悉，因为它是从第 11 章 [将单体拆分为微服务](dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml)直接复制过来的。`Scores`
+    便利方法遍历图顶点，并使用顶点 ID 和 PageRank 分数作为参数调用 `persistScore` 回调。
 - en: 'The `persistScore` callback (shown as follows) is a simple wrapper for mapping
     the vertex ID into a UUID value and calling the `UpdateScore` method of the Links
     ''R'' Us document index component:'
+  id: totrans-499
   prefs: []
   type: TYPE_NORMAL
+  zh: '`persistScore` 回调（如下所示）是一个简单的包装器，用于将顶点 ID 映射到 UUID 值，并调用 Links ''R'' Us 文档索引组件的
+    `UpdateScore` 方法：'
 - en: '[PRE84]'
+  id: totrans-500
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE84]'
 - en: Similar to the master job runner implementation, the worker's `AbortJob` method
     is also an empty stub. To keep our implementation as lean as possible, we won't
     bother rolling back any already persisted score changes if any of the other workers
     fails after the local worker has already completed the job. Since the PageRank
     scores are periodically re-calculated, we expect them to be *eventually consistent*.
+  id: totrans-501
   prefs: []
   type: TYPE_NORMAL
+  zh: 与主作业运行器实现类似，工作器的 `AbortJob` 方法也是一个空的存根。为了使我们的实现尽可能精简，我们不会在本地工作器完成作业后，如果其他工作器失败，回滚任何已持久化的分数更改。由于
+    PageRank 分数是定期重新计算的，我们预计它们最终会是一致的。
 - en: Deploying the final Links 'R' Us version to Kubernetes
+  id: totrans-502
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 将最终的 Links 'R' Us 版本部署到 Kubernetes
 - en: We have finally reached and conquered the end-goal for the Links 'R' Us project—we
     have built a feature-complete, microservice-based system where **all** components
     can be deployed to Kubernetes and individually scaled up or down.
+  id: totrans-503
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们终于达到了 Links 'R' Us 项目的最终目标——我们构建了一个功能齐全、基于微服务的系统，其中 **所有** 组件都可以部署到 Kubernetes
+    并单独进行扩展或缩减。
 - en: The last thing we need to do is to update our Kubernetes manifests so we can
     deploy the distributed version of the PageRank calculator instead of the single-pod
     version from [Chapter 11](dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml), *Splitting
     Monoliths into Microservices*.
+  id: totrans-504
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们最后需要做的是更新我们的 Kubernetes 清单，以便我们可以部署 PageRank 计算器的分布式版本，而不是第 11 章 [将单体拆分为微服务](dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml)中的单容器版本。
 - en: For this purpose, we will create two separate Kubernetes `Deployment` resources.
     The first deployment provision a **single** pod, which executes the PageRank service
     in the master node, while the second deployment will provision **multiple** pods
     that execute the service in worker mode. To facilitate the discovery of the master
     node by the workers, we will place the master node behind a Kubernetes service
     and point the workers at the DNS entry for the service.
+  id: totrans-505
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了这个目的，我们将创建两个独立的 Kubernetes `Deployment` 资源。第一个部署提供一个 **单个** 容器，在主节点上执行 PageRank
+    服务，而第二个部署将提供 **多个** 容器，以工作模式执行该服务。为了帮助工作器发现主节点，我们将主节点放在 Kubernetes 服务后面，并将工作器指向该服务的
+    DNS 条目。
 - en: 'After applying the proposed changes, our Kubernetes cluster will look as follows:'
+  id: totrans-506
   prefs: []
   type: TYPE_NORMAL
+  zh: 应用所提出的更改后，我们的 Kubernetes 集群将如下所示：
 - en: '![](img/ecb9a98f-856b-454c-bb05-05bb41bd94fb.png)'
+  id: totrans-507
   prefs: []
   type: TYPE_IMG
+  zh: '![图片](img/ecb9a98f-856b-454c-bb05-05bb41bd94fb.png)'
 - en: 'Figure 4: The components of the fully distributed Links ''R'' Us version'
+  id: totrans-508
   prefs: []
   type: TYPE_NORMAL
+  zh: 图 4：完全分布式 Links 'R' Us 版本的组件
 - en: You can have a look at the full set of Kubernetes manifests for the final version
     of Links 'R' Us by checking out this book's GitHub repository and examining the
     contents of the `Chapter12/k8s` folder.
+  id: totrans-509
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以通过查看本书的 GitHub 仓库并检查 `Chapter12/k8s` 文件夹的内容来查看 Links 'R' Us 最终版本的完整 Kubernetes
+    清单。
 - en: If you haven't already set up a **Minikube cluster** and white-listed its private
     registry, you can either take a quick break and manually follow the step-by-step
     instructions from [Chapter 10](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml), *Building,
     Packaging, and Deploying Software,* or simply run `make bootstrap-minikube`, which
     will take care of everything for you.
+  id: totrans-510
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你还没有设置一个 **Minikube 集群**并将其私有仓库列入白名单，你可以稍作休息，手动按照第 10 章 [构建、打包和部署软件](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml)的步骤逐一操作，或者简单地运行
+    `make bootstrap-minikube`，这将为你处理一切。
 - en: On the other hand, if you have already deployed any of the Links 'R' Us versions
     from the previous chapters (either the monolithic or microservice variant), make
     sure to run `kubectl delete namespace linksrus` before proceeding. By deleting
     the `linksrus` namespace, Kubernetes will get rid of all pods, services, and ingresses
     for Links 'R' Us but leave the data stores (which live in the `linksrus-data`
     namespace) intact.
+  id: totrans-511
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，如果您已经部署了之前章节中的任何Links 'R' Us版本（无论是单体还是微服务版本），在继续之前请确保运行`kubectl delete
+    namespace linksrus`。通过删除`linksrus`命名空间，Kubernetes将移除Links 'R' Us的所有Pod、服务和入口，但保留数据存储（它们位于`linksrus-data`命名空间中）。
 - en: 'To deploy all required components for Links ''R'' Us, you will need to build
     and push a handful of Docker images. To save you some time, the Makefile in the
     `Chapter12/k8s` folder provides two handy build targets to get you up and running
     as quickly as possible:'
+  id: totrans-512
   prefs: []
   type: TYPE_NORMAL
+  zh: 要部署Links 'R' Us的所有必需组件，您需要构建并推送一些Docker镜像。为了节省您的时间，`Chapter12/k8s`文件夹中的Makefile提供了两个方便的构建目标，以便您尽可能快地开始运行：
 - en: '`make dockerize-and-push`: This will build all required Docker images and push
     them to Minikube''s private registry.'
+  id: totrans-513
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`make dockerize-and-push`：这将构建所有必需的Docker镜像并将它们推送到Minikube的私有仓库。'
 - en: '`make deploy`: This will ensure that all required data stores have been provisioned
     and apply all manifests for deploying the final, microservice-based version of
     Links ''R'' Us in one go.'
+  id: totrans-514
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`make deploy`：这将确保所有所需的数据存储已配置，并一次性应用所有部署Links ''R'' Us最终、基于微服务的版本的清单。'
 - en: It's time to give yourself a pat on the back! We have just completed the development
     of the final version of our Links 'R' Us project. After taking a few minutes to
     contemplate what we have achieved so far, point your browser to the index page
     of the frontend and have some fun!
+  id: totrans-515
   prefs: []
   type: TYPE_NORMAL
+  zh: 是时候给自己鼓掌了！我们刚刚完成了Links 'R' Us项目的最终版本的开发。在花几分钟时间思考我们已经取得的成就之后，将您的浏览器指向前端索引页面，享受乐趣吧！
 - en: Summary
+  id: totrans-516
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 摘要
 - en: In this rather long chapter, we performed a deep dive into all of the aspects
     involved in the creation of a distributed graph-processing system that allows
     us to take any graph-based algorithm created with the `bspgraph` package from
     [Chapter 8](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml),* Graph-Based Data Processing,*
     and automatically distribute it to a cluster of worker nodes.
+  id: totrans-517
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这个相当长的章节中，我们深入研究了创建一个分布式图处理系统的所有方面，该系统能够将使用[第8章](c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml)中`bspgraph`包创建的任何基于图的算法自动分布到一组工作节点。
 - en: What's more, as a practical application of what we learned in this chapter,
     we modified the Links 'R' Us PageRank calculator service from the previous chapter
     so that it can now run in distributed mode. By doing so, we achieved the primary
     goal for this book—to build and deploy a complex Go project where every component
     can be independently scaled horizontally.
+  id: totrans-518
   prefs: []
   type: TYPE_NORMAL
+  zh: 此外，作为本章所学知识的实际应用，我们修改了上一章中的Links 'R' Us PageRank计算服务，使其现在可以以分布式模式运行。通过这样做，我们实现了本书的主要目标——构建和部署一个复杂的Go项目，其中每个组件都可以独立地进行水平扩展。
 - en: The next and final chapter focuses on the reliability aspects of the system
     we just built. We will be exploring approaches for collecting, aggregating, and
     visualizing metrics that will help us monitor the health and performance of the
     Links 'R' Us project.
+  id: totrans-519
   prefs: []
   type: TYPE_NORMAL
+  zh: 下一章和最后一章将重点关注我们刚刚构建的系统的可靠性方面。我们将探讨收集、聚合和可视化指标的方法，这些指标将帮助我们监控Links 'R' Us项目的健康和性能。
 - en: Questions
+  id: totrans-520
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 问题
 - en: Describe the differences between a leader-follower and a multi-master cluster
     configuration.
+  id: totrans-521
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 描述领导者-跟随者和多主集群配置之间的区别。
 - en: Explain how the checkpoint strategy can be used to recover from errors.
+  id: totrans-522
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 解释如何使用检查点策略来恢复错误。
 - en: What is the purpose of the distributed barrier in the out-of-core graph processing
     system that we built in this chapter?
+  id: totrans-523
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 我们在本章构建的离核图处理系统中，分布式屏障的目的是什么？
 - en: Assume that we are provided with a graph-based algorithm that we want to run
     in a distributed fashion. Would you consider a computation job as completed once
     the algorithm terminates?
+  id: totrans-524
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 假设我们提供了一个我们想要以分布式方式运行的图算法。您认为算法终止时计算作业就完成了吗？
 - en: Further reading
+  id: totrans-525
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 进一步阅读
 - en: '**Consul***: Secure service networking.* [https://consul.io](https://consul.io)'
+  id: totrans-526
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: '**Consul**：安全服务网络。[https://consul.io](https://consul.io)'
 - en: '**Docker***: Enterprise container platform.* [https://www.docker.com](https://www.docker.com)'
+  id: totrans-527
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: '**Docker**：企业级容器平台。[https://www.docker.com](https://www.docker.com)'
 - en: 'Lamport, Leslie: Paxos Made Simple. In *ACM SIGACT News (Distributed Computing
     Column) 32, 4 (Whole Number 121, December 2001)* (2001), S. 51–58'
+  id: totrans-528
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 'Lamport, Leslie: Paxos Made Simple. 在 *ACM SIGACT新闻（分布式计算专栏）第32卷第4期（总第121期，2001年12月）*（2001年），第51–58页'
 - en: 'Malewicz, Grzegorz; Austern, Matthew H.; Bik, Aart J. C; Dehnert, James C.;
     Horn, Ilan; Leiser, Naty; Czajkowski, Grzegorz: Pregel: *A System for Large-scale
     Graph Processing*. In *Proceedings of the 2010 ACM SIGMOD International Conference
     on Management of Data*, *SIGMOD ''10*. New York, NY, USA : ACM, 2010 — ISBN [978-1-4503-0032-2](https://worldcat.org/isbn/978-1-4503-0032-2),
     S. 135–146'
+  id: totrans-529
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 'Malewicz, Grzegorz; Austern, Matthew H.; Bik, Aart J. C; Dehnert, James C.;
+    Horn, Ilan; Leiser, Naty; Czajkowski, Grzegorz: Pregel: *一个用于大规模图处理系统*。在 *2010年ACM
+    SIGMOD国际数据管理会议论文集*，*SIGMOD ''10*。纽约，纽约，美国：ACM，2010 — ISBN [978-1-4503-0032-2](https://worldcat.org/isbn/978-1-4503-0032-2)，第135–146页'
 - en: 'Ongaro, Diego; Ousterhout, John: *In Search of an Understandable Consensus
     Algorithm*. In *Proceedings of the 2014 USENIX Conference on USENIX Annual Technical
     Conference*, *USENIX ATC''14*. Berkeley, CA, USA : USENIX Association, 2014 — ISBN [978-1-931971-10-2](https://worldcat.org/isbn/978-1-931971-10-2),
     S. 305–320'
+  id: totrans-530
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 'Ongaro, Diego; Ousterhout, John: *寻找一个可理解的共识算法*。在 *2014年USENIX年度技术会议论文集*，*USENIX
+    ATC''14*。加利福尼亚州伯克利，美国：USENIX协会，2014 — ISBN [978-1-931971-10-2](https://worldcat.org/isbn/978-1-931971-10-2)，第305–320页'

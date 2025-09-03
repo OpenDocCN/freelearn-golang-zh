@@ -1,156 +1,224 @@
 - en: Data-Processing Pipelines
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 数据处理管道
 - en: '"Inside every well-written large program is a well-written small program."'
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: “每个编写良好的大型程序内部都包含一个编写良好的小型程序。”
 - en: '- Tony Hoare'
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: '- 托尼·霍尔'
 - en: Pipelines are a fairly standard and used way to segregate the processing of
     data into multiple stages. In this chapter, we will be exploring the basic principles
     behind data-processing pipelines and present a blueprint for implementing generic,
     concurrent-safe, and reusable pipelines using Go primitives, such as channels,
     contexts, and go-routines.
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 管道是将数据处理分割成多个阶段的一种相当标准和常用的方式。在本章中，我们将探讨数据处理管道的基本原理，并展示使用Go原语（如通道、上下文和goroutines）实现通用、并发安全和可重用管道的蓝图。
 - en: 'In this chapter, you will learn about the following:'
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，你将学习以下内容：
 - en: Designing a generic processing pipeline from scratch using Go primitives
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用Go原语从头开始设计通用处理管道
 - en: Approaches to modeling pipeline payloads in a generic way
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 以通用方式对管道有效负载进行建模的方法
 - en: Strategies for dealing with errors that can occur while a pipeline is executing
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 处理管道执行过程中可能出现的错误策略
 - en: Pros and cons of synchronous and asynchronous pipeline design
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 同步和异步管道设计的优缺点
 - en: Applying pipeline design concepts to building the Links 'R' Us crawler component
+  id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 将管道设计概念应用于构建Links 'R' Us爬虫组件
 - en: Technical requirements
+  id: totrans-10
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: The full code for the topics discussed in this chapter has been published to
     this book's GitHub repository under the `Chapter07` folder.
+  id: totrans-11
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章讨论的主题的完整代码已发布到本书的GitHub仓库中的`Chapter07`文件夹下。
 - en: You can access the GitHub repository that contains the code and all required
     resources for each of this book's chapters by going to [https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang](https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang).
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以通过访问[https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang](https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang)来访问包含每个章节代码和所有必需资源的GitHub仓库。
 - en: 'To get you up and running as quickly as possible, each example project includes
     a makefile that defines the following set of targets:'
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了让你尽快开始，每个示例项目都包含一个makefile，它定义了以下目标集：
 - en: '| **Makefile target** | **Description** |'
+  id: totrans-14
   prefs: []
   type: TYPE_TB
+  zh: '| **Makefile目标** | **描述** |'
 - en: '| `deps` | Install any required dependencies |'
+  id: totrans-15
   prefs: []
   type: TYPE_TB
+  zh: '| `deps` | 安装所有必需的依赖项 |'
 - en: '| `test` | Run all tests and report coverage |'
+  id: totrans-16
   prefs: []
   type: TYPE_TB
+  zh: '| `test` | 运行所有测试并报告覆盖率 |'
 - en: '| `lint` | Check for lint errors |'
+  id: totrans-17
   prefs: []
   type: TYPE_TB
+  zh: '| `lint` | 检查代码风格错误 |'
 - en: As with all other book chapters, you will need a fairly recent version of Go,
     which you can download at [https://golang.org/dl](https://golang.org/dl)*.*
+  id: totrans-18
   prefs: []
   type: TYPE_NORMAL
+  zh: 与本书的所有其他章节一样，你需要一个相当新的Go版本，你可以在[https://golang.org/dl](https://golang.org/dl)*.*下载。
 - en: Building a generic data-processing pipeline in Go
+  id: totrans-19
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 在Go中构建通用数据处理管道
 - en: 'The following figure illustrates the high-level design of the pipeline that
     we will be building throughout the first half of this chapter:'
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 下图展示了我们将在这章的前半部分构建的管道的高级设计：
 - en: '![](img/c88d9228-c7fa-46e8-813d-1e7464d29804.png)'
+  id: totrans-21
   prefs: []
   type: TYPE_IMG
+  zh: '![](img/c88d9228-c7fa-46e8-813d-1e7464d29804.png)'
 - en: Figure 1: A generic, multistage pipeline
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 图1：一个通用的多阶段管道
 - en: Keep in mind that this is definitely not the only, or necessarily the best,
     way to go about implementing a data-processing pipeline. Pipelines are inherently
     application specific, so there is not really a one-size-fits-all guide for constructing
     efficient pipelines.
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: 请记住，这绝对不是实现数据处理管道的唯一或最佳方式。管道本质上是与应用程序相关的，因此并没有一个适用于所有情况的构建高效管道的指南。
 - en: 'Having said that, the proposed design is applicable to a wide variety of use
     cases, including, but not limited to, the crawler component for the Links ''R''
     Us project. Let''s examine the preceding figure in a bit more detail and identify
     the basic components that the pipeline comprises:'
+  id: totrans-24
   prefs: []
   type: TYPE_NORMAL
+  zh: 话虽如此，所提出的设计适用于广泛的用例，包括但不限于Links 'R' Us项目的爬虫组件。让我们更详细地审视前面的图，并确定管道包含的基本组件：
 - en: 'The **input source**: Inputs essentially function as data-sources that pump
     data into the pipeline. From this point onwards, we will be referring to this
     set of data with the term **payload**. Under the hood, inputs facilitate the role
     of an **adapter**, reading data typically available in an external system, such
     as a database or message queue, and converting it into a format that can be consumed
     by the pipeline.'
+  id: totrans-25
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**输入源**：输入本质上充当数据源，将数据泵入管道。从现在开始，我们将使用术语**有效载荷**来指代这组数据。在底层，输入促进了**适配器**的作用，读取外部系统（如数据库或消息队列）中通常可用的数据，并将其转换为管道可以消费的格式。'
 - en: 'One or more processing **stages**: Each stage of the pipeline receives a payload
     as its input, applies a processing function to it, and passes the result to the
     stage that follows.'
+  id: totrans-26
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个或多个处理**阶段**：管道的每个阶段接收一个有效载荷作为其输入，对其应用处理函数，然后将结果传递给下一个阶段。
 - en: 'The **output sink**: After stepping through each of the pipeline''s stages,
     payloads eventually reach the output sink. In a similar fashion to input sources,
     sinks also work as **adapters**, only this time the conversion works in reverse!
     Payloads are converted into a format that can be consumed by an external system.'
+  id: totrans-27
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**输出汇**：在经过管道的每个阶段之后，有效载荷最终达到输出汇。与输入源类似，汇也充当**适配器**，只是这次转换是反向的！有效载荷被转换为可以由外部系统消费的格式。'
 - en: 'An **error bus**: The error bus provides a convenient abstraction that allows
     the pipeline components to report any errors that occur while the pipeline is
     executing.'
+  id: totrans-28
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**错误总线**：错误总线提供了一个方便的抽象，允许管道组件在管道执行过程中报告任何发生的错误。'
 - en: The full source code and tests for the pipeline are available at the book's
     GitHub repository under the `Chapter07/pipeline` folder.
+  id: totrans-29
   prefs: []
   type: TYPE_NORMAL
+  zh: 管道的完整源代码和测试可以在书籍的GitHub仓库的`Chapter07/pipeline`文件夹下找到。
 - en: Design goals for the pipeline package
+  id: totrans-30
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 管道包的设计目标
 - en: 'Let''s quickly enumerate some of the design goals for the `pipeline` package
     that we will be building. The key principles that will serve as guides for the
     design decisions that we will be making are: simplicity, extensibility, and genericness.'
+  id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们快速列举一下我们将要构建的`pipeline`包的设计目标。我们将作为设计决策指南的关键原则是：简单性、可扩展性和通用性。
 - en: First and foremost, our design should be able to adapt to different types of
     payloads. Keep in mind that payload formats are, in the majority of cases, dictated
     by the end user of the pipeline package. Consequently, the pipeline internals
     should not make any assumptions about the internal implementation details of payloads
     that traverse the various pipeline stages.
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先也是最重要的，我们的设计应该能够适应不同类型的有效载荷。请记住，有效载荷格式在大多数情况下是由管道包的最终用户决定的。因此，管道内部不应假设通过各个管道阶段的任何有效载荷的内部实现细节。
 - en: Secondly, the main role of a data-processing pipeline is to facilitate the flow
     of payloads between a source and a sink. In a similar manner to payloads, the
     endpoints of a pipeline are also provided by the end user. As a result, the pipeline
     package needs to define the appropriate abstractions and interfaces for allowing
     the end users to register their own source and sink implementations.
+  id: totrans-33
   prefs: []
   type: TYPE_NORMAL
+  zh: 其次，数据处理管道的主要作用是促进有效载荷在源和汇之间的流动。与有效载荷类似，管道的端点也由最终用户提供。因此，管道包需要定义适当的抽象和接口，以便最终用户注册他们自己的源和汇实现。
 - en: Moreover, the pipeline package should go beyond just allowing the end users
     to specify a processing function for each stage. Users should also be able to
     choose, on a per-stage basis, the strategy used by the pipeline for delivering
@@ -159,46 +227,61 @@
     most common payload delivery strategies; however, the user should be given the
     flexibility to define their own custom strategies if the built-in ones are not
     sufficient for their particular use cases.
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 此外，管道包不应仅允许最终用户为每个阶段指定处理函数。用户还应该能够根据每个阶段选择管道用于将有效载荷传递给处理函数的策略。从逻辑上讲，该包应包含“内置电池”-也就是说，提供内置的实现，用于最常见的有效载荷传递策略；然而，如果内置的策略不足以满足特定用例，用户应能够定义自己的自定义策略。
 - en: Finally, our implementation must expose simple and straightforward APIs for
     creating, assembling, and executing complex pipelines. Furthermore, the API dealing
     with the pipeline execution should not only provide users with the means to cancel
     long-running pipelines, but it should also provide a mechanism for capturing and
     reporting any errors that might occur while the pipeline is busy processing payloads.
+  id: totrans-35
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们的实现必须提供简单直观的 API 来创建、组装和执行复杂的管道。此外，处理管道执行的 API 不仅应该为用户提供取消长时间运行的管道的手段，还应该提供一种机制来捕获和报告在管道忙于处理有效载荷时可能发生的任何错误。
 - en: Modeling pipeline payloads
+  id: totrans-36
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 模型管道有效载荷
 - en: The first and most crucial question we need to answer before we begin working
     on the pipeline package implementation is *how can we describe pipeline payloads
     in a generic way using Go?*
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们开始工作于管道包实现之前，我们需要回答的第一个也是最重要的问题是：我们如何使用 Go 以一种通用方式描述管道有效载荷？
 - en: The kind of obvious answer to this question is to define payloads as empty interface
     values (an `interface{}` in Go terminology). The key argument in favor of this
     approach is that the pipeline internals shouldn't really care about payloads per
     se; all the pipeline needs to do is shuttle payloads between the various pipeline
     stages.
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于这个问题的明显答案是将有效载荷定义为空接口值（在 Go 术语中为 `interface{}`）。支持这种方法的论据是，管道内部实际上并不真正关心有效载荷本身；管道需要做的只是在不同管道阶段之间传递有效载荷。
 - en: The interpretation of the payload contents (for example, by casting the input
     to a known type) should be the sole responsibility of the processing functions
     that execute at each stage. Given that the processing functions are specified
     by the end user of the pipeline, this approach would probably be a good fit for
     our particular requirements.
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: 对有效载荷内容的解释（例如，通过将输入转换为已知类型）应该是每个阶段执行的处理函数的唯一责任。鉴于处理函数是由管道的最终用户指定的，这种方法可能非常适合我们的特定需求。
 - en: However, as Rob Pike quite eloquently puts it in one of his famous Go proverbs, `interface{}`
     *says nothing*. There is quite a bit of truth in that statement. The empty interface
     conveys no useful information about the underlying type. As a matter of fact,
     if we were to follow the empty interface approach, we would be effectively disabling
     the Go compiler's ability to do static type checking of some parts of our code
     base!
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，正如 Rob Pike 在他著名的 Go 谚语中所相当巧妙地表达的，`interface{}` 什么也没说。这个陈述中有很多真理。空接口传达了关于底层类型没有任何有用的信息。事实上，如果我们遵循空接口的方法，我们实际上会有效地禁用
+    Go 编译器对我们代码库中某些部分进行静态类型检查的能力！
 - en: 'On one hand, the use of empty interfaces is generally considered an antipattern
     by the Go community and is therefore a practice we would ideally want to avoid.
     On the other hand, Go has no support for generics, which makes it much more difficult
@@ -209,245 +292,336 @@
     That would give us an extra layer of type-safety while still making it possible
     for pipeline processor functions to cast incoming payloads to the type they expect.
     Here is a possible definition for the `Payload` interface:'
+  id: totrans-41
   prefs: []
   type: TYPE_NORMAL
+  zh: 一方面，在 Go 社区中，通常认为使用空接口是一种反模式，因此这是我们理想情况下想要避免的做法。另一方面，Go 没有对泛型提供支持，这使得编写能够处理预先未知类型的对象的代码变得更加困难。因此，与其试图找到这个问题的银弹解决方案，不如我们尝试妥协一下：我们是否可以尝试强制实施一套所有有效载荷类型都必须支持的通用操作，并创建一个
+    `Payload` 接口来描述它们？这样，我们就能在保持管道处理函数能够将传入的有效载荷转换为它们期望的类型的同时，增加一层额外的类型安全性。以下是 `Payload`
+    接口的一个可能定义：
 - en: '[PRE0]'
+  id: totrans-42
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: 'As you can see, we expect that, regardless of the way that a payload is defined,
     it must be able to perform at least two simple (and quite common) operations:'
+  id: totrans-43
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，我们期望无论有效载荷是如何定义的，它都必须能够执行至少两个简单（而且相当常见）的操作：
 - en: '**Perform a deep-copy of itself**: As we will see in one of the following sections,
     this operation will be required for avoiding data races when multiple processors
     are operating on the same payload concurrently.'
+  id: totrans-44
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**执行自身的深度复制**：正如我们将在接下来的某个部分中看到的那样，这个操作将用于避免当多个处理器同时操作同一有效载荷时发生数据竞争。'
 - en: '**Mark itself as processed**: Payloads are considered to be processed when
     they either reach the end of the pipeline (the sink) or if they are discarded
     at an intermediate pipeline stage. Having such a method invoked on payloads when
     they exit the pipeline is quite useful for scenarios where we are interested in
     collecting per-payload metrics (total processing time, time spent in the queue
     before entering the pipeline, and so on).'
+  id: totrans-45
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**标记为已处理**：当有效负载达到管道的末端（汇点）或在中途的管道阶段被丢弃时，它们被认为是已处理的。当有效负载退出管道时调用此方法对于我们需要收集每个有效负载的度量（总处理时间、进入管道前的排队时间等）的场景非常有用。'
 - en: Multistage processing
+  id: totrans-46
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 多阶段处理
 - en: The key concept behind pipelining is to break down a complex processing task
     into a series of smaller steps or **stages **that can be executed *independently* of
     each other and in a *predefined order*. Multistage processing, as an idea, also
     seems to resonate quite well with the single-responsibility principle that we
     discussed in [Chapter 2](96fb70cb-8134-4156-bd3e-48ca53224683.xhtml), *Best Practices
     for Writing Clean and Maintainable Go Code*.
+  id: totrans-47
   prefs: []
   type: TYPE_NORMAL
+  zh: 管道背后的关键概念是将一个复杂的处理任务分解成一系列较小的步骤或**阶段**，这些步骤可以独立于彼此执行，并且按照**预定义的顺序**执行。作为一种理念，多阶段处理似乎也与我们在[第2章](96fb70cb-8134-4156-bd3e-48ca53224683.xhtml)中讨论的单一职责原则非常契合，即*编写干净且可维护的Go代码的最佳实践*。
 - en: When assembling a multistage pipeline, the end user is expected to provide a
     set of functions, or **processors**,that will be applied to incoming payloads
     as they flow through each stage of the pipeline. I will be referring to these
     functions with the notation *F[i]*, where *i* corresponds to a stage number.
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 当组装一个多阶段管道时，预期最终用户会提供一组函数，或**处理器**，这些函数将应用于传入的有效负载，当它们通过管道的每个阶段流动时。我将使用符号*F[i]*来指代这些函数，其中*i*对应于阶段号。
 - en: Under normal circumstances, the output of each stage will be used as input by
     the stage that follows—that is *Output[i] = F[i]( Output[i-1] )*. Yet, one could
     definitely picture scenarios where we would actually like to discard a payload
     and prevent it from reaching any of the following pipeline stages.
+  id: totrans-49
   prefs: []
   type: TYPE_NORMAL
+  zh: 在正常情况下，每个阶段的输出将被用作下一个阶段的输入——也就是说*Output[i] = F[i](Output[i-1])*。然而，我们确实可以想象出一些场景，我们实际上希望丢弃一个有效负载并阻止它到达任何后续的管道阶段。
 - en: For example, let's say we are building a pipeline to read and aggregate data
     from a CSV file. Unfortunately, the file contains some rows with garbage data
     that we must exclude from our calculations. To deal with cases like this, we can
     add a **filter stage** to the pipeline that inspects the contents of each row
     and drops the ones containing malformed data.
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: 例如，假设我们正在构建一个管道来读取和汇总CSV文件中的数据。不幸的是，该文件包含一些垃圾数据，我们必须将其排除在我们的计算之外。为了处理这种情况，我们可以在管道中添加一个**过滤阶段**来检查每行的内容，并丢弃包含格式错误数据的那些行。
 - en: 'With the preceding cases in mind, we can describe a stage `Processor` interface
     as follows:'
+  id: totrans-51
   prefs: []
   type: TYPE_NORMAL
+  zh: 考虑到前面的情况，我们可以将`Processor`接口描述如下：
 - en: '[PRE1]'
+  id: totrans-52
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: There is a small issue with the preceding definition that makes it a bit cumbersome
     to use in practice. Since we are talking about an interface, it needs to be implemented
     by a type such as a Go struct; however, one could argue that in many cases, all
     we really need is to be able to use a simple function, or a **closure**as our
     processor.
+  id: totrans-53
   prefs: []
   type: TYPE_NORMAL
+  zh: 在先前的定义中存在一个小问题，使得它在实际应用中略显繁琐。由于我们谈论的是一个接口，它需要通过像Go struct这样的类型来实现；然而，有人可能会争论，在许多情况下，我们真正需要的只是能够使用一个简单的函数，或者一个**闭包**作为我们的处理器。
 - en: 'Given that we are designing a *generic* pipeline package, our aim should be
     to make its API as convenient as possible for the end users. To this end, we will
     also define an auxiliary type called `ProcessorFunc` that serves the role of a
     function *adapter*:'
+  id: totrans-54
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于我们正在设计一个*通用*的管道包，我们的目标应该是使其API尽可能方便最终用户。为此，我们还将定义一个辅助类型`ProcessorFunc`，它充当函数**适配器**的角色：
 - en: '[PRE2]'
+  id: totrans-55
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: If we have a function with the appropriate signature, we can cast it to a `ProcessorFunc` and
     automatically obtain a type that implements the `Processor` interface! If this
     trick seems vaguely familiar to you, chances are that you have already used it
     before if you have written any code that imports the `http` package and registers
     HTTP handlers. The `HandlerFunc` type from the `http` package uses exactly the
     same idea to convert user-defined functions into valid HTTP `Handler` instances.
+  id: totrans-56
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们有一个具有适当签名的函数，我们可以将其转换为`ProcessorFunc`并自动获得一个实现了`Processor`接口的类型！如果你觉得这个技巧有点熟悉，那么很可能你已经在使用它了，如果你编写过任何导入`http`包并注册HTTP处理器的代码。`http`包中的`HandlerFunc`类型正是使用这个想法将用户定义的函数转换为有效的HTTP
+    `Handler`实例。
 - en: Stageless pipelines – is that even possible?
+  id: totrans-57
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 无阶段的管道——这是否可能？
 - en: Should a pipeline definition include a minimum number of stages for it to be
     considered as valid? More specifically, should we be allowed to define a pipeline
     with *zero* stages? In my view, stages should be considered as an optional part
     of a pipeline definition. Remember that for a pipeline to function, it requires,
     at minimum, an input source and an output sink.
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: 管道定义是否应该包含一个最小数量的阶段，才能被视为有效？更具体地说，我们是否应该允许定义一个没有阶段的管道？在我看来，阶段应该被视为管道定义的可选部分。记住，为了使管道工作，它至少需要一个输入源和一个输出接收器。
 - en: 'If we were to directly connect the input to the output and execute the pipeline,
     we would get the same result as if we had executed a pipeline with just a single
     stage whose `Processor` is an *identity *function—that is, a function that always
     outputs the value passed to it as input. We could easily define such a function
     using the `ProcessorFunc` helper from the previous section:'
+  id: totrans-59
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们直接将输入连接到输出并执行管道，我们会得到与执行只有一个阶段的管道相同的结果，该阶段的`Processor`是一个*恒等*函数——即总是输出传递给它的输入值的函数。我们可以很容易地使用上一节中的`ProcessorFunc`辅助函数定义这样的函数：
 - en: '[PRE3]'
+  id: totrans-60
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: Is there a practical real-world use for this kind of pipeline? The answer is
     yes! Such a pipeline facilitates the role of an adapter for linking together two,
     potentially incompatible, systems and transferring data between them. For example,
     we could use this approach for reading events off a message queue and persisting
     them into a noSQL database for further processing.
+  id: totrans-61
   prefs: []
   type: TYPE_NORMAL
+  zh: 这种类型的管道在现实世界中有没有实际的应用？答案是肯定的！这种管道有助于作为适配器连接两个可能不兼容的系统，并在它们之间传输数据。例如，我们可以使用这种方法从消息队列中读取事件并将它们持久化到noSQL数据库以进行进一步处理。
 - en: Strategies for handling errors
+  id: totrans-62
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 处理错误的策略
 - en: As a pipeline executes, each one of the components that comprise it may potentially
     encounter errors. Consequently, prior to implementing the internals of our pipeline
     package, we need to devise a strategy for detecting, collecting, and handling
     errors.
+  id: totrans-63
   prefs: []
   type: TYPE_NORMAL
+  zh: 当管道执行时，构成它的每个组件都可能遇到错误。因此，在实现我们的管道包的内部机制之前，我们需要制定一个检测、收集和处理错误的策略。
 - en: In the following sections, we will be exploring some alternative strategies
     for dealing with errors.
+  id: totrans-64
   prefs: []
   type: TYPE_NORMAL
+  zh: 在接下来的章节中，我们将探讨一些处理错误的替代策略。
 - en: Accumulating and returning all errors
+  id: totrans-65
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 累积并返回所有错误
 - en: One of the simplest strategies at our disposal involves the introduction of
     a mechanism for collecting and accumulating *all* errors emitted by any of the
     pipeline components while the pipeline is executing. Once the pipeline detects
     an error, it automatically discards the payload that triggered the error, but
     appends the captured error to a list of collected errors. The pipeline resumes
     its execution with the next payload till all payloads have been processed.
+  id: totrans-66
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以采用的 simplest 策略之一是引入一种机制，在管道执行过程中收集和累积管道组件发出的所有错误。一旦管道检测到错误，它会自动丢弃触发错误的负载，但将捕获到的错误追加到收集到的错误列表中。管道将使用下一个负载继续执行，直到所有负载都已被处理。
 - en: After the pipeline execution completes, any collected errors are returned back
     to the user. At this point, we have the option to either return a slice of Go
     error values or use a helper package, such as `hashicorp/go-multierror` ^([6]), which allows
     us to aggregate a list of Go error values into a container value that implements
     the `error` interface.
+  id: totrans-67
   prefs: []
   type: TYPE_NORMAL
+  zh: 在管道执行完成后，任何收集到的错误都会返回给用户。在这个时候，我们有两种选择：要么返回Go错误值的切片，要么使用辅助包，例如`hashicorp/go-multierror`^([6])，它允许我们将Go错误值列表聚合到一个实现了`error`接口的容器值中。
 - en: A great candidate for this type of error handling is pipelines where the processors
     implement best-effort semantics. For example, if we were building a pipeline to
     pump out events in a fire-and-forget manner, we wouldn't want the pipeline to
     stop if one of the events could not be published.
+  id: totrans-68
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于这种类型的错误处理，一个很好的候选者是那些处理器实现尽力而为语义的管道。例如，如果我们正在构建一个以火速和忘记的方式泵送事件的管道，我们不希望管道因为某个事件无法发布而停止。
 - en: Using a dead-letter queue
+  id: totrans-69
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用死信队列
 - en: In some scenarios, the user of the pipeline package might be interested in obtaining
     a list of all the payloads that could not be processed by the pipeline because
     of the presence of errors.
+  id: totrans-70
   prefs: []
   type: TYPE_NORMAL
+  zh: 在某些情况下，管道包的用户可能对获取所有由于错误而无法被管道处理的负载的列表感兴趣。
 - en: 'The following points apply, depending on the application requirements:'
+  id: totrans-71
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下点根据应用需求适用：
 - en: Detailed information about each error and the content of each failed payload
     can be logged out for further analysis
+  id: totrans-72
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 关于每个错误以及每个失败负载的详细信息可以记录下来以供进一步分析
 - en: Failed payloads can be persisted to an external system (for example, via a messaging
     queue) so that they can be manually inspected and corrected (when feasible) by
     human operators
+  id: totrans-73
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 失败的负载可以持久化到外部系统（例如，通过消息队列），以便它们可以被人工检查和纠正（当可行时）由人工操作员。
 - en: We could start a new pipeline run to process the payloads that failed during
     the previous run
+  id: totrans-74
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 我们可以启动一个新的管道运行来处理上一次运行中失败的负载
 - en: The concept of storing failed items for future processing is quite prevalent
     in event-driven architectures, and is typically referred to as the **dead-letter
     queue**.
+  id: totrans-75
   prefs: []
   type: TYPE_NORMAL
+  zh: 存储失败项以供将来处理的概念在事件驱动架构中非常普遍，通常被称为**死信队列**。
 - en: Terminating the pipeline's execution if an error occurs
+  id: totrans-76
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 如果发生错误则终止管道的执行
 - en: One important caveat of the previous strategies is that they cannot be applied
     to *long-running* pipelines. Even if an error occurs, we will not find out about
     it until the pipeline completes. This could take hours, days, or even forever
     if the pipeline's input never runs out of data. An example of the latter case
     would be a pipeline whose input is connected to a message queue and blocks while
     waiting for new messages to arrive.
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: 之前策略的一个重要注意事项是它们不能应用于*长时间运行*的管道。即使发生错误，我们也不会在管道完成之前发现它。这可能需要数小时、数天，甚至在管道的输入数据永远不会耗尽的情况下永远如此。后者的一个例子是，管道的输入连接到一个消息队列，并在等待新消息到达时阻塞。
 - en: To deal with such scenarios, we could *immediately* terminate the pipeline's
     execution when an error occurs and return the error back to the user. As a matter
     of fact, this is the error-handling strategy that we will be using in our pipeline
     implementation.
+  id: totrans-78
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了处理这类场景，当发生错误时，我们可以*立即*终止管道的执行并将错误返回给用户。实际上，这是我们将在管道实现中使用的错误处理策略。
 - en: At first glance, you could argue that this approach is quite limiting compared
     to the other strategies we have discussed so far; however, if we dig a bit deeper,
     we will discover that this approach is better suited for a greater number of use
     cases, as it is versatile enough to emulate the behavior of the other two error-handling
     strategies.
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: 初看起来，你可能会认为这种方法与其他我们之前讨论的策略相比相当有限；然而，如果我们深入挖掘，我们会发现这种方法更适合更多的用例，因为它足够灵活，可以模拟其他两种错误处理策略的行为。
 - en: 'To gain a better understanding of how this can be achieved, we first need to
     talk a bit about the nature of errors that might occur while a pipeline is executing.
     Depending on whether errors are fatal, we can classify them into two categories:'
+  id: totrans-80
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了更好地理解如何实现这一点，我们首先需要谈谈在管道执行过程中可能发生的错误性质。根据错误是否致命，我们可以将它们分为两类：
 - en: '**Nontransient errors**: Such errors are considered to be fatal and applications
     cannot really recover from them. An example of a nontransient error would be running
     out of disk space while writing to a file.'
+  id: totrans-81
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**非暂时性错误**：这类错误被认为是致命的，应用程序无法真正从中恢复。一个非暂时性错误的例子是在写入文件时耗尽磁盘空间。'
 - en: '**Transient errors**: Applications can, and should, always attempt to recover
     from such errors, although this may not always be possible. This is usually achieved
     by means of some sort of retry mechanism. For instance, if the application loses
     its connection to a remote server, it can attempt to reconnect using an exponential
     back-off strategy. If a maximum number of retries is reached, then this becomes
     a nontransient error.'
+  id: totrans-82
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**瞬时错误**：应用程序可以，并且应该始终尝试从这种错误中恢复，尽管这并不总是可能的。这通常是通过某种重试机制实现的。例如，如果应用程序失去了与远程服务器的连接，它可以尝试使用指数退避策略重新连接。如果达到最大重试次数，那么这将成为一个非瞬时错误。'
 - en: 'The following is a simple example illustrating how a user can apply the decorator design
     pattern to wrap a `Processor` function and implement a retry mechanism that can
     distinguish between transient and nontransient errors:'
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下是一个简单示例，说明用户如何应用装饰器设计模式来封装 `Processor` 函数，并实现一个可以区分瞬时和非瞬时错误的重试机制：
 - en: '[PRE4]'
+  id: totrans-84
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: The `retryingProcessor` function wraps an existing `Processor` to provide support
     for automatic retries in the presence of errors. Each time an error occurs, the
     function consults the `isTransient` helper function to decide whether the obtained
@@ -456,64 +630,90 @@
     cases, the function will return the error to cause the pipeline to terminate.
     Finally, if the maximum number of retries is exceeded, the function treats the
     error as nontransient and bails out.
+  id: totrans-85
   prefs: []
   type: TYPE_NORMAL
+  zh: '`retryingProcessor` 函数封装了一个现有的 `Processor`，以提供在出现错误时自动重试的支持。每次发生错误时，该函数都会咨询
+    `isTransient` 辅助函数，以决定获取到的错误是否是瞬时的，以及是否可以执行处理负载的另一次尝试。非瞬时错误被认为是不可恢复的，在这种情况下，函数将返回错误以导致管道终止。最后，如果超过最大重试次数，该函数将错误视为非瞬时并退出。'
 - en: Synchronous versus asynchronous pipelines
+  id: totrans-86
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 同步与异步管道
 - en: A critical decision that will influence the way we implement the core of the
     pipeline is whether it will operate in a synchronous or an asynchronous fashion.
     Let's take a quick look at these two modes of operation and discuss the pros and
     cons of each one.
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: 将影响我们实现管道核心方式的一个关键决策是它将以同步还是异步的方式运行。让我们快速了解一下这两种操作模式，并讨论每种模式的优缺点。
 - en: Synchronous pipelines
+  id: totrans-88
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 同步管道
 - en: 'A synchronous pipeline essentially processes one payload at a time. We could
     implement such a pipeline by creating a `for` loop that does the following:'
+  id: totrans-89
   prefs: []
   type: TYPE_NORMAL
+  zh: 同步管道实际上一次处理一个负载。我们可以通过创建一个执行以下操作的 `for` 循环来实现这样的管道：
 - en: Dequeues the next payload from the input source or exits the loop if no more
     payloads are available
+  id: totrans-90
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 从输入源弹出一个下一个负载或退出循环，如果没有更多的负载可用
 - en: Iterates the list of pipeline stages and invokes the `Processor` instance for
     each stage
+  id: totrans-91
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 遍历管道阶段的列表，并对每个阶段调用 `Processor` 实例
 - en: Enqueues the resulting payload to the output source
+  id: totrans-92
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 将生成的负载入队到输出源
 - en: Synchronous pipelines are great for workloads where payloads must always be
     processed in **first-in-first-out** (**FIFO**) fashion, a quite common case for
     event-driven architectures which, most of the time, operate under the assumption
     that events are always processed in a specific order.
+  id: totrans-93
   prefs: []
   type: TYPE_NORMAL
+  zh: 同步管道非常适合那些必须始终以 **先进先出**（**FIFO**）方式处理负载的工作负载，这对于事件驱动架构来说是一个相当常见的情况，大多数情况下，它们假设事件总是按照特定的顺序进行处理。
 - en: 'As an example, let''s say that we are trying to construct an **ETL** (short
     for **extract**, **transform**, and **load**) pipeline for consuming an event-stream
     from an order-processing system, enriching some of the incoming events with additional
     information by querying an external system and finally transforming the enriched
     events into a format suitable for persisting into a relational database. The pipeline
     for this use-case can be assembled using the following two stages:'
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 例如，假设我们正在尝试构建一个用于消费来自订单处理系统的事件流、通过查询外部系统丰富一些传入事件并最终将丰富的事件转换为适合持久化到关系型数据库的格式的
+    **ETL**（代表 **提取**、**转换**和**加载**）管道。对于此用例的管道可以使用以下两个阶段来组装：
 - en: The first stage inspects the event type and enriches it with the appropriate
     information by querying an external service
+  id: totrans-95
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 第一阶段检查事件类型，并通过查询外部服务添加适当的信息来丰富它
 - en: The second stage converts each enriched event into a sequence of SQL queries
     for updating one or more database tables
+  id: totrans-96
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 第二阶段将每个丰富的事件转换为更新一个或多个数据库表的 SQL 查询序列
 - en: By design, our processing code expects that an `AccountCreated` event must always
     precede an `OrderPlaced` event, which includes a reference (a UUID) to the account
     of the customer who placed the order. If the events were to be processed in the
@@ -522,49 +722,65 @@
     possible to code around this limitation, it would make the processing code much
     more complicated and harder to debug when something goes wrong. A synchronous
     pipeline would enforce in-order processing semantics and make this a nonissue.
+  id: totrans-97
   prefs: []
   type: TYPE_NORMAL
+  zh: 按设计，我们的处理代码期望一个`AccountCreated`事件必须始终先于一个`OrderPlaced`事件发生，该事件包括一个指向下订单的客户的账户的引用（一个UUID）。如果事件被错误地处理，系统可能会发现自己试图在数据库中的客户记录被创建之前处理`OrderPlaced`事件。虽然当然可以绕过这个限制进行编码，但这会使处理代码变得更加复杂，并且当出现问题难以调试。同步管道将强制执行有序处理语义，并使这个问题成为非问题。
 - en: So what's the catch when using synchronous pipelines? The main issue associated
     with synchronous pipelines is *low throughput*. If our pipeline consists of *N* stages
     and each stage takes *1 time unit* to complete, our pipeline would require *N
     time-units* to process and emit *each* payload. By extension, each time a stage
     is processing a payload, the remaining *N-1 *stages are *idling*.
+  id: totrans-98
   prefs: []
   type: TYPE_NORMAL
+  zh: 那么使用同步管道时有什么问题呢？与同步管道相关的主要问题是**低吞吐量**。如果我们的管道由**N**个阶段组成，并且每个阶段需要**1个时间单位**来完成，那么我们的管道将需要**N个时间单位**来处理和发出每个有效载荷。进一步来说，每次一个阶段正在处理一个有效载荷时，其余的**N-1**个阶段都在**闲置**。
 - en: Asynchronous pipelines
+  id: totrans-99
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 异步管道
 - en: In an asynchronous pipeline design, once a stage processes an incoming payload
     and emits it to the next stage, it can immediately begin processing the next available
     payload without having to wait for the currently processed payload to exit the
     pipeline, as would be the case in a synchronous pipeline design. This approach
     ensures that all stages are continuously kept busy processing payloads instead
     of idling.
+  id: totrans-100
   prefs: []
   type: TYPE_NORMAL
+  zh: 在异步管道设计中，一旦一个阶段处理了传入的有效载荷并将其发送到下一个阶段，它就可以立即开始处理下一个可用的有效载荷，而无需等待当前处理的有效载荷退出管道，正如在同步管道设计中那样。这种方法确保所有阶段都持续忙碌于处理有效载荷，而不是闲置。
 - en: 'It is important to note that asynchronous pipelines typically require some
     form of concurrency. A common pattern is to run each stage in a separate goroutine.
     Of course, this introduces additional complexity to the mix as we need to do the
     following:'
+  id: totrans-101
   prefs: []
   type: TYPE_NORMAL
+  zh: 需要注意的是，异步管道通常需要某种形式的并发。一个常见的模式是将每个阶段在一个单独的goroutine中运行。当然，这给组合带来了额外的复杂性，因为我们需要做以下事情：
 - en: Manage the lifecycle of each goroutine
+  id: totrans-102
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 管理每个goroutine的生命周期
 - en: Make use of concurrency primitives, such as locks, to avoid data races
+  id: totrans-103
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 利用并发原语，如锁，来避免数据竞争
 - en: Nevertheless, asynchronous pipelines have much better throughput characteristics
     compared to synchronous pipelines. This is the main reason why the pipeline package
     that we will be building in this chapter will feature an asynchronous pipeline
     implementation... with a small twist! Even though all pipeline components (input,
     output, and stages) will be running *asynchronously*, end users will be interacting
     with the pipeline using a *synchronous* API.
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: 尽管如此，与同步管道相比，异步管道具有更好的吞吐量特性。这正是我们将在本章构建的管道包将采用异步管道实现的主要原因……但有一点不同！尽管所有管道组件（输入、输出和阶段）都将异步运行，但最终用户将通过一个**同步**的API与管道进行交互。
 - en: A quick survey of the most popular Go **software development kits** (**SDKs**)
     out there will reveal a general consensus toward exposing synchronous APIs. From
     the perspective of the API consumer, synchronous APIs are definitely easier to
@@ -573,73 +789,99 @@
     writes between channels. Contrast this approach with having an asynchronous API,
     where the end user would have to deal with an input, output, and error channel
     every time they wanted to execute a pipeline run!
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: 快速浏览目前最流行的Go **软件开发工具包**（**SDKs**），会发现普遍倾向于暴露同步API。从API消费者的角度来看，同步API确实更容易使用，因为最终用户不需要担心管理资源，例如Go通道，或者编写复杂的`select`语句来协调通道之间的读写操作。将这种方法与异步API进行对比，在异步API中，每次用户想要执行管道运行时，都必须处理输入、输出和错误通道！
 - en: As mentioned previously, the pipeline internals will be executing asynchronously.
     The typical way to accomplish this in Go would be to start a goroutine for each
     pipeline component and link the individual goroutines together by means of Go
     channels. The pipeline implementation will be responsible for fully managing the
     lifecycle of any goroutine it spins up, in a way that is totally transparent to
     the end user of the pipeline package.
+  id: totrans-106
   prefs: []
   type: TYPE_NORMAL
+  zh: 如前所述，管道内部将异步执行。在Go中实现这一点的典型方法是为每个管道组件启动一个goroutine，并通过Go通道将各个goroutine连接起来。管道实现将负责完全管理它启动的任何goroutine的生命周期，这对管道包的最终用户来说是完全透明的。
 - en: When working with goroutines, we must always be conscious about their individual
     lifecycles. A sound piece of advice is to never start a goroutine unless you know
     when it will exit and which conditions need to be satisfied for it to exit.
+  id: totrans-107
   prefs: []
   type: TYPE_NORMAL
+  zh: 当与goroutine一起工作时，我们必须始终关注它们的各自生命周期。一条明智的建议是，除非你知道goroutine何时退出以及需要满足哪些条件才能退出，否则不要启动goroutine。
 - en: Failure to heed this bit of advice can introduce goroutine leaks in long-running
     applications that typically require quite a bit of time and effort to track down.
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
+  zh: 忽视这条建议可能会导致在长时间运行的应用程序中引入goroutine泄漏，通常需要花费相当多的时间和精力来追踪。
 - en: Exposing a synchronous API for the pipeline package has yet another benefit
     that we haven't yet mentioned. It is pretty trivial for the end users of the pipeline
     package to wrap the synchronous API in a goroutine and make it asynchronous. The
     goroutine would simply invoke the blocking code and use a channel to signal the
     application code when the pipeline execution has completed.
+  id: totrans-109
   prefs: []
   type: TYPE_NORMAL
+  zh: 为管道包公开一个同步API还有一个我们尚未提到的好处。对于管道包的最终用户来说，将同步API包装在goroutine中以使其异步是非常简单的。goroutine将简单地调用阻塞代码，并通过通道向应用程序代码发出信号，以表明管道执行已完成。
 - en: Implementing a stage worker for executing payload processors
+  id: totrans-110
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 实现执行负载处理器的阶段工作器
 - en: 'One of the goals of the pipeline package is to allow the end users to specify
     a per-stage strategy for dispatching incoming payloads to the registered processor
     functions. In order to be able to support different dispatch strategies in a clean
     and extensible way, we are going to be introducing yet another abstraction, the `StageRunner` interface:'
+  id: totrans-111
   prefs: []
   type: TYPE_NORMAL
+  zh: 管道包的一个目标是为最终用户提供一种指定每个阶段的调度策略，以便将传入的负载调度到已注册的处理器函数。为了能够以干净和可扩展的方式支持不同的调度策略，我们将引入另一个抽象，即`StageRunner`接口：
 - en: '[PRE5]'
+  id: totrans-112
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'Concrete `StageRunner` implementations provide a `Run` method that implements
     the payload processing loop for a single stage of the pipeline. A typical processing
     loop consists of the following steps:'
+  id: totrans-113
   prefs: []
   type: TYPE_NORMAL
+  zh: 具体的`StageRunner`实现提供了一个`Run`方法，该方法实现了管道单个阶段的负载处理循环。典型的处理循环包括以下步骤：
 - en: Receive the next payload from the previous stage or the input source, if this
     happens to be the first stage of the pipeline. If the upstream data source signals
     that it has run out of data, or the externally provided `context.Context` is cancelled,
     then the `Run` method should automatically return.
+  id: totrans-114
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 从上一个阶段或输入源接收下一个负载，如果这恰好是管道的第一个阶段。如果上游数据源表示数据已耗尽，或者外部提供的`context.Context`被取消，则`Run`方法应自动返回。
 - en: Dispatch the payload to a user-defined processor function for the stage. As
     we will see in the following sections, the implementation of this step depends
     on the dispatch strategy that is being used by the `StageRunner` implementation.
+  id: totrans-115
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 将负载调度到用户定义的阶段处理器函数。正如我们将在以下章节中看到的，这一步骤的实现取决于`StageRunner`实现所使用的调度策略。
 - en: If the error processor returns an *error*, enqueue the error to the shared error
     bus and return.
+  id: totrans-116
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 如果错误处理器返回一个*错误*，将错误入队到共享错误总线并返回。
 - en: Push successfully processed payloads to the next pipeline stage, or the output
     sink, if this is the last stage of the pipeline.
+  id: totrans-117
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 将成功处理的负载推送到下一个管道阶段，或者如果这是管道的最后一个阶段，则推送到输出汇。
 - en: 'The preceding steps make it quite clear that `Run` is a blocking call. The
     pipeline implementation will start a goroutine for each stage of the pipeline,
     invoke the `Run` method of each registered `StageRunner` instance, and wait for
@@ -648,11 +890,15 @@
     lifecycles are managed by the pipeline internals, we need a way to configure each `StageRunner` with
     the set of channels it will be working with. This information is provided to the `Run` method
     via its second argument. Here is the definition of the `StageParams` interface:'
+  id: totrans-118
   prefs: []
   type: TYPE_NORMAL
+  zh: 前面的步骤清楚地表明`Run`是一个阻塞调用。管道实现将为管道的每个阶段启动一个goroutine，调用每个已注册`StageRunner`实例的`Run`方法，并等待其返回。由于我们正在使用goroutine，连接它们的适当机制是使用Go通道。由于goroutine和通道的生命周期都由管道内部管理，我们需要一种方法来配置每个`StageRunner`，使其与将要工作的通道集。此信息通过`Run`方法的第二个参数提供。以下是`StageParams`接口的定义：
 - en: '[PRE6]'
+  id: totrans-119
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: The `Input` method returns a *read-only* channel that the worker will be watching
     for incoming payloads. The channel will be *closed* to indicate that no more data
     is available for processing. The `Output` method returns a *write-only* channel
@@ -662,136 +908,190 @@
     be published. Finally, the `StageIndex` method returns the position of the stage
     in the pipeline that can be optionally used by `StageRunner` implementations to
     annotate errors.
+  id: totrans-120
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Input`方法返回一个工人将监视的只读通道，该通道用于接收传入的有效载荷。通道将被关闭以指示没有更多数据可供处理。`Output`方法返回一个只写通道，其中`StageRunner`应在成功处理输入有效载荷后发布。另一方面，如果在处理传入有效载荷时发生错误，`Error`通道返回一个只写通道，其中可以发布错误。最后，`StageIndex`方法返回管道中阶段的位置，`StageRunner`实现可以可选地使用它来注释错误。'
 - en: 'In the following sections, we will be taking a closer look at the implementation
     of three very common payload dispatch strategies that we will be bundling with
     the pipeline package: FIFO, fixed/dynamic worker pools, and broadcasting.'
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: 在接下来的几节中，我们将更详细地探讨三种非常常见的有效载荷调度策略的实施，这些策略我们将与管道包捆绑在一起：FIFO、固定/动态工作池和广播。
 - en: FIFO
+  id: totrans-122
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: FIFO
 - en: As the name implies, when a stage operates in FIFO mode, it processes payloads
     sequentially, thereby maintaining their order. By creating a pipeline where *all*
     stages use FIFO dispatching, we can enforce synchronous-like semantics for data
     processing, but still retain the high throughput benefits associated with an asynchronous
     pipeline.
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 如其名所示，当阶段以FIFO模式运行时，它按顺序处理有效载荷，从而保持它们的顺序。通过创建一个所有阶段都使用FIFO调度的管道，我们可以强制执行数据处理的同步语义，同时仍然保留异步管道相关的高吞吐量优势。
 - en: 'The `fifo` type is private within the `pipeline` package, but it can be instantiated
     via a call to the  `FIFO` function, which is outlined as follows:'
+  id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: '`fifo`类型在`pipeline`包内部是私有的，但可以通过调用`FIFO`函数来实例化，该函数概述如下：'
 - en: '[PRE7]'
+  id: totrans-125
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: 'Let''s now take a look at the `Run` method implementation for the `fifo` type:'
+  id: totrans-126
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们来看看`fifo`类型的`Run`方法实现：
 - en: '[PRE8]'
+  id: totrans-127
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'As you can see, `Run` is, by design, a blocking call; it runs an infinite for-loop
     with a single `select` statement. Within the `select` block, the code does the
     following:'
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，`Run`按设计是一个阻塞调用；它运行一个无限循环，其中包含一个`select`语句。在`select`块中，代码执行以下操作：
 - en: Monitors the provided context for cancellation and exits the main loop when
     the context gets cancelled (for example, if the user cancelled it or its timeout
     expired).
+  id: totrans-129
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 监视提供的上下文是否取消，并在上下文被取消（例如，如果用户取消它或其超时过期）时退出主循环。
 - en: Attempts to retrieve the next payload from the input channel. If the input channel
     closes, the code exits the main loop.
+  id: totrans-130
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 尝试从输入通道检索下一个有效载荷。如果输入通道关闭，代码将退出主循环。
 - en: 'Once a new input payload has been received, the FIFO runner executes the following
     block of code:'
+  id: totrans-131
   prefs: []
   type: TYPE_NORMAL
+  zh: 接收到新的输入有效载荷后，FIFO运行器执行以下代码块：
 - en: '[PRE9]'
+  id: totrans-132
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'The input payload is first passed to the user-defined `Processor` instance.
     If the processor returns an error, the code annotates it with the current stage
     number and attempts to enqueue it to the provided error channel by invoking the `maybeEmitError` helper
     before exiting the worker:'
+  id: totrans-133
   prefs: []
   type: TYPE_NORMAL
+  zh: 输入有效载荷首先传递给用户定义的`Processor`实例。如果处理器返回错误，代码将使用当前阶段号对其进行注释，并在退出工作进程之前通过调用`maybeEmitError`辅助函数将其入队到提供的错误通道：
 - en: '[PRE10]'
+  id: totrans-134
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: If the payload is processed without an error, then we need to check whether
     the processor returned a valid payload that we need to forward or a *nil* payload
     to indicate that the input payload should be discarded. Prior to discarding a
     payload, the code invokes its `MarkAsProcessed` method before commencing a new
     iteration of the main loop.
+  id: totrans-135
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果有效负载没有错误地处理，那么我们需要检查处理器是否返回了一个我们需要转发的有效负载，或者是一个*nil*有效负载来指示应该丢弃输入负载。在丢弃负载之前，代码在其`MarkAsProcessed`方法开始新的主循环迭代之前调用它。
 - en: On the other hand, if the processor returns a valid payload, we attempt to enqueue
     it to the output channel with the help of a `select` statement that blocks until
     either the payload is written to the output channel or the context gets cancelled.
     In the latter case, the worker terminates and the payload is dropped to the floor.
+  id: totrans-136
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，如果处理器返回一个有效的有效负载，我们尝试使用`select`语句将其入队到输出通道，该语句会阻塞，直到有效负载被写入输出通道或上下文被取消。在后一种情况下，工作者终止，有效负载被丢弃。
 - en: Fixed and dynamic worker pools
+  id: totrans-137
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 固定和动态工作池
 - en: Oftentimes, processor functions can take quite a bit of time to return. This
     could be either because the actual payload processing involves CPU-intensive calculations
     or simply because the function is waiting for an I/O operation to complete (for
     example, the processor function performed an HTTP request to a remote server and
     is waiting for a response).
+  id: totrans-138
   prefs: []
   type: TYPE_NORMAL
+  zh: 通常，处理器函数可能需要相当长的时间才能返回。这可能是因为实际的负载处理涉及CPU密集型计算，或者仅仅是因为函数正在等待I/O操作完成（例如，处理器函数执行了对远程服务器的HTTP请求，并正在等待响应）。
 - en: If all stages were linked using the FIFO dispatch strategy, then slowly executing
     processors could cause the pipeline to stall. If *out-of-order* processing of
     payloads is not an issue, we can make much better use of the available system
     resources by introducing worker pools into the mix. Worker pools is a pattern
     that can significantly improve the throughput of a pipeline by enabling stages
     in order to process multiple payloads in *parallel*.
+  id: totrans-139
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果所有阶段都使用FIFO调度策略连接，那么执行缓慢的处理器的存在可能会导致流水线停滞。如果*乱序*处理有效负载不是问题，我们可以通过引入工作池来更好地利用可用的系统资源。工作池是一种模式，可以通过允许阶段并行处理多个有效负载来显著提高流水线的吞吐量。
 - en: 'The first worker pool pattern that we will be implementing is a **fixed **worker
     pool. This type of pool spins up a preconfigured number of workers and distributes
     incoming payloads among them. Each one of the pool workers implements the same
     loop as the FIFO `StageRunner`. As the following code shows, our implementation
     actively exploits this observation and avoids duplicating the main loop code by
     creating a FIFO instance for each worker in the pool:'
+  id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将要实现的第一种工作池模式是**固定**工作池。此类池启动预配置数量的工作者，并将传入的有效负载在他们之间分配。池中的每个工作者实现与FIFO `StageRunner`相同的循环。如下代码所示，我们的实现积极利用这一观察结果，通过为池中的每个工作者创建一个FIFO实例来避免重复主循环代码：
 - en: '[PRE11]'
+  id: totrans-141
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: 'The `Run` method shown in the following code spins up the individual pool workers,
     executes their `Run` method, and uses a `sync.WaitGroup` to prevent it from returning
     until all the spawned worker goroutines terminate:'
+  id: totrans-142
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下代码中所示的`Run`方法启动单个池工作者，执行它们的`Run`方法，并使用`sync.WaitGroup`来防止它返回，直到所有生成的工作者goroutines终止：
 - en: '[PRE12]'
+  id: totrans-143
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: 'In terms of wiring, things are pretty simple here. All we need to do is pass
     the incoming parameters, as-is, to each one of the FIFO instances. The effect
     of this wiring is as follows:'
+  id: totrans-144
   prefs: []
   type: TYPE_NORMAL
+  zh: 在布线方面，这里的事情相当简单。我们只需要将传入的参数原封不动地传递给每个FIFO实例。这种布线的效果如下：
 - en: All FIFOs are set up to read incoming payloads from the *same* input channel,
     which is connected to the previous pipeline stage (or input source). This approach
     effectively acts as a load balancer for distributing payloads to idle FIFOs.
+  id: totrans-145
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 所有FIFOs都设置为从*相同*的输入通道读取传入的有效负载，该通道连接到前一个流水线阶段（或输入源）。这种方法有效地充当负载均衡器，用于将有效负载分配给空闲的FIFOs。
 - en: All FIFOs output processed payloads to the *same* output channel, which is linked
     to the next pipeline stage (or output sink).
+  id: totrans-146
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 所有FIFOs将处理后的有效负载输出到*相同*的输出通道，该通道连接到下一个流水线阶段（或输出汇）。
 - en: 'Fixed worker pools are quite easy to set up, but come with a caveat: the number
     of workers must be specified *in advance*! In some cases, coming up with a good
     value for the number of workers is really easy. For instance, if we know that
@@ -800,76 +1100,104 @@
     equal to the result of the `runtime.NumCPU()` call. Sometimes, coming up with
     a good estimate for the number of workers is not that easy. A potential solution
     would be to switch to a *dynamic* worker pool.'
+  id: totrans-147
   prefs: []
   type: TYPE_NORMAL
+  zh: 固定工作池的设置相当简单，但有一个注意事项：必须提前指定工作进程的数量！在某些情况下，确定工作进程数量的合理值非常容易。例如，如果我们知道处理器将执行CPU密集型计算，我们可以通过将工作进程的数量设置为`runtime.NumCPU()`调用的结果来确保我们的管道充分利用所有可用的CPU核心。有时，为工作进程数量提供一个合理的估计并不那么容易。一个潜在的解决方案是切换到动态工作池。
 - en: The key difference between a static and a dynamic worker pool is that with the
     latter, the number of workers is not fixed but varies over time. This fundamental
     difference allows us to make better use of available resources by allowing the
     dynamic pool to automatically scale the number of workers up or down to adapt
     to variances in the throughput from the previous stages.
+  id: totrans-148
   prefs: []
   type: TYPE_NORMAL
+  zh: 静态工作池和动态工作池之间的关键区别在于，后者中工作进程的数量不是固定的，而是随时间变化。这种基本差异使我们能够通过允许动态池自动调整工作进程的数量来适应先前阶段吞吐量的变化，从而更好地利用可用资源。
 - en: 'It goes without saying that we should always enforce an upper limit for the
     number of workers that can be spawned by the dynamic pool. Without such a limit
     in place, the number of goroutines spawned by the pipeline might grow out of control
     and cause the program to either grind to a halt or, even worse, to crash! To avoid
     this problem, the dynamic worker pool implementation presented in the following
     code uses a primitive known as a **token pool**:'
+  id: totrans-149
   prefs: []
   type: TYPE_NORMAL
+  zh: 不言而喻，我们应该始终为动态池可以产生的最大工作进程数量设置一个上限。如果没有这样的限制，管道生成的goroutine数量可能会失控，导致程序要么停止运行，更糟糕的是，程序崩溃！为了避免这个问题，以下代码中展示的动态工作池实现使用了一个称为**令牌池**的原始机制：
 - en: '[PRE13]'
+  id: totrans-150
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: 'A token pool is modeled as a buffered `chan struct{}`, which is prepopulated
     with a number of tokens equal to the maximum number of concurrent workers that
     we wish to allow. Let''s see how this primitive can be used to as a concurrency-control
     mechanism by breaking down the dynamic pool''s `Run` method implementation into
     logical blocks:'
+  id: totrans-151
   prefs: []
   type: TYPE_NORMAL
+  zh: 令牌池被建模为一个缓冲的`chan struct{}`，它预先填充了与我们希望允许的最大并发工作进程数量相等的令牌。让我们看看这个原始的并发控制机制是如何通过将动态池的`Run`方法实现分解成逻辑块来使用的：
 - en: '[PRE14]'
+  id: totrans-152
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: Similarly to the FIFO implementation, the dynamic pool executes an infinite
     for-loop containing a `select` statement; however, the code that deals with payload
     processing is quite different in this implementation. Instead of calling the payload
     processor code directly, we will just spin up a goroutine to take care of that
     task for us in the background, while the main loop attempts to process the next
     incoming payload.
+  id: totrans-153
   prefs: []
   type: TYPE_NORMAL
+  zh: 与FIFO实现类似，动态池执行一个包含`select`语句的无限循环；然而，在这个实现中处理有效载荷的代码相当不同。我们不会直接调用有效载荷处理器代码，而是会启动一个goroutine来在后台为我们处理这个任务，同时主循环尝试处理下一个到达的有效载荷。
 - en: 'Before a new worker can be started, we must first fetch a token from the pool.
     This is achieved via the following block of code that blocks until a token can
     be read off the channel or the provided context gets cancelled:'
+  id: totrans-154
   prefs: []
   type: TYPE_NORMAL
+  zh: 在启动新的工作进程之前，我们必须首先从池中获取一个令牌。这是通过以下代码块实现的，该代码块会阻塞，直到可以从通道中读取令牌或提供的上下文被取消：
 - en: '[PRE15]'
+  id: totrans-155
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: 'The preceding block of code serves as a choke point for limiting the number
     of concurrent workers. Once all tokens in the pool are exhausted, attempts to
     read off the channel will be blocked until a token is returned to the pool. So
     how do tokens get returned to the pool? To answer this question, we need to take
     a look at what happens *after* we successfully read a token from the pool:'
+  id: totrans-156
   prefs: []
   type: TYPE_NORMAL
+  zh: 上述代码块作为限制并发工作进程数量的瓶颈。一旦池中的所有令牌耗尽，尝试从通道中读取将会被阻塞，直到令牌返回到池中。那么令牌是如何返回到池中的呢？为了回答这个问题，我们需要看看我们成功从池中读取令牌之后发生了什么：
 - en: '[PRE16]'
+  id: totrans-157
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: 'This block of code is more or less the same as the FIFO implementation, with
     two small differences:'
+  id: totrans-158
   prefs: []
   type: TYPE_NORMAL
+  zh: 这段代码与FIFO实现大致相同，但有两大小的区别：
 - en: It executes inside a goroutine.
+  id: totrans-159
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它在goroutine内部执行。
 - en: It includes a `defer` statement to ensure that the token is returned to the
     pool once the goroutine completes. This is important as it makes the token available
     for reuse.
+  id: totrans-160
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它包括一个`defer`语句，以确保goroutine完成后将令牌返回到池中。这很重要，因为它使得令牌可以重复使用。
 - en: The last bit of code that we need to discuss is the for-loop at the end of the `Run` method.
     To guarantee that the dynamic pool does not leak any goroutines, we need to make
     sure that any goroutines that were spawned while the method was running have terminated
@@ -878,39 +1206,55 @@
     only run while holding a token; once the for-loop has extracted all tokens from
     the pool, we can safely return knowing that all workers have completed their work
     and their goroutines have been terminated.
+  id: totrans-161
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们需要讨论的最后一段代码是`Run`方法末尾的for循环。为了保证动态池不会泄漏任何goroutine，我们需要确保在`Run`返回之前，在方法运行期间创建的所有goroutine都已终止。我们不需要使用`sync.WaitGroup`，可以通过简单地排空令牌池来达到相同的效果。正如我们所知，工作者只能在持有令牌的情况下运行；一旦for循环从池中提取了所有令牌，我们就可以安全地返回，知道所有工作者已经完成了他们的工作，并且他们的goroutine已经终止。
 - en: 1-to-N broadcasting
+  id: totrans-162
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 1到N的广播
 - en: The 1-to-*N* broadcasting pattern allows us to support use cases where each
     incoming payload must to be processed in parallel by *N* different processors,
     each one of which implements FIFO-like semantics.
+  id: totrans-163
   prefs: []
   type: TYPE_NORMAL
+  zh: 1到*N*的广播模式允许我们支持每个传入的有效载荷必须由*N*个不同的处理器并行处理的用例，每个处理器都实现了类似FIFO的语义。
 - en: 'The following code is the definition of the `broadcast` type and the `Broadcast` helper
     function that serves as its constructor:'
+  id: totrans-164
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下代码是`broadcast`类型的定义以及作为其构造函数的`Broadcast`辅助函数：
 - en: '[PRE17]'
+  id: totrans-165
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: 'As you can see, the variadic `Broadcast` function receives a list of `Processor` instances
     as arguments and creates a FIFO instance for each one. These FIFO instances are
     stored inside the returned `broadcast` instance and used within its `Run` method
     implementation, which we will be dissecting as follows:'
+  id: totrans-166
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，可变参数的`Broadcast`函数接收一个`Processor`实例列表作为参数，并为每个实例创建一个FIFO实例。这些FIFO实例存储在返回的`broadcast`实例中，并在其`Run`方法实现中使用，以下将对其进行剖析：
 - en: '[PRE18]'
+  id: totrans-167
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: Similar to the fixed worker pool implementation that we examined in the previous
     section, the first thing that we do inside `Run` is to spawn up a goroutine for
     each FIFO `StageRunner` instance. A `sync.WaitGroup` allows us to wait for all
     workers to exit before `Run` can return.
+  id: totrans-168
   prefs: []
   type: TYPE_NORMAL
+  zh: 与我们在上一节中检查的固定工作者池实现类似，我们在`Run`内部做的第一件事是为每个FIFO `StageRunner`实例启动一个goroutine。`sync.WaitGroup`允许我们在`Run`返回之前等待所有工作者退出。
 - en: To avoid data races, the implementation for the broadcasting stage must intercept
     each incoming payload, *clone* it, and deliver a copy to each one of the generated
     FIFO processors. Consequently, the generated FIFO processor instances cannot be
@@ -920,212 +1264,307 @@
     that implements the `StageParams` interface) for each FIFO instance and supplies
     it as an argument to its `Run` method. Note that while each FIFO instance is configured
     with a separate input channel, they all share the same output and error channels.
+  id: totrans-169
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了避免数据竞争，广播阶段的实现必须拦截每个传入的有效载荷，*克隆*它，并将副本发送给生成的每个FIFO处理器。因此，生成的FIFO处理器实例不能直接连接到该阶段的输入通道，而必须配置一个专用的输入通道进行读取。为此，前面的代码块为每个FIFO实例生成一个新的`workerParams`值（`pipeline`包实现`StageParams`接口的内部类型），并将其作为参数传递给其`Run`方法。请注意，尽管每个FIFO实例配置了单独的输入通道，但它们都共享相同的输出和错误通道。
 - en: 'The next part of the `Run` method''s implementation is the, by now familiar,
     main loop where we wait for the next incoming payload to appear:'
+  id: totrans-170
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Run`方法实现的下一部分是现在熟悉的，主循环，其中我们等待下一个传入的有效载荷出现：'
 - en: '[PRE19]'
+  id: totrans-171
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: 'Once a new payload is received, the implementation writes a copy of the payload
     to the input channel for each FIFO instance, but the first one receives the original
     incoming payload:'
+  id: totrans-172
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦接收到新的有效载荷，实现会为每个FIFO实例写入有效载荷的副本，但第一个接收的是原始的传入有效载荷：
 - en: '[PRE20]'
+  id: totrans-173
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: 'After publishing the payload to all FIFO instances, a new iteration of the
     main loop begins. The main loop keeps executing until either the input channel
     closes or the context gets cancelled. After exiting the main loop, the following
     sentinel block of code gets executed before `Run` returns:'
+  id: totrans-174
   prefs: []
   type: TYPE_NORMAL
+  zh: 在将有效载荷发布到所有 FIFO 实例之后，主循环的新迭代开始。主循环会一直执行，直到输入通道关闭或上下文被取消。在退出主循环之后，在 `Run` 返回之前执行以下哨兵代码块：
 - en: '[PRE21]'
+  id: totrans-175
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: In the preceding code snippet, we signal each one of the FIFO workers to shut
     down by closing their dedicated input channels. We then invoke the `Wait` method
     of the `WaitGroup` to wait for all FIFO workers to terminate.
+  id: totrans-176
   prefs: []
   type: TYPE_NORMAL
+  zh: 在前面的代码片段中，我们通过关闭每个 FIFO 工作者的专用输入通道来通知每个 FIFO 工作者关闭。然后我们调用 `Wait` 方法等待所有 FIFO
+    工作者终止。
 - en: Implementing the input source worker
+  id: totrans-177
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 实现输入源工作器
 - en: 'In order to begin a new pipeline run, users are expected to provide an input
     source that generates the application-specific payloads that drive the pipeline.
     All user-defined input sources must implement the `Source` interface, whose definition
     is as follows:'
+  id: totrans-178
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了开始一个新的管道运行，用户应提供生成应用程序特定有效载荷的输入源，这些有效载荷驱动管道。所有用户定义的输入源都必须实现 `Source` 接口，其定义如下：
 - en: '[PRE22]'
+  id: totrans-179
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: 'The `Source` interface contains the standard set of methods that you would
     expect for any data source that supports iteration:'
+  id: totrans-180
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Source` 接口包含您期望的任何支持迭代的常规数据源的标准方法：'
 - en: '`Next` attempts to advance the iterator. It returns `false` if either no more
     data is available or an error occurred.'
+  id: totrans-181
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`Next` 尝试前进迭代器。如果没有更多数据可用或发生错误，则返回 `false`。'
 - en: '`Payload` returns the a new `Payload` instance after a successful call to the
     iterator''s `Next` method.'
+  id: totrans-182
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`Payload` 返回在成功调用迭代器的 `Next` 方法后创建的新 `Payload` 实例。'
 - en: '`Error` returns the last error encountered by the input.'
+  id: totrans-183
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`Error` 返回输入遇到的最后一个错误。'
 - en: 'To facilitate the asynchronous polling of the input source, the pipeline package
     will run the following  `sourceWorker` function inside a goroutine. Its primary
     task is to iterate the data source and publish each incoming payload to the specified
     channel:'
+  id: totrans-184
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了便于对输入源的异步轮询，管道包将在 goroutine 中运行以下 `sourceWorker` 函数。其主要任务是迭代数据源并将每个传入的有效载荷发布到指定的通道：
 - en: '[PRE23]'
+  id: totrans-185
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: The `sourceWorker` function keeps running until a call to the source's `Next` method
     returns `false`. Before returning, the worker implementation will check for any
     errors reported by the input source and publish them to the provided error channel.
+  id: totrans-186
   prefs: []
   type: TYPE_NORMAL
+  zh: '`sourceWorker` 函数会一直运行，直到对源 `Next` 方法的调用返回 `false`。在返回之前，工作器实现将检查输入源报告的任何错误并将它们发布到提供的错误通道。'
 - en: Implementing the output sink worker
+  id: totrans-187
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 实现输出接收器工作器
 - en: 'Of course, our pipeline would not be complete without an output sink! After
     all, payloads that travel through the pipeline do not disappear into thin air
     once they clear the pipeline; they must end up somewhere. So, together with an
     input source, users are expected to provide an output sink that implements the `Sink` interface:'
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
+  zh: 当然，如果没有输出接收器，我们的管道就不完整！毕竟，一旦有效载荷通过管道，它们不会消失在空气中；它们必须最终到达某个地方。因此，与输入源一起，用户应提供实现
+    `Sink` 接口的输出接收器：
 - en: '[PRE24]'
+  id: totrans-189
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: 'In order to deliver processed payloads to the sink, the pipeline package will
     spawn a new goroutine and execute the `sinkWorker` function, whose implementation
     is as follows:'
+  id: totrans-190
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了将处理过的有效载荷传递到接收器，管道包将启动一个新的 goroutine 并执行 `sinkWorker` 函数，其实现如下：
 - en: '[PRE25]'
+  id: totrans-191
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: The `sinkWorker` loop reads payloads from the provided input channel and attempts
     to publish them to the provided `Sink` instance. If the `sink` implementation
     reports an error while consuming the payload, the `sinkWorker` function will publish
     it to the provided error channel before returning.
+  id: totrans-192
   prefs: []
   type: TYPE_NORMAL
+  zh: '`sinkWorker` 循环从提供的输入通道读取有效载荷并尝试将它们发布到提供的 `Sink` 实例。如果 `sink` 实现在消费有效载荷时报告错误，则
+    `sinkWorker` 函数将在返回之前将其发布到提供的错误通道。'
 - en: Putting it all together – the pipeline API
+  id: totrans-193
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 整合一切 – 管道 API
 - en: After thoroughly describing the ins and outs of each individual pipeline component,
     it is finally time to bring everything together and implement an API that the
     end users of the pipeline package will depend on for assembling and executing
     their pipelines.
+  id: totrans-194
   prefs: []
   type: TYPE_NORMAL
+  zh: 在详细描述每个单独的管道组件的来龙去脉之后，现在是时候将一切整合起来并实现一个最终用户将依赖的 API，以便组装和执行他们的管道。
 - en: 'A new pipeline instance can be created by invoking the variadic `New` function
     from the `pipeline` package. As you can see in the following code listing, the
     construction function expects a list of `StageRunner` instances as arguments where
     each element of the list corresponds to a stage of the pipeline:'
+  id: totrans-195
   prefs: []
   type: TYPE_NORMAL
+  zh: 可以通过调用`pipeline`包中的可变参数`New`函数来创建一个新的管道实例。正如你在以下代码列表中可以看到的，构建函数期望一个`StageRunner`实例列表作为参数，其中列表的每个元素对应于管道的一个阶段：
 - en: '[PRE26]'
+  id: totrans-196
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: Users can either opt to use the `StageRunner` implementations that we outlined
     in the previous sections (FIFO, `FixedWorkerPool`, `DynamicWorkerPool`, or `Broadcast`)
     and that are provided by the `pipeline` package or, alternatively, provide their
     own application-specific variants that satisfy the single-method `StageRunner`
     interface.
+  id: totrans-197
   prefs: []
   type: TYPE_NORMAL
+  zh: 用户可以选择使用我们在上一节中概述的`StageRunner`实现（FIFO、`FixedWorkerPool`、`DynamicWorkerPool`或`Broadcast`），这些实现由`pipeline`包提供，或者，作为替代，提供满足单方法`StageRunner`接口的应用特定变体。
 - en: 'After constructing a new pipeline instance and creating a compatible input
     source/output sink, users can execute the pipeline by invoking the `Process` method
     on the pipeline instance that is obtained:'
+  id: totrans-198
   prefs: []
   type: TYPE_NORMAL
+  zh: 在构建一个新的管道实例并创建兼容的输入源/输出汇之后，用户可以通过在获得的管道实例上调用`Process`方法来执行管道：
 - en: '[PRE27]'
+  id: totrans-199
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: 'The first argument to `Process` is a context instance that can be cancelled
     by the user to force the pipeline to terminate. Calls to the `Process` method
     will be blocked until one of the following conditions is met:'
+  id: totrans-200
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Process`的第一个参数是一个可以由用户取消以强制管道终止的上下文实例。对`Process`方法的调用将被阻塞，直到满足以下条件之一：'
 - en: The context is cancelled.
+  id: totrans-201
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 上下文被取消。
 - en: The source runs out of data and all payloads have been processed or discarded.
+  id: totrans-202
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 源数据耗尽，所有有效载荷都已处理或丢弃。
 - en: An error occurs in any of the pipeline components or the user-defined processor
     functions. In the latter case, an error will be returned back to the caller.
+  id: totrans-203
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在管道组件或用户定义的处理函数中发生错误。在后一种情况下，错误将返回给调用者。
 - en: 'Let''s take a look at the implementation details of the `Process` method:'
+  id: totrans-204
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们看看`Process`方法的实现细节：
 - en: '[PRE28]'
+  id: totrans-205
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: First of all, we create a new context (`pCtx`) that wraps the user-defined context,
     but also allows us to manually cancel it. The wrapped context will be passed to
     all pipeline components, allowing us to easily tear down the entire pipeline if
     we detect any error.
+  id: totrans-206
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先，我们创建一个新的上下文（`pCtx`），它包装用户定义的上下文，但同时也允许我们手动取消它。包装的上下文将被传递给所有管道组件，使我们能够轻松地拆除整个管道，如果我们检测到任何错误。
 - en: After setting up our context, we proceed to allocate and initialize the channels
     that we need to interconnect the various workers that we are about to spin up.
     If we have a total of *N* stages, then we need *N*+1 channels to connect everything
     together (including the source and sink workers). For instance, if *no* stages
     were specified when the pipeline was created, then we would still need one channel
     to connect the source to the sink.
+  id: totrans-207
   prefs: []
   type: TYPE_NORMAL
+  zh: 在设置我们的上下文之后，我们继续分配和初始化我们需要连接即将启动的各种工作者的通道。如果我们有总共*N*个阶段，那么我们需要*N*+1个通道来连接一切（包括源和汇工作者）。例如，如果在创建管道时没有指定任何阶段，我们仍然需要一个通道将源连接到汇。
 - en: The error channel functions as a *shared error bus*. In the preceding code snippet,
     you can see that we are creating a *buffered* error channel with *N*+2 slots.
     This provides enough space to hold a potential error for each one of the pipeline
     components (*N* stages and the source/sink workers).
+  id: totrans-208
   prefs: []
   type: TYPE_NORMAL
+  zh: 错误通道充当一个*共享错误总线*。在前面的代码片段中，你可以看到我们正在创建一个具有*N*+2个槽位的*缓冲*错误通道。这为每个管道组件（*N*个阶段和源/汇工作者）的潜在错误提供了足够的空间。
 - en: 'In the following block of code, we start a goroutine whose body invokes the `Run` method
     of the `StageRunner` instance associated with each stage of the pipeline:'
+  id: totrans-209
   prefs: []
   type: TYPE_NORMAL
+  zh: 在以下代码块中，我们启动一个goroutine，其主体调用与管道每个阶段关联的`StageRunner`实例的`Run`方法：
 - en: '[PRE29]'
+  id: totrans-210
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: As you probably noticed, the output channel of the *n*th worker is used as the
     input channel for worker *n*+1\. Once the `Run` method for the *n*th worker returns,
     it closes its output channel to signal to the next stage of the pipeline that
     no more data is available.
+  id: totrans-211
   prefs: []
   type: TYPE_NORMAL
+  zh: 如你很可能注意到的，第*n*个工作者的输出通道被用作第*n*+1个工作者的输入通道。一旦第*n*个工作者的`Run`方法返回，它将关闭其输出通道，向管道的下一阶段发出没有更多数据可用的信号。
 - en: 'After starting the stage workers, we need to spawn two additional workers:
     one for the input source and one for the output sink:'
+  id: totrans-212
   prefs: []
   type: TYPE_NORMAL
+  zh: 在启动阶段工作者之后，我们需要启动两个额外的工作者：一个用于输入源，一个用于输出汇：
 - en: '[PRE30]'
+  id: totrans-213
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: 'So far, our pipeline implementation has spawned quite a few goroutines. By
     this point, you may be wondering: how can we be sure that *all* of these goroutines
     will actually terminate?'
+  id: totrans-214
   prefs: []
   type: TYPE_NORMAL
+  zh: 到目前为止，我们的管道实现已经启动了相当多的goroutines。到这一点，你可能想知道：我们如何确保所有这些goroutines实际上都会终止？
 - en: Once the source worker runs out of data, the call to `sourceWorker` returns
     and we proceed to close the `stageCh[0]` channel. This triggers an avalanche effect
     that causes each stage worker to cleanly terminate. When the *i*th worker detects
@@ -1134,129 +1573,183 @@
     input) before terminating. The *last* output channel is connected to the sink
     worker. Consequently, the sink worker will also terminate once the last stage
     worker closes its output.
+  id: totrans-215
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦源工作器耗尽数据，对`sourceWorker`的调用将返回，我们继续关闭`stageCh[0]`通道。这触发了连锁反应，导致每个阶段工作器干净地终止。当第*i*个工作器检测到其输入通道已被关闭时，它假设没有更多数据可用，并在终止之前关闭自己的输出通道（这也恰好是*i+1*工作器的输入）。最后一个输出通道连接到接收工作器。因此，一旦最后一个阶段工作器关闭其输出，接收工作器也将终止。
 - en: 'This brings us to the final part of the `Process` method''s implementation:'
+  id: totrans-216
   prefs: []
   type: TYPE_NORMAL
+  zh: 这将我们带到了`Process`方法实现的最后部分：
 - en: '[PRE31]'
+  id: totrans-217
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: 'As you can see in the preceding snippet, we spawn one final worker that serves
     the role of a **monitor**: it waits for all other workers to complete before closing
     the shared error channel and cancelling the wrapped context.'
+  id: totrans-218
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如你在前面的代码片段中所见，我们启动了一个最终的worker，它充当**监控器**的角色：它等待所有其他工作器完成，然后关闭共享错误通道并取消包装的上下文。
 - en: While all workers are happily running, the `Process` method is using the `range` keyword
     to iterate the contents of the error channel. If any error gets published to the
     shared error channel, it will be appended to the `err` value with the help of
     the `hashicorp/multierror` package ^([6]) and the wrapped context will be cancelled
     to trigger a shutdown of the entire pipeline.
+  id: totrans-219
   prefs: []
   type: TYPE_NORMAL
+  zh: 当所有工作器都在愉快地运行时，`Process`方法正在使用`range`关键字迭代错误通道的内容。如果任何错误被发布到共享错误通道，它将借助`hashicorp/multierror`包^([6])附加到`err`值上，并且包装的上下文将被取消以触发整个管道的关闭。
 - en: On the other hand, if no error occurs, the preceding  for-loop will block indefinitely
     until the channel is closed by the monitor worker. Since the error channel will
     only be closed once all other pipeline workers have terminated, the same range
     loop prevents the call to `Process` from returning until the pipeline execution
     completes, with or without an error.
+  id: totrans-220
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，如果没有发生错误，前面的for循环将无限期地阻塞，直到监控工作器关闭通道。由于错误通道只有在所有其他管道工作器都已终止后才会关闭，因此相同的range循环会阻止`Process`函数的调用返回，直到管道执行完成，无论是否有错误发生。
 - en: Building a crawler pipeline for the Links 'R' Us project
+  id: totrans-221
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为“链接'R' Us”项目构建爬虫管道
 - en: In the following sections, we will be putting the generic pipeline package that
     we built to the test by using it to construct the crawler pipeline for the Links
     'R' Us project!
+  id: totrans-222
   prefs: []
   type: TYPE_NORMAL
+  zh: 在接下来的章节中，我们将通过使用它来构建“链接'R' Us”项目的爬虫管道来测试我们构建的通用管道包！
 - en: 'Following the single-responsibility principle, we will break down the crawl
     task into a sequence of smaller subtasks and assemble the pipeline illustrated
     in the following figure. The decomposition into smaller subtasks also comes with
     the benefit that each stage processor can be tested in total isolation without
     the need to create a pipeline instance:'
+  id: totrans-223
   prefs: []
   type: TYPE_NORMAL
+  zh: 遵循单一职责原则，我们将爬取任务分解成一系列较小的子任务，并组装以下图中所示的管道。将任务分解成较小的子任务的好处还包括，每个阶段处理器可以在完全隔离的情况下进行测试，而无需创建管道实例：
 - en: '![](img/781d5ab6-b8cb-4425-b390-d4334b3fd396.png)'
+  id: totrans-224
   prefs: []
   type: TYPE_IMG
+  zh: '![图片](img/781d5ab6-b8cb-4425-b390-d4334b3fd396.png)'
 - en: Figure 2: The stages of the crawler pipeline that we will be constructing
+  id: totrans-225
   prefs: []
   type: TYPE_NORMAL
+  zh: 图2：我们将构建的爬虫管道的阶段
 - en: The full code for the crawler and its tests can be found in the `Chapter07/crawler`
     package, which you can find at the book's GitHub repository.
+  id: totrans-226
   prefs: []
   type: TYPE_NORMAL
+  zh: 爬虫及其测试的完整代码可以在`Chapter07/crawler`包中找到，该包位于本书的GitHub仓库中。
 - en: Defining the payload for the crawler
+  id: totrans-227
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 定义爬虫的有效负载
 - en: 'First things first, we need to define the payload that will be shared between
     the processors for each stage of the pipeline:'
+  id: totrans-228
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先，我们需要定义将在管道每个阶段之间共享的有效负载：
 - en: '[PRE32]'
+  id: totrans-229
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: 'The first three fields, `LinkID`, `URL`, and `RetrievedAt`, will be populated
     by the input source. The remaining fields will be populated by the various crawler
     stages:'
+  id: totrans-230
   prefs: []
   type: TYPE_NORMAL
+  zh: 前三个字段`LinkID`、`URL`和`RetrievedAt`将由输入源填充。其余字段将由各种爬虫阶段填充：
 - en: '`RawContent` is populated by the link fetcher'
+  id: totrans-231
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`RawContent` 由链接获取器填充'
 - en: '`NoFollowLinks` and `Links` are populated by the link extractor'
+  id: totrans-232
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`NoFollowLinks` 和 `Links` 由链接提取器填充'
 - en: '`Title` and `TextContent` are populated by the text extractor'
+  id: totrans-233
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`Title` 和 `TextContent` 由文本提取器填充'
 - en: 'Of course, in order to be able to use this payload definition with the pipeline
     package, it needs to implement the `pipeline.Payload` interface:'
+  id: totrans-234
   prefs: []
   type: TYPE_NORMAL
+  zh: 当然，为了能够使用这个有效载荷定义与管道包一起使用，它需要实现 `pipeline.Payload` 接口：
 - en: '[PRE33]'
+  id: totrans-235
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: Before we go about implementing these two methods on our payload type, let's
     take a small break and spend some time learning about the memory-allocation patterns
     for our application-specific pipeline. Given that our plan is to have the crawler
     executing as a long-running process and tentatively process a high volume of links,
     we need to consider whether memory allocations will have an impact on the crawler's
     performance.
+  id: totrans-236
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们着手在我们的有效载荷类型上实现这两种方法之前，让我们短暂休息一下，花些时间了解我们应用程序特定管道的内存分配模式。鉴于我们的计划是让爬虫作为一个长时间运行的过程执行，并暂定处理大量链接，我们需要考虑内存分配是否会影响爬虫的性能。
 - en: While the pipeline is executing, the input source will allocate a new payload
     for each new link entering the pipeline. In addition, as we saw in *Figure 2*, one extra
     copy will be made at the fork point where the payload is sent to the graph updater
     and text indexer stages. Payloads can either be discarded early on (for example, the
     link fetcher can filter links using a list of blacklisted file extensions) or
     eventually make their way to the output sink.
+  id: totrans-237
   prefs: []
   type: TYPE_NORMAL
+  zh: 在管道执行期间，输入源将为进入管道的每个新链接分配一个新的有效载荷。此外，正如我们在 *图 2* 中所看到的，在有效载荷被发送到图更新器和文本索引阶段时，在分叉点将制作一个额外的副本。有效载荷可以在早期被丢弃（例如，链接获取器可以使用黑名单文件扩展名列表过滤链接）或者最终到达输出汇。
 - en: Consequently, we will be generating a large number of small objects that at
     some point need to be garbage-collected by the Go runtime. Performing a large
     number of allocations in a relatively short amount of time increases the pressure
     on the Go **garbage collector** (**GC**) and triggers more frequent GC pauses
     that affect the latency characteristics of our pipeline.
+  id: totrans-238
   prefs: []
   type: TYPE_NORMAL
+  zh: 因此，我们将生成大量需要由 Go 运行时在某个时候进行垃圾回收的小对象。在相对较短的时间内进行大量分配会增加 Go **垃圾收集器** (**GC**)
+    的压力，并触发更频繁的 GC 停顿，这会影响我们管道的延迟特性。
 - en: The best way to verify our theory is to capture a memory-allocation profile
     for a running crawler pipeline using the `runtime/pprof` package ^([3]) and analyze
     it using the `pprof` tool. Using `pprof` ^([8]) is outside of the scope of this
     book, so this step is left as an exercise for the curious reader.
+  id: totrans-239
   prefs: []
   type: TYPE_NORMAL
+  zh: 验证我们理论的最佳方式是使用 `runtime/pprof` 包捕获运行中的爬虫管道的内存分配配置文件，并使用 `pprof` 工具进行分析。使用 `pprof`
+    ^([8]) 超出了本书的范围，因此这一步留给好奇的读者作为练习。
 - en: 'Now that we have a better understanding of the expected allocation patterns
     for our crawler, the next question is: what can we do about it? Fortunately for
     us, the `sync` package in the Go standard library includes the `Pool` type ^([4]), which
     is designed for exactly this use case!'
+  id: totrans-240
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们对我们爬虫预期的分配模式有了更好的理解，下一个问题是：我们能做些什么？幸运的是，Go 标准库中的 `sync` 包包括 `Pool` 类型 ^([4])，它正是为此用途而设计的！
 - en: The `Pool` type attempts to relieve the pressure on the garbage collector by
     amortizing the cost of allocating objects across multiple clients. This is achieved
     by maintaining a cache of allocated, but not used, instances. When a client requests
@@ -1265,38 +1758,54 @@
     they obtained, they must return it to the pool so it can be reused by other clients.
     Note that any objects *within* the pool that are not in use by clients are fair
     game for the garbage collector and can be reclaimed at any time.
+  id: totrans-241
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Pool` 类型试图通过在多个客户端之间分摊分配对象的成本来减轻垃圾收集器的压力。这是通过维护一个已分配但未使用的实例缓存来实现的。当客户端从池中请求一个新的对象时，他们可以收到一个缓存的实例，或者如果池为空，则收到一个新分配的实例。一旦客户端完成使用他们获取的对象，他们必须将其返回到池中，以便其他客户端可以重用。请注意，任何在池中未由客户端使用的对象都是垃圾收集器的目标，并且可以在任何时候回收。'
 - en: 'Here is the definition of the pool that we will be using for recycling payload
     instances:'
+  id: totrans-242
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里是我们将用于回收有效载荷实例的池的定义：
 - en: '[PRE34]'
+  id: totrans-243
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: 'The `New` method will be automatically invoked by the underlying pool implementation
     to service incoming client requests when it has run out of cached items. As the
     zero value of the `Payload` type is already a valid payload, all we need to do
     is allocate and return a new `Payload` instance. Let''s see how we can use the
     pool that we just defined to implement the `Clone` method for the payload:'
+  id: totrans-244
   prefs: []
   type: TYPE_NORMAL
+  zh: 新的`New`方法将在底层池实现用尽缓存项后自动被调用，以处理传入的客户端请求。由于`Payload`类型的零值已经是一个有效的有效载荷，我们所需做的只是分配并返回一个新的`Payload`实例。让我们看看我们如何使用刚刚定义的池来实现有效载荷的`Clone`方法：
 - en: '[PRE35]'
+  id: totrans-245
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: 'As you can see, a new payload instance is allocated from the pool and all fields
     from the original payload are copied over before it is returned to the caller.
     Finally, let''s take a look at the `MarkAsProcessed` method implementation:'
+  id: totrans-246
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，从池中分配了一个新的有效载荷实例，在将其返回给调用者之前，将复制原始有效载荷的所有字段。最后，让我们看一下`MarkAsProcessed`方法实现：
 - en: '[PRE36]'
+  id: totrans-247
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: When `MarkAsProcessed` is invoked, we need to clear the payload contents before
     returning it to the pool so it can be safely used by the next client that retrieves
     it.
+  id: totrans-248
   prefs: []
   type: TYPE_NORMAL
+  zh: 当调用`MarkAsProcessed`时，我们需要在将其返回到池中之前清除有效载荷内容，以便它可以安全地被下一个检索它的客户端使用。
 - en: One other thing to note is that we also employ a small optimization trick to
     reduce the total number of allocations that are performed while our pipeline is
     executing. We set the length of both of the slices and the byte buffer to zero without
@@ -1304,21 +1813,29 @@
     sent through the pipeline, any attempt to write to the byte buffer or append to
     one of the payload slices will reuse the already allocated space and only trigger
     a new memory allocation if additional space is required.
+  id: totrans-249
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一件事需要注意的是，我们还采用了一个小的优化技巧来减少在管道执行期间执行的总分配次数。我们将两个切片和字节数组的长度设置为`zero`，而不修改它们的原始容量。下一次回收的有效载荷通过管道发送时，任何尝试写入字节数组或向其中一个有效载荷切片追加操作都将重用已分配的空间，并且只有在需要额外空间时才会触发新的内存分配。
 - en: Implementing a source and a sink for the crawler
+  id: totrans-250
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 实现爬虫的源和汇
 - en: 'A prerequisite for executing the crawler pipeline is to provide an input source
     that conforms to the `pipeline.Source` interface and an output sink that implements `pipeline.Sink`.
     We have discussed both these interfaces in the previous sections, but I am copying
     their definitions as follows for reference:'
+  id: totrans-251
   prefs: []
   type: TYPE_NORMAL
+  zh: 执行爬虫管道的前提是提供一个符合`pipeline.Source`接口的输入源和一个实现`pipeline.Sink`的输出汇。我们已经在前面的章节中讨论了这两个接口，但为了参考，我将它们的定义复制如下：
 - en: '[PRE37]'
+  id: totrans-252
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: 'In [Chapter 6](ce489d62-aaa3-4fbb-b239-c9de3daa9a8f.xhtml), *Building a Persistence
     Layer*, we put together the interface of the link graph component and came up
     with two alternative, concrete implementations. One of the methods of the `graph.Graph` interface
@@ -1326,76 +1843,110 @@
     a `graph.LinkIterator`, which allows us to traverse the list of links within a
     section (partition) of the graph or even the graph in its entirety. As a quick
     refresher, here is the list of methods included in the `graph.LinkIterator` interface:'
+  id: totrans-253
   prefs: []
   type: TYPE_NORMAL
+  zh: 在[第6章](ce489d62-aaa3-4fbb-b239-c9de3daa9a8f.xhtml)，*构建持久化层*中，我们汇集了链接图组件的接口，并提出了两种替代的具体实现。在这一点上，`graph.Graph`接口的一个特别有趣的方法是`Links`。`Links`方法返回一个`graph.LinkIterator`，它允许我们遍历图的一个部分（分区）内的链接列表，甚至整个图。作为一个快速回顾，以下是包含在`graph.LinkIterator`接口中的方法列表：
 - en: '[PRE38]'
+  id: totrans-254
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE38]'
 - en: As you can see, the `LinkIterator` and the `Source` interfaces are quite similar
     to each other. As it turns out, we can apply the decorator design pattern (as
     shown in the following code) to wrap a `graph.LinkIterator` and turn it into an
     input source that is compatible with our pipeline!
+  id: totrans-255
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，`LinkIterator`和`Source`接口彼此非常相似。实际上，我们可以应用装饰器设计模式（如下面的代码所示），将`graph.LinkIterator`包装起来，使其成为与我们的管道兼容的输入源！
 - en: '[PRE39]'
+  id: totrans-256
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE39]'
 - en: The `Error` and `Next` methods are simply proxies to the underlying iterator
     object. The `Payload` method fetches a `Payload` instance from the pool and populates
     its fields from the `graph.Link` instance that was obtained via the iterator.
+  id: totrans-257
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Error`和`Next`方法仅仅是底层迭代器对象的代理。`Payload`方法从池中获取一个`Payload`实例，并从通过迭代器获得的`graph.Link`实例中填充其字段。'
 - en: 'Things are much simpler as far as the output sink is concerned. After each
     payload goes through the link updater and text indexer stages, we have no further
     use for it! As a result, all we need to do is to provide a sink implementation
     that functions as a black hole:'
+  id: totrans-258
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于输出汇而言，事情要简单得多。在每个有效负载经过链接更新器和文本索引器阶段之后，我们就不再需要它了！因此，我们所需做的就是提供一个汇实现，它作为一个黑洞来工作：
 - en: '[PRE40]'
+  id: totrans-259
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE40]'
 - en: The `Consume` method simply ignores payloads and always returns a `nil` error.
     Once the call to `Consume` returns,  the pipeline worker automatically invokes
     the `MarkAsProcessed` method on the payload, which, as we saw in the previous
     section, ensures that the payload gets returned to the pool so it can be reused
     in the future.
+  id: totrans-260
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Consume` 方法简单地忽略有效负载，并始终返回一个 `nil` 错误。一旦 `Consume` 调用返回，管道工作器会自动在有效负载上调用 `MarkAsProcessed`
+    方法，正如我们在上一节中看到的，这确保了有效负载被返回到池中，以便将来可以重用。'
 - en: Fetching the contents of graph links
+  id: totrans-261
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 获取图链接的内容
 - en: The link fetcher serves as the first stage of the crawler pipeline. It operates
     on `Payload` values emitted by the input source and attempts to retrieve the contents
     of each link by sending out HTTP GET requests. The retrieved link web page contents
     are stored within the payload's `RawContent` field and made available to the following
     stages of the pipeline.
+  id: totrans-262
   prefs: []
   type: TYPE_NORMAL
+  zh: 链接获取器是爬虫管道的第一阶段。它处理输入源发出的 `Payload` 值，并通过发送 HTTP GET 请求尝试检索每个链接的内容。检索到的链接网页内容存储在有效负载的
+    `RawContent` 字段中，并供管道的后续阶段使用。
 - en: 'Let''s now take a look at the definition of the `linkFetcher` type and its
     associated methods:'
+  id: totrans-263
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们来看看 `linkFetcher` 类型及其相关方法的定义：
 - en: '[PRE41]'
+  id: totrans-264
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE41]'
 - en: 'While the Go standard library comes with the `http` package that we could directly
     use to fetch the link contents, it is often a good practice to allow the intended
     users of the code to plug in their preferred implementation for performing HTTP
     calls. As the link fetcher is only concerned about making GET requests, we will
     apply the interface segregation principle and define a `URLGetter` interface:'
+  id: totrans-265
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然 Go 标准库提供了我们可以直接使用的 `http` 包来获取链接内容，但通常允许代码的预期用户插入他们首选的实现来执行 HTTP 调用是一种良好的实践。由于链接获取器只关注发送
+    GET 请求，我们将应用接口隔离原则，并定义一个 `URLGetter` 接口：
 - en: '[PRE42]'
+  id: totrans-266
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE42]'
 - en: This approach brings a few important benefits to the table. To begin with, it
     allows us to test the link fetcher code without the need to spin up a dedicated
     test server. While it is quite common to use the `httptest.NewServer` method to
     create servers for testing, arranging for the test server to return the right
     payload and/or status code for each individual test requires extra effort.
+  id: totrans-267
   prefs: []
   type: TYPE_NORMAL
+  zh: 这种方法带来了一些重要的好处。首先，它允许我们在不需要启动专用测试服务器的情况下测试链接获取器代码。虽然使用 `httptest.NewServer`
+    方法创建用于测试的服务器相当常见，但为测试服务器安排返回正确的有效负载和/或状态码需要额外的努力。
 - en: Moreover, having a test server available doesn't really help in scenarios where
     we expect the `Get` call to return an error and a nil `http.Response`. This could
     be quite useful for evaluating how our code behaves in the presence of DNS lookup
@@ -1403,14 +1954,21 @@
     we can use a package such as `gomock` ^([5]) to generate a compatible mock for
     our tests, as we illustrated in [Chapter 4](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml),
     *The Art of Testing*.
+  id: totrans-268
   prefs: []
   type: TYPE_NORMAL
+  zh: 此外，在预期 `Get` 调用返回错误和 nil `http.Response` 的场景中，拥有一个测试服务器实际上并没有太大的帮助。这可以非常有用，用于评估我们的代码在
+    DNS 查询失败或 TLS 验证错误存在时的行为。通过引入基于接口的抽象，我们可以使用像 `gomock` 这样的包来为我们的测试生成兼容的模拟，正如我们在第
+    4 章 [The Art of Testing](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml) 中所展示的。
 - en: Besides testing, this approach makes our implementation much more versatile!
     The end users of the crawler are now given the flexibility to either pass `http.DefaultClient` if
     they prefer to use a sane default, or to provide their own customized `http.Client` implementation,
     which can additionally deal with retries, proxies, and so on.
+  id: totrans-269
   prefs: []
   type: TYPE_NORMAL
+  zh: 除了测试之外，这种方法使我们的实现变得更加灵活！爬虫的最终用户现在可以选择传递 `http.DefaultClient`，如果他们更喜欢使用合理的默认值，或者提供他们自己的定制
+    `http.Client` 实现来处理重试、代理等。
 - en: 'In [Chapter 5](6e4047ad-1fc1-4c3e-b90a-f27a62d06f17.xhtml), *The Links ''R''
     Us Project*, we discussed a list of potential security issues associated with
     automatically crawling links that are obtained through third-party resources that
@@ -1418,26 +1976,39 @@
     crawler should never attempt to fetch links that belong to private network addresses,
     as that could lead in sensitive data ending up in our search index! To this end,
     the `newLinkFetcher` function also expects an argument that implements the `PrivateNetworkDetector` interface:'
+  id: totrans-270
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 [第 5 章](6e4047ad-1fc1-4c3e-b90a-f27a62d06f17.xhtml)，“The Links 'R' Us 项目”中，我们讨论了与通过第三方资源（这些资源超出了我们的控制）自动爬取链接相关的潜在安全问题。那次讨论的关键结论是，我们的爬虫永远不应该尝试获取属于私有网络地址的链接，因为这可能导致敏感数据最终出现在我们的搜索索引中！为此，`newLinkFetcher`
+    函数也期望一个实现 `PrivateNetworkDetector` 接口的参数：
 - en: '[PRE43]'
+  id: totrans-271
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE43]'
 - en: The `Chapter07/crawler/privnet` package contains a simple private network detector
     implementation that first resolves hosts into an IP address and then checks whether
     the IP address belongs to any of the private network ranges defined by RFC1918 ^([7]).
+  id: totrans-272
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Chapter07/crawler/privnet` 包含了一个简单的私有网络检测器实现，它首先将主机解析为 IP 地址，然后检查该 IP 地址是否属于
+    RFC1918 定义的任何私有网络范围^([7])。'
 - en: 'Now that we have covered all of the important details surrounding the creation
     of a new `linkFetcher` instance, let''s take a look at its internals. As expected
     by any component that we want to include in our pipeline, `linkFetcher` adheres
     to the `pipeline.Processor` interface. Let''s break down the `Process` method
     into smaller chunks so we can analyze it further:'
+  id: totrans-273
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们已经涵盖了创建新的 `linkFetcher` 实例周围的所有重要细节，让我们来看看它的内部结构。正如我们希望包含在管道中的任何组件一样，`linkFetcher`
+    遵循 `pipeline.Processor` 接口。让我们将 `Process` 方法分解成更小的部分，以便我们可以进一步分析它：
 - en: '[PRE44]'
+  id: totrans-274
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE44]'
 - en: The first step is to cast the incoming `pipeline.Payload` value into the concrete `*crawlerPayload` instance
     that the input source injected into the pipeline. Next, we check the URL against
     a case-insensitive regular expression (its definition will be shown in the following
@@ -1448,73 +2019,102 @@
     The second and final precheck ensures that the crawler always ignores URLs that
     resolve to private network addresses. Finally, we invoke the provided `URLGetter` to
     retrieve the contents of the link.
+  id: totrans-275
   prefs: []
   type: TYPE_NORMAL
+  zh: 第一步是将传入的 `pipeline.Payload` 值转换为输入源注入到管道中的具体 `*crawlerPayload` 实例。接下来，我们检查 URL
+    是否与一个不区分大小写的正则表达式（其定义将在下一节中展示）匹配，该正则表达式旨在匹配已知包含二进制数据（例如，图像）或文本内容（例如，可加载脚本、JSON
+    数据等）的文件扩展名，这些内容爬虫应该忽略。如果找到匹配项，链接获取器指示管道通过返回 `nil, nil` 的值丢弃有效载荷。第二个也是最后的预检查确保爬虫始终忽略解析为私有网络地址的
+    URL。最后，我们调用提供的 `URLGetter` 来检索链接的内容。
 - en: 'Let''s now see what happens after the call to the `URLGetter` returns:'
+  id: totrans-276
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们来看看调用 `URLGetter` 返回后会发生什么：
 - en: '[PRE45]'
+  id: totrans-277
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE45]'
 - en: 'For GET requests that complete without an error, we copy the response body
     into the payload''s `RawContent` field and then close the body to avoid memory
     leaks. Before allowing the payload to continue to the next pipeline stage, we
     perform two additional sanity checks:'
+  id: totrans-278
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于完成无错误的 GET 请求，我们将响应体复制到有效载荷的 `RawContent` 字段中，然后关闭体以避免内存泄漏。在允许有效载荷继续到下一个管道阶段之前，我们执行两个额外的合理性检查：
 - en: The response status code should be in the 2xx range. If not, we discard the
     payload rather than returning an error as the latter would cause the pipeline
     to terminate. Not processing a link is not a big issue; the crawler will be running
     periodically, so the crawler will revisit problematic links in the future.
+  id: totrans-279
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 响应状态码应该在 2xx 范围内。如果不是，我们丢弃有效载荷而不是返回错误，因为后者会导致管道终止。不处理链接并不是一个大问题；爬虫将定期运行，所以爬虫将在未来重新访问有问题的链接。
 - en: The `Content-Type` header should indicate that the response contains an HTML
     document; otherwise, there is no point in further processing the response, so
     we can simply discard it.
+  id: totrans-280
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`Content-Type` 标头应该表明响应包含一个 HTML 文档；否则，进一步处理响应就没有意义，我们可以简单地丢弃它。'
 - en: Extracting outgoing links from retrieved webpages
+  id: totrans-281
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 从检索到的网页中提取出站链接
 - en: 'The task of the link extractor is to scan the body of each retrieved HTML document
     and extract the unique set of links contained within it. Each **uniform resource
     locator** (**URL**) in a web page can be classified into one of the following
     categories:'
+  id: totrans-282
   prefs: []
   type: TYPE_NORMAL
+  zh: 链接提取器的任务是扫描每个检索到的HTML文档的主体，并从中提取包含在其内的唯一链接集。网页中的每个**统一资源定位符**（**URL**）可以被分类为以下类别之一：
 - en: '**URL with a network path reference** ^([1]): This type of link is quite easy
     to identify as it *does not* include a URL scheme (for example, `<img src="img/banner.png"/>`).
     When the web browser (or crawler, in our case) needs to access the link, it will
     substitute the protocol used to access the web page that contained it. Consequently,
     if the parent page was accessed via HTTPS, then the browser will also request
     the banner image over HTTPS.'
+  id: totrans-283
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**带有网络路径引用的URL**^([1]）：这种类型的链接很容易识别，因为它*不包含*URL方案（例如，`<img src="img/banner.png"/>`）。当网络浏览器（或在我们的情况下是爬虫）需要访问链接时，它将用访问包含该链接的网页所使用的协议来替换该链接。因此，如果父页面是通过HTTPS访问的，那么浏览器也将通过HTTPS请求横幅图像。'
 - en: '**Absolute links**: These links are fully qualified and are typically used
     to point at resources that are hosted on different domains.'
+  id: totrans-284
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**绝对链接**：这些链接是完全限定的，通常用于指向托管在不同域上的资源。'
 - en: '**Relative links**: As the name implies, these links are resolved relative
     to the current page URL. It is also important to note that web pages can opt to
     override the URL used for resolving relative links by specifying a `<base href="XXX">` tag
     in their `<head>` section.'
+  id: totrans-285
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**相对链接**：正如其名所示，这些链接是相对于当前页面URL解析的。还应注意，网页可以选择通过在`<head>`部分指定`<base href="XXX">`标签来覆盖用于解析相对链接的URL。'
 - en: 'By design, the link graph component only stores fully qualified links. Therefore,
     one of the key responsibilities of the link extractor is to resolve all relative
     links into absolute URLs. This is achieved via the `resolveURL` helper function,
     which is shown as follows:'
+  id: totrans-286
   prefs: []
   type: TYPE_NORMAL
+  zh: 按照设计，链接图组件仅存储完全限定的链接。因此，链接提取器的一个关键职责是将所有相对链接解析为绝对URL。这是通过`resolveURL`辅助函数实现的，如下所示：
 - en: '[PRE46]'
+  id: totrans-287
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE46]'
 - en: The `resolveURL` function is invoked using a parsed `url.URL` and a target path
     to resolve relative to it. Resolving relative paths is not a trivial process because
     of the number of rules specified in RFC 3986 ^([1]). Fortunately, the `URL` type
@@ -1523,80 +2123,117 @@
     an extra check to detect network path references. If the target begins with a `//` prefix,
     the implementation will rewrite the target link by prepending the scheme from
     the provided `relTo` value.
+  id: totrans-288
   prefs: []
   type: TYPE_NORMAL
+  zh: '`resolveURL`函数使用解析后的`url.URL`和一个相对于它的目标路径来调用。由于RFC 3986中指定的规则数量众多，解析相对路径不是一个简单的过程。幸运的是，`URL`类型提供了一个方便的`ResolveReference`方法，它为我们处理了所有复杂性。在将目标传递给`ResolveReference`方法之前，代码会进行额外的检查以检测网络路径引用。如果目标以`//`前缀开始，实现将重写目标链接，并在前面添加提供的`relTo`值中的方案。'
 - en: 'Before we examine the link extractor''s implementation, we need to define a
     few useful regular expressions that we will be using in the code:'
+  id: totrans-289
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们检查链接提取器的实现之前，我们需要定义一些有用的正则表达式，这些正则表达式将在代码中使用：
 - en: '[PRE47]'
+  id: totrans-290
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE47]'
 - en: 'We will be using the preceding case-insensitive regular expressions to do the
     following:'
+  id: totrans-291
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将使用前面的不区分大小写的正则表达式来完成以下操作：
 - en: Skip extracted links that point to non-HTML content. Note that this particular
     regular expression instance is shared between this stage and the link fetcher
     stage.
+  id: totrans-292
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 跳过指向非HTML内容的提取链接。请注意，这个特定的正则表达式实例是在这个阶段和链接提取器阶段之间共享的。
 - en: Locate the `<base href="XXX">` tag and capture the value in the `href` attribute.
+  id: totrans-293
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 定位`<base href="XXX">`标签并捕获`href`属性中的值。
 - en: Extract links from the HTML contents. The second regular expression is designed
     to locate the  `<a href="XXX">` elements and capture the value in the `href` attribute.
+  id: totrans-294
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 从HTML内容中提取链接。第二个正则表达式旨在定位`<a href="XXX">`元素并捕获`href`属性中的值。
 - en: Identify links that should be inserted into the graph but should not be considered
     when calculating the `PageRank` score for the page that links to them. Web masters
     can indicate such links by adding a `rel` attribute with the `nofollow` value
     to the `<a>` tag. For instance, forum operators can add `nofollow` tags to links
     in posted messages to prevent users from artificially increasing the `PageRank`
     scores to their websites by cross-posting links to multiple forums.
+  id: totrans-295
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 识别应插入到图中但不应在计算指向它们的页面的 `PageRank` 分数时考虑的链接。网站管理员可以通过向 `<a>` 标签添加具有 `nofollow`
+    值的 `rel` 属性来指示此类链接。例如，论坛管理员可以向发布的消息中的链接添加 `nofollow` 标签，以防止用户通过在多个论坛中交叉发布链接来人为地增加其网站的
+    `PageRank` 分数。
 - en: 'The following listing shows the definition of the `linkExtractor` type. Similar
     to the `linkFetcher` type, the `linkExtractor` also requires a `PrivateNetworkDetector` instance
     for further filtering extracted links:'
+  id: totrans-296
   prefs: []
   type: TYPE_NORMAL
+  zh: 下面的列表显示了 `linkExtractor` 类的定义。与 `linkFetcher` 类类似，`linkExtractor` 也需要一个 `PrivateNetworkDetector`
+    实例来进行进一步过滤提取的链接：
 - en: '[PRE48]'
+  id: totrans-297
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE48]'
 - en: 'The business logic of the link extractor is encapsulated inside its `Process` method.
     As the implementation is a bit lengthy, we will once again split it into smaller
     chunks and discuss each chunk separately. Consider the following code block:'
+  id: totrans-298
   prefs: []
   type: TYPE_NORMAL
+  zh: 链接提取器的业务逻辑封装在其 `Process` 方法中。由于实现相对较长，我们将再次将其分成更小的块，并分别讨论每个块。考虑以下代码块：
 - en: '[PRE49]'
+  id: totrans-299
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE49]'
 - en: In order to be able to resolve any relative link we might encounter, we need
     a fully qualified link to use as a base. By default, that would be the incoming
     link URL that the code parses into a `url.URL` value. As we mentioned previously,
     if the page includes a valid `<base href="XXX">` tag, we must resolve relative
     links using *that* instead.
+  id: totrans-300
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了能够解析我们可能遇到的任何相对链接，我们需要一个完全限定的链接作为基础。默认情况下，这将是我们代码解析为 `url.URL` 值的传入链接 URL。正如我们之前提到的，如果页面包含有效的
+    `<base href="XXX">` 标签，我们必须使用 *那个* 来解析相对链接。
 - en: To detect the presence of a `<base>` tag, we execute the `baseHrefRegex` regular
     expression against the page content. If we obtain a valid match, `baseMatch`^([1]) will
     contain the value of the tag's `href` attribute. The captured value is then passed
     to the `resolveURL` helper and the resolved URL (if valid) is used to override
     the `relTo` variable.
+  id: totrans-301
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了检测 `<base>` 标签的存在，我们将 `baseHrefRegex` 正则表达式应用于页面内容。如果我们获得有效的匹配，`baseMatch`^([1])
+    将包含标签的 `href` 属性值。然后，捕获的值被传递给 `resolveURL` 辅助函数，如果解析的 URL 有效，则用于覆盖 `relTo` 变量。
 - en: 'The following block of code outlines the link extraction and deduplication
     steps:'
+  id: totrans-302
   prefs: []
   type: TYPE_NORMAL
+  zh: 下面的代码块概述了链接提取和去重步骤：
 - en: '[PRE50]'
+  id: totrans-303
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE50]'
 - en: The `FindAllStringSubmatch` method returns a list of successive matches for
     a particular regular expression. The second argument to `FindAllStringSubmatch` controls
     the maximum number of matches to be returned. Therefore, by passing `-1` as an
@@ -1604,8 +2241,12 @@
     We then iterate each matched link and resolve it into an absolute URL. The captured `<a>` tag
     contents and the resolved link are passed to the `retainLink` predicate, which
     returns `false` if the link must be skipped.
+  id: totrans-304
   prefs: []
   type: TYPE_NORMAL
+  zh: '`FindAllStringSubmatch` 方法返回特定正则表达式的连续匹配列表。`FindAllStringSubmatch` 的第二个参数控制要返回的最大匹配数。因此，通过传递
+    `-1` 作为参数，我们实际上要求正则表达式引擎返回所有 `<a>` 匹配。然后我们遍历每个匹配的链接，将其解析为绝对 URL。捕获的 `<a>` 标签内容和解析后的链接被传递给
+    `retainLink` 断言，如果链接必须跳过，则返回 `false`。'
 - en: The final step of the processing loop entails the deduplication of links within
     the page. To achieve, this we will be using a map where link URLs are used as
     keys. Prior to checking the map for duplicate entries, we make sure to trim off
@@ -1615,341 +2256,490 @@
     for the presence of a `rel="nofollow"` attribute. Depending on the outcome of
     the check, the link is appended either to the `NoFollowLinks` or the `Links` slice
     of the payload instance and is made available to the following stages of the pipeline.
+  id: totrans-305
   prefs: []
   type: TYPE_NORMAL
+  zh: 处理循环的最后一步涉及对页面内链接的去重。为了实现这一点，我们将使用一个映射，其中链接URL用作键。在检查映射以查找重复条目之前，我们确保删除每个链接的片段部分（也称为HTML
+    **锚点**）；毕竟，从我们的爬虫的角度来看，`http://example.com/index.html#foo` 和 `http://example.com/index.html`
+    都引用了相同的链接。对于每个通过`is-duplicate`检查的链接，我们将扫描其`<a>`标签是否存在`rel="nofollow"`属性。根据检查结果，链接将被附加到payload实例的`NoFollowLinks`或`Links`切片中，并可供管道的后续阶段使用。
 - en: 'The last part of code that we need to explore is the `retainLink` method implementation:'
+  id: totrans-306
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们需要探索的最后一段代码是`retainLink`方法的实现：
 - en: '[PRE51]'
+  id: totrans-307
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE51]'
 - en: 'As you can see from the preceding code, we perform two types of checks beforehand
     to decide whether a link should be retained or skipped:'
+  id: totrans-308
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您从前面的代码中看到的，我们在决定是否保留或跳过链接之前执行了两种类型的检查：
 - en: Links with a scheme other than HTTP or HTTPS should be skipped. Allowing other
     scheme types is a potential security risk! A malicious user could submit a web
     page containing links using `file://` URLs, which could possibly trick the crawler
     into reading (and indexing) files from the local filesystem.
+  id: totrans-309
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 应该跳过方案不是HTTP或HTTPS的链接。允许其他方案类型可能存在潜在的安全风险！恶意用户可能会提交包含使用`file://` URL的链接的网页，这可能会诱使爬虫读取（并索引）本地文件系统中的文件。
 - en: We have already enumerated the security implications of allowing crawlers to
     access resources located at private network addresses. Therefore, any links pointing
     to private networks are automatically skipped.
+  id: totrans-310
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 我们已经列举了允许爬虫访问位于私有网络地址的资源的安全影响。因此，任何指向私有网络的链接都会自动跳过。
 - en: Extracting the title and text from retrieved web pages
+  id: totrans-311
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 从检索到的网页中提取标题和文本
 - en: The next stage of the pipeline is responsible for extracting an index-friendly,
     text-only version of the web page contents and its title. The easiest way to achieve
     this is by stripping off any HTML tag in the page body and replacing consecutive
     whitespace characters with a single space.
+  id: totrans-312
   prefs: []
   type: TYPE_NORMAL
+  zh: 管道的下一阶段负责提取一个索引友好的、纯文本版本的网页内容和标题。实现这一点的最简单方法是在页面主体中删除任何HTML标签，并将连续的空白字符替换为单个空格。
 - en: A fairly straightforward approach would be to come up with a bunch of regular
     expressions for matching and then removing HTML tags. Unfortunately, the fact
     that HTML syntax is quite forgiving (that is, you can open a tag and never close
     it) makes HTML documents notoriously hard to properly clean up just with the help
     of regular expressions. Truth be told, to cover all possible edge cases, we need
     to use a parser that understands the structure of HTML documents.
+  id: totrans-313
   prefs: []
   type: TYPE_NORMAL
+  zh: 一种相当直接的方法是提出一系列用于匹配和删除HTML标签的正则表达式。不幸的是，由于HTML语法相当宽容（也就是说，你可以打开一个标签而永远不会关闭它），这使得仅使用正则表达式正确清理HTML文档变得臭名昭著地困难。说实话，为了覆盖所有可能的边缘情况，我们需要使用一个理解HTML文档结构的解析器。
 - en: Instead of reinventing the wheel, we will rely on the bluemonday ^([2]) Go package
     for our HTML sanitization needs. The package exposes a set of configurable filtering
     policies that can be applied to HTML documents. For our particular use case, we
     will be using a strict policy (obtained via a call to the `bluemonday.StrictPolicy` helper)
     that effectively removes all HTML tags from the input document.
+  id: totrans-314
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们不会重新发明轮子，而是将依靠bluemonday ^([2]) Go包来满足我们的HTML清理需求。该包提供了一套可配置的过滤策略，可以应用于HTML文档。针对我们的特定用例，我们将使用一个严格的策略（通过调用`bluemonday.StrictPolicy`辅助函数获得），该策略有效地从输入文档中移除所有HTML标签。
 - en: 'A small caveat is that bluemonday policies maintain their own internal state
     and are therefore not safe to use concurrently. Consequently, to avoid allocating
     a new policy each time we need to process a payload, we will be using a `sync.Pool` instance
     to recycle bluemonday policy instances. The pool will be initialized when a new `textExtractor` instance
     is created, as follows:'
+  id: totrans-315
   prefs: []
   type: TYPE_NORMAL
+  zh: 一个小的注意事项是，bluemonday策略维护自己的内部状态，因此不适合并发使用。因此，为了避免每次处理有效载荷时都分配一个新的策略，我们将使用一个`sync.Pool`实例来回收bluemonday策略实例。当创建一个新的`textExtractor`实例时，池将被初始化，如下所示：
 - en: '[PRE52]'
+  id: totrans-316
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE52]'
 - en: 'Let''s take a closer look at the text extractor''s `Process` method implementation:'
+  id: totrans-317
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们更仔细地看看文本提取器的`Process`方法实现：
 - en: '[PRE53]'
+  id: totrans-318
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE53]'
 - en: After obtaining a new bluemonday policy from the pool, we execute a regular
     expression to detect whether the HTML document contains a `<title>` tag. If a
     match is found, its content is sanitized and saved into the `Title` attribute
     of the payload. The same policy is also applied against the web page contents,
     but this time, the sanitized result is stored in the `TextContent` attribute of
     the payload.
+  id: totrans-319
   prefs: []
   type: TYPE_NORMAL
+  zh: 从池中获取一个新的bluemonday策略后，我们执行一个正则表达式来检测HTML文档是否包含`<title>`标签。如果找到匹配项，其内容将被清理并保存到有效载荷的`Title`属性中。相同的策略也应用于网页内容，但这次，清理后的结果存储在有效载荷的`TextContent`属性中。
 - en: Inserting discovered outgoing links to the graph
+  id: totrans-320
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 将发现的出站链接插入到图中
 - en: 'The next crawler pipeline stage that we will be examining is the graph updater.
     Its main purpose is to insert newly discovered links into the link graph and create
     edges connecting them to the web page they were retrieved from. Let''s take a
     look at the definition of the `graphUpdater` type and its constructor:'
+  id: totrans-321
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将要检查的下一个爬虫管道阶段是图更新器。其主要目的是将新发现的链接插入到链接图中，并创建将它们与检索到的网页连接的边。让我们看看`graphUpdater`类型的定义及其构造函数：
 - en: '[PRE54]'
+  id: totrans-322
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE54]'
 - en: 'The constructor expects an argument of the `Graph` type, which is nothing more
     than an interface describing the methods needed for the graph updater to communicate
     with a link graph component:'
+  id: totrans-323
   prefs: []
   type: TYPE_NORMAL
+  zh: 构造函数期望一个`Graph`类型的参数，这不过是一个描述图更新器与链接图组件通信所需方法的接口：
 - en: '[PRE55]'
+  id: totrans-324
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE55]'
 - en: 'The astute reader will probably notice that the preceding interface definition
     includes a subset of the methods from the similarly named interface in the `graph` package.
     This is a prime example of applying the interface-segregation principle to distill
     an existing, more open interface into the minimum possible interface that our
     code requires for it to function. Next, we will take a look at the implementation
     of the graph updater''s `Process` method:'
+  id: totrans-325
   prefs: []
   type: TYPE_NORMAL
+  zh: 聪明的读者可能会注意到，前面的接口定义包括了与`graph`包中同名接口的子集。这是将接口分离原则应用于提炼现有、更开放的接口，使其成为我们代码所需的最小接口的一个典型例子。接下来，我们将查看图更新器的`Process`方法实现：
 - en: '[PRE56]'
+  id: totrans-326
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE56]'
 - en: Before we iterate the list of discovered links, we first attempt to upsert the
     origin link from the payload to the graph by creating a new `graph.Link` object
     and invoking the graph's `UpsertLink` method. The origin link already exists in
     the graph, so all that the preceding upsert call does is update the timestamp
     for the `RetrievedAt` field.
+  id: totrans-327
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们遍历发现的链接列表之前，我们首先尝试通过创建一个新的`graph.Link`对象并调用图的`UpsertLink`方法来更新有效载荷中的原始链接到图中。原始链接已经在图中存在，所以前面的更新调用所做的只是更新`RetrievedAt`字段的戳记。
 - en: 'The next step entails the addition of any discovered links with a no-follow
     `rel` attribute to the graph:'
+  id: totrans-328
   prefs: []
   type: TYPE_NORMAL
+  zh: 下一步包括将发现的任何具有no-follow `rel`属性的链接添加到图中：
 - en: '[PRE57]'
+  id: totrans-329
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE57]'
 - en: 'After processing all no-follow links, the graph updater iterates the slice
     of regular links and adds each one into the link graph together with a directed
     edge from the origin link to each outgoing link:'
+  id: totrans-330
   prefs: []
   type: TYPE_NORMAL
+  zh: 在处理完所有no-follow链接后，图更新器遍历常规链接的切片，并将每个链接连同从原始链接到每个出站链接的有向边一起添加到链接图中：
 - en: '[PRE58]'
+  id: totrans-331
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE58]'
 - en: 'All edges created or updated during this pass will be assigned an `UpdatedAt` value
     that is greater than or equal to the `removeEdgesOlderThan` value that we capture
     before entering the loop. We can then use the following block of code to remove
     any existing edges that were not touched by the preceding loop:'
+  id: totrans-332
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这次遍历中创建或更新的所有边都将被分配一个`UpdatedAt`值，该值大于或等于我们在进入循环之前捕获的`removeEdgesOlderThan`值。然后我们可以使用以下代码块来删除任何之前循环未触及的现有边：
 - en: '[PRE59]'
+  id: totrans-333
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE59]'
 - en: 'To understand how the preceding process works, let''s walk through a simple
     example. Assume that at time *t[0]*, the crawler processed a web page located
     at `https://example.com`. At that particular point in time, the page contained
     outgoing links to `http://foo.com` and `https://bar.com`. After the crawler completed
     its first pass, the link graph would contain the following set of edge entries:'
+  id: totrans-334
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了理解上述过程是如何工作的，让我们通过一个简单的例子来了解一下。假设在时间*t[0]*，爬虫处理了位于`https://example.com`的网页。在那个特定的时间点，该页面包含到`http://foo.com`和`https://bar.com`的出站链接。一旦爬虫完成第一次遍历，链接图将包含以下边条目集合：
 - en: '| **Source** | **Destination** | **UpdatedAt** |'
+  id: totrans-335
   prefs: []
   type: TYPE_TB
+  zh: '| **源** | **目标** | **更新时间** |'
 - en: '| `https://example.com` | `http://foo.com` | t[0] |'
+  id: totrans-336
   prefs: []
   type: TYPE_TB
+  zh: '| `https://example.com` | `http://foo.com` | t[0] |'
 - en: '| `https://example.com` | `https://bar.com` | t[0] |'
+  id: totrans-337
   prefs: []
   type: TYPE_TB
+  zh: '| `https://example.com` | `https://bar.com` | t[0] |'
 - en: 'Next, the crawler makes a new pass, this time at time *t[1]* (where t[1] >
     t[0]); however, the contents for the page located at `https://example.com` have
     now changed: the link to `http://foo.com` is now **gone** and the page authors
     introduced a new link to `https://baz.com`.'
+  id: totrans-338
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，爬虫进行新的遍历，这次是在时间*t[1]*（t[1] > t[0]）；然而，位于`https://example.com`的页面内容已经发生变化：到`http://foo.com`的链接现在**已消失**，页面作者引入了一个新的链接到`https://baz.com`。
 - en: 'After we have updated the edge list and before we prune any stale edges, the
     edge entries in the link graph would look as follows:'
+  id: totrans-339
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们更新了边列表并在修剪任何过时边之前，链接图中的边条目将如下所示：
 - en: '| **Source** | **Destination** | **UpdatedAt** |'
+  id: totrans-340
   prefs: []
   type: TYPE_TB
+  zh: '| **源** | **目标** | **更新时间** |'
 - en: '| `https://example.com` | `http://foo.com` | t[0] |'
+  id: totrans-341
   prefs: []
   type: TYPE_TB
+  zh: '| `https://example.com` | `http://foo.com` | t[0] |'
 - en: '| `https://example.com` | `https://bar.com` | t[1] |'
+  id: totrans-342
   prefs: []
   type: TYPE_TB
+  zh: '| `https://example.com` | `https://bar.com` | t[1] |'
 - en: '| `https://example.com` | `https://baz.com` | t[1] |'
+  id: totrans-343
   prefs: []
   type: TYPE_TB
+  zh: '| `https://example.com` | `https://baz.com` | t[1] |'
 - en: 'The prune step deletes all edges originating from *https://**example.com* that
     were last updated before *t[1]*. As a result, once the crawler completes its second
     pass, the final set of edge entries will look as follows:'
+  id: totrans-344
   prefs: []
   type: TYPE_NORMAL
+  zh: 修剪步骤删除了所有在*t[1]*之前最后更新的来自*https://**example.com*的边。因此，一旦爬虫完成第二次遍历，最终的边条目集合将如下所示：
 - en: '| **Source** | **Destination** | **UpdatedAt** |'
+  id: totrans-345
   prefs: []
   type: TYPE_TB
+  zh: '| **源** | **目标** | **更新时间** |'
 - en: '| `https://example.com` | `bar.com` | t[1] |'
+  id: totrans-346
   prefs: []
   type: TYPE_TB
+  zh: '| `https://example.com` | `bar.com` | t[1] |'
 - en: '| `https://example.com` | `baz.com` | t[1] |'
+  id: totrans-347
   prefs: []
   type: TYPE_TB
+  zh: '| `https://example.com` | `baz.com` | t[1] |'
 - en: Indexing the contents of retrieved web pages
+  id: totrans-348
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 索引检索到的网页内容
 - en: The last component in our pipeline is the text indexer. As the name implies,
     the text indexer is responsible for keeping the search index up to date by reindexing
     the content of each crawled web page.
+  id: totrans-349
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们管道中的最后一个组件是文本索引器。正如其名所示，文本索引器负责通过重新索引每个爬取的网页内容来保持搜索索引的更新。
 - en: 'In a similar fashion to the graph updater stage, we apply the single-responsibility
     principle and define the `Indexer` interface that gets passed to the text indexer
     component via its constructor:'
+  id: totrans-350
   prefs: []
   type: TYPE_NORMAL
+  zh: 与图更新阶段类似，我们应用单一职责原则，并定义了`Indexer`接口，该接口通过构造函数传递给文本索引器组件：
 - en: '[PRE60]'
+  id: totrans-351
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE60]'
 - en: 'The following code listing outlines the `Process` method implementation for
     the `textIndexer` type:'
+  id: totrans-352
   prefs: []
   type: TYPE_NORMAL
+  zh: 下面的代码列表概述了`textIndexer`类型的`Process`方法实现：
 - en: '[PRE61]'
+  id: totrans-353
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE61]'
 - en: 'Nothing out of the ordinary in the preceding code snippet: we create new `index.Document` instance
     and populate it with the title and content values provided by the text extractor
     stage of the pipeline. The document is then inserted into the search index by
     invoking the `Index` method on the externally provided `Indexer` instance.'
+  id: totrans-354
   prefs: []
   type: TYPE_NORMAL
+  zh: 上述代码片段中没有什么异常之处：我们创建一个新的`index.Document`实例，并用管道文本提取阶段的标题和内容值填充它。然后，通过在提供的`Indexer`实例上调用`Index`方法，将文档插入到搜索索引中。
 - en: Assembling and running the pipeline
+  id: totrans-355
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 组装和运行管道
 - en: 'Congratulations for making it this far! We have finally implemented all individual
     components that are required for constructing a pipeline for our crawler service.
     All that''s left is to add a little bit of glue code to assemble the individual
     crawler stages into a pipeline and provide a simple API for running a full crawler
     pass. All this glue logic is encapsulated inside the `Crawler` type whose definition
     and constructor details are listed as follows:'
+  id: totrans-356
   prefs: []
   type: TYPE_NORMAL
+  zh: 恭喜你走到了这一步！我们终于实现了构建我们爬虫服务管道所需的所有单个组件。剩下的只是添加一点粘合代码，将单个爬虫阶段组装成管道，并提供一个简单的API来运行完整的爬虫遍历。所有这些粘合逻辑都被封装在`Crawler`类型中，其定义和构造函数细节如下：
 - en: '[PRE62]'
+  id: totrans-357
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE62]'
 - en: 'The `Config` type holds all required configuration options for creating a new
     crawler pipeline:'
+  id: totrans-358
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Config`类型包含创建新的爬虫管道所需的所有配置选项：'
 - en: '[PRE63]'
+  id: totrans-359
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE63]'
 - en: 'The caller of the crawler''s constructor is expected to provide the following
     configuration options:'
+  id: totrans-360
   prefs: []
   type: TYPE_NORMAL
+  zh: 爬虫构造函数的调用者应提供以下配置选项：
 - en: An object that implements the `PrivateNetworkDetector` interface, which will
     be used by the link fetcher and link extractor components to filter out links
     that resolve to private network addresses
+  id: totrans-361
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 实现了`PrivateNetworkDetector`接口的对象，该接口将被链接获取器和链接提取组件用于过滤掉解析为私有网络地址的链接
 - en: An object that implements the `URLGetter` interface (for example, `http.DefaultClient`),
     which the link fetcher will use to perform HTTP GET requests
+  id: totrans-362
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 实现了`URLGetter`接口的对象（例如，`http.DefaultClient`），链接获取器将使用它来执行HTTP GET请求
 - en: An object that implements the `Graph` interface (for example, any of the link
     graph implementations from the previous chapter), which the graph updater component
     will use to upsert discovered links into the link graph
+  id: totrans-363
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 实现了`Graph`接口的对象（例如，前一章中的任何链接图实现），该接口将被图更新组件用于将发现的链接上载到链接图中
 - en: An object that implements the `Indexer` interface (for example, any of the indexer
     implementations from the previous chapter), which the text indexer component will
     use to keep the search index in sync
+  id: totrans-364
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 实现了`Indexer`接口的对象（例如，前一章中的任何索引器实现），文本索引器组件将使用它来保持搜索索引同步
 - en: The size of the worker pool for executing the link fetcher stage of the pipeline
+  id: totrans-365
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 执行管道链接获取阶段的线程池大小
 - en: 'The constructor code calls out to the `assembleCrawlerPipeline` helper function,
     which is responsible for instantiating each stage of the pipeline with the appropriate
     configuration options and calling out to `pipeline.New` to create a new pipeline
     instance :'
+  id: totrans-366
   prefs: []
   type: TYPE_NORMAL
+  zh: 构造函数代码调用`assembleCrawlerPipeline`辅助函数，该函数负责使用适当的配置选项实例化管道的每个阶段，并调用`pipeline.New`来创建一个新的管道实例：
 - en: '[PRE64]'
+  id: totrans-367
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE64]'
 - en: As illustrated in *Figure 2*, the first stage of the crawler pipeline uses a
     fixed-size worker pool that executes the link-fetcher processor. The output from
     this stage is piped into two sequentially connected FIFO stages that execute the
     link-extractor and text-extractor processors. Finally, the output of those FIFO
     stages is copied and broadcast to the graph updater and text indexer components
     in parallel.
+  id: totrans-368
   prefs: []
   type: TYPE_NORMAL
+  zh: 如*图2*所示，爬虫管道的第一阶段使用固定大小的线程池来执行链接获取器处理器。该阶段的输出被管道到两个依次连接的FIFO阶段，这些阶段执行链接提取器和文本提取器处理器。最后，这些FIFO阶段的输出并行复制并广播到图更新器和文本索引器组件。
 - en: 'The last piece of the puzzle is the `Crawl` method implementation, which constitutes
     the API for using the crawler from other packages:'
+  id: totrans-369
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后一块拼图是`Crawl`方法的实现，它构成了从其他包使用爬虫的API：
 - en: '[PRE65]'
+  id: totrans-370
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE65]'
 - en: The method accepts a context value, which can be cancelled at any time by the
     caller to force the crawler pipeline to terminate, as well as an iterator, which
     provides the set of links to be crawled by the pipeline. It returns the total
     number of links that made it to the pipeline sink.
+  id: totrans-371
   prefs: []
   type: TYPE_NORMAL
+  zh: 该方法接受一个上下文值，调用者可以在任何时候取消它以强制爬虫管道终止，以及一个迭代器，它提供要由管道爬取的链接集合。它返回到达管道汇点的总链接数。
 - en: On a side-note, the fact that `Crawl` creates new source and sink instances
     on each invocation, combined with the observation that none of the crawler stages
     maintains any internal state, makes `Crawl` safe to invoke concurrently!
+  id: totrans-372
   prefs: []
   type: TYPE_NORMAL
+  zh: 顺便提一下，`Crawl`在每次调用时都会创建新的源和汇实例，加上观察到的爬虫的各个阶段都没有维护任何内部状态，这使得`Crawl`可以安全地并发调用！
 - en: Summary
+  id: totrans-373
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 摘要
 - en: In this chapter, we built from scratch our very own generic, extensible pipeline
     package using nothing more than the basic Go primitives. We have analyzed and
     implemented different strategies (FIFO, fixed/dynamic worker pools, and broadcasting)
     for processing data throughout the various stages of our pipeline. In the last
     part of the chapter, we applied everything that we have learned so far to implement
     a multistage crawler pipeline for the Links 'R' Us Project.
+  id: totrans-374
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们从头开始构建了我们自己的通用、可扩展的管道包，仅使用基本的Go原语。我们分析了并实现了不同的策略（FIFO、固定/动态工作池和广播）来处理管道的各个阶段的数据。在章节的最后部分，我们将到目前为止所学的一切应用于实现Links
+    'R' Us项目的多阶段爬虫管道。
 - en: In summary, pipelines provide an elegant solution for breaking down complex
     data processing tasks into smaller and easier-to-test steps that can be executed
     in parallel to make better use of the compute resources available at your disposal.
     In the next chapter, we are going to take a look at a different paradigm for processing
     data that is organized as a graph.
+  id: totrans-375
   prefs: []
   type: TYPE_NORMAL
+  zh: 总结来说，管道为将复杂的数据处理任务分解成更小、更容易测试的步骤提供了一种优雅的解决方案，这些步骤可以并行执行，以更好地利用你可用的计算资源。在下一章中，我们将探讨一种不同的数据处理范式，该范式以图的形式组织数据。
 - en: Questions
+  id: totrans-376
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 问题
 - en: Why is it considered an antipattern to use `interface{}` values as arguments
     to functions and methods?
+  id: totrans-377
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 为什么将`interface{}`值用作函数和方法的参数被认为是一种反模式？
 - en: You are trying to design and build a complex data-processing pipeline that requires
     copious amounts of computing power (for example, face recognition, audio transcription,
     or similar). However, when you try to run it on your local machine, you realize
@@ -1957,70 +2747,101 @@
     currently available locally. Describe how you could modify your current pipeline
     setup so that you could still run the pipeline on your machine, but arrange for
     some parts of the pipeline to execute on a remote server that you control.
+  id: totrans-378
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 你正在尝试设计和构建一个需要大量计算能力（例如，人脸识别、音频转录或类似）的复杂数据处理管道。然而，当你尝试在本地机器上运行它时，你意识到某些阶段的资源需求超过了当前本地可用的资源。描述你如何修改当前的管道设置，以便你仍然可以在你的机器上运行管道，但安排部分管道在由你控制的远程服务器上执行。
 - en: Describe how you would apply the decorator pattern to log errors returned by
     the processor functions that you have attached to a pipeline.
+  id: totrans-379
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 描述你将如何应用装饰器模式来记录附加到管道的处理器函数返回的错误。
 - en: What are the key differences between a synchronous and an asynchronous pipeline
     implementation?
+  id: totrans-380
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 同步和异步管道实现之间的关键区别是什么？
 - en: Explain how dead-letter queues work and why you might want to use one in your
     application.
+  id: totrans-381
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 解释死信队列是如何工作的，以及为什么你可能在应用程序中使用它。
 - en: What is the difference between a fixed-size worker pool and a dynamic pool?
+  id: totrans-382
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 固定大小工作池和动态池之间有什么区别？
 - en: Describe how you would modify the Links 'R' Us crawler payload so that you can
     track the time each payload spent inside the pipeline.
+  id: totrans-383
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 描述你将如何修改'Links 'R' Us'爬虫的有效负载，以便你可以跟踪每个有效负载在管道内花费的时间。
 - en: Further reading
+  id: totrans-384
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 进一步阅读
 - en: 'Berners-Lee, T. ; Fielding, R. ; Masinter, L., RFC 3986, Uniform Resource Identifier
     (URI): Generic Syntax.'
+  id: totrans-385
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: Berners-Lee, T. ; Fielding, R. ; Masinter, L.，RFC 3986，统一资源标识符（URI）：通用语法。
 - en: 'bluemonday: a fast golang HTML sanitizer (inspired by the OWASP Java HTML Sanitizer)
     to scrub user generated content of XSS: [https://github.com/microcosm-cc/bluemonday](https://github.com/microcosm-cc/bluemonday)'
+  id: totrans-386
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: bluemonday：一个快速的golang HTML净化器（受OWASP Java HTML净化器启发），用于清除用户生成内容中的XSS：[https://github.com/microcosm-cc/bluemonday](https://github.com/microcosm-cc/bluemonday)
 - en: Documentation for the Go pprof package: [https://golang.org/pkg/runtime/pprof](https://golang.org/pkg/runtime/pprof)
+  id: totrans-387
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: Go pprof包的文档：[https://golang.org/pkg/runtime/pprof](https://golang.org/pkg/runtime/pprof)
 - en: Documentation for the Pool type in the sync package: [https://golang.org/pkg/sync/#Pool](https://golang.org/pkg/sync/#Pool)
+  id: totrans-388
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 同步包中Pool类型的文档：[https://golang.org/pkg/sync/#Pool](https://golang.org/pkg/sync/#Pool)
 - en: 'gomock: a mocking framework for the Go programming language: [https://github.com/golang/mock](https://github.com/golang/mock)'
+  id: totrans-389
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: gomock：Go编程语言的模拟框架：[https://github.com/golang/mock](https://github.com/golang/mock)
 - en: 'go-multierror: a Go (golang) package for representing a list of errors as a
     single error: [https://github.com/hashicorp/go-multierror](https://github.com/hashicorp/go-multierror)'
+  id: totrans-390
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: go-multierror：一个Go（golang）包，用于将错误列表表示为单个错误：[https://github.com/hashicorp/go-multierror](https://github.com/hashicorp/go-multierror)
 - en: 'Moskowitz, Robert ; Karrenberg, Daniel ; Rekhter, Yakov ; Lear, Eliot ; Groot,
     Geert Jan de: Address Allocation for Private Internets.'
+  id: totrans-391
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 'Moskowitz, Robert ; Karrenberg, Daniel ; Rekhter, Yakov ; Lear, Eliot ; Groot,
+    Geert Jan de: 私有互联网的地址分配。'
 - en: 'The Go blog: profiling Go programs: [https://blog.golang.org/profiling-go-programs](https://blog.golang.org/profiling-go-programs)'
+  id: totrans-392
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: Go博客：Go程序性能分析：[https://blog.golang.org/profiling-go-programs](https://blog.golang.org/profiling-go-programs)

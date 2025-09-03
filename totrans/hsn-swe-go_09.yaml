@@ -1,162 +1,238 @@
 - en: Building a Persistence Layer
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 构建持久化层
 - en: '"Database schemas are notoriously volatile, extremely concrete, and highly
     depended on. This is one reason why the interface between OO applications and
     databases is so difficult to manage, and why schema updates are generally painful."'
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: “数据库模式通常是易变的、非常具体且高度依赖的。这是为什么面向对象的应用程序和数据库之间的接口如此难以管理，以及为什么模式更新通常很痛苦的一个原因。”
 - en: '- Robert C. Martin ^([14])'
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: '- 罗伯特·C·马丁 ^([14])'
 - en: 'In this chapter, we will focus our attention on designing and implementing
     the data access layers for two of the Links ''R'' Us components: the link graph
     and the text indexer. More specifically, in the pages that follow, we will do
     the following:'
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们将专注于设计和实现 Links 'R' Us 组件中的两个数据访问层：链接图和文本索引器。更具体地说，在接下来的页面中，我们将执行以下操作：
 - en: Discuss and compare the different types of database technologies
+  id: totrans-4
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 讨论和比较不同类型的数据库技术
 - en: Identify and understand the main reasons that necessitate the creation of a
     data access layer as an abstraction over the underlying database layer
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 识别和理解需要创建数据访问层作为底层数据库层的抽象的主要原因
 - en: 'Analyze the entities, relations, and query requirements for the link graph
     component, define a Go interface for the data layer, and build two alternative
     data layer implementations from scratch: a simple, in-memory store that we can
     use for testing purposes and a production-ready store backed by CockroachDB'
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 分析链接图组件的实体、关系和查询需求，定义数据层的 Go 接口，并从头开始构建两个替代数据层实现：一个简单的内存存储，我们可以用于测试目的，以及一个由
+    CockroachDB 支持的生产就绪存储
 - en: Come up with a document model for indexing and searching web page contents and
     implement both an in-memory indexer (based on the popular bleve Go package) as
     well as a horizontally scalable variant based on Elasticsearch
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 提出一个用于索引和搜索网页内容的文档模型，并实现一个基于流行的 bleve Go 包的内存索引器，以及一个基于 Elasticsearch 的水平可扩展变体
 - en: Outline strategies for creating test suites that can be shared and reused across
     different data layer implementations
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 概述创建可跨不同数据层实现共享和重用测试套件的策略
 - en: Technical requirements
+  id: totrans-9
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: The full code for the topics that will be discussed in this chapter have been
     published in this book's GitHub repository under the `Chapter06` folder.
+  id: totrans-10
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章将要讨论的主题的完整代码已发布在本书的 GitHub 仓库的 `Chapter06` 文件夹下。
 - en: You can access this book's GitHub repository at [https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang](https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang).
+  id: totrans-11
   prefs: []
   type: TYPE_NORMAL
+  zh: 您可以通过 [https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang](https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang)
+    访问本书的 GitHub 仓库。
 - en: 'To get you up and running as quickly as possible, each example project includes
     a makefile that defines the following set of targets:'
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了让您尽快开始，每个示例项目都包含一个 makefile，它定义了以下目标集：
 - en: '| **Makefile target** | **Description** |'
+  id: totrans-13
   prefs: []
   type: TYPE_TB
+  zh: '| **Makefile 目标** | **描述** |'
 - en: '| `deps` | Install any required dependencies. |'
+  id: totrans-14
   prefs: []
   type: TYPE_TB
+  zh: '| `deps` | 安装任何必需的依赖项。 |'
 - en: '| `test` | Run all tests and report coverage. |'
+  id: totrans-15
   prefs: []
   type: TYPE_TB
+  zh: '| `test` | 运行所有测试并报告覆盖率。 |'
 - en: '| `lint` | Check for lint errors. |'
+  id: totrans-16
   prefs: []
   type: TYPE_TB
+  zh: '| `lint` | 检查 lint 错误。 |'
 - en: As with all the other chapters in this book, you will need a fairly recent version
     of Go, which you can download from [https://golang.org/dl](https://golang.org/dl)*.*
+  id: totrans-17
   prefs: []
   type: TYPE_NORMAL
+  zh: 与本书中的所有其他章节一样，您需要一个相当新的 Go 版本，您可以从 [https://golang.org/dl](https://golang.org/dl)*.*
+    下载。
 - en: Running tests that require CockroachDB
+  id: totrans-18
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 运行需要 CockroachDB 的测试
 - en: To run the link graph tests that use CockroachDB as a backend, you will need
     to download a recent version of CockroachDB (v19.1.2 or newer) from [https://www.cockroachlabs.com/get-cockroachdb](https://www.cockroachlabs.com/get-cockroachdb).
+  id: totrans-19
   prefs: []
   type: TYPE_NORMAL
+  zh: 要运行使用 CockroachDB 作为后端的链接图测试，您需要从 [https://www.cockroachlabs.com/get-cockroachdb](https://www.cockroachlabs.com/get-cockroachdb)
+    下载 CockroachDB 的最新版本（v19.1.2 或更高版本）。
 - en: 'After downloading and unpacking the CockroachDB archive, you can spin up a
     CockroachDB instance for your tests by changing to the folder where the archive
     was extracted and run the following set of commands:'
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 在下载并解压 CockroachDB 存档后，您可以通过切换到存档提取的文件夹并运行以下命令集来为测试启动一个 CockroachDB 实例：
 - en: '[PRE0]'
+  id: totrans-21
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: The link graph tests for the CockroachDB backend examine the contents of the
     `CDB_DSN` environment variable by looking for a valid **data source name** (**DSN**)
     for accessing the CockroachDB instance. If the environment variable is empty or
     not defined, all the CockroachDB tests will be automatically skipped.
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 针对CockroachDB后端的链接图测试将通过查找访问CockroachDB实例的有效**数据源名称**（DSN）来检查`CDB_DSN`环境变量的内容。如果环境变量为空或未定义，所有CockroachDB测试将自动跳过。
 - en: 'Assuming you followed the preceding instructions to start a local CockroachDB
     instance, you can execute the following command to define a suitable DSN prior
     to running the CockroachDB test suite:'
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: 假设您已经按照前面的说明启动了本地的CockroachDB实例，您可以通过执行以下命令来定义一个合适的DSN，在运行CockroachDB测试套件之前：
 - en: '[PRE1]'
+  id: totrans-24
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: Finally, it is important to note that all the tests operate under the assumption
     that the database schema has been set up in advance. If you have just created
     the database, you can apply the required set of DB migrations by switching to
     your local checked-out copy of this book's source code repository and running
     `make run-cdb-migrations`.
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，需要注意的是，所有测试都假设数据库模式已经预先设置。如果您刚刚创建了数据库，可以通过切换到这本书源代码仓库的本地检出副本并运行`make run-cdb-migrations`来应用所需的DB迁移集。
 - en: Running tests that require Elasticsearch
+  id: totrans-26
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 运行需要Elasticsearch的测试
 - en: To run the link graph tests that use Elasticsearch as a backend, you will need
     to download a recent version of Elasticsearch (v7.2.0 or newer) from [https://www.elastic.co/downloads/elasticsearch](https://www.elastic.co/downloads/elasticsearch)*.*
+  id: totrans-27
   prefs: []
   type: TYPE_NORMAL
+  zh: 要运行使用Elasticsearch作为后端的链接图测试，您需要从[https://www.elastic.co/downloads/elasticsearch](https://www.elastic.co/downloads/elasticsearch)*.*下载一个较新的Elasticsearch版本（v7.2.0或更高版本）。
 - en: 'After downloading and unpacking the Elasticsearch archive, you can change to
     the location of the extracted files and start a local Elasticsearch instance (with
     a sane list of default configuration options) by running the following command:'
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 下载并解压Elasticsearch存档后，您可以切换到提取文件的目录，并通过运行以下命令启动本地Elasticsearch实例（使用合理的默认配置选项）：
 - en: '[PRE2]'
+  id: totrans-29
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: 'The Elasticsearch tests obtain the list of Elasticsearch cluster endpoints
     to connect to by examining the contents of the `ES_NODES` environment variable.
     Assuming that you have started a local Elasticsearch instance by following the
     instructions above, you can define `ES_NODES` as follows:'
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: Elasticsearch测试通过检查`ES_NODES`环境变量的内容来获取要连接的Elasticsearch集群端点列表。假设您已经按照上述说明启动了本地Elasticsearch实例，您可以如下定义`ES_NODES`：
 - en: '[PRE3]'
+  id: totrans-31
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: As we will see in the following sections, the Elasticsearch indexer will be
     designed in a way that will allow the store to automatically define the schema
     for the indexed documents once it successfully establishes a connection to the
     Elasticsearch cluster. Consequently, there is no need for a separate migration
     step prior to running the Elasticsearch test suite.
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 如我们将在以下章节中看到的，Elasticsearch索引器将被设计成一旦成功连接到Elasticsearch集群，就能自动为索引文档定义模式。因此，在运行Elasticsearch测试套件之前不需要单独的迁移步骤。
 - en: Exploring a taxonomy of database systems
+  id: totrans-33
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 探索数据库系统的分类
 - en: In the following sections, we will be presenting a list of the most popular
     DB technologies and analyze the pros and cons of each one. Based on our analysis,
     we will select the most appropriate type of database for implementing the link
     graph and the text indexer components of Links 'R' Us.
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: 在以下章节中，我们将列出最受欢迎的数据库技术，并分析每种技术的优缺点。根据我们的分析，我们将选择最适合实现Links 'R' Us的链接图和文本索引组件的数据库类型。
 - en: Key-value stores
+  id: totrans-35
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 键值存储
 - en: The first type of database technology that we will be examining is a key-value
     store. As the name implies, a key-value store database persists data as a collection
     of key-value pairs, where keys serve as unique identifiers for accessing stored
@@ -164,8 +240,11 @@
     functionally equivalent to a hashmap data structure. Popular key-value store implementations
     include memcached ^([15]), AWS DynamoDB ^([8]), LevelDB ^([13]), and SSD-optimized
     RocksDB ^([20]).
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将要考察的第一种数据库技术是键值存储。正如其名所示，键值存储数据库将数据持久化为键值对的集合，其中键作为访问特定集合中存储数据的唯一标识符。根据这个定义，键值存储在功能上等同于哈希表数据结构。流行的键值存储实现包括memcached^([15])、AWS
+    DynamoDB^([8])、LevelDB^([13])和针对SSD优化的RocksDB^([20])。
 - en: The basic set of operations supported by key-value stores are *insertions*, *deletions*, and *lookups*.
     However, some popular key-value store implementations also provide support for *range
     queries*, which allow clients to iterate an *ordered* list of key-value pairs
@@ -173,25 +252,33 @@
     of key-value store implementations do not enforce any constraints on their contents.
     This means that any kind of data (for example, strings, integers, or even binary
     blobs) can be used as a key.
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
+  zh: 键值存储支持的基本操作集包括**插入**、**删除**和**查找**。然而，一些流行的键值存储实现还提供了对**范围查询**的支持，允许客户端迭代两个特定键之间的**有序**键值对列表。就键和值而言，大多数键值存储实现对其内容不施加任何约束。这意味着任何类型的数据（例如，字符串、整数或甚至是二进制大对象）都可以用作键。
 - en: The data access patterns that are used by key-value stores make data partitioning
     across multiple nodes much easier compared to other database technologies. This
     property allows key-value stores to scale horizontally so as to accommodate increased
     traffic demand.
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: 键值存储使用的数据访问模式使得在多个节点之间进行数据分区比其他数据库技术要容易得多。这种属性使得键值存储能够水平扩展，以适应增加的流量需求。
 - en: 'Let''s examine some common use cases where key-value stores are generally considered
     to be a great fit:'
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们来看看一些常见用例，在这些用例中，键值存储通常被认为是一个非常好的选择：
 - en: Caches! We can use a key-value store as a general-purpose cache for all sorts
     of things. We could, for instance, cache web pages for a CDN service or store
     the results of frequently used database queries to reduce the response time for
     a web application.
+  id: totrans-40
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 缓存！我们可以将键值存储用作通用缓存，用于各种事物。例如，我们可以为CDN服务缓存网页或存储常用数据库查询的结果，以减少Web应用的响应时间。
 - en: 'A distributed store for session data: Imagine for a moment that we operate
     a high-traffic website. To handle the traffic, we would normally spin up a bunch
     of backend servers and place them behind a load balancer. Unless our load balancer
@@ -201,63 +288,86 @@
     access to the session data associated with each user. If we tagged each user request
     with a unique per-user ID, we could use that as a key and retrieve the session
     data from a key-value store.'
+  id: totrans-41
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 用于会话数据的分布式存储：想象一下，如果我们运营一个高流量的网站。为了处理流量，我们通常会启动一些后端服务器并将它们放置在负载均衡器后面。除非我们的负载均衡器内置了对粘性会话（总是将来自同一用户的请求发送到同一后端服务器）的支持，否则每个请求都会由不同的后端服务器处理。这可能会对有状态应用程序造成问题，因为它们需要访问与每个用户关联的会话数据。如果我们给每个用户请求标记一个唯一的用户ID，我们就可以使用它作为键，从键值存储中检索会话数据。
 - en: A storage layer for a database system. The properties of key-value stores make
     them a very attractive low-level primitive for implementing more sophisticated
     types of databases. For example, relational databases such as CockroachDB ^([5]) and
     NoSQL databases such as Apache Cassandra ^([2]) are prime examples of systems
     built on top of key-value stores.
+  id: totrans-42
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 数据库系统的存储层。键值存储的特性使它们成为实现更复杂类型数据库的非常吸引人的底层原语。例如，CockroachDB ^([5])等关系型数据库和Apache
+    Cassandra ^([2])等NoSQL数据库是建立在键值存储之上的系统的典型例子。
 - en: The main caveat of key-value stores is that we cannot efficiently search *within*
     the stored data without introducing some kind of auxiliary data structure to facilitate
     the role of an index.
+  id: totrans-43
   prefs: []
   type: TYPE_NORMAL
+  zh: 键值存储的主要缺点是，我们无法在不引入某种辅助数据结构以促进索引作用的情况下，有效地在存储的数据中进行搜索。
 - en: Relational databases
+  id: totrans-44
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 关系型数据库
 - en: The idea of relational databases was introduced by E. F. Codd in 1970 ^([6]).
     The main unit of data organization in a relational database is referred to as
     a **table**. Each table is associated with a **schema** that defines the names
     and data types for each table **column**.
+  id: totrans-45
   prefs: []
   type: TYPE_NORMAL
+  zh: 关系型数据库的概念是由E. F. Codd在1970年提出的 ^([6])。关系型数据库中数据组织的主要单元被称为**表**。每个表都与一个**模式**相关联，该模式定义了每个表**列**的名称和数据类型。
 - en: Within a table, each data record is represented by a **row** that is, in turn,
     identified by a **primary key**, a tuple of column values that must be *unique*
     among all the table rows. Table columns may also reference records that exist
     in other tables. This type of column is typically referred to as a **foreign key**.
+  id: totrans-46
   prefs: []
   type: TYPE_NORMAL
+  zh: 在表中，每个数据记录由一个**行**表示，该行反过来由一个**主键**标识，这是一个列值的元组，必须在所有表行中是*唯一*的。表列也可以引用其他表中存在的记录。这类列通常被称为**外键**。
 - en: 'The standardized way to access and query relational databases is via the use
     of an *English-like* **structured query language** (**SQL**), which is actually
     a subset of various domain-specific languages:'
+  id: totrans-47
   prefs: []
   type: TYPE_NORMAL
+  zh: 访问和查询关系型数据库的标准方式是通过使用类似英语的*结构化查询语言**（SQL**），实际上它是各种领域特定语言的子集：
 - en: A data *definition* language, which includes commands for managing the database
     schema; for example, creating, altering, or dropping tables, indexes, and constraints
+  id: totrans-48
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一种数据*定义*语言，包括用于管理数据库模式（例如，创建、修改或删除表、索引和约束）的命令
 - en: A data *manipulation* language, which supports a versatile set of commands for
     inserting, deleting, and, of course, querying the database contents
+  id: totrans-49
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一种数据*操作*语言，支持一系列灵活的命令，用于插入、删除以及当然，查询数据库内容
 - en: A data *control* language, which provides a streamlined way to control the level
     of access that individual users have to the database
+  id: totrans-50
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一种数据*控制*语言，提供了一种简化的方式来控制单个用户对数据库的访问级别
 - en: A *transaction control* language, which allows database users to start, commit,
     or abort database transactions
+  id: totrans-51
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一种*事务控制*语言，允许数据库用户启动、提交或中止数据库事务
 - en: 'One of the most important features of relational databases is the concept of
     transactions. A transaction can be thought of as a wrapper around a sequence of
     SQL statements that ensures that either *all* of them will be applied or *none* of
@@ -267,32 +377,42 @@
     concurrently, relational databases must be compliant with a set of properties
     that are commonly referred to with the acronym ACID. Let''s go over what **ACID**
     stands for:'
+  id: totrans-52
   prefs: []
   type: TYPE_NORMAL
+  zh: 关系型数据库最重要的特性之一是事务的概念。可以将事务视为一系列SQL语句的包装器，确保要么*全部*应用这些语句，要么*全部*不应用。为了确保在出现错误或故障（例如，断电或网络连接丢失）的情况下事务能够可靠地工作，并且当多个事务并发执行时，其结果始终是确定的，关系型数据库必须符合一组通常用缩写**ACID**表示的属性。让我们来看看**ACID**代表什么：
 - en: '**Atomicity**: Transactions are applied completely or not at all.'
+  id: totrans-53
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**原子性**：事务要么完全应用，要么完全不应用。'
 - en: '**Consistency**: The contents of a transaction is not allowed to bring the
     database into an invalid state. This means that the database system must validate
     each of the statements included in a transaction against the constraints (for
     example, primary, foreign, or unique keys) that have been defined on the tables
     that are about to be modified.'
+  id: totrans-54
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**一致性**：不允许事务的内容将数据库带入无效状态。这意味着数据库系统必须验证事务中包含的每个语句，与即将修改的表上定义的约束（例如，主键、外键或唯一键）进行验证。'
 - en: '**Isolation**: Each transaction must execute in total isolation from other
     transactions. If multiple transactions are executing concurrently, the end result
     should be equivalent to running each transaction one after the other.'
+  id: totrans-55
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**隔离性**：每个事务必须与其他事务完全隔离执行。如果多个事务正在并发执行，最终结果应该等同于依次运行每个事务。'
 - en: '**Durability**: Once a transaction has been committed, it will remain committed,
     even if the database system is restarted or the nodes it runs on experience loss
     of power.'
+  id: totrans-56
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**耐用性**：一旦事务被提交，它将保持提交状态，即使数据库系统重启或运行其上的节点发生断电。'
 - en: In terms of performance, relational databases such as PostgreSQL ^([18]) and
     MySQL ^([17]) are generally easy to scale vertically. Switching to a beefier CPU
     and/or adding more memory to your database server is more or less a standard operating
@@ -300,8 +420,10 @@
     per second** (**TPS**) that the DB can handle. On the other hand, scaling relational
     databases horizontally is much harder and typically depends on the type of workload
     you have.
+  id: totrans-57
   prefs: []
   type: TYPE_NORMAL
+  zh: 在性能方面，像PostgreSQL^([18])和MySQL^([17])这样的关系型数据库通常很容易进行垂直扩展。将更强大的CPU和/或更多内存添加到您的数据库服务器上，基本上是一种标准操作程序，用于增加数据库可以处理的**每秒查询数**（**QPS**）或**每秒事务数**（**TPS**）。另一方面，水平扩展关系型数据库要困难得多，通常取决于您的工作负载类型。
 - en: For *write-heavy* workloads, we usually resort to techniques such as data sharding.
     Data sharding allows us to split (partition) the contents of one or more tables
     into multiple database nodes. This partitioning is achieved by means of a per-row **shard
@@ -310,15 +432,20 @@
     time. While writes are quite efficient, reads are not trivial as the database
     might need to query *each* individual node and then aggregate the results together
     in order to answer even a simple query such as `SELECT COUNT(*) FROM X`.
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于**写密集型**的工作负载，我们通常求助于数据分片等技术。数据分片允许我们将一个或多个表的内容分割成多个数据库节点。这种分区是通过每行的**分片键**来实现的，它决定了哪个节点负责存储表的每一行。这种方法的一个缺点是它在查询时引入了额外的复杂性。虽然写操作相当高效，但读操作并不简单，因为数据库可能需要查询每个**单独**的节点，然后将结果汇总在一起，以便回答甚至像`SELECT
+    COUNT(*) FROM X`这样的简单查询。
 - en: On the other hand, if our workloads are *read-heavy*, horizontal scaling is
     usually achieved by spinning up *read-replicas*, which mirror updates to one or
     more *primary* nodes. Writes are always routed to the primary nodes while reads
     are handled by the read-replicas (ideally) or even by the primaries if the read-replicas
     cannot be reached.
+  id: totrans-59
   prefs: []
   type: TYPE_NORMAL
+  zh: 另一方面，如果我们的工作负载是**读密集型**的，水平扩展通常是通过启动**读副本**来实现的，这些副本会镜像一个或多个**主节点**的更新。写操作总是路由到主节点，而读操作由读副本（理想情况下）或如果读副本无法访问，甚至由主节点来处理。
 - en: While relational databases are a great fit for transactional workloads and complex
     queries, they are not the best tool for querying hierarchical data with arbitrary
     nesting or for modeling graph-like structures. Moreover, as the volume of stored
@@ -327,105 +454,143 @@
     real-time can only be processed as offline batch jobs. As a result, companies
     with high-volume data processing needs have been gradually shifting their focus
     toward NoSQL databases.
+  id: totrans-60
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然关系型数据库非常适合事务型工作负载和复杂查询，但它们并不是查询具有任意嵌套的层次数据或建模图状结构的最佳工具。此外，随着存储数据的量超过特定阈值，查询的运行时间会越来越长。最终，会达到一个点，以前实时执行的报告查询只能作为离线批处理作业来处理。因此，对大量数据处理有需求的公司已经逐渐将他们的重点转向NoSQL数据库。
 - en: NoSQL databases
+  id: totrans-61
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: NoSQL数据库
 - en: 'NoSQL databases have met a sharp rise in popularity over the last couple of
     years. Their key value propositions are as follows:'
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
+  zh: 在过去几年中，NoSQL数据库的受欢迎程度急剧上升。它们的关键价值主张如下：
 - en: They are well suited for crunching massive volumes of data.
+  id: totrans-63
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它们非常适合处理大量数据。
 - en: By design, NoSQL database systems can effortlessly scale both vertically and
     horizontally. As a matter of fact, most NoSQL database systems promise a linear
     increase in performance as more nodes are added to the database cluster.
+  id: totrans-64
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 按设计，NoSQL数据库系统可以轻松地进行垂直和水平扩展。事实上，大多数NoSQL数据库系统承诺随着数据库集群中节点数量的增加，性能将线性增长。
 - en: More advanced NoSQL solutions can scale even across data centers and include
     support for automatically routing client requests to the nearest data center.
+  id: totrans-65
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 更高级的NoSQL解决方案甚至可以跨数据中心进行扩展，并包括自动将客户端请求路由到最近数据中心的支持。
 - en: However, as we all know, there is no such thing as a free lunch. To achieve
     this performance boost, NoSQL databases have to sacrifice something! Being distributed
     systems, NoSQL databases must adhere to the rules of the *CAP theorem*.
+  id: totrans-66
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，众所周知，没有免费的午餐。为了实现这种性能提升，NoSQL数据库必须做出一些牺牲！作为分布式系统，NoSQL数据库必须遵守**CAP定理**的规则。
 - en: 'The CAP theorem was proposed by Eric Brewer in 2000 ^([4]) and is one of the
     fundamental theorems that governs the operation of distributed systems. It states
     that networked shared data systems can only guarantee up to *two* of the following
     properties:'
+  id: totrans-67
   prefs: []
   type: TYPE_NORMAL
+  zh: CAP定理是由埃里克·布赖尔在2000年提出的^([4])，是支配分布式系统操作的几个基本定理之一。它表明，网络共享数据系统只能保证以下**两个**属性：
 - en: '**Consistency**: Each node in the system has the same view of the stored data.
     This implies that each read operation on a piece of data will always return the
     value of the last performed write.'
+  id: totrans-68
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**一致性**：系统中的每个节点对存储的数据都有相同的视图。这意味着对数据的一次读取操作将始终返回最后一次执行写入操作时的值。'
 - en: '**Availability**: The system can still process read and write requests in a
     reasonable amount of time, even if some of the nodes are not online.'
+  id: totrans-69
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**可用性**：即使某些节点离线，系统仍然可以在合理的时间内处理读取和写入请求。'
 - en: '**Partition tolerance**: If a network split occurs, some of the cluster nodes
     will become isolated and therefore unable to exchange messages with the remaining
     nodes in the cluster. However, the system should remain operational and the cluster
     should be able to reach a consistent state when the partitioned nodes rejoin the
     cluster.'
+  id: totrans-70
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**分区容错性**：如果发生网络分割，一些集群节点将变得孤立，因此无法与集群中剩余的节点交换消息。然而，系统应该保持运行，并且当分割的节点重新加入集群时，集群应该能够达到一致状态。'
 - en: 'As shown in the following diagram, if we were to pair together two of the three
     fundamental properties of the CAP theorem, we can obtain a couple of interesting
     distributed system configurations:'
+  id: totrans-71
   prefs: []
   type: TYPE_NORMAL
+  zh: 如以下图所示，如果我们把CAP定理的三个基本属性中的两个配对，我们可以获得一些有趣的分布式系统配置：
 - en: '![](img/4a225d36-b48f-4b7d-96e7-cc11680bfd0a.png)'
+  id: totrans-72
   prefs: []
   type: TYPE_IMG
+  zh: '![图片](img/4a225d36-b48f-4b7d-96e7-cc11680bfd0a.png)'
 - en: 'Figure 1: The intersection of the three properties of the CAP theorem'
+  id: totrans-73
   prefs: []
   type: TYPE_NORMAL
+  zh: 图1：CAP定理三个属性的交集
 - en: 'Let''s briefly analyze the behavior as to how each of these configurations
     reacts in the presence of errors:'
+  id: totrans-74
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们简要分析一下，在出现错误的情况下，这些配置是如何反应的：
 - en: '**Consistency – Partition (CP) tolerance**: Distributed systems in this category
     typically use a voting protocol to ensure that the majority of nodes agree that
     they have the most recent version of the stored data; in other words, they reach
     a *quorum*. This allows the system to recover from network partitioning events.
     However, if not enough nodes are available to reach quorum, the system will return
     an error to clients as data consistency is preferred over availability.'
+  id: totrans-75
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**一致性 – 分区（CP）容错性**：这类分布式系统通常使用投票协议来确保大多数节点都同意它们拥有存储数据的最新版本；换句话说，它们达到**法定人数**。这允许系统从网络分区事件中恢复。然而，如果可供达到法定人数的节点不足，系统将向客户端返回错误，因为数据一致性比可用性更重要。'
 - en: '**Availability – Partition (AP) tolerance**: This class of distributed systems
     favors availability over consistency. Even in the case of a network partition,
     an AP system will try to process read requests, although *stale* data may be returned
     to the clients.'
+  id: totrans-76
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**可用性 – 分区（AP）容错性**：这类分布式系统更倾向于可用性而不是一致性。即使在网络分割的情况下，AP系统也会尝试处理读取请求，尽管可能会向客户端返回过时的数据。'
 - en: '**Consistency – Availability (CA)**: In practice, *all* distributed systems
     are, to some extent, affected by network partitions. Therefore, a pure CA type
     of system is not really feasible unless, of course, we are talking about a single-node
     system. We could probably classify a single-node deployment of a traditional relational
     database as a CA system.'
+  id: totrans-77
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**一致性 – 可用性（CA）**：在实践中，所有分布式系统在某种程度上都会受到网络分区的影响。因此，除非我们谈论的是单节点系统，否则纯CA类型的系统实际上并不可行。我们可能将传统关系型数据库的单节点部署归类为CA系统。'
 - en: At the end of the day, the choice of an appropriate NoSQL solution largely depends
     on your particular use case. What happens, though, if the use case requires all
     three of these properties? Are we simply out of luck?
+  id: totrans-78
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，选择合适的NoSQL解决方案在很大程度上取决于您的特定用例。那么，如果用例需要这三个属性中的所有三个，我们是不是就没有运气了？
 - en: Fortunately, over the years, several NoSQL solutions (for example, Cassandra ^([2]))
     have evolved support for what is now referred to as **tunable consistency**. Tunable
     consistency allows clients to specify their desired level of consistency on a *per-query* basis.
@@ -433,12 +598,16 @@
     consistency semantics. On the other hand, when querying the number of views of
     a popular video, we could dial down the desired level of consistency and settle
     for an approximate, eventually-consistent, value.
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: 幸运的是，多年来，几个 NoSQL 解决方案（例如，Cassandra ^([2])) 已经发展了对现在被称为 **可调一致性** 的支持。可调一致性允许客户端根据每个查询指定他们期望的一致性级别。例如，在创建新的用户账户时，我们通常会选择强一致性语义。另一方面，在查询热门视频的观看次数时，我们可以降低期望的一致性级别，并满足于一个近似、最终一致的价值。
 - en: Document databases
+  id: totrans-80
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 文档数据库
 - en: Document databases are specialized NoSQL databases that store, index, and query
     complex and possibly deeply nested *document-like* objects. All documents are
     stored within a *collection*, which is the equivalent of a table in a relational
@@ -448,36 +617,51 @@
     types of documents in the *same* collection. What's more, both the schema and
     contents of each individual document can evolve over time with no visible impact
     on the database's query performance.
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 文档数据库是专门化的 NoSQL 数据库，用于存储、索引和查询复杂且可能深度嵌套的 *文档-like* 对象。所有文档都存储在一个 *集合* 中，这相当于关系数据库中的表。使文档数据库独特的关键区别在于，它们不强制执行特定的模式（即它们是无模式的），而是从存储的数据中
+    *推断* 模式。这种设计决策允许我们在同一个集合中存储 *不同* 类型的文档。更重要的是，每个单独的文档的模式和内容都可以随着时间的推移而演变，而不会对数据库的查询性能产生明显的影响。
 - en: Contrary to relational databases, which have standardized on SQL, document databases
     typically implement their own **domain-specific language** (**DSL**) for querying
     data. However, they also provide advanced primitives (for example, support for
     map-reduce) for calculating complex aggregations across multiple documents in
     a collection. This makes document databases a great fit for generating **business
     intelligence** (**BI**) and other types of analytics reports.
+  id: totrans-82
   prefs: []
   type: TYPE_NORMAL
+  zh: 与标准化了 SQL 的关系数据库相反，文档数据库通常实现自己的 **领域特定语言** (**DSL**) 用于查询数据。然而，它们也提供了高级原语（例如，支持
+    map-reduce），用于在集合中的多个文档上计算复杂的聚合。这使得文档数据库非常适合生成 **商业智能** (**BI**) 和其他类型的分析报告。
 - en: 'The list of document database systems is quite long, so I will just be listing
     some of the more popular (in my view) implementations: MongoDB ^([16]), CouchDB ^([3]), and
     Elasticsearch ^([9]).'
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: 文档数据库系统的列表相当长，所以我只会列出一些我认为更受欢迎的实现：MongoDB ^([16])、CouchDB ^([3]) 和 Elasticsearch
+    ^([9])。
 - en: Understanding the need for a data layer abstraction
+  id: totrans-84
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 理解数据层抽象的需求
 - en: Before we delve deeper into modeling the data layer for the link graph and text
     indexer components, we need to spend some time discussing the reasoning behind
     the introduction of a data layer abstraction.
+  id: totrans-85
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们深入探讨链接图和文本索引器组件的数据层建模之前，我们需要花一些时间讨论引入数据层抽象背后的原因。
 - en: First and foremost, the primary purpose of the data layer is to decouple our
     code from the underlying data store implementation. By programming against a well-defined
     and data store-agnostic interface, we ensure that our code remains clean, modular,
     and totally oblivious to the nuances of accessing each data store.
+  id: totrans-86
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先，数据层的主要目的是将我们的代码与底层数据存储实现解耦。通过针对一个定义良好且数据存储无关的接口进行编程，我们确保我们的代码保持清洁、模块化，并且完全不了解访问每个数据存储的细微差别。
 - en: An extra benefit of this approach is that it offers us the flexibility to A/B
     test different data store technologies before we decide which one to use for our
     production systems. What's more, even if our original decision proves to be less
@@ -485,8 +669,10 @@
     capability to scale vertically/horizontally), we can easily switch to a different
     system. This can be achieved by wiring in a new data store adapter implementation
     without the need to modify any of the higher levels of our services' implementation.
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: 这种方法的额外好处是，它为我们提供了在决定为我们的生产系统使用哪种数据存储技术之前，对不同数据存储技术进行A/B测试的灵活性。更重要的是，即使我们的原始决策在长期内证明不够出色（例如，服务流量超过存储的垂直/水平扩展能力），我们也可以轻松切换到不同的系统。这可以通过连接一个新的数据存储适配器实现，而无需修改我们服务实现中的任何高级部分。
 - en: The final advantage of having such an abstraction layer has to do with *testing*.
     By providing individual Go packages for each data store that we are interested
     in supporting, we can not only encapsulate the store-specific logic but can also
@@ -496,15 +682,19 @@
     stubs, and fake objects) that we outlined in [Chapter 4](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml),
     *The Art of Testing*, to test other high-level components that require access
     to a data store without actually having to provision a real data store instance.
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: 这种抽象层的最终优势与测试有关。通过为每个我们感兴趣支持的数据存储提供单独的Go包，我们不仅可以封装特定存储的逻辑，还可以编写全面的测试套件来测试每个存储的行为，而无需从其余代码库中完全隔离。一旦我们确信实现符合预期，我们可以使用我们在[第4章](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml)《测试的艺术》中概述的任何测试机制（例如，模拟、存根和假对象）来测试需要访问数据存储的其他高级组件，而实际上并不需要配置真实的数据存储实例。
 - en: Initially, this might not seem to be a big benefit. However, for larger Go projects
     that spawn multiple packages, the cost of setting up, populating with fixtures,
     and finally cleaning a database *between tests* can be quite high. Compared to
     using an in-memory data store implementation, tests against a real database not
     only take more time to run but may also prove to be quite flaky.
+  id: totrans-89
   prefs: []
   type: TYPE_NORMAL
+  zh: 初始时，这可能看起来不是什么大好处。然而，对于产生多个包的大型Go项目来说，在测试之间设置、用固定值填充以及最终清理数据库的成本可能相当高。与使用内存数据存储实现相比，针对真实数据库的测试不仅运行时间更长，而且可能证明相当不可靠。
 - en: One common problem that you may have encountered in the past is potential DB
     access races for tests that belong to *different packages* but try to access and/or
     populate the *same* database instance concurrently. As a result, some of the DB-related
@@ -512,8 +702,10 @@
     by virtue of Murphy's law, such problems rarely crop up when testing locally,
     but rather have the tendency to manifest themselves when the continuous integration
     system runs the tests for the pull request you just submitted for review!
+  id: totrans-90
   prefs: []
   type: TYPE_NORMAL
+  zh: 你在过去可能遇到的一个常见问题是，对于属于不同包但尝试并发访问和/或填充相同数据库实例的测试，可能存在潜在的数据库访问竞态条件。结果，一些与数据库相关的测试可能会以非确定性的方式随机开始失败。当然，根据墨菲定律，这种问题很少在本地测试时出现，而是在你提交的拉取请求进行持续集成系统测试时才倾向于显现出来！
 - en: It is pretty easy to end up in such a messy situation if multiple packages from
     your code base have a strong coupling to the underlying database due to the fact
     that the `go test` command will, *by default*, run tests that belong to different
@@ -523,46 +715,65 @@
     your test suites and would be overkill for larger projects. Encapsulating the
     tests that require a real DB store instance into a single package and using mocks
     everywhere else is a clean and elegant solution for mitigating such problems.
+  id: totrans-91
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你的代码库中的多个包由于`go test`命令默认会并发运行属于不同包的测试，因此与底层数据库有很强的耦合，那么最终陷入这种混乱的情况是很常见的。作为一个临时的解决方案，你可以通过提供`-parallel
+    1`命令行标志来强制`go test`序列化所有测试的执行。然而，这个选项会严重增加测试套件的总体执行时间，对于大型项目来说可能是过度杀鸡用牛刀。将需要真实数据库存储实例的测试封装到一个单独的包中，并在其他地方使用模拟，是缓解此类问题的干净且优雅的解决方案。
 - en: Designing the data layer for the link graph component
+  id: totrans-92
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 设计链接图组件的数据层。
 - en: In the following sections, we will perform an extended analysis of the data
     models that are required for the operation of the link graph component. We will
     kick off our analysis by creating an **Entity-Relationship** (**ER**) diagram
     for the entities that compose the data access layer. Then, we will define an interface
     that fully describes the set of operations that the data access layer must support.
+  id: totrans-93
   prefs: []
   type: TYPE_NORMAL
+  zh: 在以下章节中，我们将对用于链接图组件操作所需的数据模型进行扩展分析。我们将通过为组成数据访问层的实体创建一个**实体-关系**（**ER**）图来启动我们的分析。然后，我们将定义一个接口，该接口完全描述了数据访问层必须支持的操作集。
 - en: Finally, we will design and build two alternative data access layer implementations
     (in-memory and CockroachDB-backed) that both satisfy the aforementioned interface. To
     ensure that both implementations behave in exactly the same manner, we will also
     create a comprehensive, store-agnostic test suite and arrange for our test code
     to invoke it for each individual store implementation.
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们将设计和构建两个替代的数据访问层实现（内存和CockroachDB支持的），这两个实现都满足上述接口。为了确保两种实现的行为完全相同，我们还将创建一个全面的、存储无关的测试套件，并安排我们的测试代码为每个单独的存储实现调用它。
 - en: All the code that we will be discussing in the following sections can be found
     in the `Chapter06/linkgraph` folder in this book's GitHub repository.
+  id: totrans-95
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将在以下章节中讨论的所有代码都可以在本书的GitHub仓库的`Chapter06/linkgraph`文件夹中找到。
 - en: Creating an ER diagram for the link graph store
+  id: totrans-96
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为链接图存储创建ER图。
 - en: 'The following diagram presents the ER diagram for the link graph data access
     layer. Given that the crawler retrieves web page links and discovers connections
     between websites, it makes sense for us to use a graph-based representation for
     our system modeling. As you can see, the ER diagram is comprised of two models: **Link** and **Edge**:'
+  id: totrans-97
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下图展示了链接图数据访问层的ER图。鉴于爬虫检索网页链接并发现网站之间的连接，对我们来说使用基于图的表现形式来对系统建模是有意义的。正如您所看到的，ER图由两个模型组成：**链接**和**边**：
 - en: '![](img/90c94c2c-00ed-4f53-9acd-2da303a48848.png)'
+  id: totrans-98
   prefs: []
   type: TYPE_IMG
+  zh: '![图片](img/90c94c2c-00ed-4f53-9acd-2da303a48848.png)'
 - en: Figure 2: The ER diagram for the link graph component
+  id: totrans-99
   prefs: []
   type: TYPE_NORMAL
+  zh: 图2：链接图组件的ER图
 - en: 'Link model instances represent the set of web pages that have been processed
     or discovered by the crawler component. Its attribute set consists of an ID value
     for uniquely identifying each link, the URL associated with it, and a timestamp
@@ -571,25 +782,33 @@
     the link graph for the Links ''R'' Us project. In a real-world implementation,
     we would probably want to augment our link model with additional metadata, such
     as the following:'
+  id: totrans-100
   prefs: []
   type: TYPE_NORMAL
+  zh: 链接模型实例代表由爬虫组件处理或发现的网页集合。其属性集包括一个用于唯一标识每个链接的ID值，与之关联的URL，以及一个表示爬虫最后一次检索它的时间戳值。上述列表构成了为“链接‘R’Us”项目建模链接图所需的*最小*属性集。在实际实现中，我们可能会希望用以下附加元数据来增强我们的链接模型：
 - en: The MIME type for the URL content (as indicated by the remote server) and its
     length in bytes.
+  id: totrans-101
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: URL内容的MIME类型（由远程服务器指示）及其字节数长度。
 - en: The HTTP status code of the last crawl attempt. This is quite useful for retrying
     failed attempts or for dropping dead links from our graph.
+  id: totrans-102
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 最后一次爬取尝试的HTTP状态码。这对于重试失败的尝试或从我们的图中删除死链接非常有用。
 - en: A preferred (per-domain or per-link) time window for performing future crawl
     requests. As web crawlers tend to induce significant traffic spikes when fetching
     links from remote servers, this information can be used by our crawler to schedule
     its update cycle at off-peak times and thus minimize its impact on remote servers.
+  id: totrans-103
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 执行未来爬取请求的（按域名或按链接）首选时间窗口。由于网络爬虫在从远程服务器获取链接时往往会引起显著的流量峰值，因此这些信息可以由我们的爬虫用于在非高峰时段安排其更新周期，从而最小化其对远程服务器的影响。
 - en: Each web page in the graph may contain *zero or more* outgoing links to other
     web pages. An Edge model instance represents a **uni-directional** connection
     between two links in the graph. As shown in the preceding diagram, the attribute
@@ -598,8 +817,10 @@
     support **bi-directional** links (also known as backlinks) between web pages,
     with the minor caveat that they would need to be represented as two separate edge
     entries.
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: 图中的每个网页可能包含*零个或多个*指向其他网页的出站链接。Edge模型实例表示图中两个链接之间的**单向**连接。如图所示，Edge模型的属性集包括边本身的唯一ID，以及源链接和目标链接的ID。这种建模方法还可以支持网页之间的**双向**链接（也称为反向链接），但有一个小的限制，即它们需要表示为两个独立的边条目。
 - en: 'Moreover, the edge attribute set also contains a timestamp value that tracks
     the last time that the edge was visited by the crawler. A common challenge with
     graphs such as the WWW, whose structure changes at a very fast rate, is figuring
@@ -608,152 +829,216 @@
     all we need to do is **upsert** (insert or update if the entry already exists)
     an Edge model instance for every outgoing edge that''s detected by the crawler.
     Handling edge *deletions, on the other hand,* is slightly more complicated.'
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: 此外，边属性集还包含一个时间戳值，用于跟踪爬虫上次访问边的时间。对于结构变化非常快的图，如WWW，一个常见的挑战是如何有效地检测边相关变化：新的边可能会在任何时候出现，而其他边可能会消失。处理边添加是一个简单任务；我们只需要为爬虫检测到的每个出站边创建一个Edge模型实例。另一方面，处理边**删除**则稍微复杂一些。
 - en: 'The approach that we will be adopting for the crawler component will leverage
     the last update timestamp as the means of detecting whether an existing edge is
     *stale* and needs to be removed. Each time the crawler processes a link from the
     graph, it will perform the following actions:'
+  id: totrans-106
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将为爬虫组件采用的方法将利用最后更新时间戳作为检测现有边是否**过时**并需要删除的手段。每次爬虫处理图中的链接时，它将执行以下操作：
 - en: Upsert a Link model entry for each outgoing link.
+  id: totrans-107
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 为每个出站链接创建一个Link模型条目。
 - en: 'Upsert an Edge model for each unique outgoing link, where we have the following:'
+  id: totrans-108
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 为每个唯一的出站链接创建一个Edge模型，其中包含以下操作：
 - en: The `origin` is always set to the link that is currently being processed.
+  id: totrans-109
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`origin`始终设置为当前正在处理的链接。'
 - en: The `destination` is each detected outgoing link.
+  id: totrans-110
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`destination`是每个检测到的出站链接。'
 - en: The `updatedAt` timestamp is the current system time.
+  id: totrans-111
   prefs:
   - PREF_IND
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`updatedAt`时间戳是当前系统时间。'
 - en: By following these steps, any links with the same `(source, destination)` tuple
     will have their `UpdatedAt` field refreshed while stale, old links will retain
     their previous `UpdatedAt` value. If we arrange for the crawler to record the
     exact time when it started crawling a particular page, we can simply delete all
     the edges whose *source* is the link that was just crawled and whose `UpdatedAt` value
     is older than the recorded timestamp.
+  id: totrans-112
   prefs: []
   type: TYPE_NORMAL
+  zh: 通过遵循这些步骤，任何具有相同`(source, destination)`元组的链接将刷新其`UpdatedAt`字段，而过时的旧链接将保留其之前的`UpdatedAt`值。如果我们安排爬虫记录它开始爬取特定页面的确切时间，我们只需删除所有*源*是刚刚爬取的链接且`UpdatedAt`值早于记录的时间戳的边。
 - en: Listing the required set of operations for the data access layer
+  id: totrans-113
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 列出数据访问层所需的一组操作
 - en: Following the SOLID design principles we discussed in the previous chapters,
     we will start designing the link graph data access layer by listing the operations
     (responsibilities, in SOLID terminology) that it needs to perform and then formally
     describe them by means of a Go interface.
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: 遵循我们在前几章中讨论的SOLID设计原则，我们将开始设计链接图数据访问层，首先列出它需要执行的操作（在SOLID术语中称为责任），然后通过Go接口正式描述它们。
 - en: 'For our particular use case, the link graph access layer must support the following
     set of operations:'
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于我们的特定用例，链接图访问层必须支持以下一组操作：
 - en: Insert a link into the graph or update an existing link when the crawler discovers
     that its content has changed.
+  id: totrans-116
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 当爬虫发现其内容已更改时，将链接插入图或更新现有链接。
 - en: Look up a link by its ID.
+  id: totrans-117
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 通过ID查找链接。
 - en: Iterate *all the links* present in the graph. This is the primary service that
     the link graph component must provide to the other components (for example, the
     crawler and `PageRank` calculator) that comprise the Links 'R' Us project.
+  id: totrans-118
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 遍历图中存在的所有链接。这是链接图组件必须向其他组件（例如，爬虫和`PageRank`计算器）提供的主要服务，这些组件构成了“链接的R'Us”项目。
 - en: Insert an edge into the graph or refresh the `UpdatedAt` value of an existing
     edge.
+  id: totrans-119
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 向图中插入一条边或刷新现有边的`UpdatedAt`值。
 - en: Iterate the list of edges in the graph. This functionality is required by the
     `PageRank` calculator component.
+  id: totrans-120
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 遍历图中的边列表。这个功能是`PageRank`计算组件所必需的。
 - en: Delete stale links that originated from a particular link and were not updated
     during the last crawler pass.
+  id: totrans-121
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 删除来自特定链接且在最后一次爬虫遍历期间未更新的陈旧链接。
 - en: Defining a Go interface for the link graph
+  id: totrans-122
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 定义链接图的Go接口
 - en: 'To satisfy the list of operations from the previous section, we shall define
     the `Graph` interface as follows:'
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了满足上一节中列出的操作列表，我们将定义`Graph`接口如下：
 - en: '[PRE4]'
+  id: totrans-124
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'The first two methods allow us to upsert a `Link` model and retrieve it from
     the backing store if we are aware of its ID. In the following code, you can see
     the definition of the `Link` type, whose fields match the ones from the ER diagram:'
+  id: totrans-125
   prefs: []
   type: TYPE_NORMAL
+  zh: 前两个方法允许我们在知道其ID的情况下更新`Link`模型并从后端存储中检索它。在下面的代码中，你可以看到`Link`类型的定义，其字段与ER图中的字段相匹配：
 - en: '[PRE5]'
+  id: totrans-126
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'Each link is assigned a unique ID (a V4 UUID, to be precise) and contains two
     fields: the URL for accessing the web page and a timestamp field that keeps track
     of the last time that the link''s content was retrieved by the crawler.'
+  id: totrans-127
   prefs: []
   type: TYPE_NORMAL
+  zh: 每个链接都被分配了一个唯一的ID（确切地说是一个V4 UUID）并且包含两个字段：访问网页的URL和一个时间戳字段，用于跟踪链接内容最后被爬虫检索的时间。
 - en: 'The next two methods from the `Graph` interface allow us to manipulate the
     edges of the graph. Let''s begin by examining the definition of the `Edge` type:'
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来的两个方法来自`Graph`接口，允许我们操作图的边。让我们首先检查`Edge`类型的定义：
 - en: '[PRE6]'
+  id: totrans-129
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: 'Similar to links, edges are also assigned their own unique ID (also a V4 UUID).
     In addition, the `Edge` model tracks the following:'
+  id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: 与链接类似，边也被分配了自己的唯一ID（也是一个V4 UUID）。此外，`Edge`模型跟踪以下内容：
 - en: The ID of both the source and destination links that form the edge
+  id: totrans-131
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 构成边的源链接和目标链接的ID
 - en: The timestamp when it was last updated
+  id: totrans-132
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 最后更新的时间戳
 - en: Partitioning links and edges for processing the graph in parallel
+  id: totrans-133
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 对链接和边进行分区以并行处理图
 - en: 'As you have probably noticed by their signatures, the `Links` and `Edges` methods
     are designed to return an *iterator* so that they can access a filtered subset
     of the graph''s vertices and edges. More specifically, they do the following:'
+  id: totrans-134
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您可能已经注意到的，`Links`和`Edges`方法的签名表明，它们被设计为返回一个*迭代器*，以便它们可以访问图顶点和边的筛选子集。更具体地说，它们执行以下操作：
 - en: The `Links` method returns a set of links whose ID belongs to the `[fromID,
     toID)` range *and* their last retrieval time before the provided timestamp.
+  id: totrans-135
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`Links`方法返回一组链接，其ID属于`[fromID, toID)`范围，并且它们的最后检索时间早于提供的时间戳。'
 - en: The `Edges` method returns the set of edges whose *origin vertex IDs* belong
     to the `[fromID, toID)` range and their last update time is before the provided
     timestamp.
+  id: totrans-136
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`Edges`方法返回一组边，其*起点ID*属于`[fromID, toID)`范围，并且它们的最后更新时间早于提供的时间戳。'
 - en: 'At this point, we need to spend some time and elaborate on the reasoning behind
     the design of these methods. We could argue that, at some point, the link graph
     will grow large enough so that in order to process it in an efficient manner,
@@ -762,34 +1047,47 @@
     grouping links and edges into partitions based on their individual IDs. Given
     a `[fromID, toID)` range, all graph implementations will use the following logic
     to select which link and edge model instances to return via the iterator:'
+  id: totrans-137
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这一点上，我们需要花一些时间来详细阐述这些方法设计背后的推理。我们可以争论，在某个时刻，链接图将足够大，以至于为了高效地处理它，我们最终必须将其分割成块，并并行处理每个块。为此，我们的设计必须预见这一需求，并包括一种机制，根据它们的个别ID将链接和边分组到分区中。给定一个`[fromID,
+    toID)`范围，所有图实现都将使用以下逻辑来选择通过迭代器返回哪些链接和边模型实例：
 - en: Return links whose ID is within the `[fromID, toID)` range.
+  id: totrans-138
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 返回ID在`[fromID, toID)`范围内的链接。
 - en: Return edges for which the *origin link's ID* is within the `[fromID, toID)` range.
     In other words, edges always belong to the same partition as their origin links.
+  id: totrans-139
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 返回ID在`[fromID, toID)`范围内的边。换句话说，边始终属于与它们的源链接相同的分区。
 - en: It is important to note that while the preceding method signatures accept a
     UUID range as their input, the implementation of a suitable partitioning scheme
     for calculating the UUID ranges themselves will be the* responsibility of the
     caller*. The `Links` and `Edges` methods will happily accept any UUID range that's
     provided by the caller as long as it is valid.
+  id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: 重要的是要注意，尽管前面的方法签名接受一个UUID范围作为输入，但实现一个合适的分区方案来计算UUID范围本身的*责任*在于调用者。只要有效，`Links`和`Edges`方法将乐意接受调用者提供的任何UUID范围。
 - en: In [Chapter 10](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml), *Building, Packaging,
     and Deploying Software*, we will explore the use of the `math/big` package to
     facilitate the carving of the UUID space into non-overlapping regions that can
     then be fed into the aforementioned store methods.
+  id: totrans-141
   prefs: []
   type: TYPE_NORMAL
+  zh: 在[第10章](bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml)“构建、打包和部署软件”中，我们将探讨使用`math/big`包来简化UUID空间的分割，以便将其输入到上述存储方法中。
 - en: Iterating Links and Edges
+  id: totrans-142
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 迭代链接和边
 - en: 'Since there is no upper bound in the number of links or edges that can be potentially
     returned by calls to the `Links` and `Edges` methods, we will be implementing
     the *iterator* designpattern and lazily fetch Link and Edge models on demand.
@@ -797,189 +1095,264 @@
     are interfaces themselves. This is intentional as their internal implementation
     details will obviously depend on the database technology that we select for the
     link graph persistence layer. Here is how they are defined:'
+  id: totrans-143
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于调用`Links`和`Edges`方法可能返回的链接或边的数量没有上限，我们将实现*迭代器*设计模式，并按需懒加载Link和Edge模型。这些方法返回的`LinkIterator`和`EdgeIterator`类型本身就是接口。这是故意的，因为它们的内部实现细节显然将取决于我们为链接图持久化层选择的数据库技术。以下是它们的定义：
 - en: '[PRE7]'
+  id: totrans-144
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: 'Both of the preceding interfaces define a *getter* method for retrieving the `Link` or `Edge` instance
     that the iterator is currently pointing at. The common logic between the two iterators
     has been extracted into a separate interface called `Iterator`, which both of
     the interfaces embed. The definition of the `Iterator` interface is as follows:'
+  id: totrans-145
   prefs: []
   type: TYPE_NORMAL
+  zh: 前面的两个接口都定义了一个*获取器*方法来检索迭代器当前指向的`Link`或`Edge`实例。两个迭代器之间的共同逻辑已被提取到一个单独的接口中，称为`Iterator`，这两个接口都包含了这个接口。`Iterator`接口的定义如下：
 - en: '[PRE8]'
+  id: totrans-146
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'To iterate a list of edges or links, we must obtain an iterator from the graph
     and run our business logic within a `for` loop:'
+  id: totrans-147
   prefs: []
   type: TYPE_NORMAL
+  zh: 要迭代边或链接的列表，我们必须从图中获取一个迭代器，并在`for`循环中运行我们的业务逻辑：
 - en: '[PRE9]'
+  id: totrans-148
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'Calls to `linkIt.Next()` will return false when the following occurs:'
+  id: totrans-149
   prefs: []
   type: TYPE_NORMAL
+  zh: 调用`linkIt.Next()`时，如果发生以下情况将返回false：
 - en: We have iterated all the available links
+  id: totrans-150
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 我们已经迭代了所有可用的链接
 - en: An error occurs (for example, we lost connection to the database)
+  id: totrans-151
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 发生错误（例如，我们失去了与数据库的连接）
 - en: As a result, we don't need to check whether an error occurred inside the loop
     – we only need to check *once* after exiting the for loop. This pattern yields
     cleaner-looking code and is actually used in various places within the Go standard
     library, such as the `Scanner` type from the `bufio` package.
+  id: totrans-152
   prefs: []
   type: TYPE_NORMAL
+  zh: 因此，我们不需要在循环内部检查是否发生了错误 - 我们只需要在退出`for`循环后检查*一次*。这种模式产生的代码看起来更干净，实际上在Go标准库的多个地方都有使用，例如`bufio`包中的`Scanner`类型。
 - en: Verifying graph implementations using a shared test suite
+  id: totrans-153
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用共享测试套件验证图实现
 - en: As we mentioned in the previous sections, we will be building both an in-memory
     and a database-backed implementation of the `Graph` interface. To this end, we
     need to come up with a set of comprehensive tests to ensure that both implementations
     behave in exactly the same manner.
+  id: totrans-154
   prefs: []
   type: TYPE_NORMAL
+  zh: 如前几节所述，我们将构建`Graph`接口的内存和数据库支持实现。为此，我们需要制定一套全面的测试来确保这两种实现的行为完全相同。
 - en: 'One way to achieve this is to write the tests for the first implementation
     and then duplicate them for each additional implementation that we may introduce
     in the future. However, this approach doesn''t really scale well: what if we modify
     the `Graph` interface in the future? We would need to track down and update a
     whole bunch of tests that might be scattered across different packages.'
+  id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: 实现这一目标的一种方法是为第一个实现编写测试，然后为未来可能引入的每个额外实现重复它们。然而，这种方法实际上并不容易扩展：如果我们未来修改 `Graph`
+    接口怎么办？我们需要追踪并更新可能散布在不同包中的大量测试。
 - en: 'A much better, and cleaner, approach would be to come up with a shared, implementation-agnostic
     test suite and then just wire it to each underlying graph implementation. I opted
     for this approach as it reduces the amount of maintenance that''s required, while
     at the same time allowing us to run *exactly the same set of tests* against all
     implementations: a fairly efficient way of detecting regressions when we change
     one of our implementations.'
+  id: totrans-156
   prefs: []
   type: TYPE_NORMAL
+  zh: 一个更好、更干净的方法是提出一个共享的、与实现无关的测试套件，然后将其连接到每个底层图实现。我选择了这种方法，因为它减少了所需的维护量，同时允许我们对所有实现运行
+    **完全相同的测试集**：当我们更改我们的实现之一时，这是一种相当有效的方法来检测回归。
 - en: But if the test suite is shared, where should it live so that we can include
     it in all implementation-specific test suites? The answer is to encapsulate the
     suite into its own dedicated testing package that our regular test code can import
     and use where it's needed.
+  id: totrans-157
   prefs: []
   type: TYPE_NORMAL
+  zh: 但是，如果测试套件是共享的，它应该放在哪里，以便我们可以将其包含在所有特定实现的测试套件中？答案是将其封装到自己的专用测试包中，这样我们的常规测试代码就可以在需要的地方导入和使用。
 - en: 'The `SuiteBase` definition lives in the `Chapter06/linkgraph/graph/graphtest`
     package and depends on the `gocheck` ^([11]) framework, which we introduced in
     [Chapter 4](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml), *The Art of Testing*.
     The suite includes the following groups of tests:'
+  id: totrans-158
   prefs: []
   type: TYPE_NORMAL
+  zh: '`SuiteBase` 的定义位于 `Chapter06/linkgraph/graph/graphtest` 包中，并且依赖于我们在 [第 4 章](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml)
+    《测试的艺术》中介绍的 `gocheck` ^([11]) 框架。该测试套件包括以下测试组：'
 - en: '**Link/Edge upsert tests**: These tests are designed to verify that we can
     insert new edges/links into the graph and that they are assigned a valid, unique
     ID.'
+  id: totrans-159
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**链接/边更新测试**：这些测试旨在验证我们可以将新的边/链接插入到图中，并且它们被分配了一个有效、唯一的 ID。'
 - en: '**Concurrent link/edge iterator support**: These tests ensure that no data
     races occur when the code concurrently accesses the graph''s contents via multiple
     iterator instances.'
+  id: totrans-160
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**并发链接/边迭代器支持**：这些测试确保在代码通过多个迭代器实例并发访问图内容时不会发生数据竞争。'
 - en: '**Partitioned iterator tests**: These tests verify that if we split our graph
     into N partitions and assign an iterator to each partition, each iterator will
     receive a unique set of links/edges (that is, no item will be listed in more than
     one partition) and that all the iterators will process the full set of links/edges
     present in the graph. Additionally, the edge iterator tests ensure that each edge
     appears in the same partition as its source link.'
+  id: totrans-161
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**分区迭代器测试**：这些测试验证如果我们把我们的图分成 N 个分区，并为每个分区分配一个迭代器，每个迭代器将接收一组唯一的链接/边（即，没有项目会在多个分区中列出）以及所有迭代器都将处理图中存在的全部链接/边集合。此外，边迭代器测试确保每个边与其源链接出现在同一个分区中。'
 - en: '**Link lookup tests**: A simple set of tests that verify the graph implementation''s
     behavior when looking up existing or unknown link IDs.'
+  id: totrans-162
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**链接查找测试**：一组简单的测试，用于验证图实现查找现有或未知链接 ID 时的行为。'
 - en: '**Stale edge removal tests**: A set of tests that verify that we can successfully
     delete stale edges from the graph using an *updated-before-X* predicate.'
+  id: totrans-163
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**过时边删除测试**：一组测试，用于验证我们可以使用 `updated-before-X` 断言成功从图中删除过时的边。'
 - en: 'To create a test suite for a *new* graph implementation, all we have to do
     is to define a new test suite that does the following:'
+  id: totrans-164
   prefs: []
   type: TYPE_NORMAL
+  zh: 要为一个新的图实现创建测试套件，我们只需定义一个新的测试套件，该套件执行以下操作：
 - en: Embeds `SuiteBase`
+  id: totrans-165
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 集成 `SuiteBase`
 - en: Provides a suite setup helper that creates the appropriate graph instance and
     invokes the `SetGraph` method that's exposed by `SuiteBase` so that we can wire
     it to the base test suite before running any of the preceding tests
+  id: totrans-166
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 提供一个套件设置辅助工具，该工具创建适当的图实例并调用 `SuiteBase` 提供的 `SetGraph` 方法，这样我们就可以在运行任何前面的测试之前将其连接到基本测试套件。
 - en: Implementing an in-memory graph store
+  id: totrans-167
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 实现内存图存储
 - en: The in-memory graph implementation will serve as a gentle introduction to writing
     a complete graph store implementation. By virtue of maintaining the graph in memory,
     this implementation is simple, self-contained, and safe for concurrent access.
     This makes it an ideal candidate for writing unit tests that require access to
     the link graph component.
+  id: totrans-168
   prefs: []
   type: TYPE_NORMAL
+  zh: 内存图实现将作为编写完整图存储实现的温和介绍。由于在内存中维护图，这种实现简单、自包含且对并发访问安全。这使得它成为编写需要访问链接图组件的单元测试的理想候选。
 - en: 'Let''s take a look at its implementation, starting with the definition of the `InMemoryGraph` type:'
+  id: totrans-169
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们看看它的实现，从`InMemoryGraph`类型的定义开始：
 - en: '[PRE10]'
+  id: totrans-170
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: The `InMemoryGraph` struct defines two maps (`links` and `edges`) that maintain
     the set of `Link` and `Edge` models that have been inserted into the graph. To
     accelerate ID-based lookups, both maps use the model IDs as their key.
+  id: totrans-171
   prefs: []
   type: TYPE_NORMAL
+  zh: '`InMemoryGraph`结构定义了两个映射（`links`和`edges`），它们维护已插入图中的`Link`和`Edge`模型集合。为了加速基于ID的查找，这两个映射都使用模型ID作为它们的键。'
 - en: Going back to our ER diagram, we can see that link URLs are also expected to
     be unique. To this end, the in-memory graph also maintains an auxiliary map (`linkURLIndex`)
     where keys are the URLs that are added to the graph and values are pointers to
     link models. We will go through the details of how this particular map is used
     when we examine the implementation of the `UpsertLink` method in the next section.
+  id: totrans-172
   prefs: []
   type: TYPE_NORMAL
+  zh: 回到我们的ER图，我们可以看到链接URL也应该是唯一的。为此，内存图还维护一个辅助映射（`linkURLIndex`），其中键是添加到图中的URL，值是指向链接模型的指针。当我们检查下一节中`UpsertLink`方法的实现时，我们将详细介绍这个特定映射的使用细节。
 - en: 'Another type of query that we should be able to answer *efficiently* in order
     to implement the `Edges` and `RemoveStaleEdges` methods is: *find the list of
     edges that originate from a particular link*. This is achieved by defining yet
     another auxiliary map called `linkEdgeMap`. This map associates link IDs with
     a slice of edge IDs that correspond to the edges *originating* from it.'
+  id: totrans-173
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了实现`Edges`和`RemoveStaleEdges`方法，我们还应该能够高效地回答另一种类型的查询：*查找从特定链接起源的边列表*。这是通过定义另一个辅助映射`linkEdgeMap`来实现的。此映射将链接ID与对应于从它起源的边的ID片段相关联。
 - en: Finally, to ensure that our implementation is safe for concurrent access, the
     struct definition includes a `sync.RWMutex` field. In contrast to the regular
     `sync.Mutex`, which provides single reader/writer semantics, `sync.RWMutex` supports
     *multiple concurrent readers* and thus provides much better throughput guarantees
     for *read-heavy* workloads.
+  id: totrans-174
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，为了确保我们的实现对并发访问安全，结构定义包括一个`sync.RWMutex`字段。与提供单一读者/写者语义的常规`sync.Mutex`不同，`sync.RWMutex`支持*多个并发读者*，因此为*读密集型*工作负载提供了更好的吞吐量保证。
 - en: Upserting links
+  id: totrans-175
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 插入链接
 - en: Let's begin our tour of the in-memory graph implementation by taking a look
     at how the `UpsertLink` method is implemented. Since an upsert operation will
     always modify the graph, the method will acquire a *write* lock so that we can
     apply any modifications in an atomic fashion. The method contains two distinct
     code paths.
+  id: totrans-176
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们通过查看`UpsertLink`方法的实现来开始我们对内存图实现的探索。由于更新操作将始终修改图，因此该方法将获取一个*写*锁，以便我们可以以原子方式应用任何修改。该方法包含两个不同的代码路径。
 - en: 'If the link to be upserted does not specify an ID, we treat it as an insert
     attempt *unless* we have *already* added another link with the same URL. In the
     latter case, we silently convert the insert into an *update* operation while making
     sure that we always retain the most recent `RetrievedAt` timestamp:'
+  id: totrans-177
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果要插入的链接没有指定ID，我们将其视为插入尝试*除非*我们已经添加了另一个具有相同URL的链接。在后一种情况下，我们将静默地将插入转换为*更新*操作，同时确保我们始终保留最新的`RetrievedAt`时间戳：
 - en: '[PRE11]'
+  id: totrans-178
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: 'Once we verify that we need to create a new entry for the link, we must assign
     a unique ID to it before we can insert it into the graph. This is achieved by
     means of a small for loop where we keep generating new UUID values until we obtain
@@ -987,101 +1360,145 @@
     we are more or less guaranteed to obtain a unique value on our first attempt.
     The presence of the for loop guarantees that our code behaves correctly, even
     in the highly unlikely case of UUID collisions:'
+  id: totrans-179
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦我们验证我们需要为链接创建一个新条目，我们就可以在将其插入图之前为其分配一个唯一的ID。这是通过一个小型循环来实现的，我们不断生成新的UUID值，直到我们获得一个唯一的值。由于我们为我们的实现使用V4（随机）UUID，我们基本上可以保证在第一次尝试中获得一个唯一的值。循环的存在保证了我们的代码即使在UUID冲突这种极不可能发生的情况下也能正确运行：
 - en: '[PRE12]'
+  id: totrans-180
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: Once we have generated an ID for the link, we can make a *copy* of link that's
     provided by the caller to ensure that no code outside of our implementation can
     modify the graph data. Then, we insert the link into the appropriate map structures.
+  id: totrans-181
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦我们为链接生成了一个ID，我们就可以制作一个由调用者提供的链接的**副本**，以确保我们的实现之外的任何代码都不能修改图数据。然后，我们将链接插入适当的映射结构中。
 - en: Upserting edges
+  id: totrans-182
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 更新边
 - en: 'The edge upsert logic in `UpsertEdge` has a lot of things in common with the `UpsertLink` implementation
     we examined in the previous section. The first thing we need to do is acquire
     the write lock and verify that the source and destination links for the edge actually
     exist:'
+  id: totrans-183
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`UpsertEdge`中的边更新逻辑与我们在上一节中检查的`UpsertLink`实现有很多共同之处。我们首先需要做的是获取写锁并验证边的源和目的链接确实存在：
 - en: '[PRE13]'
+  id: totrans-184
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: 'Next, we scan the set of edges that originate from the specified source link
     and check whether we can find an *existing* edge to the same destination. If that
     happens to be the case, we simply update the entry''s `UpdatedAt` field and copy
     its contents back to the provided `edge` pointer. This ensures that the `entry` value
     that''s provided by the caller has both its `ID` and `UpdatedAt` synced with the
     values contained in the store:'
+  id: totrans-185
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，我们扫描从指定源链接出发的边集，并检查我们是否可以找到一个到相同目的地的**现有**边。如果确实如此，我们只需更新条目的`UpdatedAt`字段，并将其内容复制回提供的`edge`指针。这确保了调用者提供的`entry`值中的`ID`和`UpdatedAt`与存储中包含的值同步：
 - en: '[PRE14]'
+  id: totrans-186
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: 'If the preceding loop does not produce a match, we create and insert a new
     edge to the store. As you can see in the following code snippet, we follow the
     same methodology that we did for link insertions. First, we allocate a new, unique
     ID for the edge and populate its `UpdatedAt` value. Then, we create a *copy* of
     the provided `Edge` object and insert it into the store''s `edges` map:'
+  id: totrans-187
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果前面的循环没有产生匹配项，我们将在存储中创建并插入一个新的边。正如以下代码片段所示，我们遵循与链接插入相同的策略。首先，我们为边分配一个新的、唯一的ID，并填充其`UpdatedAt`值。然后，我们创建提供的`Edge`对象的**副本**并将其插入存储的`edges`映射中：
 - en: '[PRE15]'
+  id: totrans-188
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: 'Finally, before returning, there is a last bit of book-keeping that we need
     to perform: we need to add the new link to the edge list that originates from
     the specified source link. To this end, we index the `linkEdgeMap` using the source
     link ID as a key and append the ID of the newly inserted edge to the appropriate
     edge list.'
+  id: totrans-189
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，在返回之前，我们还需要做一些最后的记录工作：我们需要将新链接添加到从指定源链接出发的边列表中。为此，我们使用源链接ID作为键索引`linkEdgeMap`，并将新插入的边ID追加到相应的边列表中。
 - en: Looking up links
+  id: totrans-190
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 查找链接
 - en: 'Looking up links is a fairly trivial operation. All we need to do is acquire
     a *read* lock, look up the link by its ID, and do either of the following things:'
+  id: totrans-191
   prefs: []
   type: TYPE_NORMAL
+  zh: 查找链接是一个相当简单的操作。我们所需做的就是获取一个**读**锁，通过ID查找链接，并执行以下操作之一：
 - en: Return the link back to the caller
+  id: totrans-192
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 将链接返回给调用者
 - en: Return an error if no link with the provided ID was found
+  id: totrans-193
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果未找到提供的ID的链接，则返回错误
 - en: 'The link lookup logic is outlined in the following code snippet:'
+  id: totrans-194
   prefs: []
   type: TYPE_NORMAL
+  zh: 链接查找逻辑概述在以下代码片段中：
 - en: '[PRE16]'
+  id: totrans-195
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: Since we want to ensure that no external code can modify the graph's contents
     without invoking the `UpsertLink` method, the `FindLink` implementation always
     returns a *copy* of the link that is stored in the graph.
+  id: totrans-196
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于我们想要确保没有外部代码可以在不调用`UpsertLink`方法的情况下修改图的内容，因此`FindLink`实现总是返回存储在图中的链接的**副本**。
 - en: Iterating links/edges
+  id: totrans-197
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 遍历链接/边
 - en: 'To obtain an iterator for the graph links or edges, users need to invoke the `Links` or `Edges` methods.
     Let''s take a look at how the `Links` method is implemented:'
+  id: totrans-198
   prefs: []
   type: TYPE_NORMAL
+  zh: 要获取图链接或边的迭代器，用户需要调用`Links`或`Edges`方法。让我们看看`Links`方法是如何实现的：
 - en: '[PRE17]'
+  id: totrans-199
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: In the preceding implementation, we obtain a *read* lock and then proceed to
     iterate all the links in the graph, searching for the ones that belong to the `[fromID,
     toID)` partition range *and* whose `RetrievedAt` value is less than the specified `retrievedBefore` value.
     Any links that satisfy this predicate are appended to the `list` variable.
+  id: totrans-200
   prefs: []
   type: TYPE_NORMAL
+  zh: 在前面的实现中，我们获取一个**读**锁，然后继续迭代图中的所有链接，寻找属于`[fromID, toID)`分区范围**并且**其`RetrievedAt`值小于指定的`retrievedBefore`值的链接。任何满足此谓词的链接都将追加到`list`变量中。
 - en: To figure out whether a link ID belongs to the specified partition range, we
     convert it into a string and then rely on string comparisons to verify that it
     is either equal to `fromID` or falls between the two ends of the partition range.
@@ -1089,35 +1506,51 @@
     directly comparing the underlying byte representation of the UUID values. However,
     since this particular implementation is meant to be used just for debugging purposes,
     we can focus on keeping the code simple rather than worrying about its performance.
+  id: totrans-201
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了确定一个链接ID是否属于指定的分区范围，我们将其转换为字符串，然后依赖于字符串比较来验证它是否等于`fromID`或位于分区范围的两端之间。显然，执行字符串转换和比较不如直接比较UUID值的底层字节表示那么高效。然而，由于这个特定的实现仅用于调试目的，我们可以专注于保持代码简单，而不是担心其性能。
 - en: 'Once we have finished iterating all the links, we create a new `linkIterator` instance
     and return it to the user. Now, let''s examine how the iterator is implemented,
     starting with its type definition:'
+  id: totrans-202
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦我们迭代完所有链接，我们就创建一个新的`linkIterator`实例并将其返回给用户。现在，让我们来看看迭代器的实现，从其类型定义开始：
 - en: '[PRE18]'
+  id: totrans-203
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: As you can see, the iterator stores a pointer to the in-memory graph, a list
     of `Link` models to iterate, and an index for keeping track of the iterator's
     offset within the list.
+  id: totrans-204
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，迭代器存储了对内存中图的指针、要迭代的`Link`模型列表以及一个用于跟踪迭代器在列表中偏移量的索引。
 - en: 'The implementation of the iterator''s `Next` method is quite trivial:'
+  id: totrans-205
   prefs: []
   type: TYPE_NORMAL
+  zh: 迭代器的`Next`方法的实现相当简单：
 - en: '[PRE19]'
+  id: totrans-206
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: 'Unless we have already reached the end of the list of links, we advance `curIndex` and
     return true to indicate that more data is available for retrieval via a call to
     the `Link` method, whose implementation is listed as follows:'
+  id: totrans-207
   prefs: []
   type: TYPE_NORMAL
+  zh: 除非我们已经到达了链接列表的末尾，我们才会前进`curIndex`并返回true，以表示通过调用`Link`方法还有更多数据可供检索，其实现如下：
 - en: '[PRE20]'
+  id: totrans-208
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: Keep in mind that the `Link` model instances associated with this iterator are
     maintained by the in-memory graph and may potentially be *shared* with other iterator
     instances. As a result, while one go-routine may consuming links from the iterator,
@@ -1125,16 +1558,22 @@
     the user invokes the iterator's `Link` method, we obtain a *read* lock on the
     link graph. While holding the lock, we can safely fetch the next link and make
     a copy, which is then returned to the caller.
+  id: totrans-209
   prefs: []
   type: TYPE_NORMAL
+  zh: 请记住，与这个迭代器关联的`Link`模型实例由内存中的图维护，并且可能与其他迭代器实例共享。因此，当某个goroutine正在从迭代器中消耗链接时，另一个goroutine可能正在修改它们的内容。为了避免数据竞争，每当用户调用迭代器的`Link`方法时，我们都会在链接图上获得一个*读*锁。在持有锁的同时，我们可以安全地获取下一个链接并创建一个副本，然后将其返回给调用者。
 - en: 'Finally, let''s take a look at the implementation of the `Edges` method. The
     logic is quite similar to `Links`, but with a minor difference in the way we populate
     the list of edges that belong to the requested partition:'
+  id: totrans-210
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，让我们看看`Edges`方法的实现。逻辑与`Links`非常相似，但在填充属于请求分区的边列表的方式上有一个细微的差别：
 - en: '[PRE21]'
+  id: totrans-211
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: As we mentioned in the *Partitioning links and edges for processing the graph
     in paralle*l section, each edge belongs to the same partition as the link it originates
     from. Therefore, in the preceding implementation, we begin by iterating the set
@@ -1142,62 +1581,86 @@
     need. Once we have located a link belonging to the requested partition range,
     we iterate the list of edges that originate from it (via the `linkEdgeMap` field)
     and append any edges that satisfy the *updated-before-X* predicate to the `list` variable.
+  id: totrans-212
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如我们在*并行处理图中的链接和边分区*部分中提到的，每条边都属于其起源的相同分区。因此，在前面的实现中，我们首先遍历图中的链接集合，并跳过不属于所需分区的那些链接。一旦我们找到了属于请求分区范围的链接，我们就遍历从它起源的边列表（通过`linkEdgeMap`字段），并将满足*更新前-X*谓词的任何边追加到`list`变量中。
 - en: The content of the `list` variable is then used to create a new `edgeIterator` instance,
     which is then returned to the caller. The `edgeIterator` is implemented in more
     or less the same way as the `linkIterator`, so we will attempt to save some space
     by not including its full implementation here. You can easily look it up by visiting
     this book's GitHub repository.
+  id: totrans-213
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，`list`变量中的内容被用来创建一个新的`edgeIterator`实例，然后将其返回给调用者。`edgeIterator`的实现方式与`linkIterator`大致相同，因此我们在这里将省略其完整实现。您可以通过访问这本书的GitHub仓库轻松查找。
 - en: Removing stale edges
+  id: totrans-214
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 移除过时的边
 - en: 'The last bit of functionality that we need to explore is the `RemoveStaleEdges` method.
     The caller invokes it with the ID of a link (the origin) and an `updatedBefore` value:'
+  id: totrans-215
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们需要探索的最后一点功能是`RemoveStaleEdges`方法。调用者使用链接（源）的ID和`updatedBefore`值来调用它：
 - en: '[PRE22]'
+  id: totrans-216
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: As with other operations that mutate the graph's contents, we need to acquire
     a *write* lock. Then, we iterate the list of edges that originate from the specified
     source link and ignore the ones whose `UpdatedAt` value is less than the specified `updatedBefore` argument.
     Any edge that survives the culling is added to a `newEdgeList`, which becomes
     the new list of outgoing edges for the specified source link.
+  id: totrans-217
   prefs: []
   type: TYPE_NORMAL
+  zh: 与其他会修改图内容的其他操作一样，我们需要获取一个*写*锁。然后，我们遍历从指定源链接出发的边列表，忽略那些`UpdatedAt`值小于指定`updatedBefore`参数的边。任何幸存下来的边都会添加到`newEdgeList`中，这将成为指定源链接的新出边列表。
 - en: Setting up a test suite for the graph implementation
+  id: totrans-218
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为图实现设置测试套件
 - en: 'Before we conclude our tour of the in-memory graph implementation, we need
     to spend some time authoring a test suite that will execute the shared verification
     suite against the store implementation we just created. This can be achieved with
     only a handful of lines, as follows:'
+  id: totrans-219
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们结束对内存图实现的巡礼之前，我们需要花些时间编写一个测试套件，该套件将对刚刚创建的存储实现执行共享验证套件。这只需要几行代码，如下所示：
 - en: '[PRE23]'
+  id: totrans-220
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: Since we are working with a pure, in-memory implementation, we can cheat and
     recreate the graph before running each test by providing a `SetUpTest` method
     that the `gocheck` framework will automatically invoke for us when running the
     test suite.
+  id: totrans-221
   prefs: []
   type: TYPE_NORMAL
+  zh: '由于我们正在使用一个纯内存实现，我们可以在运行每个测试之前通过提供一个`SetUpTest`方法来欺骗性地重新创建图，该方法是`gocheck`框架在运行测试套件时自动为我们调用的。 '
 - en: Scaling across with a CockroachDB-backed graph implementation
+  id: totrans-222
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用CockroachDB支持的图实现进行横向扩展
 - en: While the in-memory graph implementation is definitely a great asset for running
     our unit tests or even for spinning up small instances of the Links 'R' Us system
     for demonstration or end-to-end testing purposes, it's not really something that
     we would actually want to use in a production-grade system.
+  id: totrans-223
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然内存图实现对于运行我们的单元测试或甚至为演示或端到端测试目的启动Links 'R' Us系统的小实例来说确实是一个很好的资产，但它并不是我们真正想在生产级系统中使用的。
 - en: 'First and foremost, the data in the in-memory store will not persist across
     service restarts. Even if we could somehow address this limitation (for example,
     by creating periodic snapshots of the graph to disk), the best we can do is scale
@@ -1205,51 +1668,69 @@
     a faster CPU and/or more memory. But that''s about it; as we anticipate the graph
     size eventually outgrowing the storage capacity of a single node, we need to come
     up with a more efficient solution that can scale across multiple machines.'
+  id: totrans-224
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先，内存存储中的数据在服务重启后不会持久化。即使我们能够以某种方式解决这个问题（例如，通过定期将图快照到磁盘），我们最好的办法也是扩展我们的图：例如，我们可以在具有更快CPU和/或更多内存的机器上运行链接图服务。但仅此而已；鉴于我们预计图的大小最终会超过单个节点的存储容量，我们需要想出一个更有效的解决方案，该解决方案可以跨多台机器进行扩展。
 - en: 'To this end, the following sections will explore a second graph implementation
     that utilizes a database system that can support our scaling requirements. While
     there are undoubtedly quite a few DBMS out there that can satisfy our needs, I
     have decided to base the graph implementation on CockroachDB ^([5]) for the following
     set of reasons:'
+  id: totrans-225
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了达到这个目的，以下章节将探讨第二个图实现，该实现利用一个可以支持我们的扩展需求的数据库系统。虽然无疑有许多DBMS可以满足我们的需求，但我已经决定基于以下原因将图实现建立在CockroachDB上^([5])：
 - en: It can easily scale horizontally just by increasing the number of nodes available
     to the cluster. CockroachDB clusters can automatically rebalance and heal themselves
     when nodes appear or go down. This property makes it ideal for our use case!
+  id: totrans-226
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它可以通过简单地增加集群中可用的节点数量来轻松地进行横向扩展。CockroachDB集群可以在节点出现或下线时自动重新平衡和自我修复。这种特性使其非常适合我们的用例！
 - en: CockroachDB is fully ACID-compliant and supports distributed SQL transactions.
+  id: totrans-227
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: CockroachDB完全符合ACID规范，并支持分布式SQL事务。
 - en: The SQL flavor supported by CockroachDB is compatible with the PostgreSQL syntax,
     which many of you should already be familiar with.
+  id: totrans-228
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: CockroachDB支持的SQL方言与PostgreSQL语法兼容，许多人都应该已经熟悉。
 - en: CockroachDB implements the PostgreSQL wire protocol; this means that we do not
     require a specialized driver package to connect to the database but can simply
     use the battle-tested pure-Go Postgres ^([19]) package to connect to the database.
+  id: totrans-229
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: CockroachDB实现了PostgreSQL网络协议；这意味着我们不需要专门的驱动程序包来连接到数据库，而可以直接使用经过实战检验的纯Go Postgres^([19])包来连接到数据库。
 - en: Dealing with DB migrations
+  id: totrans-230
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 处理数据库迁移
 - en: When creating a dependency on a DBMS, we need to introduce an external mechanism
     to assist us in managing the schema for the tables that we will be running queries
     against.
+  id: totrans-231
   prefs: []
   type: TYPE_NORMAL
+  zh: 在创建对DBMS的依赖时，我们需要引入一个外部机制来帮助我们管理我们将要运行的查询的表的架构。
 - en: Following the recommended industry best practices, changes to our database schema
     need to be made in small, incremental steps that can be applied when deploying
     a new version of our software to production, or reverted if we decide to roll
     back a deployment due to the discovery of a bug.
+  id: totrans-232
   prefs: []
   type: TYPE_NORMAL
+  zh: 遵循推荐的行业最佳实践，我们需要在小型、增量步骤中对数据库模式进行更改，以便在部署我们软件的新版本到生产环境中应用，或者在发现错误后决定回滚部署时撤销更改。
 - en: 'For this particular project, we will be managing our database schema with the
     help of the `gomigrate` tool ^([7]). This tool can work with most popular database
     systems (including CockroachDB) and provides a handy command-line tool that we
@@ -1257,82 +1738,116 @@
     to be specified as two separate files: one containing the SQL commands to apply
     the migration (the *up* path) and another to revert the migration (the *down*
     path). The standard format for migration file names uses the following pattern:'
+  id: totrans-233
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于这个特定的项目，我们将借助`gomigrate`工具来管理我们的数据库模式^([7])。这个工具可以与大多数流行的数据库系统（包括CockroachDB）一起工作，并提供一个方便的命令行工具，我们可以用它来应用或撤销数据库模式更改。`gomigrate`期望数据库迁移被指定为两个独立的文件：一个包含应用迁移的SQL命令（*up*路径）的文件，另一个包含撤销迁移的文件（*down*路径）。迁移文件名的标准格式使用以下模式：
 - en: '[PRE24]'
+  id: totrans-234
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: The addition of a timestamp component ensures that `gomigrate` always picks
     up and applies the changes in the correct order.
+  id: totrans-235
   prefs: []
   type: TYPE_NORMAL
+  zh: 添加时间戳组件确保`gomigrate`始终按正确的顺序获取并应用更改。
 - en: 'To execute any required migrations, we need to invoke the `gomigrate` CLI tool
     and provide it with the following bits of information:'
+  id: totrans-236
   prefs: []
   type: TYPE_NORMAL
+  zh: 要执行任何必需的迁移，我们需要调用`gomigrate` CLI工具并为其提供以下信息：
 - en: A data source** name** (**DSN**) URL for the target database.
+  id: totrans-237
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 目标数据库的数据源**名称**（DSN）URL。
 - en: The path to the location of the migration files. The tool not only supports
     local paths but it can also pull migrations from GitHub, GitLab, AWS S3, and Google
     Cloud Storage.
+  id: totrans-238
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 迁移文件所在位置的路径。该工具不仅支持本地路径，还可以从GitHub、GitLab、AWS S3和Google Cloud Storage拉取迁移。
 - en: A migration *direction* command. This is typically `up` to apply the migrations
     or `down` to revert them.
+  id: totrans-239
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 迁移*方向*命令。这通常是`up`来应用迁移或`down`来撤销它们。
 - en: 'You may be wondering: how does `gomigrate` ensure that migrations are only
     executed once? The answer is: by maintaining state! So, where is that state stored
     then? The first time you run the `gomigrate` tool against a database, it will
     create two additional tables that are used by the tool to keep track of which
     migrations it has applied so far. This makes the tool safe to run multiple times
     (for example, each time we deploy a new version of our software to production).'
+  id: totrans-240
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可能会想知道：`gomigrate`是如何确保迁移只执行一次的？答案是：通过维护状态！那么，这个状态存储在哪里呢？当你第一次在数据库上运行`gomigrate`工具时，它将创建两个额外的表，这些表被工具用来跟踪它已经应用了哪些迁移。这使得工具可以在多次运行时保持安全（例如，每次我们部署软件的新版本到生产环境时）。
 - en: All the required migrations for the link graph project live in the `Chapter06/linkgraph/store/cdb/migrations` folder.
     What's more, the top-level makefile includes a `run-cdb-migrations` target that
     will install (if missing) the `gomigrate` tool and automatically run any *pending* migrations.
     In fact, this command is leveraged by the CI system linked to this book's GitHub
     repository to bootstrap a test database before running the CockroachDB tests.
+  id: totrans-241
   prefs: []
   type: TYPE_NORMAL
+  zh: 链接图项目的所有必需迁移都位于`Chapter06/linkgraph/store/cdb/migrations`文件夹中。更重要的是，顶层makefile包括一个`run-cdb-migrations`目标，该目标将安装（如果缺失）`gomigrate`工具并自动运行任何*挂起*的迁移。实际上，这个命令被链接到本书GitHub存储库的CI系统用来在运行CockroachDB测试之前启动测试数据库。
 - en: An overview of the DB schema for the CockroachDB implementation
+  id: totrans-242
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: CockroachDB实现的数据库模式概述
 - en: 'Setting up the tables we need for the CockroachDB graph implementation is a
     fairly straightforward process. The following is a combined list of the SQL statements
     that will be applied when we run the included DB migrations:'
+  id: totrans-243
   prefs: []
   type: TYPE_NORMAL
+  zh: 设置CockroachDB图实现所需的表是一个相当直接的过程。以下是我们运行包含的数据库迁移时将应用的所有SQL语句的合并列表：
 - en: '[PRE25]'
+  id: totrans-244
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: 'You probably noticed that, while building the in-memory graph implementation,
     we had to manually enforce some constraints. For example, we had to check the
     following:'
+  id: totrans-245
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可能已经注意到，在构建内存图实现时，我们必须手动强制执行一些约束。例如，我们必须检查以下内容：
 - en: The link and edge IDs are unique
+  id: totrans-246
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 链接和边ID是唯一的
 - en: The URLs are unique
+  id: totrans-247
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: URL是唯一的
 - en: The source and destination link IDs for edges point to existing links
+  id: totrans-248
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 边的源和目标链接ID指向现有链接
 - en: The `(source, destination)` tuple for edges is unique
+  id: totrans-249
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 边的`(source, destination)`元组是唯一的
 - en: For the CockroachDB implementation, we can simply delegate those checks to the
     DB itself by introducing uniqueness and foreign-key constraints when defining
     the table schemas. A small caveat of this approach is that when a SQL statement
@@ -1340,20 +1855,28 @@
     whether a constraint validation occurred. If that happens to be the case, we can
     return a more meaningful, typed error such as `graph.ErrUnknownEdgeLinks` to the
     caller matching the behavior of the in-memory implementation.
+  id: totrans-250
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于CockroachDB实现，我们可以在定义表模式时通过引入唯一性和外键约束，简单地委托这些检查到数据库本身。这种方法的微小缺点是，当SQL语句执行尝试返回错误时，我们需要检查其内容以检测是否发生了约束验证。如果确实如此，我们可以向调用者返回一个更有意义、类型化的错误，例如`graph.ErrUnknownEdgeLinks`，以匹配内存实现的行为。
 - en: Upserting links
+  id: totrans-251
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 插入链接
 - en: 'To upsert a link to the CockroachDB store, we will use an upsert-like SQL query
     that leverages the database''s support for specifying an action to be applied
     when a conflict occurs:'
+  id: totrans-252
   prefs: []
   type: TYPE_NORMAL
+  zh: 要将链接插入到CockroachDB存储，我们将使用一个类似于upsert的SQL查询，该查询利用数据库在发生冲突时指定要应用的操作的支持：
 - en: '[PRE26]'
+  id: totrans-253
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: 'Basically, if we try to insert a link that has the same `url` as an existing
     link, the preceding conflict resolution action will ensure that we simply update
     the `retrieved_at` column to the maximum of the original value and the one specified
@@ -1361,162 +1884,247 @@
     always return the row''s `id` (existing or assigned by the DB) and the value for
     the `retrieved_at` column. The relevant `UpsertLink` method implementation is
     as follows:'
+  id: totrans-254
   prefs: []
   type: TYPE_NORMAL
+  zh: 基本上，如果我们尝试插入一个与现有链接具有相同`url`的链接，前面的冲突解决操作将确保我们只需将`retrieved_at`列更新为原始值和调用者指定的值中的最大值。无论是否发生冲突，查询总是会返回行的`id`（现有或由数据库分配）以及`retrieved_at`列的值。相关的`UpsertLink`方法实现如下：
 - en: '[PRE27]'
+  id: totrans-255
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: This method binds the fields from the provided model, which are bound to the `upsertLinkQuery`, and
     proceeds to execute it. Then, it scans the `id` and `retrieved_at` values that
     are returned by the query into the appropriate model fields.
+  id: totrans-256
   prefs: []
   type: TYPE_NORMAL
+  zh: 此方法将提供的模型中的字段绑定到`upsertLinkQuery`，然后继续执行它。然后，它将查询返回的`id`和`retrieved_at`值扫描到适当的模型字段中。
 - en: Upserting edges
+  id: totrans-257
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 插入边
 - en: 'To upsert an edge, we will be using the following query:'
+  id: totrans-258
   prefs: []
   type: TYPE_NORMAL
+  zh: 要插入边，我们将使用以下查询：
 - en: '[PRE28]'
+  id: totrans-259
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: As you can see, the query includes a conflict resolution step for the case where
     we try to insert an edge with the same `(src, dst)` tuple. If that happens, we
     simply change the `updated_at` column value to the current timestamp.
+  id: totrans-260
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，查询包括一个冲突解决步骤，用于尝试插入具有相同`(src, dst)`元组的边的情况。如果发生这种情况，我们只需将`updated_at`列的值更改为当前时间戳。
 - en: 'Unsurprisingly, the code to upsert an edge to the CockroachDB store looks quite
     similar to the link upsert code:'
+  id: totrans-261
   prefs: []
   type: TYPE_NORMAL
+  zh: 毫不奇怪，将边插入到CockroachDB存储的代码看起来与链接插入代码非常相似：
 - en: '[PRE29]'
+  id: totrans-262
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: Once again, we bind the relevant fields to a query that we proceed to execute
     and update the provided edge model with the `id` and `updated_at` fields that
     were returned by the query.
+  id: totrans-263
   prefs: []
   type: TYPE_NORMAL
+  zh: 再次，我们将相关字段绑定到一个我们将继续执行的查询，并使用查询返回的`id`和`updated_at`字段更新提供的边模型。
 - en: 'The preceding code comes with a small twist! When we defined the schema for
     the edges table, we also specified a *foreign-key* constraint for the `src` and `dst` fields.
     Therefore, if we try to upsert an edge with an unknown source and/or destination
     ID, we will get an error. To check whether the error was actually caused by a
     foreign-key violation, we can use the following helper:'
+  id: totrans-264
   prefs: []
   type: TYPE_NORMAL
+  zh: 前面的代码有一个小变化！当我们定义边表的架构时，我们还为 `src` 和 `dst` 字段指定了一个 *外键* 约束。因此，如果我们尝试插入一个未知源和/或目标
+    ID 的边，我们将得到一个错误。为了检查错误是否实际上是由外键违规引起的，我们可以使用以下辅助工具：
 - en: '[PRE30]'
+  id: totrans-265
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: To match the behavior of the in-memory store implementation, if the error points
     to a foreign-key violation, we return the more user-friendly `graph.ErrUnknownEdgeLinks` error.
+  id: totrans-266
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了匹配内存存储实现的行为，如果错误指向外键违规，我们返回更用户友好的 `graph.ErrUnknownEdgeLinks` 错误。
 - en: Looking up links
+  id: totrans-267
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 查找链接
 - en: 'To look up a link by its ID, we will be using the following standard SQL selection
     query:'
+  id: totrans-268
   prefs: []
   type: TYPE_NORMAL
+  zh: 要通过其 ID 查找链接，我们将使用以下标准 SQL 选择查询：
 - en: '[PRE31]'
+  id: totrans-269
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: 'The implementation of the `FindLink` method is as follows:'
+  id: totrans-270
   prefs: []
   type: TYPE_NORMAL
+  zh: '`FindLink` 方法的实现如下：'
 - en: '[PRE32]'
+  id: totrans-271
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: After executing the query, we create a new `Link` model instance and populate
     it with the returned link fields. If the selection query does not match any link,
     the SQL driver will return a `sql.ErrNoRows` error. The preceding code checks
     for this error and returns a user-friendly `graph.ErrNotFound` error to the caller.
+  id: totrans-272
   prefs: []
   type: TYPE_NORMAL
+  zh: 执行查询后，我们创建一个新的 `Link` 模型实例，并用返回的链接字段填充它。如果选择查询没有匹配任何链接，SQL 驱动程序将返回 `sql.ErrNoRows`
+    错误。前面的代码检查此错误，并向调用者返回用户友好的 `graph.ErrNotFound` 错误。
 - en: Iterating links/edges
+  id: totrans-273
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 迭代链接/边
 - en: 'To select the links that correspond to a particular partition and whose retrieved
     timestamp is older than the provided value, we will use the following query:'
+  id: totrans-274
   prefs: []
   type: TYPE_NORMAL
+  zh: 要选择与特定分区对应且检索时间戳早于提供值的链接，我们将使用以下查询：
 - en: '[PRE33]'
+  id: totrans-275
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: 'The implementation of the `Links` method is shown in the following listing:'
+  id: totrans-276
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Links` 方法的实现如下所示：'
 - en: '[PRE34]'
+  id: totrans-277
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: 'As you can see, the method executes the query with the specified arguments
     and returns a `linkIterator` to consume the returned result set. The link CockroachDB
     iterator implementation is nothing more than a wrapper on top of the `sql.Rows` value
     that''s returned by the SQL query. This is what the `Next` method''s implementation
     looks like:'
+  id: totrans-278
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，该方法使用指定的参数执行查询，并返回一个 `linkIterator` 以消费返回的结果集。CockroachDB 迭代器的实现只是 SQL
+    查询返回的 `sql.Rows` 值的包装。以下是 `Next` 方法实现的示例：
 - en: '[PRE35]'
+  id: totrans-279
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: 'The `Edges` method uses the following query, which yields exactly the same
     set of results as the in-memory implementation:'
+  id: totrans-280
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Edges` 方法使用以下查询，它产生的结果集与内存实现完全相同：'
 - en: '[PRE36]'
+  id: totrans-281
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: 'Here''s what the implementation of `Edges` looks like:'
+  id: totrans-282
   prefs: []
   type: TYPE_NORMAL
+  zh: 下面是 `Edges` 实现的示例：
 - en: '[PRE37]'
+  id: totrans-283
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: The implementation of the `edgeIterator` is quite similar to the `linkIterator`, so
     we will conserve some space and omit it. You can take a look at the complete iterator
     implementations by examining the source code in the `iterator.go` file, which
     can be found within the `Chapter06/linkgraph/store/cdb` package of this book's
     GitHub repository.
+  id: totrans-284
   prefs: []
   type: TYPE_NORMAL
+  zh: '`edgeIterator` 的实现与 `linkIterator` 非常相似，所以我们将节省一些空间并省略它。您可以通过检查位于本书 GitHub
+    仓库 `Chapter06/linkgraph/store/cdb` 包中的 `iterator.go` 文件中的源代码来查看完整的迭代器实现。'
 - en: Removing stale edges
+  id: totrans-285
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 移除过时边
 - en: 'The last piece of functionality that we will be examining is the `RemoveStaleEdges` method,
     which uses the following query to delete edges that have not been updated after
     a particular point in time:'
+  id: totrans-286
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将要检查的最后一个功能部分是 `RemoveStaleEdges` 方法，它使用以下查询来删除在特定时间点之后未更新的边：
 - en: '[PRE38]'
+  id: totrans-287
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE38]'
 - en: 'Let''s take a look at the `RemoveStaleEdges` method implementation:'
+  id: totrans-288
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们看看 `RemoveStaleEdges` 方法的实现：
 - en: '[PRE39]'
+  id: totrans-289
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE39]'
 - en: There' nothing out of the ordinary here; the code in the preceding snippet simply
     binds the arguments to the delete query and executes it.
+  id: totrans-290
   prefs: []
   type: TYPE_NORMAL
+  zh: 这里没有什么异常之处；前一个代码片段中的代码只是将参数绑定到删除查询并执行它。
 - en: Setting up a test suite for the CockroachDB implementation
+  id: totrans-291
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为 CockroachDB 实现设置测试套件
 - en: 'To create and wire the test suite for the CockroachDB implementation, we will
     follow exactly the same steps that we did for the in-memory implementation. The
     first step is to define a test suite that embeds the shared `graphtest.SuiteBase` type
     and register it with `go test`:'
+  id: totrans-292
   prefs: []
   type: TYPE_NORMAL
+  zh: 要创建和连接 CockroachDB 实现的测试套件，我们将严格按照内存实现所采取的步骤进行。第一步是定义一个包含共享 `graphtest.SuiteBase`
+    类型的测试套件，并将其注册到 `go test`：
 - en: '[PRE40]'
+  id: totrans-293
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE40]'
 - en: 'Then, we need to provide a setup method for the test suite that will create
     a new CockroachDB graph instance and wire it to the base suite. Following the
     testing paradigm we discussed in [Chapter 4](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml), *The
@@ -1524,74 +2132,105 @@
     that should contain the DSN for connecting to the CockroachDB instance. If the
     environment variable is not defined, the entire test suite will be automatically
     skipped:'
+  id: totrans-294
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们需要为测试套件提供一个设置方法，该方法将创建一个新的CockroachDB图实例并将其连接到基本套件。遵循我们在[第4章](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml)《测试的艺术》中讨论的测试范式，我们的测试套件依赖于一个环境变量，该变量应包含连接到CockroachDB实例的DSN。如果环境变量未定义，整个测试套件将自动跳过：
 - en: '[PRE41]'
+  id: totrans-295
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE41]'
 - en: 'To ensure that all the tests work exactly as expected, one of our requirements
     is that each test in the suite is provided with a clean DB instance. To this end,
     we need to define a *per-test* setup method that empties all the database tables:'
+  id: totrans-296
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了确保所有测试都能按预期工作，我们的一个要求是测试套件中的每个测试都提供一个干净的数据库实例。为此，我们需要定义一个*针对每个测试的*设置方法，该方法将清空所有数据库表：
 - en: '[PRE42]'
+  id: totrans-297
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE42]'
 - en: 'Finally, we need to provide a teardown method for the test suite. Once the
     test suite has finished executing, we truncate the DB tables once more and release
     the DB connection:'
+  id: totrans-298
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们需要为测试套件提供一个清理方法。一旦测试套件执行完毕，我们将再次截断数据库表并释放数据库连接：
 - en: '[PRE43]'
+  id: totrans-299
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE43]'
 - en: Note that flushing the database's contents during teardown is not mandatory.
     In my opinion, it's good practice to always do so just in case some other set
     of tests from a different package use the same DB instance but expect it to be
     initially empty.
+  id: totrans-300
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意，在清理过程中刷新数据库内容不是强制性的。在我看来，始终这样做是一个好习惯，以防其他包的测试集使用相同的数据库实例，但期望它最初为空。
 - en: Designing the data layer for the text indexer component
+  id: totrans-301
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为文本索引器组件设计数据层
 - en: In the following sections, we will perform an in-depth analysis of the text
     indexer component. We will identify the set of operations that the text indexer
     component must be able to support and formally encode them as a Go interface named `Indexer`.
+  id: totrans-302
   prefs: []
   type: TYPE_NORMAL
+  zh: 在接下来的章节中，我们将对文本索引器组件进行深入分析。我们将确定文本索引器组件必须能够支持的操作集，并将它们正式编码为一个名为`Indexer`的Go接口。
 - en: 'In a similar fashion to the link graph analysis, we will be constructing two
     concrete implementations of the `Indexer` interface: an in-memory implementation
     based on the popular bleve ^([1]) package and a horizontally-scalable implementation
     using Elasticsearch ^([9]).'
+  id: totrans-303
   prefs: []
   type: TYPE_NORMAL
+  zh: 类似于链接图分析的方式，我们将构建两个具体的`Indexer`接口实现：一个基于流行的bleve ^([1]) 包的内存实现，以及一个使用Elasticsearch
+    ^([9]) 实现的水平扩展实现。
 - en: A model for indexed documents
+  id: totrans-304
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 索引文档的模型
 - en: 'As the first step in our analysis of the indexer component, we will start by
     describing the document model that the `Indexer` implementations will index and
     search:'
+  id: totrans-305
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们分析索引器组件的第一步中，我们将首先描述`Indexer`实现将索引和搜索的文档模型：
 - en: '[PRE44]'
+  id: totrans-306
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE44]'
 - en: All the documents must include a non-empty attribute called `LinkID`. This attribute
     is a UUID value that connects a document with a link that's obtained from the
     link graph. In addition to the link ID, each document also stores the URL of the
     indexed document and allows us to not only display it as part of the search results
     but to also implement more advanced search patterns in future (for example, constraint
     searches to a particular domain).
+  id: totrans-307
   prefs: []
   type: TYPE_NORMAL
+  zh: 所有文档都必须包含一个非空的属性称为`LinkID`。该属性是一个UUID值，它将文档与从链接图中获得的链接连接起来。除了链接ID之外，每个文档还存储了索引文档的URL，使我们不仅能够将其作为搜索结果的一部分显示，而且还可以在未来实现更高级的搜索模式（例如，针对特定域的约束搜索）。
 - en: The `Title` and `Content` attributes correspond to the value of the `<title>` element
     if the link points to an HTML page, whereas the `Content` attribute stores the
     block of text that was extracted by the crawler when processing the link. Both
     of these attributes will be indexed and made available for searching.
+  id: totrans-308
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Title`和`Content`属性对应于链接指向HTML页面时的`<title>`元素的值，而`Content`属性存储了爬虫在处理链接时提取的文本块。这两个属性都将被索引并可供搜索。'
 - en: The `IndexedAt` attribute contains a timestamp that indicates when a particular
     document was last indexed, while the `PageRank` attribute keeps track of the `PageRank` score
     that will be assigned to each document by the `PageRank` calculator component.
@@ -1599,182 +2238,256 @@
     text indexer implementations will attempt to optimize the returned result sets
     by sorting search matches *both* by their relevance to the input query and by
     their `PageRank` scores.
+  id: totrans-309
   prefs: []
   type: TYPE_NORMAL
+  zh: '`IndexedAt`属性包含一个时间戳，指示特定文档最后一次索引的时间，而`PageRank`属性则跟踪`PageRank`计算器组件将为每个文档分配的`PageRank`分数。由于`PageRank`分数可以被视为每个链接的质量指标，因此文本索引器实现将尝试通过按其与输入查询的相关性和`PageRank`分数对搜索匹配进行排序来优化返回的结果集。'
 - en: Listing the set of operations that the text indexer needs to support
+  id: totrans-310
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 列出文本索引器需要支持的操作集
 - en: 'For the text indexer component use case, we need to be able to perform the
     following set of operations:'
+  id: totrans-311
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于文本索引器组件用例，我们需要能够执行以下操作集：
 - en: Add a document to the index or reindex an existing document when its content
     changes. This operation will normally be invoked by the crawler component.
+  id: totrans-312
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 当文档内容发生变化时，向索引中添加文档或重新索引现有文档。此操作通常由爬虫组件调用。
 - en: Perform a lookup for a document by its ID.
+  id: totrans-313
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 通过其ID查找文档。
 - en: Perform a full-text query and obtain an *iterable* list of results. The frontend
     component for our project will invoke this operation when the user clicks the
     search button and consume the returned iterator to present a paginated list of
     results to the end user.
+  id: totrans-314
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 执行全文查询并获取一个*可迭代*的结果列表。当用户点击搜索按钮时，我们的项目前端组件将调用此操作，并消费返回的迭代器以向最终用户展示分页结果列表。
 - en: Update the `PageRank` score for a particular document. This operation will be
     invoked by the `PageRank` calculator component when the `PageRank` score for a
     particular link needs to be updated.
+  id: totrans-315
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 更新特定文档的`PageRank`分数。当需要更新特定链接的`PageRank`分数时，`PageRank`计算器组件将调用此操作。
 - en: Defining the Indexer interface
+  id: totrans-316
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 定义Indexer接口
 - en: 'Similar to the approach we followed when we modeled the link graph component,
     we shall encapsulate the preceding list of operations into a Go interface called `Indexer`:'
+  id: totrans-317
   prefs: []
   type: TYPE_NORMAL
+  zh: 类似于我们在建模链接图组件时采用的方法，我们将把前面的操作列表封装到一个名为`Indexer`的Go接口中：
 - en: '[PRE45]'
+  id: totrans-318
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE45]'
 - en: 'The `Search` method expects a `Query` type instead of a simple string value
     as its input argument. This is by design; it offers us the flexibility to expand
     the indexer''s query capabilities further down the road to support richer query
     semantics without having to modify the signature of the `Search` method. Here
     is the definition of the `Query` type:'
+  id: totrans-319
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Search`方法期望输入参数为`Query`类型，而不是简单的字符串值。这是设计上的考虑；它为我们提供了灵活性，以便在将来进一步扩展索引器的查询功能，以支持更丰富的查询语义，而无需修改`Search`方法的签名。以下是`Query`类型的定义：'
 - en: '[PRE46]'
+  id: totrans-320
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE46]'
 - en: 'The `Expression` field stores the search query that''s entered by the end user.
     However, its interpretation by the indexer component can vary, depending on the
     value of the `Type` attribute. As proof of concept, we will only implement two
     of the most common types of searches:'
+  id: totrans-321
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Expression`字段存储由最终用户输入的搜索查询。然而，索引器组件的解释会根据`Type`属性值的不同而变化。作为概念验证，我们只将实现两种最常见的搜索类型：'
 - en: Searching for a list of keywords *in any order*
+  id: totrans-322
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 按任意顺序搜索一组关键词
 - en: Searching for an *exact* phrase match
+  id: totrans-323
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 搜索*精确*短语匹配
 - en: In the future, we can opt to add support for other types of queries such as *boolean-*, *date-*, or *domain-based* queries.
+  id: totrans-324
   prefs: []
   type: TYPE_NORMAL
+  zh: 在未来，我们可以选择添加对其他类型查询的支持，例如*布尔*、*日期*或*基于域*的查询。
 - en: 'After executing a search query, the text indexer will return an `Iterator` interface
     instance that provides a simple API for consuming the search results. This is
     the definition of the `Iterator` interface:'
+  id: totrans-325
   prefs: []
   type: TYPE_NORMAL
+  zh: 执行搜索查询后，文本索引器将返回一个`Iterator`接口实例，该实例提供了一个简单的API来消费搜索结果。这是`Iterator`接口的定义：
 - en: '[PRE47]'
+  id: totrans-326
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE47]'
 - en: 'After obtaining an iterator instance, we can consume each search result using
     a simple `for` loop:'
+  id: totrans-327
   prefs: []
   type: TYPE_NORMAL
+  zh: 获取迭代器实例后，我们可以使用简单的`for`循环来消费每个搜索结果：
 - en: '[PRE48]'
+  id: totrans-328
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE48]'
 - en: Calls to `docIt.Next()` will return false either when we have iterated all the
     results or an error has occurred. In a similar fashion to the link graph iterators
     we examined in the previous sections, we only need to check *once* for the presence
     of errors after exiting the iteration loop.
+  id: totrans-329
   prefs: []
   type: TYPE_NORMAL
+  zh: 对`docIt.Next()`的调用将在我们迭代完所有结果或发生错误时返回false。与我们在前几节中检查的链接图迭代器类似，我们只需要在退出迭代循环后检查一次错误的存在。
 - en: Verifying indexer implementations using a shared test suite
+  id: totrans-330
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用共享测试套件验证索引器实现
 - en: In the next few pages, we will be constructing two completely different Indexer
     implementations. In a similar fashion to the link graph component, we will again
     devise a shared test suite that will help us verify that both implementations
     behave in exactly the same way.
+  id: totrans-331
   prefs: []
   type: TYPE_NORMAL
+  zh: 在接下来的几页中，我们将构建两个完全不同的索引器实现。与链接图组件类似，我们还将设计一个共享测试套件，以帮助我们验证这两个实现的行为完全相同。
 - en: 'The `SuiteBase` definition for our shared indexer tests can be found in the `Chapter06/textindexer/index/indextest` package
     and depends on the `gocheck` ^([11]) framework that we introduced in [Chapter
     4](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml), *The Art of Testing*. The suite
     defines tests for the following groups of index operations:'
+  id: totrans-332
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们共享的索引器测试的`SuiteBase`定义可以在`Chapter06/textindexer/index/indextest`包中找到，它依赖于我们在[第4章](d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml)中介绍的`gocheck`^([11])框架，即《测试的艺术》。该套件定义了以下索引操作组的测试：
 - en: '**Document indexing tests**: These tests are designed to verify that the indexer
     component successfully processes valid documents and rejects any document that
     does not define the required set of document attributes (for example, it includes
     an empty link ID).'
+  id: totrans-333
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**文档索引测试**：这些测试旨在验证索引器组件成功处理有效文档，并拒绝任何未定义所需文档属性集的文档（例如，它包含一个空的链接ID）。'
 - en: '**Document lookup tests**: These tests validate that we can look up a previously
     indexed document via its link ID and that the returned document model is identical
     to the document that was passed and indexed.'
+  id: totrans-334
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**文档查找测试**：这些测试验证我们可以通过其链接ID查找先前索引的文档，并且返回的文档模型与传递和索引的文档相同。'
 - en: '**Keyword search tests**: A series of tests designed to verify that keyword
     searches yield the correct set of documents.'
+  id: totrans-335
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**关键词搜索测试**：一系列旨在验证关键词搜索产生正确文档集的测试。'
 - en: '**Exact phrase search tests**: Yet another series of tests that verifies that
     exact phrase searches yield the correct set of documents.'
+  id: totrans-336
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**精确短语搜索测试**：另一系列旨在验证精确短语搜索产生正确文档集的测试。'
 - en: '`PageRank` **score update tests**: These tests exercise the `PageRank` score
     update code path and verify that changes to the score values for indexed documents
     are reflected in the order of returned search results.'
+  id: totrans-337
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`PageRank` **分数更新测试**：这些测试执行`PageRank`分数更新代码路径，并验证索引文档的分数值更改反映在返回的搜索结果顺序中。'
 - en: 'To create a test suite for an actual indexer implementation, all we have to
     do is the following:'
+  id: totrans-338
   prefs: []
   type: TYPE_NORMAL
+  zh: 要为实际的索引器实现创建一个测试套件，我们只需做以下几步：
 - en: Define a new test suite that embeds `SuiteBase`
+  id: totrans-339
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 定义一个新的测试套件，该套件嵌入`SuiteBase`
 - en: Provide a suite setup helper that creates the appropriate indexer instance and
     then invokes the `SetIndexer` method exposed by `SuiteBase` to wire the indexer
     to the base test suite
+  id: totrans-340
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 提供一个套件设置辅助函数，该函数创建适当的索引器实例，然后调用`SuiteBase`公开的`SetIndexer`方法，将索引器连接到基本测试套件
 - en: An in-memory Indexer implementation using bleve
+  id: totrans-341
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用bleve的内存索引器实现
 - en: Our first attempt at implementing an in-memory indexer will be based on a popular
     full-text search package for Go called bleve ^([1]). While bleve is primarily
     designed to store its index on disk, it also supports an in-memory index. This
     makes it an excellent candidate for running unit tests in isolation or for demonstration
     purposes if we don't want to spin up a much more resource-intensive option such
     as Elasticsearch.
+  id: totrans-342
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们第一次尝试实现内存索引器将基于一个流行的Go全文搜索包bleve^([1])。虽然bleve主要设计用于在磁盘上存储其索引，但它也支持内存索引。这使得它成为在隔离或演示目的下运行单元测试的绝佳候选者，如果我们不想启动一个资源消耗更大的选项，如Elasticsearch。
 - en: 'The full source for the bleve-based Indexer implementation is available in
     the `Chapter06/textindexer/store/memory` package in this book''s GitHub repository.
     The definition of the `InMemoryBleveIndexer` type is pretty straightforward:'
+  id: totrans-343
   prefs: []
   type: TYPE_NORMAL
+  zh: 基于bleve的索引器实现的完整源代码可在本书GitHub仓库的`Chapter06/textindexer/store/memory`包中找到。`InMemoryBleveIndexer`类型的定义相当简单：
 - en: '[PRE49]'
+  id: totrans-344
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE49]'
 - en: 'The `idx` field stores a reference to the bleve index. To speed up indexing,
     we don''t pass the full `Document` model to bleve and instead make use of a more
     lightweight representation that only contains the three fields we need for performing
     searches: the title, content, and `PageRank` score.'
+  id: totrans-345
   prefs: []
   type: TYPE_NORMAL
+  zh: '`idx`字段存储了对bleve索引的引用。为了加快索引速度，我们不会将完整的`Document`模型传递给bleve，而是使用一个更轻量级的表示，它只包含我们执行搜索所需的三个字段：标题、内容和`PageRank`分数。'
 - en: An obvious caveat of this approach is that since bleve stores a partial view
     of the document data, we cannot recreate the original document from the result
     list returned by bleve after executing a search query. To solve this problem,
@@ -1783,54 +2496,74 @@
     When processing a result list, the returned document IDs are used to index the
     map and to recover the original document. To ensure that the in-memory indexer
     is safe for concurrent use, access to the map is guarded with a read/write mutex.
+  id: totrans-346
   prefs: []
   type: TYPE_NORMAL
+  zh: 这种方法的明显缺点是，由于bleve存储了文档数据的部分视图，我们无法从bleve执行搜索查询后返回的结果列表中重新创建原始文档。为了解决这个问题，内存中的索引器维护一个映射，其中键是文档链接ID，值是索引器处理的文档的不可变副本。在处理结果列表时，返回的文档ID用于索引映射和恢复原始文档。为了确保内存中的索引器可以安全地并发使用，对映射的访问由读写互斥锁保护。
 - en: Indexing documents
+  id: totrans-347
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 索引文档
 - en: 'The implementation of the `Index` method for the in-memory indexer is outlined
     as follows:'
+  id: totrans-348
   prefs: []
   type: TYPE_NORMAL
+  zh: 内存索引器的`Index`方法实现概述如下：
 - en: '[PRE50]'
+  id: totrans-349
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE50]'
 - en: To guarantee that the only way to mutate an already-indexed document is via
     a reindex operation, the indexer is designed to work with immutable copies of
     the documents that are passed as arguments to the `Index` method. The `copyDoc` helper
     creates a copy of the original document that we can safely store in the internal
     document map.
+  id: totrans-350
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了保证唯一修改已索引文档的方式是通过重新索引操作，索引器被设计为与传递给`Index`方法的文档的不可变副本一起工作。`copyDoc`辅助函数创建原始文档的副本，我们可以安全地将其存储在内部文档映射中。
 - en: 'To add a new document to the index or to reindex an existing document, we need
     to provide bleve with two parameters: a *string-based* document ID and the document
     to be indexed. The `makeBleveDoc` helper returns a partial, lightweight view of
     the original document that, as we mentioned in the previous section, only contains
     the fields we want to use as part of our search queries.'
+  id: totrans-351
   prefs: []
   type: TYPE_NORMAL
+  zh: 要将新文档添加到索引或重新索引现有文档，我们需要向bleve提供两个参数：基于字符串的文档ID和要索引的文档。`makeBleveDoc`辅助函数返回原始文档的部分、轻量级视图，正如我们在上一节中提到的，它只包含我们用作搜索查询一部分的字段。
 - en: When updating an existing document, we don't want the index operation to mutate
     the `PageRank` score that has already been assigned to the document as this would
     interfere with how the search results are ordered. To this end, if a document
     already exists, we need to patch the lightweight document that we pass to bleve
     so that it reflects the correct `PageRank` value.
+  id: totrans-352
   prefs: []
   type: TYPE_NORMAL
+  zh: 当更新现有文档时，我们不希望索引操作修改已分配给文档的`PageRank`分数，因为这会干扰搜索结果的排序方式。为此，如果文档已存在，我们需要修补传递给bleve的轻量级文档，使其反映正确的`PageRank`值。
 - en: Looking up documents and updating their PageRank score
+  id: totrans-353
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 查找文档和更新它们的PageRank分数
 - en: 'If we know a document''s link ID, we can invoke the `FindByID` method to look
     up the indexed document. The implementation is pretty straightforward; we just
     acquire a read lock and lookup for the specified ID in the internal map maintained
     by the indexer. If a matching entry exists, we create a copy and return it to
     the caller:'
+  id: totrans-354
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果我们知道文档的链接ID，我们可以调用`FindByID`方法来查找索引中的文档。实现相当直接；我们只需获取一个读锁，并在索引器维护的内部映射中查找指定的ID。如果存在匹配的条目，我们创建一个副本并将其返回给调用者：
 - en: '[PRE51]'
+  id: totrans-355
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE51]'
 - en: You may be wondering why the `FindByID` implementation converts the input UUID
     into a string and delegates the actual document look up to the unexported `findByID` method.
     In the previous section, we saw that when we request bleve to index a document,
@@ -1838,136 +2571,194 @@
     ID to us when the document is matched by a search query. As will become evident
     in the following section, by providing a `findByID` method that accepts the linkID
     as a string, we can *reuse* the document lookup code when iterating search results.
+  id: totrans-356
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可能想知道为什么`FindByID`实现将输入UUID转换为字符串并将实际的文档查找委托给未导出的`findByID`方法。在上一节中，我们看到当我们请求bleve索引文档时，我们需要提供一个基于字符串的文档ID。bleve将在文档通过搜索查询匹配时将此ID返回给我们。正如以下部分将变得明显，通过提供一个接受linkID作为字符串的`findByID`方法，我们可以在迭代搜索结果时重用文档查找代码。
 - en: 'To update the `PageRank` score for an existing document, clients invoke the `UpdateScore` method,
     which expects a document''s link ID and the updated `PageRank` score:'
+  id: totrans-357
   prefs: []
   type: TYPE_NORMAL
+  zh: 要更新现有文档的`PageRank`分数，客户端调用`UpdateScore`方法，该方法期望一个文档的链接ID和更新的`PageRank`分数：
 - en: '[PRE52]'
+  id: totrans-358
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE52]'
 - en: Updating *any* searchable document attribute requires a reindex operation. Consequently,
     the `UpdateScore` implementation will acquire a *write* lock and look up the document
     in the internal document map. If the document is found, its `PageRank` score will
     be updated *in-place* and the document will be passed to bleve for indexing.
+  id: totrans-359
   prefs: []
   type: TYPE_NORMAL
+  zh: 更新任何可搜索文档属性都需要重新索引操作。因此，`UpdateScore`实现将获取一个*写*锁，并在内部文档映射中查找文档。如果找到文档，其`PageRank`分数将就地更新，并将文档传递给bleve进行索引。
 - en: Searching the index
+  id: totrans-360
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 搜索索引
 - en: 'The clients of the in-memory indexer submit search queries by invoking the `Search` method.
     The implementation of this method is as follows:'
+  id: totrans-361
   prefs: []
   type: TYPE_NORMAL
+  zh: 内存索引器的客户端通过调用`Search`方法提交搜索查询。此方法的实现如下：
 - en: '[PRE53]'
+  id: totrans-362
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE53]'
 - en: The first thing that our implementation needs to do is check what type of query
     the caller asked us to perform and then invoke the appropriate bleve helper to
     construct a query from the caller-provided expression.
+  id: totrans-363
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们实现需要做的第一件事是检查调用者要求我们执行哪种类型的查询，然后调用适当的bleve辅助函数从调用者提供的表达式构建查询。
 - en: Next, the generated query is transformed into a new search request where we
     also ask bleve to order the results by `PageRank` and relevance in descending
     order. Bleve search results are always paginated. Consequently, in addition to
     any sorting preferences, we must also specify the number of results per page that
     we want bleve to return (the batch size). The search request object also allows
     us to control the offset in the result list by specifying a value for its `From` field.
+  id: totrans-364
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，生成的查询被转换为一个新搜索请求，我们要求bleve按`PageRank`和相关性降序排序结果。Bleve搜索结果总是分页的。因此，除了任何排序偏好外，我们还必须指定我们希望bleve返回的每页结果数（批处理大小）。搜索请求对象还允许我们通过指定其`From`字段的值来控制结果列表中的偏移量。
 - en: The next step is to submit the search request to bleve and check for the presence
     of errors. If everything goes according to plan and no error is returned, the
     implementation creates a new iterator instance that the caller can use to consume
     the matched documents.
+  id: totrans-365
   prefs: []
   type: TYPE_NORMAL
+  zh: 下一步是将搜索请求提交给bleve并检查是否存在错误。如果一切按计划进行且没有返回错误，实现将创建一个新的迭代器实例，调用者可以使用它来消费匹配的文档。
 - en: Iterating the list of search results
+  id: totrans-366
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 遍历搜索结果列表
 - en: 'The `bleveIterator` type implements the `indexer.Iterator` interface and is
     defined as follows:'
+  id: totrans-367
   prefs: []
   type: TYPE_NORMAL
+  zh: '`bleveIterator`类型实现了`indexer.Iterator`接口，并定义如下：'
 - en: '[PRE54]'
+  id: totrans-368
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE54]'
 - en: 'The iterator implementation keeps track of two pointers:'
+  id: totrans-369
   prefs: []
   type: TYPE_NORMAL
+  zh: 迭代器实现跟踪两个指针：
 - en: A pointer to the in-memory indexer instance, which allows the iterator to access
     the stored documents when the iterator is advanced
+  id: totrans-370
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 指向内存索引器实例的指针，允许迭代器在迭代器前进时访问存储的文档
 - en: A pointer to the executed search request, which the iterator uses to trigger
     new bleve searches once the current page of results has been consumed
+  id: totrans-371
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 指向已执行搜索请求的指针，迭代器使用它来触发新的bleve搜索，一旦当前页的结果已被消耗
 - en: 'To track the position in the paginated search result list, the iterator also
     maintains two counters:'
+  id: totrans-372
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了跟踪分页搜索结果列表中的位置，迭代器还维护两个计数器：
 - en: A cumulative counter (`cumIdx`) that tracks the absolute position in the *global*
     result list
+  id: totrans-373
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个累积计数器（`cumIdx`），它跟踪全局结果列表中的绝对位置
 - en: A counter (`rsIdx`) that tracks the position in the *current* page of results
+  id: totrans-374
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个计数器（`rsIdx`），它跟踪当前页结果中的位置
 - en: The `bleve.SearchResult` objects returned by bleve queries provide information
     about both the total number of matched results and the number of documents in
     the current result page. The iterator's `Next` method makes use of this information
     to decide whether the iterator can be advanced.
+  id: totrans-375
   prefs: []
   type: TYPE_NORMAL
+  zh: bleve查询返回的`bleve.SearchResult`对象提供了有关匹配结果总数和当前结果页中文档数量的信息。迭代器的`Next`方法利用此信息来决定迭代器是否可以前进。
 - en: 'When the iterator''s `Next` method is invoked, the implementation performs
     a quick check to see if an error has occurred or we have already iterated the
     full set of results. If that is the case, `Next` will return `false` to indicate
     that no more items are available. The latter check is facilitated by comparing
     the total result count reported by bleve to the `cumIdx` value that the iterator
     tracks within its internal state:'
+  id: totrans-376
   prefs: []
   type: TYPE_NORMAL
+  zh: 当调用迭代器的`Next`方法时，实现会快速检查是否发生错误或我们已经迭代了全部结果集。如果是这种情况，`Next`将返回`false`以指示没有更多项目可用。后者的检查是通过比较bleve报告的总结果计数与迭代器在其内部状态中跟踪的`cumIdx`值来实现的：
 - en: '[PRE55]'
+  id: totrans-377
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE55]'
 - en: Our next course of action is to check whether we have exhausted the current
     page of results. This is facilitated by comparing the number of documents in the
     current result page to the value of the `rsIdx` counter. If all the documents
     in the *current* result page have been consumed and *no* additional result pages
     are available, the method returns `false` to indicate this to the caller.
+  id: totrans-378
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们下一步的行动是检查我们是否已经耗尽了当前页的结果。这通过比较当前结果页中的文档数量与`rsIdx`计数器的值来实现。如果当前结果页中的所有文档都已消耗，并且没有更多的结果页可用，则方法返回`false`以通知调用者。
 - en: 'Otherwise, the implementation automatically fetches the next pages of results
     by doing the following:'
+  id: totrans-379
   prefs: []
   type: TYPE_NORMAL
+  zh: 否则，实现会自动通过以下方式获取下一页的结果：
 - en: Updating the stored search request so that the result offset points to the beginning
     of the *next* page
+  id: totrans-380
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 更新存储的搜索请求，以便结果偏移量指向下一页的开始位置
 - en: Executing a new bleve search request to obtain the next page of results
+  id: totrans-381
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 执行一个新的bleve搜索请求以获取下一页的结果
 - en: Resetting the `rsIdx` counter so that we can process the first result of the
     newly retrieved page
+  id: totrans-382
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 重置`rsIdx`计数器，以便我们可以处理新检索到的页面的第一个结果
 - en: 'The preceding steps are outlined in the following code snippet:'
+  id: totrans-383
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下代码片段概述了前面的步骤：
 - en: '[PRE56]'
+  id: totrans-384
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE56]'
 - en: To latch the next document from the result set, we extract its ID from the bleve
     result and look up the full document by invoking the `findByID` method on the
     in-memory index. As we saw in the previous section, the document lookup code always
@@ -1976,43 +2767,62 @@
     returned to the caller to indicate that the iterator has been successfully advanced
     and that the next document can be retrieved via a call to the iterator's `Document`
     method.
+  id: totrans-385
   prefs: []
   type: TYPE_NORMAL
+  zh: 要锁定结果集中的下一个文档，我们从bleve结果中提取其ID，并通过在内存索引上调用`findByID`方法来查找完整的文档。正如我们在前面的部分中看到的，文档查找代码始终返回索引文档的*副本*，我们可以在迭代器中安全地缓存它。最后，两个位置跟踪计数器都会增加，并返回一个`true`值给调用者，以指示迭代器已成功前进，并且可以通过调用迭代器的`Document`方法检索下一个文档。
 - en: Setting up a test suite for the in-memory indexer
+  id: totrans-386
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为内存索引器设置测试套件
 - en: 'The test suite for the in-memory indexer implementation embeds the shared test
     suite we outlined in the *Verifying indexer implementations using a shared test
     suite* section. Since the suite depends on the `gocheck` framework, we need to
     add some extra code to register the suite with the `go test` framework:'
+  id: totrans-387
   prefs: []
   type: TYPE_NORMAL
+  zh: 内存索引器实现的测试套件嵌入我们在“使用共享测试套件验证索引器实现”部分中概述的共享测试套件。由于该套件依赖于`gocheck`框架，我们需要添加一些额外的代码来将套件注册到`go
+    test`框架中：
 - en: '[PRE57]'
+  id: totrans-388
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE57]'
 - en: 'To ensure that each test uses a clean index instance, the suite provides a
     per-test setup method that recreates the index before running each test:'
+  id: totrans-389
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了确保每个测试都使用一个干净的索引实例，该套件提供了一个针对每个测试的设置方法，在运行每个测试之前重新创建索引：
 - en: '[PRE58]'
+  id: totrans-390
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE58]'
 - en: Since bleve index instances are held in memory, we also need to define a per-test
     teardown method to ensure that the index is closed and that any acquired resources
     are freed after each test completes.
+  id: totrans-391
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于bleve索引实例存储在内存中，我们还需要定义一个针对每个测试的清理方法，以确保在每次测试完成后关闭索引并释放任何获取的资源。
 - en: Scaling across an Elasticsearch indexer implementation
+  id: totrans-392
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 在Elasticsearch索引器实现中进行扩展
 - en: A caveat of the in-memory bleve-based indexer implementation is that we are
     more or less limited to running our index on a single node. This not only introduces
     a single point of failure to our overall system design but it also places a hard
     limit on the amount of search traffic that our service can handle.
+  id: totrans-393
   prefs: []
   type: TYPE_NORMAL
+  zh: 内存中bleve索引器实现的一个注意事项是我们或多或少被限制在单个节点上运行索引。这不仅给我们的整体系统设计引入了一个单点故障，而且也限制了我们的服务可以处理的大量搜索流量。
 - en: We could definitely argue that we could try to scale our implementation horizontally.
     At the time of writing, bleve does not provide any built-in mechanism for running
     in distributed mode; we would need to roll out a custom solution from scratch.
@@ -2026,94 +2836,138 @@
     type of workload, the preceding approach would *probably* work nicely. I say probably
     because there are quite a few things that could possibly go wrong with such an
     implementation.
+  id: totrans-394
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们确实可以争论我们尝试水平扩展我们的实现。在撰写本文时，bleve 没有提供任何内置机制来运行在分布式模式下；我们需要从头开始推出一个自定义解决方案。一种方法就是创建一个多主设置。这里的想法是启动多个索引服务实例，并将它们放置在允许客户端通过
+    API 访问索引的 *网关服务* 后面。当客户端提供要索引的文档时，网关将要求 *所有* 索引实例处理该文档，并且只有在所有实例都成功索引了文档后，才会向调用者返回。另一方面，网关可以将传入的搜索请求委派给池中的任何随机索引实例。鉴于搜索是一种读密集型的工作负载，上述方法
+    *可能* 会很好地工作。我说可能是因为在这种实现中可能会有很多问题发生。
 - en: 'Building distributed systems is hard; figuring out how they behave when faults
     occur is even harder. We would definitely be better off using an off-the-self
     solution that has been battle-tested in large-scale production systems; preferably
     one whose failure modes (discovered via a framework such as Jepsen ^([12])) are
     known and well understood. To this end, we will be basing our second indexer implementation
     on Elasticsearch ^([9]). Here are some of the benefits of using Elasticsearch:'
+  id: totrans-395
   prefs: []
   type: TYPE_NORMAL
+  zh: 构建分布式系统很困难；弄清楚它们在发生故障时的行为甚至更困难。我们肯定更倾向于使用经过大规模生产系统实战检验的现成解决方案；最好是那些其故障模式（通过像
+    Jepsen ^([12]) 这样的框架发现）已知且理解良好的解决方案。为此，我们将基于 Elasticsearch ^([9]) 构建我们的第二个索引器实现。以下是使用
+    Elasticsearch 的一些好处：
 - en: We can run Elasticsearch on our own infrastructure or use one of the commercially
     available managed Elasticsearch SaaS offerings.
+  id: totrans-396
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 我们可以在自己的基础设施上运行 Elasticsearch，或者使用商业上可用的托管 Elasticsearch SaaS 服务之一。
 - en: Elasticsearch has built-in support for clustering and can scale horizontally.
+  id: totrans-397
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Elasticsearch 内置了对集群的支持，并且可以水平扩展。
 - en: It exposes a REST API and clients are available for most popular programming
     languages. The client list includes an official Go client ^([21]) that we will
     be using for our indexer implementation.
+  id: totrans-398
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 它公开了一个 REST API，并为大多数流行的编程语言提供了客户端。客户端列表包括官方的 Go 客户端 ^([21])，我们将使用它来实现我们的索引器。
 - en: Creating a new Elasticsearch indexer instance
+  id: totrans-399
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 创建一个新的 Elasticsearch 索引器实例
 - en: 'To create a new Elasticsearch search indexer, clients need to invoke the `NewElasticSearchIndexer` constructor
     and provide a list of elastic search nodes to connect to. Our implementation will
     use the official Go client for Elasticsearch, which is provided by the `go-elastic`
     package ^([21]):'
+  id: totrans-400
   prefs: []
   type: TYPE_NORMAL
+  zh: 要创建一个新的 Elasticsearch 搜索索引器，客户端需要调用 `NewElasticSearchIndexer` 构造函数并提供要连接的弹性搜索节点列表。我们的实现将使用官方的
+    Go 客户端库 Elasticsearch，该库由 `go-elastic` 包提供 ^([21])：
 - en: '[PRE59]'
+  id: totrans-401
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE59]'
 - en: 'After creating a new go-elastic client, the constructor invokes the `ensureIndex` helper,
     which checks whether the Elasticsearch index (the equivalent of a table, in DB
     terminology) that we will be using for storing our documents already exists. If
     not, the helper will automatically create it for us using the following set of
     field mappings (table schema, in DB terminology):'
+  id: totrans-402
   prefs: []
   type: TYPE_NORMAL
+  zh: 在创建新的 go-elastic 客户端之后，构造函数会调用 `ensureIndex` 辅助函数，该函数检查我们将用于存储文档的 Elasticsearch
+    索引（在数据库术语中相当于表）是否已经存在。如果没有，辅助函数将自动为我们创建它，使用以下字段映射集（在数据库术语中相当于表模式）：
 - en: '[PRE60]'
+  id: totrans-403
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE60]'
 - en: Providing field mappings is not strictly required by Elasticsearch! In fact,
     the indexing engine is quite capable of inferring the types of each document field
     simply by analyzing their contents. However, if we explicitly provide the field
     mapping on our end, we not only force Elasticsearch to use a *specific indexer
     implementation* for each field type but we can also individually configure and
     fine-tune the behavior of each field indexer.
+  id: totrans-404
   prefs: []
   type: TYPE_NORMAL
+  zh: 提供字段映射不是 Elasticsearch 的严格要求！实际上，索引引擎完全能够通过分析其内容简单地推断每个文档字段的类型。然而，如果我们明确在我们的端提供字段映射，我们不仅迫使
+    Elasticsearch 为每个字段类型使用一个*特定的索引器实现*，我们还可以单独配置和微调每个字段索引器的行为。
 - en: 'The preceding JSON document defines the following set of mappings:'
+  id: totrans-405
   prefs: []
   type: TYPE_NORMAL
+  zh: 前面的 JSON 文档定义了以下映射集：
 - en: The `LinkID` and `URL` fields specify a `keyword` field type. This type instructs
     Elasticsearch to index them as a blob of text and is suited for queries such as `find
     the document whose LinkID is X`.
+  id: totrans-406
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`LinkID`和`URL`字段指定了`keyword`字段类型。此类型指示 Elasticsearch 将其索引为文本块，适用于如`查找 LinkID
+    为 X 的文档`之类的查询。'
 - en: The `Content` and `Title` fields specify a `text` field type. Elasticsearch
     will use a special indexer that allows us to perform full-text searches against
     these fields.
+  id: totrans-407
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`Content`和`Title`字段指定了`text`字段类型。Elasticsearch 将使用一个特殊的索引器，允许我们对这些字段执行全文搜索。'
 - en: The `IndexedAt` and `PageRank` fields are parsed and stored as date and double
     values.
+  id: totrans-408
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`IndexedAt`和`PageRank`字段被解析并存储为日期和双精度值。'
 - en: Indexing and looking up documents
+  id: totrans-409
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 索引和查找文档
 - en: 'To upsert a document to the index, we need to submit an update operation to
     the Elasticsearch cluster. The update request''s contents is populated using the
     following block of code:'
+  id: totrans-410
   prefs: []
   type: TYPE_NORMAL
+  zh: 要将文档更新到索引中，我们需要向 Elasticsearch 集群提交一个更新操作。更新请求的内容使用以下代码块填充：
 - en: '[PRE61]'
+  id: totrans-411
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE61]'
 - en: The `makeEsDoc` helper converts the input `indexer.Document` instance into a
     representation that Elasticsearch can process. It is important to note that the
     mapped document does not include a `PageRank` score value, even if that is present
@@ -2121,46 +2975,67 @@
     be mutated via a call to `UpdateScore`. The `doc_as_upsert` flag serves as a hint
     to Elasticsearch that it should create the document if it does not exist, that
     is, it should treat the update request as an upsert operation.
+  id: totrans-412
   prefs: []
   type: TYPE_NORMAL
+  zh: '`makeEsDoc`辅助函数将输入的`indexer.Document`实例转换为 Elasticsearch 可以处理的表现形式。需要注意的是，映射的文档不包括`PageRank`分数值，即使原始文档中存在该值。这是故意的，因为我们只允许通过调用`UpdateScore`来修改`PageRank`分数。`doc_as_upsert`标志作为提示，告诉
+    Elasticsearch 如果文档不存在，则应创建该文档，即它应将更新请求视为 upsert 操作。'
 - en: 'After populating the update document, we just need to serialize it into JSON,
     execute a *synchronous* update, and check for any reported errors:'
+  id: totrans-413
   prefs: []
   type: TYPE_NORMAL
+  zh: 在填充更新文档后，我们只需将其序列化为 JSON，执行一个`synchronous`更新，并检查任何报告的错误：
 - en: '[PRE62]'
+  id: totrans-414
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE62]'
 - en: 'When performing any API call to Elasticsearch using the go-elastic client,
     errors can be reported in two different ways:'
+  id: totrans-415
   prefs: []
   type: TYPE_NORMAL
+  zh: 当使用 go-elastic 客户端对 Elasticsearch 执行任何 API 调用时，错误可以通过两种不同的方式报告：
 - en: The client returns an error and a `nil` response value. This can happen, for
     instance, if the DNS resolution for the Elasticsearch nodes fails or if the client
     can't connect to any of the provided node addresses.
+  id: totrans-416
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 客户端返回错误和`nil`响应值。这种情况可能发生，例如，如果 Elasticsearch 节点的 DNS 解析失败，或者客户端无法连接到提供的任何节点地址。
 - en: Elasticsearch sends a JSON response that contains a structured error as its
     payload.
+  id: totrans-417
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Elasticsearch 发送一个包含结构化错误的 JSON 响应作为其有效载荷。
 - en: To deal with the latter case, we can use the handy `unmarshalResponse` helper,
     which checks for the presence of errors in the response and returns them as regular
     Go error values.
+  id: totrans-418
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了处理后者的情况，我们可以使用方便的`unmarshalResponse`辅助函数，该函数检查响应中是否存在错误，并将它们作为常规 Go 错误值返回。
 - en: 'What about document lookups? This operation is modeled as a search query where
     we try to match a single document with a specific link ID value. Like any other
     request to the Elasticsearch cluster, search queries are specified as JSON documents
     that are sent to the cluster via an HTTP POST request. The `FindByID` implementation
     creates the search query inline by defining a nested block of `map[string]interface{}` items
     which are then serialized via a JSON encoder instance:'
+  id: totrans-419
   prefs: []
   type: TYPE_NORMAL
+  zh: 关于文档查找？这个操作被建模为一个搜索查询，我们尝试匹配一个具有特定链接 ID 值的单个文档。像对 Elasticsearch 集群的任何其他请求一样，搜索查询被指定为
+    JSON 文档，通过 HTTP POST 请求发送到集群。`FindByID`实现通过定义嵌套的`map[string]interface{}`项块来内联创建搜索查询，然后通过
+    JSON 编码器实例序列化：
 - en: '[PRE63]'
+  id: totrans-420
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE63]'
 - en: At this point, I would like to point out that I only opted to use an inline,
     *type-less* approach to define the search query for simplicity. Ideally, instead
     of using maps, you would define nested structs for each portion of the query.
@@ -2170,65 +3045,92 @@
     such example is easyjson ^([10]), which utilizes code generation to create efficient
     JSON encoder/decoders and promises a 4x-5x increase in speed over the JSON encoder
     implementation that ships with the Go standard library.
+  id: totrans-421
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这一点上，我想指出，我仅选择使用内联、无类型的简单方法来定义搜索查询。理想情况下，您会为查询的每一部分定义嵌套结构，而不是使用映射。除了与类型值一起工作的明显好处之外，与结构一起工作的另一个重要好处是，我们可以切换到一个更高效的JSON编码器实现，该实现不需要使用*反射*。一个这样的例子是easyjson
+    ^([10])，它利用代码生成来创建高效的JSON编码器/解码器，并承诺比Go标准库中提供的JSON编码器实现快4倍到5倍。
 - en: 'After our query has been successfully serialized to JSON, we invoke the `runSearch` helper,
     which submits the query to Elasticsearch. The helper will then unserialize the
     obtained response into a nested struct while at the same time checking for the
     presence of errors:'
+  id: totrans-422
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们的查询成功序列化为JSON之后，我们调用`runSearch`辅助函数，将查询提交给Elasticsearch。辅助函数将获得的响应反序列化为嵌套结构，同时检查是否存在错误：
 - en: '[PRE64]'
+  id: totrans-423
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE64]'
 - en: 'If everything goes according to plan, we will receive a single result. The
     obtained result is then passed to the `mapEsDoc` helper, which converts it back
     into a `Document` model instance, as follows:'
+  id: totrans-424
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果一切按计划进行，我们将收到单个结果。然后，该结果被传递给`mapEsDoc`辅助函数，将其转换回一个`Document`模型实例，如下所示：
 - en: '[PRE65]'
+  id: totrans-425
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE65]'
 - en: As you can see in the preceding snippet, the majority of the fields are just
     copied over to the document with the exception of the `LinkID` field, which must
     be parsed from a string representation into a UUID value first. The converted
     document is then returned to the caller of the `FindByID` method.
+  id: totrans-426
   prefs: []
   type: TYPE_NORMAL
+  zh: 如前所述的代码片段所示，大多数字段只是复制到文档中，除了`LinkID`字段，它必须首先从字符串表示形式解析为UUID值。然后，转换后的文档被返回给`FindByID`方法的调用者。
 - en: Performing paginated searches
+  id: totrans-427
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 执行分页搜索
 - en: As you might expect from a product whose primary job is searching within documents,
     Elasticsearch supports a plethora of different query types, ranging from keyword-based
     searches to complex geospatial or time-based queries. Unfortunately, the syntax
     for specifying queries varies slightly, depending on the type of query that we
     wish to perform.
+  id: totrans-428
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所预期的那样，作为一个主要工作是在文档内进行搜索的产品，Elasticsearch支持多种不同的查询类型，从基于关键词的搜索到复杂的地理空间或基于时间的查询。不幸的是，指定查询的语法略有不同，这取决于我们希望执行查询的类型。
 - en: 'It turns out that, for our particular use case, we can get away with using
     the same query syntax for both keyword- and phrase-based queries. All we need
     to do is convert the `QueryType` provided by the caller into an Elasticsearch-specific
     value that we can plug into a predefined search template. To achieve this, the
     indexer implementation makes use of the *switch* block to convert the incoming
     query type into a value that Elasticsearch can recognize and interpret:'
+  id: totrans-429
   prefs: []
   type: TYPE_NORMAL
+  zh: 结果表明，对于我们的特定用例，我们可以使用相同的查询语法来处理基于关键词和短语查询。我们所需做的只是将调用者提供的`QueryType`转换为Elasticsearch特定的值，然后将其插入到预定义的搜索模板中。为了实现这一点，索引器实现使用*switch*块将传入的查询类型转换为Elasticsearch可以识别和解释的值：
 - en: '[PRE66]'
+  id: totrans-430
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE66]'
 - en: 'We can then proceed to assemble our search query in the (quite verbose) format
     that''s expected by Elasticsearch using a series of nested `map[string]interface{}` values,
     as follows:'
+  id: totrans-431
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们可以继续使用一系列嵌套的`map[string]interface{}`值，以（相当冗长）的格式组装我们的搜索查询，该格式是Elasticsearch所期望的，如下所示：
 - en: '[PRE67]'
+  id: totrans-432
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE67]'
 - en: To handle pagination of the matched results, the query specifies both the page
     offset and the page size via the `from` and `size` query fields.
+  id: totrans-433
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了处理匹配结果的分页，查询通过`from`和`size`查询字段指定了页面偏移量和页面大小。
 - en: The preceding query template demonstrates another very useful Elasticsearch
     feature: **score boosting**. By default, Elasticsearch sorts the returned documents
     in terms of their *relevance* to the submitted query. For some kinds of queries,
@@ -2237,279 +3139,403 @@
     and are assigned the same relevance score). To this end, Elasticsearch provides
     helpers for manipulating or even completely overriding the relevance scores of
     matched documents.
+  id: totrans-434
   prefs: []
   type: TYPE_NORMAL
+  zh: 上述查询模板展示了另一个非常实用的Elasticsearch功能：**分数提升**。默认情况下，Elasticsearch根据提交查询的相关性对返回的文档进行排序。对于某些类型的查询，默认的内置相关性分数计算算法可能不会产生有意义的排序值（例如，所有文档都包含搜索关键字并被分配相同的
+    relevance 分数）。为此，Elasticsearch提供了用于操作或甚至完全覆盖匹配文档的相关性分数的辅助工具。
 - en: Our particular query template specifies a custom script that calculates the
     effective relevance score by **aggregating** the matched document's PageRank score
     and the query relevance score calculated by Elasticsearch (exposed via the `_score` field).
     This little trick ensures that documents with a higher `PageRank` score always
     sort higher in the set of results.
+  id: totrans-435
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们特定的查询模板指定了一个自定义脚本，该脚本通过**聚合**匹配文档的PageRank分数和由Elasticsearch（通过`_score`字段公开）计算的查询相关性分数来计算有效相关性分数。这个小技巧确保了具有更高`PageRank`分数的文档始终在结果集中排序得更高。
 - en: 'Just as we did for the `FindByID` implementation, we once again invoke the `runSearch` helper
     to submit a search request to Elasticsearch and unserialize the first page of
     returned results. If the operation succeeds, a new `esIterator` instance is created
     and returned to the caller so that the results of the search query can be consumed:'
+  id: totrans-436
   prefs: []
   type: TYPE_NORMAL
+  zh: 就像我们对`FindByID`实现所做的那样，我们再次调用`runSearch`辅助函数向Elasticsearch提交搜索请求并反序列化返回结果的第一页。如果操作成功，将创建一个新的`esIterator`实例并将其返回给调用者，以便可以消费搜索查询的结果：
 - en: '[PRE68]'
+  id: totrans-437
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE68]'
 - en: In a similar fashion to its in-memory sibling, the `esIterator` implementation
     maintains its own set of global and per-page counters for keeping track of its
     position within the result set returned by Elasticsearch. Each time the iterator's `Next` method is
     invoked, the iterator checks if an error has occurred or whether all the search
     results have been consumed. If this happens to be the case, then the call to `Next` returns `false` to
     notify the caller that no more results are available.
+  id: totrans-438
   prefs: []
   type: TYPE_NORMAL
+  zh: 与其内存中的兄弟类似，`esIterator`实现维护自己的全局和每页计数器集合，以跟踪其在Elasticsearch返回的结果集中的位置。每次调用迭代器的`Next`方法时，迭代器都会检查是否发生错误或是否已消耗所有搜索结果。如果发生这种情况，则`Next`调用返回`false`以通知调用者没有更多结果可用。
 - en: 'If the iterator hasn''t exhausted the current page of results yet, it does
     the following:'
+  id: totrans-439
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果迭代器尚未耗尽当前结果页，它会执行以下操作：
 - en: Both internal position-tracking counters are incremented
+  id: totrans-440
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 两个内部位置跟踪计数器都会增加
 - en: The next available result is converted into a `Document` model via a call to
     the `mapEsDoc` helper (see the previous section) and latched inside the iterator
     object
+  id: totrans-441
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 下一个可用的结果通过调用`mapEsDoc`辅助函数（见上一节）转换为`Document`模型，并在迭代器对象内部锁定
 - en: A `true` value is returned to the caller to indicate that the next result is
     available for retrieval via a call to the iterator's `Document` method
+  id: totrans-442
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 向调用者返回一个`true`值，以指示可以通过调用迭代器的`Document`方法检索到下一个结果
 - en: Otherwise, if the end of the current page of results has been reached and more
     results are available, the iterator adjusts the offset field of the last search
     query and sends out a new search request to obtain the next page of results.
+  id: totrans-443
   prefs: []
   type: TYPE_NORMAL
+  zh: 否则，如果已到达当前结果页的末尾并且还有更多结果可用，迭代器会调整最后搜索查询的偏移字段，并发送新的搜索请求以获取下一页的结果。
 - en: In the interest of brevity, we will not be listing the source code for the `esIterator` implementation
     here since it is almost identical to the in-memory indexer implementation that
     we've already examined. You can take a look at the fully documented source code
     for the iterator by opening the `iterator.go` file in this `Chapter06/textindexer/store/es`
     package, which is available in this book's GitHub repository.
+  id: totrans-444
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了简洁起见，我们在此不会列出`esIterator`实现的源代码，因为它几乎与我们已检查的内存索引实现相同。您可以通过打开此`Chapter06/textindexer/store/es`包中的`iterator.go`文件来查看迭代器的完整文档化源代码，该文件可在本书的GitHub仓库中找到。
 - en: Updating the PageRank score for a document
+  id: totrans-445
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 更新文档的PageRank分数
 - en: To update the `PageRank` score for an existing document, we need to construct
     an update request payload that the go-elastic client will submit to the Elasticsearch
     cluster via an HTTP POST request. The update payload includes a map with the fields
     names and values that need to be updated.
+  id: totrans-446
   prefs: []
   type: TYPE_NORMAL
+  zh: 要更新现有文档的 `PageRank` 分数，我们需要构建一个更新请求负载，该负载将由 go-elastic 客户端通过 HTTP POST 请求提交到
+    Elasticsearch 集群。更新负载包括一个包含需要更新的字段名称和值的映射。
 - en: 'To facilitate document updates, the go-elastic client exposes an `Update` method
     that expects the following set of arguments:'
+  id: totrans-447
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了方便文档更新，go-elastic 客户端公开了一个 `Update` 方法，该方法期望以下一组参数：
 - en: The name of the index that contains the document to be updated
+  id: totrans-448
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 包含要更新文档的索引名称
 - en: The ID of the document to be updated
+  id: totrans-449
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要更新的文档的 ID
 - en: The document update payload encoded as JSON
+  id: totrans-450
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 以 JSON 编码的文档更新负载
 - en: 'The following code snippet illustrates how the update request is assembled
     and passed to the `Update` method:'
+  id: totrans-451
   prefs: []
   type: TYPE_NORMAL
+  zh: 以下代码片段说明了如何组装更新请求并将其传递给 `Update` 方法：
 - en: '[PRE69]'
+  id: totrans-452
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE69]'
 - en: If the caller of the `UpdateScore` method provides a document link ID that does
     not exist, we want to be able to create a placeholder document containing just
     the `LinkID` and `PageRank` scores. This is facilitated by including the `doc_as_upsert` flag
     to our update payload.
+  id: totrans-453
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果调用 `UpdateScore` 方法的调用者提供了一个不存在的文档链接 ID，我们希望能够创建一个包含仅 `LinkID` 和 `PageRank`
+    分数的占位符文档。这可以通过在我们的更新负载中包含 `doc_as_upsert` 标志来实现。
 - en: Setting up a test suite for the Elasticsearch indexer
+  id: totrans-454
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为 Elasticsearch 索引器设置测试套件
 - en: The Elasticsearch-backed indexer implementation defines its own go-check test
     suite that embeds the shared indexer test suite and provides setup and teardown
     methods that are specific to the Elasticsearch implementation.
+  id: totrans-455
   prefs: []
   type: TYPE_NORMAL
+  zh: 基于 Elasticsearch 的索引器实现定义了自己的 go-check 测试套件，该套件嵌入共享的索引器测试套件，并提供针对 Elasticsearch
+    实现特定的设置和清理方法。
 - en: 'Each the tests in the suite use the same `ElasticSearchIndexer` instance that
     is initialized once with the following suite setup method:'
+  id: totrans-456
   prefs: []
   type: TYPE_NORMAL
+  zh: 套件中的每个测试都使用相同的 `ElasticSearchIndexer` 实例，该实例通过以下套件设置方法初始化一次：
 - en: '[PRE70]'
+  id: totrans-457
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE70]'
 - en: Given the fact that Elasticsearch is quite a resource-intensive application,
     it stands to reason that you might not be running it locally on your dev machine.
     In anticipation of this, the suite setup code will check for the presence of the `ES_NODES` environment
     variable, which contains a comma-delimited list of Elasticsearch nodes to connect
     to. If the variable is not defined, then the entire test suite will be automatically
     skipped.
+  id: totrans-458
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于 Elasticsearch 是一个资源密集型应用程序，因此你可能在本地开发机器上不会运行它。为此，套件设置代码将检查 `ES_NODES` 环境变量的存在，该变量包含要连接的
+    Elasticsearch 节点的逗号分隔列表。如果没有定义该变量，则整个测试套件将自动跳过。
 - en: 'To guarantee that the tests don''t interfere with each other, it is important
     to provide each test with a blank Elasticsearch index. To this end, before each
     test runs, a per-test setup method drops the Elasticsearch index and, by extension,
     any documents that were added to the index by the previous test runs:'
+  id: totrans-459
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了保证测试之间不相互干扰，为每个测试提供一个空白的 Elasticsearch 索引非常重要。为此，在每次测试运行之前，一个针对每个测试的设置方法会删除
+    Elasticsearch 索引，以及之前测试运行中添加到索引中的任何文档：
 - en: '[PRE71]'
+  id: totrans-460
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE71]'
 - en: The remainder of the test suite code is responsible for registering the suite
     with the go-check framework and adding the appropriate hooks so that the suite
     can run when `go test` is invoked.
+  id: totrans-461
   prefs: []
   type: TYPE_NORMAL
+  zh: 测试套件代码的其余部分负责将套件注册到 go-check 框架中，并添加适当的钩子，以便在调用 `go test` 时运行套件。
 - en: Summary
+  id: totrans-462
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 摘要
 - en: In this chapter, we started laying the groundwork for the Links 'R' Us system
     by defining a data layer abstraction for the link graph and the text indexer components.
     Furthermore, as proof that our abstraction layer does indeed make it easy to swap
     the underlying implementation, we provided two compatible and fully testable implementations
     for each of the components.
+  id: totrans-463
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们通过定义链接图和文本索引器组件的数据层抽象来为 Links 'R' Us 系统奠定基础。此外，为了证明我们的抽象层确实使得替换底层实现变得容易，我们为每个组件提供了两个兼容且完全可测试的实现。
 - en: In the next chapter, we will discuss strategies and patterns for building efficient
     data processing pipelines using Go and implement the web scraping component of
     the Links 'R' Us project.
+  id: totrans-464
   prefs: []
   type: TYPE_NORMAL
+  zh: 在下一章中，我们将讨论使用 Go 构建高效数据处理管道的策略和模式，并实现 Links 'R' Us 项目的网络爬虫组件。
 - en: Questions
+  id: totrans-465
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 问题
 - en: What are the key differences between a relational database and a NoSQL database?
     Provide an example use case where a relational database would be a better fit
     than a NoSQL database and vice versa.
+  id: totrans-466
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 关系型数据库和无SQL数据库之间的关键区别是什么？请提供一个示例用例，说明在哪种情况下关系型数据库比无SQL数据库更适合，反之亦然。
 - en: How would you scale a relational database system for a read-heavy and a write-heavy
     workload?
+  id: totrans-467
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 你会如何扩展一个关系型数据库系统以适应读密集型和写密集型的工作负载？
 - en: What is the CAP theorem and is it important when choosing which NoSQL implementation
     to use?
+  id: totrans-468
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: CAP定理是什么？在选择使用哪种NoSQL实现时，它是否很重要？
 - en: Why is it important to provide an abstraction layer between our business logic
     and the underlying database?
+  id: totrans-469
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 为什么在业务逻辑和底层数据库之间提供一个抽象层很重要？
 - en: How would you go about adding a new method to the `Indexer` interface we discussed
     in the last part of this chapter?
+  id: totrans-470
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 你会如何在上一章最后一部分讨论的`Indexer`接口中添加一个新方法？
 - en: Further reading
+  id: totrans-471
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 进一步阅读
 - en: A modern text indexing library for Go. Available at: [https://github.com/blevesearch/bleve](https://github.com/blevesearch/bleve).
+  id: totrans-472
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: Go语言的现代文本索引库。可在以下网址找到：[https://github.com/blevesearch/bleve](https://github.com/blevesearch/bleve).
 - en: 'Apache Cassandra: Manage massive amounts of data, fast, without losing sleep.
     Available at: [http://cassandra.apache.org](http://cassandra.apache.org).'
+  id: totrans-473
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: Apache Cassandra：快速管理大量数据，无需担忧。可在以下网址找到：[http://cassandra.apache.org](http://cassandra.apache.org).
 - en: Apache CouchDB. Available at: [https://couchdb.apache.org](https://couchdb.apache.org).
+  id: totrans-474
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: Apache CouchDB。可在以下网址找到：[https://couchdb.apache.org](https://couchdb.apache.org).
 - en: 'Brewer, Eric A.: *Towards Robust Distributed Systems.* In: Symposium on **Principles
     of Distributed Computing** (**PODC**), 2000.'
+  id: totrans-475
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 埃里克·A.布勒尔：《走向健壮的分布式系统》。在：**分布式计算原理**（PODC），2000年。
 - en: 'CockroachDB: Ultra-resilient SQL for global business. Available at: [https://www.cockroachlabs.com](https://www.cockroachlabs.com).'
+  id: totrans-476
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: CockroachDB：为全球业务提供超可靠SQL。可在以下网址找到：[https://www.cockroachlabs.com](https://www.cockroachlabs.com).
 - en: 'Codd, E. F.: *A Relational Model of Data for Large Shared Data Banks.* In: Commun.
     ACM Bd. 13\. New York, NY, USA, ACM (1970), Nr. 6, S. 377–387.'
+  id: totrans-477
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 科德，E. F.：《大型共享数据银行的关系模型》。在：ACM通讯Bd. 13. 纽约，纽约，美国，ACM（1970），第6期，第377-387页。
 - en: Database migrations. CLI and Golang library. Available at: [https://github.com/golang-migrate/migrate](https://github.com/golang-migrate/migrate).
+  id: totrans-478
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 数据库迁移。命令行界面和Golang库。可在以下网址找到：[https://github.com/golang-migrate/migrate](https://github.com/golang-migrate/migrate).
 - en: 'DynamoDB: Fast and flexible NoSQL database service for any scale. Available
     at: [https://aws.amazon.com/dynamodb](https://aws.amazon.com/dynamodb).'
+  id: totrans-479
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: DynamoDB：适用于任何规模的快速灵活NoSQL数据库服务。可在以下网址找到：[https://aws.amazon.com/dynamodb](https://aws.amazon.com/dynamodb).
 - en: 'Elasticsearch: Open Source Search and Analytics. Available at: [https://www.elastic.co/](https://www.elastic.co/).'
+  id: totrans-480
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: Elasticsearch：开源搜索和分析。可在以下网址找到：[https://www.elastic.co/](https://www.elastic.co/).
 - en: Fast JSON serializer for golang. Available at: [https://github.com/mailru/easyjson](https://github.com/mailru/easyjson).
+  id: totrans-481
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: golang的快速JSON序列化器。可在以下网址找到：[https://github.com/mailru/easyjson](https://github.com/mailru/easyjson).
 - en: 'gocheck: rich testing for the Go language. Available at: [http://labix.org/gocheck](http://labix.org/gocheck).'
+  id: totrans-482
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: gocheck：Go语言的丰富测试。可在以下网址找到：[http://labix.org/gocheck](http://labix.org/gocheck).
 - en: 'Jepsen: Breaking distributed systems so you don''t have to. Available at: [https://github.com/jepsen-io/jepsen](https://github.com/jepsen-io/jepsen).'
+  id: totrans-483
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: Jepsen：打破分布式系统，让你无需担忧。可在以下网址找到：[https://github.com/jepsen-io/jepsen](https://github.com/jepsen-io/jepsen).
 - en: 'LevelDB: A fast key-value storage library written at Google that provides an
     ordered mapping from string keys to string values. Available at: [https://github.com/google/leveldb](https://github.com/google/leveldb).'
+  id: totrans-484
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: LevelDB：一个由谷歌编写的快速键值存储库，它提供从字符串键到字符串值的有序映射。可在以下网址找到：[https://github.com/google/leveldb](https://github.com/google/leveldb).
 - en: 'Martin, Robert C.: Clean Architecture: *A Craftsman''s Guide to Software Structure
     and Design,* Robert C. Martin Series. Boston, MA : Prentice Hall, 2017 — ISBN [978-0-13-449416-6](https://worldcat.org/isbn/978-0-13-449416-6).'
+  id: totrans-485
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 马丁，罗伯特·C.：《整洁架构：软件结构和设计的工匠指南》，罗伯特·C.马丁系列。波士顿，马萨诸塞州：普伦蒂斯·霍尔，2017年——ISBN [978-0-13-449416-6](https://worldcat.org/isbn/978-0-13-449416-6).
 - en: 'memcached: A distributed memory object caching system. Available at: [https://memcached.org](https://memcached.org).'
+  id: totrans-486
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: memcached：一个分布式内存对象缓存系统。可在以下网址找到：[https://memcached.org](https://memcached.org).
 - en: 'MongoDB: The most popular database for modern apps. Available at: [https://www.mongodb.com](https://www.mongodb.com).'
+  id: totrans-487
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: MongoDB：现代应用中最受欢迎的数据库。可在以下网址找到：[https://www.mongodb.com](https://www.mongodb.com).
 - en: 'MySQL: The world''s most popular open source database. Available at: [https://www.mysql.com](https://www.mysql.com).'
+  id: totrans-488
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: MySQL：世界上最受欢迎的开源数据库。可在以下网址找到：[https://www.mysql.com](https://www.mysql.com).
 - en: 'PostgreSQL: The world''s most advanced open source relational database. Available
     at: [https://www.postgresql.org](https://www.postgresql.org).'
+  id: totrans-489
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: PostgreSQL：世界上最先进的开源关系型数据库。可在以下网址获取：[https://www.postgresql.org](https://www.postgresql.org)。
 - en: Pure Go Postgres driver for database/SQL. Available at: [https://github.com/lib/pq](https://github.com/lib/pq).
+  id: totrans-490
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 纯Go编写的Postgres数据库/SQL驱动程序。可在以下网址获取：[https://github.com/lib/pq](https://github.com/lib/pq)。
 - en: 'RocksDB: An embeddable persistent key-value store for fast storage. Available
     at: [https://rocksdb.org](https://rocksdb.org).'
+  id: totrans-491
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: RocksDB：一个可嵌入的持久化键值存储，用于快速存储。可在以下网址获取：[https://rocksdb.org](https://rocksdb.org)。
 - en: The official Go client for Elasticsearch. Available at: [https://github.com/elastic/go-elasticsearch](https://github.com/elastic/go-elasticsearch).
+  id: totrans-492
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: Elasticsearch的官方Go客户端。可在以下网址获取：[https://github.com/elastic/go-elasticsearch](https://github.com/elastic/go-elasticsearch)。

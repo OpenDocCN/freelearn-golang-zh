@@ -1,492 +1,709 @@
 - en: '12'
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: '12'
 - en: Setting Up Service Alerting
+  id: totrans-1
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 设置服务警报
 - en: In the previous chapter, we described various types of service telemetry data,
     such as logs, metrics and traces, and illustrated how to collect them for troubleshooting
     service performance issues.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 在上一章中，我们描述了各种类型的服务遥测数据，例如日志、指标和跟踪，并说明了如何收集它们以解决服务性能问题。
 - en: In this chapter, we will illustrate how to use telemetry data to automatically
     detect incidents by setting up alerts for our microservices. You will learn which
     types of service metrics to collect, how to define the conditions for various
     incidents, and how to establish the complete alerting pipeline for your microservices
     using a popular monitoring and alerting tool, Prometheus.
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们将说明如何通过为我们的微服务设置警报来使用遥测数据自动检测事件。您将学习收集哪些类型的服务指标，如何定义各种事件的条件，以及如何使用流行的监控和警报工具Prometheus为您的微服务建立完整的警报管道。
 - en: 'We will cover the following topics:'
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将涵盖以下主题：
 - en: Alerting basics
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 警报基础
 - en: Introduction to Prometheus
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Prometheus简介
 - en: Setting up Prometheus alerting for our microservices
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 为我们的微服务设置Prometheus警报
 - en: Alerting best practices
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 警报最佳实践
 - en: Now, we are going to proceed to the overview of alerting basics.
+  id: totrans-9
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，我们将继续概述警报基础。
 - en: Technical requirements
+  id: totrans-10
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 技术要求
 - en: To complete this chapter, you will need Go 1.11+ or above. You will also need
     the Docker tool, which you can download at https://www.docker.com/.
+  id: totrans-11
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了完成本章，您需要Go 1.11或更高版本。您还需要Docker工具，您可以在https://www.docker.com/下载。
 - en: 'You can find the code examples for this chapter on GitHub: [https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter12](https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter12).'
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 您可以在GitHub上找到本章的代码示例：[https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter12](https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter12)。
 - en: Alerting basics
+  id: totrans-13
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 警报基础
 - en: 'No microservice operates without incidents; even if you have a stable, highly
     tested, and well-maintained service, it can still experience various types of
     issues, such as the following:'
+  id: totrans-14
   prefs: []
   type: TYPE_NORMAL
+  zh: 没有微服务可以不发生事件；即使您有一个稳定、高度测试和良好维护的服务，它仍然可能遇到各种类型的问题，例如以下：
 - en: '**Resource constraints**: A host running the service may experience high CPU
     utilization or insufficient RAM or disk space.'
+  id: totrans-15
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**资源限制**：运行服务的宿主可能会遇到高CPU利用率或内存或磁盘空间不足。'
 - en: '**Network congestion**: The service may experience a sudden increase in load
     or decreased performance in any of its dependencies. This could limit its ability
     to process incoming requests or operate at the expected performance level.'
+  id: totrans-16
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**网络拥塞**：服务可能会在其依赖项中突然增加负载或降低性能。这可能会限制其处理传入请求或以预期性能水平运行的能力。'
 - en: '**Dependency failures**: Other services or libraries that your service is depending
     on may experience various issues, affecting your service execution.'
+  id: totrans-17
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**依赖失败**：您的服务所依赖的其他服务或库可能会遇到各种问题，影响您的服务执行。'
 - en: Such issues can be self-resolving. For example, a slower network throughput
     could be a transient issue caused by temporary maintenance or a network device
     being restarted. Many other types of issues, which we call incidents, require
     some actions from the engineers to be mitigated.
+  id: totrans-18
   prefs: []
   type: TYPE_NORMAL
+  zh: 这些问题可能是自解决的。例如，较慢的网络吞吐量可能是由于临时维护或网络设备重启而引起的暂时性问题。许多其他类型的问题，我们称之为事件，需要工程师采取一些行动来减轻。
 - en: To mitigate an incident, first, we need to detect it. Once the issue is known,
     we can notify the engineers or perform automated actions, such as an automated
     deployment rollback or application restart. In this chapter, we will describe
     the **alerting technique** that combines incident detection and notification.
     This technique can be used to automate the incident response to various types
     of microservice issues.
+  id: totrans-19
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了减轻事件，首先，我们需要检测它。一旦问题已知，我们可以通知工程师或执行自动化操作，例如自动部署回滚或应用程序重启。在本章中，我们将描述结合事件检测和通知的**警报技术**。这项技术可用于自动化对各种类型微服务问题的响应。
 - en: 'The key principles behind alerting are pretty simple and can be summarized
     by the following statements:'
+  id: totrans-20
   prefs: []
   type: TYPE_NORMAL
+  zh: 警报背后的关键原则非常简单，可以总结如下：
 - en: To set up alerts, developers define the **alerting conditions.**
+  id: totrans-21
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要设置警报，开发者定义**警报条件**。
 - en: Alerting conditions are based on the telemetry data (most commonly, metrics)
     and are defined in the form of queries.
+  id: totrans-22
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 警报条件基于遥测数据（最常见的是指标）并以查询的形式定义。
 - en: Each defined alerting condition is evaluated periodically, such as every minute.
+  id: totrans-23
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 每个定义的警报条件都会定期评估，例如每分钟一次。
 - en: If the alerting condition is met, the associated actions are executed (for example,
     an email or an SMS is sent to an engineer).
+  id: totrans-24
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果满足警报条件，将执行相关的操作（例如，向工程师发送电子邮件或短信）。
 - en: To illustrate how alerting works, imagine that one of your services is emitting
     a metric called `active_user_count` that reports the number of active users at
     a particular moment. Let’s assume that we would like to get notified if the number
     of active users suddenly drops to zero. Such a situation would likely indicate
     some incident with our service unless we have too few users (for simplicity, we
     will assume our system should always have some active users).
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了说明警报是如何工作的，想象一下，你的某个服务正在发出一个名为 `active_user_count` 的指标，该指标报告了特定时刻的活跃用户数量。让我们假设，如果我们想得到通知，活跃用户数量突然降至零，我们会收到通知。这种情况很可能会表明我们的服务发生了某些事件，除非我们用户太少（为了简单起见，我们将假设我们的系统应该始终有一些活跃用户）。
 - en: 'Using pseudocode, we could define the alerting condition for our use case in
     the following way:'
+  id: totrans-26
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用伪代码，我们可以以下述方式定义我们的用例的警报条件：
 - en: '[PRE0]'
+  id: totrans-27
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: Once the alerting condition has been met, the alerting software would check
     actions that should be triggered based on its configuration. Assuming that we
     have configured our alerts to trigger email notifications, it would send the emails
     and include any necessary metadata. The metadata would include information such
     as which incident just occurred and, if provided, the steps to mitigate it.
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦满足警报条件，警报软件将根据其配置检查应触发的操作。假设我们已经配置了我们的警报以触发电子邮件通知，它将发送电子邮件并包含任何必要的元数据。元数据将包括有关刚刚发生的事件的信息，以及如果提供，减轻该事件的步骤。
 - en: We will provide some examples of alerting configurations later in this chapter.
     For now, we will focus on some practical use cases, providing you with some ideas
     for setting up alerting for your services.
+  id: totrans-29
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将在本章后面提供一些警报配置的例子。现在，我们将专注于一些实际用例，为你提供一些为你的服务设置警报的想法。
 - en: Alerting use cases
+  id: totrans-30
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 警报用例
 - en: There are many use cases for which you would need to set up automated alerts.
     In this section, we will provide some common examples that can act as a reference
     point for you.
+  id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: 有许多用例，你需要设置自动警报。在本节中，我们将提供一些常见的例子，这些例子可以作为你的参考点。
 - en: 'In the *Google SRE* book we mentioned earlier in [*Chapter 10*](B18865_10.xhtml#_idTextAnchor139),
     there was a definition of **The Four Golden Signals** of monitoring, which can
     be used to monitor various types of applications, from microservices to data processing
     pipelines. These signals provide a great basis for service alerting, so let’s
     review them and describe how you can use each one to increase your service reliability:'
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们之前提到的 *Google SRE* 书籍中，在 [*第10章*](B18865_10.xhtml#_idTextAnchor139) 中，有一个关于监控的**四个黄金信号**的定义，这些信号可以用来监控各种类型的应用，从微服务到数据处理管道。这些信号为服务警报提供了很好的基础，因此让我们来回顾一下它们，并描述如何使用每个信号来提高你的服务可靠性：
 - en: '**Latency**: Latency is a measure of processing time, such as the duration
     of processing an API request, a Kafka message, or any other operation. It is the
     main indicator of system performance – when it gets too high, the system starts
     affecting its callers, creating network congestion. You should generally track
     the latency of your primary operations, such as API endpoints providing the critical
     functionality.'
+  id: totrans-33
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**延迟**：延迟是处理时间的衡量，例如处理API请求、Kafka消息或任何其他操作的持续时间。它是系统性能的主要指标——当它变得过高时，系统开始影响其调用者，造成网络拥塞。你应该通常跟踪你的主要操作（如提供关键功能的API端点）的延迟。'
 - en: '**Traffic**: Traffic measures the load on your system, such as the number of
     requests your microservices are getting at the current moment. An example of a
     traffic-based metric is an API request rate, measured as the number of requests
     per second. Measuring traffic is important for ensuring you have enough capacity
     to handle the requests to your system.'
+  id: totrans-34
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**流量**：流量衡量的是你的系统负载，例如你的微服务在当前时刻接收到的请求数量。基于流量的指标示例是API请求速率，以每秒请求数量来衡量。测量流量对于确保你有足够的容量来处理系统请求至关重要。'
 - en: '**Errors**: Errors are often measured as the **error rate** or the ratio between
     the failed and total operations. Measuring the error rate is critical for ensuring
     your services remain operational.'
+  id: totrans-35
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**错误**：错误通常被测量为**错误率**，即失败操作与总操作之间的比率。测量错误率对于确保你的服务保持运行至关重要。'
 - en: '**Saturation**: Saturation generally measures the utilization of your resources,
     such as RAM or disk usage, CPU, or I/O load. You should keep track of saturation
     to ensure your services don’t fail unexpectedly due to resource insufficiency.'
+  id: totrans-36
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**饱和度**：饱和度通常衡量您资源的利用率，如RAM或磁盘使用率、CPU或I/O负载。您应该跟踪饱和度，以确保您的服务不会因资源不足而意外失败。'
 - en: These Four Golden Signals can help you establish monitoring and alerting for
     your services and critical operations, such as your primary API endpoints. Let’s
     provide some practical examples to help you understand some common alerting use
     cases.
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
+  zh: 这四个黄金信号可以帮助您为您的服务和关键操作（如您的API主端点）建立监控和警报。让我们提供一些实际例子来帮助您理解一些常见的警报用例。
 - en: 'First, let’s start with the common signals for API alerting that can be measured
     either across all endpoints or on a per-endpoint basis:'
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先，让我们从可以跨所有端点或按端点测量的API警报的常见信号开始：
 - en: '**API client error rate**: The ratio between the requests that fail due to
     client errors and all requests'
+  id: totrans-39
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**API客户端错误率**：由于客户端错误而失败的请求与所有请求的比率'
 - en: '**API server error rate**: The ratio between the requests that fail due to
     server errors and all requests'
+  id: totrans-40
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**API服务器错误率**：由于服务器错误而失败的请求与所有请求的比率'
 - en: '**API latency**: The time it takes to process requests'
+  id: totrans-41
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**API延迟**：处理请求所需的时间'
 - en: 'Now, let’s provide some examples of signals for measuring system saturation:'
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，让我们提供一些测量系统饱和度的信号例子：
 - en: '**CPU utilization**: How much your CPUs are being used on a scale from 0% (unused/idle)
     to 100% (fully used, no extra capacity).'
+  id: totrans-43
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**CPU利用率**：您的CPU在0%（未使用/空闲）到100%（完全使用，无额外容量）的范围内被使用的程度。'
 - en: '**Memory utilization**: Ratio between the used and total memory.'
+  id: totrans-44
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**内存利用率**：已使用内存与总内存的比率。'
 - en: '**Disk utilization**: Percentage of used disk space.'
+  id: totrans-45
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**磁盘利用率**：已使用磁盘空间的百分比。'
 - en: '**Open file descriptors**: File descriptors are often used to handle network
     requests, file writes and reads, and other I/O operations. There is usually a
     limit on the number of open file descriptors per process, so if your service reaches
     a critical limit (based on your OS settings), your service may fail to serve requests.'
+  id: totrans-46
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**打开文件描述符**：文件描述符通常用于处理网络请求、文件读写和其他I/O操作。每个进程通常都有打开文件描述符的数量限制，所以如果您的服务达到一个关键限制（基于您的操作系统设置），您的服务可能无法处理请求。'
 - en: 'Let’s also provide some examples of other signals to monitor:'
+  id: totrans-47
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们也提供一些其他要监控的信号的例子：
 - en: '**Service panics**: The general recommendation is not to tolerate any service
     panics, as they often signal application bugs or issues such as out-of-memory
     errors.'
+  id: totrans-48
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**服务崩溃**：一般建议不要容忍任何服务崩溃，因为它们通常表明应用程序错误或问题，如内存不足错误。'
 - en: '**Failed deployments**: You can automate the detection of failed deployments
     and emit a metric indicating the failure, using it to create automated alerts.'
+  id: totrans-49
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**失败的部署**：您可以使用它来自动检测失败的部署并发出表示失败的指标，从而创建自动警报。'
 - en: Now that we have covered some common alerting use cases, let’s proceed to the
     overview of Prometheus, which we will use to set up our microservice alerts.
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们已经覆盖了一些常见的警报用例，让我们继续介绍Prometheus的概述，我们将使用它来设置我们的微服务警报。
 - en: Introduction to Prometheus
+  id: totrans-51
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: Prometheus简介
 - en: In [*Chapter 11*](B18865_11.xhtml#_idTextAnchor152), we mentioned a popular
     open source alerting and monitoring tool called Prometheus that can collect service
     metrics and set up automated alerts based on the metric data. In this section,
     we will demonstrate how to use Prometheus to set up alerts for our microservices.
+  id: totrans-52
   prefs: []
   type: TYPE_NORMAL
+  zh: 在[*第11章*](B18865_11.xhtml#_idTextAnchor152)中，我们提到了一个流行的开源警报和监控工具Prometheus，它可以收集服务指标并根据指标数据设置自动警报。在本节中，我们将演示如何使用Prometheus为我们的微服务设置警报。
 - en: 'Let’s summarize our learning about Prometheus from [*Chapter 11*](B18865_11.xhtml#_idTextAnchor152):'
+  id: totrans-53
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们总结一下我们从[*第11章*](B18865_11.xhtml#_idTextAnchor152)学到的关于Prometheus的知识：
 - en: Prometheus allows us to collect and store service metrics in the form of a time
     series.
+  id: totrans-54
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Prometheus允许我们以时间序列的形式收集和存储服务指标。
 - en: There are three types of metrics – counters, histograms, and gauges.
+  id: totrans-55
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 有三种类型的指标——计数器、直方图和仪表。
 - en: To query metrics data, Prometheus offers a query language called PromQL.
+  id: totrans-56
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要查询指标数据，Prometheus提供了一种名为PromQL的查询语言。
 - en: Service alerts can be configured using a tool called Alertmanager.
+  id: totrans-57
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 可以使用名为Alertmanager的工具配置服务警报。
 - en: 'Metrics can be imported from service instances into Prometheus in two different
     ways:'
+  id: totrans-58
   prefs: []
   type: TYPE_NORMAL
+  zh: 指标可以通过两种不同的方式从服务实例导入Prometheus：
 - en: '**Scraping**: Prometheus reads metrics from service instances.'
+  id: totrans-59
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**抓取**：Prometheus从服务实例中读取指标。'
 - en: '**Pushing**: The service instance sends metrics to Prometheus using a dedicated
     service, the Prometheus Pushgateway.'
+  id: totrans-60
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**推送**：服务实例通过一个专用服务，即Prometheus Pushgateway，将指标发送到Prometheus。'
 - en: 'Scraping is the recommended way of setting up metric data ingestion in Prometheus.
     Each service instance needs to expose an endpoint to provide the metrics, and
     Prometheus takes care of pulling the data and storing it for further querying,
     as shown in the following diagram:'
+  id: totrans-61
   prefs: []
   type: TYPE_NORMAL
+  zh: 抓取是设置Prometheus指标数据摄取的推荐方式。每个服务实例都需要暴露一个端点以提供指标，Prometheus负责拉取数据并将其存储以供进一步查询，如下所示：
 - en: '![Figure 12.1 – Prometheus scraping model'
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
+  zh: '![图12.1 – Prometheus抓取模型'
 - en: '](img/Figure_12.1_B18865.jpg)'
+  id: totrans-63
   prefs: []
   type: TYPE_NORMAL
+  zh: '![图12.1 – Prometheus抓取模型](img/Figure_12.1_B18865.jpg)'
 - en: Figure 12.1 – Prometheus scraping model
+  id: totrans-64
   prefs: []
   type: TYPE_NORMAL
+  zh: 图12.1 – Prometheus抓取模型
 - en: 'Let’s provide an example of a service instance response to a scraping request
     by Prometheus. Let’s assume you add a separate HTTP API endpoint called `/metrics`
     and return the newest service instance metrics in the following format:'
+  id: totrans-65
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们提供一个服务实例对Prometheus抓取请求的响应示例。假设你添加了一个名为`/metrics`的单独HTTP API端点，并以下列格式返回最新的服务实例指标：
 - en: '[PRE1]'
+  id: totrans-66
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: In this example, the service instance reports three metrics in the form of key-value
     pairs, where the key defines a time series name and the value defines the value
     of the time series at the current moment. Once Prometheus calls the `/metrics`
     endpoint, the service instance should provide a new dataset containing only time
     series that have not been included in previous responses.
+  id: totrans-67
   prefs: []
   type: TYPE_NORMAL
+  zh: 在此示例中，服务实例以键值对的形式报告了三个指标，其中键定义了时间序列名称，值定义了当前时刻时间序列的值。一旦Prometheus调用`/metrics`端点，服务实例应提供一个只包含之前响应中未包含的时间序列的新数据集。
 - en: 'Once Prometheus collects the metrics, they become available for querying using
     a Prometheus-specific language called PromQL. PromQL-based queries can be used
     to analyze the time series data through the Prometheus UI or to set up automated
     alerts using Alertmanager. For example, the following query returns all values
     of the `active_user_count` time series, as well as their tags:'
+  id: totrans-68
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦Prometheus收集了指标，它们就可以使用一种称为PromQL的Prometheus特定语言进行查询。基于PromQL的查询可以用于通过Prometheus
+    UI分析时间序列数据，或者使用Alertmanager设置自动警报。例如，以下查询返回所有`active_user_count`时间序列的值及其标签：
 - en: '[PRE2]'
+  id: totrans-69
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: 'You can use additional query filters, called `active_user_count` metric, you
     can only request time series that have a particular tag value:'
+  id: totrans-70
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以使用额外的查询过滤器，例如`active_user_count`指标，你只能请求具有特定标签值的时间序列：
 - en: '[PRE3]'
+  id: totrans-71
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'Alerting conditions are generally defined as expressions that return Boolean
     results. For example, to define the alerting condition when the active user count
     drops to zero, you would use the following PromQL query with the `==` operator:'
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: 警报条件通常定义为返回布尔结果的表达式。例如，要定义活动用户计数降至零时的警报条件，你会使用以下带有`==`运算符的PromQL查询：
 - en: '[PRE4]'
+  id: totrans-73
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'The PromQL language provides some other types of time series matchers, such
     as `quantile`, which can be used to perform various aggregations. The following
     query example can be used to check whether the median `api_request_latency` value
     exceeds `1`:'
+  id: totrans-74
   prefs: []
   type: TYPE_NORMAL
+  zh: PromQL语言提供了一些其他类型的时间序列匹配器，例如`quantile`，可用于执行各种聚合。以下查询示例可以用来检查中值`api_request_latency`值是否超过`1`：
 - en: '[PRE5]'
+  id: totrans-75
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'You can become familiar with the other aspects of the PromQL language by reading
     the official documentation on its website: [https://prometheus.io/docs/prometheus/latest/querying/basics/](https://prometheus.io/docs/prometheus/latest/querying/basics/).
     Now, let’s explore how to set up alerts using the Prometheus alerting tool, Alertmanager.'
+  id: totrans-76
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以通过阅读其网站上的官方文档来熟悉PromQL语言的其它方面：[https://prometheus.io/docs/prometheus/latest/querying/basics/](https://prometheus.io/docs/prometheus/latest/querying/basics/)。现在，让我们探讨如何使用Prometheus警报工具Alertmanager设置警报。
 - en: 'Alertmanager is a separate component of Prometheus that allows us to configure
     alerts and notifications to detect various types of incidents. Alertmanager operates
     by reading the provided configuration and querying Prometheus time series data
     periodically. Let’s provide an example of Alertmanager’s configuration:'
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: Alertmanager是Prometheus的一个独立组件，允许我们配置警报和通知以检测各种类型的事件。Alertmanager通过读取提供的配置并定期查询Prometheus时间序列数据来运行。以下是一个Alertmanager配置的示例：
 - en: '[PRE6]'
+  id: totrans-78
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: In our configuration example, we set an alert for when the value of the `service_availability`
     metric, which has a `service="rating"` tag, is equal to `0` for `3` minutes or
     more, triggering a PagerDuty incident to notify the on-call engineer about the
     issue.
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们的配置示例中，我们设置了一个警报，当具有 `service="rating"` 标签的 `service_availability` 指标值等于
+    `0` 并且持续 `3` 分钟或更长时间时，将触发一个 PagerDuty 事件来通知值班工程师有关该问题。
 - en: Some other features of Alertmanager include notification grouping, notification
     retries, and alert suppression. To illustrate how Prometheus and Alertmanager
     work in practice, let’s describe how to set them up for our example microservices
     from the previous chapters.
+  id: totrans-80
   prefs: []
   type: TYPE_NORMAL
+  zh: Alertmanager 的其他一些功能包括通知分组、通知重试和警报抑制。为了说明 Prometheus 和 Alertmanager 在实际中的应用，让我们描述如何为上一章中提到的示例微服务设置它们。
 - en: Setting up Prometheus alerting for our microservices
+  id: totrans-81
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 为我们的微服务设置 Prometheus 警报。
 - en: In this section, we will illustrate how to set up service alerting using Prometheus
     and its alerting extension, Alertmanager, for the services we created in previous
     chapters. You will learn how to expose the service metrics for collection, how
     to set up Prometheus and Alertmanager to aggregate and store the metrics from
     multiple services, and how to define and process service alerts.
+  id: totrans-82
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本节中，我们将说明如何使用 Prometheus 和其警报扩展 Alertmanager 为我们在上一章中创建的服务设置服务警报。你将学习如何暴露服务指标以供收集，如何设置
+    Prometheus 和 Alertmanager 以聚合和存储多个服务的指标，以及如何定义和处理服务警报。
 - en: 'Our high-level approach is as follows:'
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们的高级方法如下：
 - en: Set up Prometheus metric reporting to our services.
+  id: totrans-84
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 为我们的服务设置 Prometheus 指标报告。
 - en: Install Prometheus and configure it to scrape the data from the three example
     services that we created in previous chapters.
+  id: totrans-85
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 安装 Prometheus 并配置它从我们在上一章中创建的三个示例服务中抓取数据。
 - en: Configure service availability alerts using Alertmanager.
+  id: totrans-86
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 使用 Alertmanager 配置服务可用性警报。
 - en: Test our alerts by triggering an alerting condition and running Alertmanager.
+  id: totrans-87
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 通过触发警报条件并运行 Alertmanager 来测试我们的警报。
 - en: Let’s start by illustrating how to integrate our services with Prometheus. To
     do this, we need to add a metric collection to our services by exposing an endpoint
     that will provide the newest metrics to Prometheus.
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们首先说明如何将我们的服务与 Prometheus 集成。为此，我们需要通过暴露一个将提供最新指标给 Prometheus 的端点来向我们的服务添加一个指标收集。
 - en: 'First, we need to add Prometheus configuration to our services. In each service
     directory, update the `cmd/config.go` file to the following:'
+  id: totrans-89
   prefs: []
   type: TYPE_NORMAL
+  zh: 首先，我们需要将 Prometheus 配置添加到我们的服务中。在每个服务目录中，更新 `cmd/config.go` 文件为以下内容：
 - en: '[PRE7]'
+  id: totrans-90
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: 'Our new configuration allows us to specify the service port of the metric collection
     endpoint. Inside each `configs/base.yaml` file, add the following block:'
+  id: totrans-91
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们的新配置允许我们指定指标收集端点的服务端口。在每一个 `configs/base.yaml` 文件中，添加以下块：
 - en: '[PRE8]'
+  id: totrans-92
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'We are ready to update our services so that they can start reporting the metrics.
     Update the `main.go` file of each service by adding the following imports:'
+  id: totrans-93
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们已准备好更新我们的服务，以便它们可以开始报告指标。通过在每个服务的 `main.go` 文件中添加以下导入来更新每个服务的 `main.go` 文件：
 - en: '[PRE9]'
+  id: totrans-94
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: 'In any part of the `main` function, add the following code:'
+  id: totrans-95
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 `main` 函数的任何部分，添加以下代码：
 - en: '[PRE10]'
+  id: totrans-96
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: In the code we just added, we initialized the `tally` library to collect and
     report the metrics data, which we mentioned in [*Chapter 11*](B18865_11.xhtml#_idTextAnchor152)
     of this book. We used a built-in Prometheus reporter that implements metric data
     collection using the Prometheus time series format and exposed an HTTP endpoint
     to allow Prometheus to collect our data.
+  id: totrans-97
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们刚刚添加的代码中，我们初始化了 `tally` 库来收集和报告我们提到的指标数据，这些数据在本书的[*第 11 章*](B18865_11.xhtml#_idTextAnchor152)中有所提及。我们使用了一个内置的
+    Prometheus 报告器，该报告器使用 Prometheus 时间序列格式实现指标数据收集，并暴露了一个 HTTP 端点以允许 Prometheus 收集我们的数据。
 - en: 'Let’s test the newly added endpoint. Restart the metadata service and try accessing
     the new endpoint by opening `http://localhost:8091/metrics` in your browser. You
     should get a similar response:'
+  id: totrans-98
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们测试新添加的端点。重启元数据服务，并在浏览器中打开 `http://localhost:8091/metrics` 来尝试访问新端点。你应该会得到类似的响应：
 - en: '[PRE11]'
+  id: totrans-99
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: The response of the metrics handler includes the Go runtime data, such as the
     number of goroutines at the current moment, the Go library version, and many other
     useful metrics.
+  id: totrans-100
   prefs: []
   type: TYPE_NORMAL
+  zh: 指标处理程序的响应包括 Go 运行时数据，例如当前时刻的 goroutine 数量、Go 库版本以及许多其他有用的指标。
 - en: 'Now, we are ready to set up Prometheus alerting. Inside the `src` directory
     of our project, create a directory called `configs` and add a `prometheus.yaml`
     file with the following contents:'
+  id: totrans-101
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，我们已准备好设置 Prometheus 警报。在我们的项目 `src` 目录内，创建一个名为 `configs` 的目录，并添加一个包含以下内容的
+    `prometheus.yaml` 文件：
 - en: '[PRE12]'
+  id: totrans-102
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: 'Additionally, add the following configuration to the file:'
+  id: totrans-103
   prefs: []
   type: TYPE_NORMAL
+  zh: 此外，将以下配置添加到文件中：
 - en: '[PRE13]'
+  id: totrans-104
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: Let’s describe the configuration that we just added. We set the scraping interval
     provided to `15` seconds and provided a set of targets to scrape the metrics data,
     which includes the address of each of our services. You may notice that we are
     using the `host.docker.internal` network address in each target definition — we
     will run Prometheus using Docker and the `host.docker.internal` address will allow
     it to access our newly added endpoints running outside of Docker.
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们描述我们刚刚添加的配置。我们将抓取间隔设置为`15`秒，并提供了一组抓取指标数据的目标，包括我们每个服务的地址。你可能注意到我们在每个目标定义中使用的是`host.docker.internal`网络地址——我们将使用Docker运行Prometheus，而`host.docker.internal`地址将允许它访问我们新添加的运行在Docker之外的端点。
 - en: 'Note that we provided a static list of service addresses inside the `static_configs`
     block. We did this intentionally to illustrate the simplest scraping approach,
     which is when Prometheus knows the address of each service instance. In a dynamic
@@ -494,233 +711,349 @@
     use Prometheus with a service registry, such as Consul. Prometheus provides built-in
     support for scraping metrics from services registered with Consul: instead of
     `static_configs`, you could define the Consul scraping configuration:'
+  id: totrans-106
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意，我们在`static_configs`块内提供了一个静态的服务地址列表。我们故意这样做是为了说明最简单的抓取方法，即当Prometheus知道每个服务实例的地址时。在一个动态环境中，服务实例可以被添加或删除，你需要使用Prometheus与一个服务注册表，如Consul一起使用。Prometheus为Consul注册的服务提供了内置的抓取指标支持：你可以在Consul抓取配置中定义，而不是使用`static_configs`：
 - en: '[PRE14]'
+  id: totrans-107
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: 'Next, we will demonstrate how to scrape a static list of service instances;
     you can try setting up Consul-based Prometheus scraping as an additional exercise
     after reading this chapter. Let’s add alerting rules for our services. Inside
     the newly added `configs` directory, create the `alerts.rules` file and add the
     following to it:'
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，我们将演示如何抓取静态的服务实例列表；在阅读本章后，你可以尝试设置基于Consul的Prometheus抓取作为额外的练习。让我们为我们的服务添加警报规则。在新建的`configs`目录内，创建一个名为`alerts.rules`的文件，并将以下内容添加到其中：
 - en: '[PRE15]'
+  id: totrans-109
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: The file we just added includes the alert definitions for each of our services.
     Each alert definition includes the expression Prometheus would check to evaluate
     whether an associated alert should be fired.
+  id: totrans-110
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们刚刚添加的文件包含了我们每个服务的警报定义。每个警报定义都包括Prometheus将检查的表达式，以评估是否应该触发相关的警报。
 - en: 'Now, we are ready to install and run Prometheus to test our alerting. Inside
     the `src` directory of our project, run the following command to run Prometheus
     using the newly created configuration:'
+  id: totrans-111
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，我们已经准备好安装并运行Prometheus来测试我们的警报功能。在我们的项目`src`目录内，运行以下命令以使用新创建的配置运行Prometheus：
 - en: '[PRE16]'
+  id: totrans-112
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: 'If everything is successful, you should be able to access the Prometheus UI
     by opening `http://localhost:9090/`. On the initial screen, you will see the search
     input you can use to access the Prometheus metrics emitted by our services. Type
     `up` into the search input and click **Execute** to access the metrics:'
+  id: totrans-113
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果一切顺利，你应该可以通过打开`http://localhost:9090/`来访问Prometheus UI。在初始屏幕上，你会看到一个搜索输入框，你可以使用它来访问我们服务发出的Prometheus指标。在搜索输入框中输入`up`并点击**执行**以访问指标：
 - en: '![Figure 12.2 – Prometheus metrics search'
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: '![图12.2 – Prometheus指标搜索'
 - en: '](img/Figure_12.2_B18865.jpg)'
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: '](img/Figure_12.2_B18865.jpg)'
 - en: Figure 12.2 – Prometheus metrics search
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: 图12.2 – Prometheus指标搜索
 - en: 'You can go to the `alerts.rules` file:'
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可以前往`alerts.rules`文件：
 - en: '![Figure 12.3 – Prometheus Alerts view'
+  id: totrans-118
   prefs: []
   type: TYPE_NORMAL
+  zh: '![图12.3 – Prometheus警报视图'
 - en: '](img/Figure_12.3_B18865.jpg)'
+  id: totrans-119
   prefs: []
   type: TYPE_NORMAL
+  zh: '](img/Figure_12.3_B18865.jpg)'
 - en: Figure 12.3 – Prometheus Alerts view
+  id: totrans-120
   prefs: []
   type: TYPE_NORMAL
+  zh: 图12.3 – Prometheus警报视图
 - en: If all three services are running, all three associated alerts should be marked
     as **inactive**. We will get back to the **Alerts** page shortly; for now, let’s
     proceed and set up Alertmanager so that we can trigger some alerts for our services.
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果所有三个服务都在运行，所有三个相关的警报都应该被标记为**不活跃**。我们很快就会回到**警报**页面；现在，让我们继续并设置Alertmanager，以便我们可以为我们的服务触发一些警报。
 - en: 'Inside our `configs` directory, including the Prometheus configuration, add
     a file called `alertmanager.yml` with the following contents:'
+  id: totrans-122
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们的`configs`目录内，包括Prometheus配置，添加一个名为`alertmanager.yml`的文件，内容如下：
 - en: '[PRE17]'
+  id: totrans-123
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: Update the email configuration in the file we just created so that Alertmanager
     can send some emails for our alerts.
+  id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 更新我们刚刚创建的文件中的电子邮件配置，以便Alertmanager可以为我们的警报发送一些电子邮件。
 - en: 'Now, run the following command to start Alertmanager:'
+  id: totrans-125
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，运行以下命令以启动Alertmanager：
 - en: '[PRE18]'
+  id: totrans-126
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: Don’t forget to replace the `<PATH_TO_CONFIGS_DIR>` placeholder with the full
     local path to the `configs` directory containing the newly added `alertmanager.yml`
     file.
+  id: totrans-127
   prefs: []
   type: TYPE_NORMAL
+  zh: 不要忘记将`<PATH_TO_CONFIGS_DIR>`占位符替换为包含新添加的`alertmanager.yml`文件的`configs`目录的完整本地路径。
 - en: 'Now, let’s simulate the alerting condition by manually stopping the rating
     and movie services. Once you do this, open the **Alerts** page in the Prometheus
     UI; you should see that both alerts are **firing**:'
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，让我们通过手动停止评分和电影服务来模拟警报条件。一旦您这样做，打开Prometheus UI中的**警报**页面；您应该看到两个警报都是**触发**的：
 - en: '![Figure 12.4 – Firing Prometheus alerts'
+  id: totrans-129
   prefs: []
   type: TYPE_NORMAL
+  zh: '![图12.4 – 触发Prometheus警报'
 - en: '](img/Figure_12.4_B18865.jpg)'
+  id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: '](img/Figure_12.4_B18865.jpg)'
 - en: Figure 12.4 – Firing Prometheus alerts
+  id: totrans-131
   prefs: []
   type: TYPE_NORMAL
+  zh: 图12.4 – 触发Prometheus警报
 - en: You can access the Alertmanager UI by going to `http://localhost:9093`.
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: 您可以通过访问`http://localhost:9093`来访问Alertmanager UI。
 - en: 'If alerts are fired in Prometheus, you should also see them in the Alertmanager
     UI:'
+  id: totrans-133
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果在Prometheus中触发警报，您也应该在Alertmanager UI中看到它们：
 - en: '![Figure 12.5 – The Alertmanager UI'
+  id: totrans-134
   prefs: []
   type: TYPE_NORMAL
+  zh: '![图12.5 – Alertmanager UI'
 - en: '](img/Figure_12.5_B18865.jpg)'
+  id: totrans-135
   prefs: []
   type: TYPE_NORMAL
+  zh: '](img/Figure_12.5_B18865.jpg)'
 - en: Figure 12.5 – The Alertmanager UI
+  id: totrans-136
   prefs: []
   type: TYPE_NORMAL
+  zh: 图12.5 – Alertmanager UI
 - en: If you configured Alertmanager correctly, you should get an email to the address
     you provided in the configuration. If you haven’t received an email, check the
     Docker logs of Alertmanager – users with two-factor email authentication may receive
     additional instructions for enabling notifications.
+  id: totrans-137
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果您正确配置了Alertmanager，您应该会收到一封电子邮件，地址是您在配置中提供的。如果您没有收到电子邮件，请检查Alertmanager的Docker日志
+    – 使用双因素电子邮件认证的用户可能会收到启用通知的额外说明。
 - en: If everything worked well – congratulations, you have set up service alerting!
     We intentionally haven’t covered many of Alertmanager’s features – it includes
     many configurable settings that are outside the scope of this chapter. If you
     are interested in learning more about it, check the official documentation at
     [https://prometheus.io/docs](https://prometheus.io/docs).
+  id: totrans-138
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果一切顺利 – 恭喜你，你已经设置了服务警报！我们故意没有涵盖Alertmanager的许多功能 – 它包括许多超出本章范围的配置设置。如果您想了解更多关于它的信息，请查看官方文档[https://prometheus.io/docs](https://prometheus.io/docs)。
 - en: Now, let’s proceed to the next section, where we will provide some best practices
     for setting up service alerting that should help you increase your service reliability.
+  id: totrans-139
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，让我们进入下一节，我们将提供一些设置服务警报的最佳实践，这应该有助于提高您的服务可靠性。
 - en: Alerting best practices
+  id: totrans-140
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 警报最佳实践
 - en: The knowledge you will gain by reading this section should be useful for establishing
     the new alerting process for your services. It will also help you improve existing
     alerts if you are working with some established alerting processes.
+  id: totrans-141
   prefs: []
   type: TYPE_NORMAL
+  zh: 通过阅读本节，您将获得的知识应该有助于建立您服务的新的警报流程。如果您正在使用一些既定的警报流程，它还将帮助您改进现有的警报。
 - en: 'Among the most valuable best practices, I would highlight the following ones:'
+  id: totrans-142
   prefs: []
   type: TYPE_NORMAL
+  zh: 在最有价值的最佳实践中，我会强调以下几项：
 - en: '`for` value in the rule configuration).'
+  id: totrans-143
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: （规则配置中的`for`值）。
 - en: '**Include the runbook references**: For each alert, ensure you have a runbook
     in place that provides clear instructions to the on-call engineers receiving it.
     Having an accurate and up-to-date runbook for each alert helps reduce the incident
     mitigation time and share relevant knowledge among all engineers.'
+  id: totrans-144
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**包含运行手册引用**：对于每个警报，确保您有一个运行手册，为接收警报的值班工程师提供明确的指示。为每个警报拥有准确且最新的运行手册有助于减少事件缓解时间，并在所有工程师之间共享相关知识。'
 - en: '**Ensure the alerting configuration is reviewed periodically**: The best solution
     for ensuring the alerting configuration is accurate is to make it easy to access
     and review. One of the easiest solutions is to make the alerting configuration
     a part of your code base so that all alert configurations are easily reviewable.
     Perform periodic checks of your alerts to ensure all important scenarios are covered,
     as well as to ensure no alerts are outdated.'
+  id: totrans-145
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '**确保定期审查警报配置**：确保警报配置准确的最佳解决方案是使其易于访问和审查。其中一种最简单的方法是将警报配置作为您代码库的一部分，这样所有警报配置都很容易审查。定期检查您的警报，以确保所有重要场景都得到覆盖，以及确保没有过时的警报。'
 - en: This list contains just a handful of best practices to improve your service
     alerting. If you are interested in the topic, I strongly suggest that you read
     the relevant chapters of the *Google SRE* book, including the *Monitoring Distributed
     Systems* chapter from [https://sre.google/sre-book/monitoring-distributed-systems/](https://sre.google/sre-book/monitoring-distributed-systems/).
+  id: totrans-146
   prefs: []
   type: TYPE_NORMAL
+  zh: 此列表仅包含一些最佳实践，旨在提高你的服务警报能力。如果你对这个主题感兴趣，我强烈建议你阅读《Google SRE》书的相关章节，包括来自 [https://sre.google/sre-book/monitoring-distributed-systems/](https://sre.google/sre-book/monitoring-distributed-systems/)
+    的 *监控分布式系统* 章节。
 - en: This summarizes a brief overview of service alerting. Now, let’s summarize this
     chapter.
+  id: totrans-147
   prefs: []
   type: TYPE_NORMAL
+  zh: 这总结了服务警报的简要概述。现在，让我们总结本章内容。
 - en: Summary
+  id: totrans-148
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 摘要
 - en: In this chapter, we covered one of the most important aspects of service reliability
     work – alerting. You learned how to set up the service metric collection using
     the Prometheus tool and the `tally` library, set up service alerts using the Alertmanager
     tool, and connect all these components to create an end-to-end service alerting
     pipeline.
+  id: totrans-149
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们讨论了服务可靠性工作中最重要的方面之一——警报。你学习了如何使用 Prometheus 工具和 `tally` 库设置服务指标收集，使用
+    Alertmanager 工具设置服务警报，以及将这些组件连接起来创建一个端到端的服务警报管道。
 - en: The material in this chapter summarizes our learning from the reliability and
     service telemetry topics from [*Chapter 10*](B18865_10.xhtml#_idTextAnchor139)
     and [*Chapter 11*](B18865_11.xhtml#_idTextAnchor152). By collecting the telemetry
     data and establishing the notification mechanisms using the alerting tools, we
     can quickly detect various service issues and get notified each time we need to
     mitigate them.
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章内容总结了我们从可靠性和服务遥测主题中学习到的内容，来自 [*第10章*](B18865_10.xhtml#_idTextAnchor139) 和
+    [*第11章*](B18865_11.xhtml#_idTextAnchor152)。通过收集遥测数据并使用警报工具建立通知机制，我们可以快速检测各种服务问题，并在需要缓解这些问题时及时收到通知。
 - en: In the next chapter, we will continue covering some advanced aspects of Go development,
     including system profiling and dashboarding.
+  id: totrans-151
   prefs: []
   type: TYPE_NORMAL
+  zh: 在下一章中，我们将继续介绍 Go 开发的某些高级方面，包括系统分析和仪表板。
 - en: Further reading
+  id: totrans-152
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 进一步阅读
 - en: 'To learn more about the topics that were covered in this chapter, take a look
     at the following resources:'
+  id: totrans-153
   prefs: []
   type: TYPE_NORMAL
+  zh: 要了解更多关于本章所涉及的主题，请查看以下资源：
 - en: '*Practical Alerting from Time-Series* *Data*: [https://sre.google/sre-book/practical-alerting/](https://sre.google/sre-book/practical-alerting/'
+  id: totrans-154
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*从时间序列数据中进行实用警报*：[https://sre.google/sre-book/practical-alerting/](https://sre.google/sre-book/practical-alerting/)'
 - en: )
+  id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: )
 - en: '*Monitoring Distributed* *Systems*: [https://sre.google/sre-book/monitoring-distributed-systems/](https://sre.google/sre-book/monitoring-distributed-systems/'
+  id: totrans-156
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*监控分布式系统*：[https://sre.google/sre-book/monitoring-distributed-systems/](https://sre.google/sre-book/monitoring-distributed-systems/)'
 - en: )
+  id: totrans-157
   prefs: []
   type: TYPE_NORMAL
+  zh: )
 - en: 'Prometheus documentation: [https://prometheus.io/docs/introduction/overview/](https://prometheus.io/docs/introduction/overview/'
+  id: totrans-158
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Prometheus 文档：[https://prometheus.io/docs/introduction/overview/](https://prometheus.io/docs/introduction/overview/)
 - en: )
+  id: totrans-159
   prefs: []
   type: TYPE_NORMAL
+  zh: )
 - en: '*Eliminating* *Toil*: [https://sre.google/workbook/eliminating-toil/](https://sre.google/workbook/eliminating-toil/'
+  id: totrans-160
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '*消除劳动强度*：[https://sre.google/workbook/eliminating-toil/](https://sre.google/workbook/eliminating-toil/)'
 - en: )
+  id: totrans-161
   prefs: []
   type: TYPE_NORMAL
+  zh: )
