@@ -1,0 +1,107 @@
+<html><head></head><body>
+<div class="book" title="Concurrent Publish/Subscriber design pattern">
+<div class="book" title="Implementation"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_6"><a id="ch10lvl2sec0245" class="calibre1"/>Implementation</h2></div></div></div><p class="calibre10">To recall, the <code class="email">writerSubscriber</code> must receive messages that it will write on a type that satisfies the <code class="email">io.Writer</code> interface.</p><p class="calibre10">So, where do we start? Well, each subscriber will run its own Goroutine, and we have seen that the best method to communicate with a Goroutine is a channel. So, we will need a field with a channel in the <code class="email">Subscriber</code> type. We can use the same approach as in pipelines to end with the <code class="email">NewWriterSubscriber</code> function and the <code class="email">writerSubscriber</code> type:</p><pre class="programlisting">    type writerSubscriber struct { 
+        in     chan interface{} 
+        id     int 
+        Writer io.Writer 
+    } 
+ 
+    func NewWriterSubscriber(id int, out io.Writer) Subscriber { 
+        if out == nil { 
+            out = os.Stdout 
+        } 
+ 
+        s := &amp;writerSubscriber{ 
+            id:     id, 
+            in:     make(chan interface{}), 
+            Writer: out, 
+        } 
+ 
+        go func(){ 
+            for msg := range s.in { 
+                fmt.Fprintf(s.Writer, "(W%d): %v\n", s.id, msg) 
+            } 
+        }() 
+ 
+        return s 
+    } 
+</pre><p class="calibre10">In the first step, if no writer is specified (the <code class="email">out</code> argument is nil), the default <code class="email">io.Writer</code> interface is <code class="email">stdout</code>. Then, we create a new pointer to the <code class="email">writerSubscriber</code> type with the ID passed in the first argument, the value of out (<code class="email">os.Stdout</code>, or whatever came in the argument if it wasn't nil), and a channel called in to maintain the same naming as in previous examples.</p><p class="calibre10">Then we launch a new Goroutine; this is the launching mechanism we mentioned. Like in the pipelines, the subscriber will iterate over the <code class="email">in</code> channel every time a new message is received and it will format its contents to a string, which also contains the ID of the current subscriber.</p><p class="calibre10">As we learned previously, if the <code class="email">in</code> channel is closed, the <code class="email">for range</code> loop will stop and that particular Goroutine will finish, so the only thing we need to do in the <code class="email">Close</code> method is to actually close the <code class="email">in</code> channel:</p><pre class="programlisting">    func (s *writerSubscriber) Close() { 
+        close(s.in) 
+    } 
+</pre><p class="calibre10">OK, only the <code class="email">Notify</code> method is left; the <code class="email">Notify</code> method is a convenient method to manage a particular behavior when communicating, and we will use a pattern that is common in many calls:</p><pre class="programlisting">    func (s *writerSubscriber) Notify(msg interface{}) (err error) { 
+        defer func(){ 
+            if rec := recover(); rec != nil { 
+                err = fmt.Errorf("%#v", rec) 
+            } 
+        }() 
+ 
+        select { 
+        case s.in &lt;- msg: 
+        case &lt;-time.After(time.Second): 
+            err = fmt.Errorf("Timeout\n") 
+        } 
+ 
+        return 
+    } 
+</pre><p class="calibre10">When communicating with a channel, there are two behavior that we must usually control: one is waiting time and the other is when the channel is closed. The deferred function actually works for any panicking error that can occur within the function. If the Goroutine panics, it will still execute the deferred function with the <code class="email">recover()</code> method. The <code class="email">recover()</code> method returns an interface of whatever the error was, so in our case, we set the returning variable error to the formatted value returned by <code class="email">recover</code> (which is an interface). The <code class="email">"%#v"</code> parameter gives us most of the information about any type when formatted to a string. The returned error will be ugly, but it will contain most of the information we can extract about the error. For a closed channel, for example, it will return "send on a closed channel". Well, this seems clear enough.</p><p class="calibre10">The second rule is about waiting time. When we send a value over a channel, we will be blocked until another Goroutine takes the value from it (it will happen the same with a filled buffered channel). We don't want to get blocked forever, so we set a timeout period of one second by using a select handler. In short, with select we are saying: either you take the value in less than 1 second or I will discard it and return an error.</p><p class="calibre10">We have the <code class="email">Close</code>, <code class="email">Notify</code>, and <code class="email">NewWriterSubscriber</code> methods, so we can try our test again:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go test -run=TestWriter -v .</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestWriter</strong></span>
+<span class="strong"><strong class="calibre2">--- PASS: TestWriter (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">PASS</strong></span>
+<span class="strong"><strong class="calibre2">ok</strong></span>
+</pre><p class="calibre10">Much better now. The <code class="email">Writer</code> has taken the mock writer we wrote on the test and has written to it the value we pass to the Notify method. At the same time, close has probably closed the channel effectively, because the <code class="email">Notify</code> method is returning an error after calling the <code class="email">Close</code> method. One thing to mention is that we can't check if a channel is closed or not without interacting with it; that's why we had to defer the execution of a closure that will check the contents of the <code class="email">recover()</code> function in the <code class="email">Notify</code> method.</p><div class="book" title="Implementing the publisher"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch10lvl3sec012" class="calibre1"/>Implementing the publisher</h3></div></div></div><p class="calibre10">OK, the publisher will need also a launching mechanism, but the main problems to deal with are race conditions accessing the subscriber list. We can solve this issue with a Mutex object from the <code class="email">sync</code> package but we have already seen how to use this so we will use channels instead.</p><p class="calibre10">When using channels, we will need a channel for each action that can be considered dangerous--add a subscriber, remove a subscriber, retrieve the list of subscribers to <code class="email">Notify</code> method them of a message, and a channel to stop all the subscribers. We also need a channel for incoming messages:</p><pre class="programlisting">    type publisher struct { 
+        subscribers []Subscriber 
+        addSubCh    chan Subscriber 
+        removeSubCh chan Subscriber 
+        in          chan interface{} 
+        stop        chan struct{} 
+    } 
+</pre><p class="calibre10">Names are self-descriptive but, in short, subscribers maintain the list of subscribers; this is the slice that needs multiplexed access. The <code class="email">addSubCh</code> instance is the channel to communicate with when you want to add a new subscriber; that's why it's a channel of subscribers. The same explanation applies to the <code class="email">removeSubCh</code> channel, but this channel is to remove the subscriber. The <code class="email">in</code> channel will handle incoming messages that must be broadcast to all subscribers. Finally, the stop channel must be called when we want to kill all Goroutines.</p><p class="calibre10">OK, let's start with the <code class="email">AddSubscriberCh</code>, <code class="email">RemoveSubscriber</code> and <code class="email">PublishingCh</code> methods, which must return the channel to add and remove subscribers and the channel to send messages to all of them:</p><pre class="programlisting">    func (p *publisher) AddSubscriber() { 
+        return p.addSubCh 
+    } 
+ 
+    func (p *publisher) RemoveSubscriberCh() { 
+        return p.removeSubCh 
+    } 
+
+    func (p *publisher) PublishMessage(){ 
+        return p.in 
+    } 
+</pre><p class="calibre10">The <code class="email">Stop()</code> function the <code class="email">stop</code> channel by closing it. This will effectively spread the signal to every listening Goroutine:</p><pre class="programlisting">func (p *publisher) Stop(){ 
+  close(p.stop) 
+} 
+</pre><p class="calibre10">The <code class="email">Stop</code> method, the function to stop the publisher and the subscribers, also pushes to its respective channel, called stop.</p><p class="calibre10">You may be wondering why we don't simply leave the channels available so that users push directly to this channel instead of using the proxying function. Well, the idea is that the user that integrates the library in their app doesn't have to deal with the complexity of the concurrent structure associated with the library, so they can focus on their business while maximizing performance as much as possible.</p></div><div class="book" title="Handling channels without race conditions"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch10lvl3sec013" class="calibre1"/>Handling channels without race conditions</h3></div></div></div><p class="calibre10">Until now, we have forwarded data to the channels on the publisher but we haven't actually handled any of that data. The launcher mechanism that is going to launch a different Goroutine will handle them all.</p><p class="calibre10">We will create a launch method that we will execute by using the <code class="email">go</code> keyword instead of embedding the whole function inside the <code class="email">NewPublisher</code> function:</p><pre class="programlisting">func (p *publisher) start() { 
+  for { 
+    select { 
+    case msg := &lt;-p.in: 
+      for _, ch := range p.subscribers { 
+        sub.Notify(msg) 
+      } 
+</pre><p class="calibre10">
+<code class="email">Launch</code> is a private method and we haven't tested it. Remember that private methods are usually called from public methods (the ones we have tested). Generally, if a private method is not called from a public method, it can't be called at all!</p><p class="calibre10">The first thing we notice with this method is that it is an infinite for loop that will repeat a select operation between many channels but only one of them can be executed each time. The first of these operations is the one that receives a new message to publish to subscribers. The <code class="email">case msg := &lt;- p.in:</code> code handles this incoming operation.</p><p class="calibre10">In this case, we are iterating over all subscribers and executing their <code class="email">Notify</code> method. You may be wondering why we don't add the <code class="email">go</code> keyword in front so that the <code class="email">Notify</code> method is executed as a different Goroutine and therefore iterates much faster. Well, this because we aren't demultiplexing the actions of receiving a message and of closing the message. So, if we launch the subscriber in a new Goroutine and it is closed while the message is processed in the <code class="email">Notify</code> method, we'll have a race condition where a message will try to be sent within the <code class="email">Notify</code> method to a closed channel. In fact, we are considering this scenario when we develop the <code class="email">Notify</code> method but, still, we won't control the number of Goroutines launched if we call the <code class="email">Notify</code> method in a new Goroutine each time. For simplicity, we just call the <code class="email">Notify</code> method, but it is a nice exercise to control the number of Goroutines waiting for a return in a <code class="email">Notify</code> method execution. By buffering the <code class="email">in</code> channel in each subscriber, we can also achieve a good solution:</p><pre class="programlisting">    case sub := &lt;-p.addSubCh: 
+    p.subscribers = append(p.subscribers, sub) 
+</pre><p class="calibre10">The next operation is what to do when a value arrives to the channel to add subscribers. In this case it's simple: we update it, appending the new value to it. While this case is executed, not other calls can be executed in this selection:</p><pre class="programlisting">     case sub := &lt;-p.removeSubCh: 
+     for i, candidate := range p.subscribers { 
+         if candidate == sub { 
+             p.subscribers = append(p.subscribers[:i], p.subscribers[i+1:]...) 
+             candidate.Close() 
+             break 
+        } 
+    } 
+</pre><p class="calibre10">When a value arrives at the remove channel, the operation is a bit more complex because we have to search for the subscriber in the slice. We use a <span class="strong"><em class="calibre11">O(N)</em></span> approach for it, iterating from the beginning until we find it, but the search algorithm could be greatly improved. Once we find the corresponding <code class="email">Subscriber</code> interface, we remove it from the subscribers slice and stop it. One thing to mention is that on tests, we are accessing the length of the subscribers slice directly without demultiplexing the operation. This is clearly a race condition, but generally, it isn't reflected when running the race detector.</p><p class="calibre10">The solution will be to develop a method just to multiplex calls to get the length of the slice, but it won't belong to the public interface. Again, for simplicity, we'll leave it like this, or this example may become too complex to handle:</p><pre class="programlisting">    case &lt;-p.stop: 
+    for _, sub := range p.subscribers { 
+        sub.Close() 
+            } 
+ 
+        close(p.addSubCh) 
+        close(p.in) 
+        close(p.removeSubCh) 
+ 
+        return 
+        } 
+    } 
+} 
+</pre><p class="calibre10">The last operation to demultiplex is the <code class="email">stop</code> operation, which must stop all Goroutines in the publisher and subscribers. Then we have to iterate through every Subscriber stored in the subscribers field to execute their <code class="email">Close()</code> method, so their Goroutines are closed, too. Finally, if we return this Goroutine, it will finish, too.</p><p class="calibre10">OK, time to execute all tests and see how is it going:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go test -race .</strong></span>
+<span class="strong"><strong class="calibre2">ok</strong></span>
+</pre><p class="calibre10">Not so bad. All tests have passed successfully and we have our Observer pattern ready. While the example can still be improved, it is a great example of how we must handle an Observer pattern using channels in Go. As an exercise, we encourage you to try the same example using mutexes instead of channels to control access. It's a bit easier, and will also give you an insight of how to work with mutexes.</p></div></div></div></body></html>

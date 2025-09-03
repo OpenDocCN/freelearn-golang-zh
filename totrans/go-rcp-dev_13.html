@@ -1,0 +1,955 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer026">
+			<h1 id="_idParaDest-328" class="chapter-number"><a id="_idTextAnchor329"/>13</h1>
+			<h1 id="_idParaDest-329"><a id="_idTextAnchor330"/>Network Programming</h1>
+			<p>Network programming is a crucial skill for application developers. An extensive treatise on the topic would be a formidable endeavor, so we will look at some of the select examples you might encounter in your work. An important point to keep in mind is that network programming is the primary means of creating vulnerabilities in an application. Network programs are also inherently concurrent, making correct and safe network programming especially difficult. So, this section will include examples written with security and scalability <span class="No-Break">in mind.</span></p>
+			<p>This chapter contains the <span class="No-Break">following recipes:</span></p>
+			<ul>
+				<li>Writing <span class="No-Break">TCP servers</span></li>
+				<li>Writing <span class="No-Break">TCP clients</span></li>
+				<li>Writing a line-based <span class="No-Break">TCP server</span></li>
+				<li>Sending/receiving files using a <span class="No-Break">TCP connection</span></li>
+				<li>Writing a <span class="No-Break">TLS client/server</span></li>
+				<li>A TCP proxy for TLS termination <span class="No-Break">and load-balancing</span></li>
+				<li>Setting <span class="No-Break">read/write deadlines</span></li>
+				<li>Unblocking a blocked read or <span class="No-Break">write operation</span></li>
+				<li>Writing <span class="No-Break">UDP clients/servers</span></li>
+				<li>Making <span class="No-Break">HTTP calls</span></li>
+				<li>Running an <span class="No-Break">HTTP server</span></li>
+				<li>HTTPS – setting up a <span class="No-Break">TLS server</span></li>
+				<li>Writing <span class="No-Break">HTTP handlers</span></li>
+				<li>Serving static files on the <span class="No-Break">file system</span></li>
+				<li>Handling <span class="No-Break">HTML forms</span></li>
+				<li>Writing a handler for downloading <span class="No-Break">large files</span></li>
+				<li>Handling HTTP uploaded files and forms as <span class="No-Break">a stream</span></li>
+			</ul>
+			<h1 id="_idParaDest-330"><a id="_idTextAnchor331"/>TCP networking</h1>
+			<p> <strong class="bold">Transmission Control Protocol</strong> (<strong class="bold">TCP</strong>) is <a id="_idIndexMarker485"/>a connection-oriented <a id="_idIndexMarker486"/>protocol that provides the <span class="No-Break">following guarantees:</span></p>
+			<ul>
+				<li><strong class="bold">Reliability</strong>: The sender <a id="_idIndexMarker487"/>will know whether the intended recipient received <span class="No-Break">the data</span></li>
+				<li><strong class="bold">Ordering</strong>: Messages <a id="_idIndexMarker488"/>will be received in the order they are <span class="No-Break">sent in</span></li>
+				<li><strong class="bold">Error-checked</strong>: Messages <a id="_idIndexMarker489"/>will be protected against corruption <span class="No-Break">during transit</span></li>
+			</ul>
+			<p>Thanks to these guarantees, TCP is relatively easy to work with. It is the basis for many higher-level protocols such as HTTP and WebSockets. In this section, we will look at some recipes that show how to write TCP servers <span class="No-Break">and clients.</span></p>
+			<h1 id="_idParaDest-331"><a id="_idTextAnchor332"/>Writing TCP servers</h1>
+			<p>A TCP server is a program that listens to connection requests on a network port. Once a connection is <a id="_idIndexMarker490"/>established with a client, the communication between the client and the server takes place over a <strong class="source-inline">net.Conn</strong> object. The server may continue to listen for new connections. This way, a single server can communicate with <span class="No-Break">many clients.</span></p>
+			<h2 id="_idParaDest-332"><a id="_idTextAnchor333"/>How to do it...</h2>
+			<ol>
+				<li>Select a port that will connect to the <span class="No-Break">clients server.</span><p class="list-inset">This is usually a matter of application configuration. The first 1,024 (<strong class="source-inline">0</strong> to <strong class="source-inline">1023</strong>) ports usually require a server program to have root privileges. Most of these ports are reserved for well-known server programs, such as port 22 for ssh, or port 80 for HTTP. Ports 1024 and above are ephemeral ports. Your server program can use any port number of 1,024 and above without additional privileges as long as no other program is listening <span class="No-Break">to it.</span></p><p class="list-inset">Use port number 0 to let the kernel pick a random unused port. You can create a listener for port <strong class="source-inline">0</strong>, and then query the listener to find out what port number <span class="No-Break">was selected.</span></p></li>
+				<li>Create a listener. A listener is a mechanism that binds the <strong class="source-inline">address:port</strong>. Once you <a id="_idIndexMarker491"/>create a listener using a port number, no other process on the same host, or within the same container, can use that port number to listen to <span class="No-Break">network traffic.</span><p class="list-inset">The following program snippet shows how to create <span class="No-Break">a listener:</span></p><pre class="source-code">
+// The address:port to listen. If none given, use :0 to select 
+// port randomly
+addr:=":8080"
+// Create a TCP listener
+listener, err := net.Listen("tcp", addr)
+if err != nil {
+  panic(err)
+}
+// Print out the address we are listening
+fmt.Println("Listening on ", listener.Addr())
+defer listener.Close()</pre><p class="list-inset">The program first determines the network address to listen to. The exact format of the address depends on the protocol chosen, which is TCP in this case. If no hostname or IP address is given, the listener will listen to all available unicast IP addresses of the local system. If you give a hostname or IP address, the listener will only listen to the traffic coming from the given IP address. That means if you give <strong class="source-inline">localhost:1234</strong>, the listener will listen to traffic coming from <strong class="source-inline">localhost</strong> only. It will not listen to <span class="No-Break">external traffic.</span></p><p class="list-inset">The above example prints <strong class="source-inline">listener.Addr()</strong>. This is useful if you provide <strong class="source-inline">:0</strong> as the listen address, or if you do not provide one at all. In this case, the listener <a id="_idIndexMarker492"/>will listen to a random port, and <strong class="source-inline">listener.Addr()</strong> will return the address that clients can <span class="No-Break">connect to.</span></p></li>				<li>Listen and accept connections. Accept incoming connections using <strong class="source-inline">Listener.Accept()</strong>. This is usually done in a loop <span class="No-Break">as follows:</span><pre class="source-code">
+// Listen to incoming TCP connections
+for {
+  // Accept a connection
+  conn, err := listener.Accept()
+  if err != nil {
+    fmt.Println(err)
+    return
+  }
+  // Handle the connection in its own goroutine
+  go handleConnection(conn)
+}</pre><p class="list-inset">In this example, the <strong class="source-inline">listener.Accept</strong> call will fail with an error if the listener <span class="No-Break">is closed.</span></p></li>				<li>Handle the connection in its own goroutine. This way, the listener will continue to accept connections while the server communicates with the connected clients in their own goroutines, using the connections created specifically for <span class="No-Break">those clients.</span><p class="list-inset">A connection handler for a simple echo server can be written <span class="No-Break">as follows:</span></p><pre class="source-code">
+func handleConnection(conn net.Conn) {
+  io.Copy(conn,conn)
+}</pre><p class="list-inset">Here’s the <a id="_idIndexMarker493"/>complete <span class="No-Break">server program:</span></p><pre class="source-code">var address = flag.String("a", ":8008", "Address to listen")
+func main() {
+     flag.Parse()
+     // Create a TCP listener
+     listener, err := net.Listen("tcp", *address)
+     if err != nil {
+          panic(err)
+     }
+     fmt.Println("Listening on ", listener.Addr())
+     defer listener.Close()
+     // Listen to incoming TCP connections
+     for {
+          conn, err := listener.Accept()
+          if err != nil {
+               fmt.Println(err)
+               return
+          }
+          go handleConnection(conn)
+     }
+}
+func handleConnection(conn net.Conn) {
+     io.Copy(conn, conn)
+}</pre><p class="list-inset">This <a id="_idIndexMarker494"/>program will write everything it reads from the connection back to the connection, forming an echo service. When the client terminates the connection, the read operation will return <strong class="source-inline">io.EOF</strong>, terminating the <span class="No-Break">copy operation.</span></p></li>			</ol>
+			<h2 id="_idParaDest-333"><a id="_idTextAnchor334"/>How it works...</h2>
+			<p>The <strong class="source-inline">net.Conn</strong> interface <a id="_idIndexMarker495"/>has both the <strong class="source-inline">Read([]byte) (int,error)</strong> method (which makes it an <strong class="source-inline">io.Reader</strong>), and <strong class="source-inline">Write([]byte) (int,error)</strong> (which also makes it an <strong class="source-inline">io.Writer</strong>). Due to this, whatever is read from the connection is written back <span class="No-Break">to it.</span></p>
+			<p>You may notice that because of <strong class="source-inline">io.Copy</strong>, every byte read will be written back to the connection, so this is not a <span class="No-Break">line-based protocol.</span></p>
+			<h1 id="_idParaDest-334"><a id="_idTextAnchor335"/>Writing TCP clients</h1>
+			<p>A TCP client <a id="_idIndexMarker496"/>connects to a TCP server that is listening on a port of some host. Once the connection is established, communication is bidirectional. In other words, the distinction between a server and a client is based on how the connection is established. When we say “server,” we mean the program that waits listening to a port, and when we say “client,” we mean the program that connects (“dials”) a port on a host that is being listened on by a server. Once the connection is established, both sides send and receive data asynchronously. TCP guarantees that the messages will be received in the order they are sent, and that the messages will not be lost, but there are no guarantees on when a message will be received by the <span class="No-Break">other side.</span></p>
+			<h2 id="_idParaDest-335"><a id="_idTextAnchor336"/>How to do it...</h2>
+			<ol>
+				<li>The client side <a id="_idIndexMarker497"/>has to know the server address and port. This should be provided by the environment (command line, <span class="No-Break">configuration, etc.).</span></li>
+				<li>Use <strong class="source-inline">net.Dial</strong> to create a connection to <span class="No-Break">the server:</span><pre class="source-code">
+     conn, err := net.Dial("tcp", addr)
+     if err != nil {
+      // Handle error
+     }</pre></li>				<li>Use the returned <strong class="source-inline">net.Conn</strong> object to send data to the server, or to receive data from <span class="No-Break">the server:</span><pre class="source-code">
+   // Send a line of text
+   text := []byte("Hello echo server!")
+   conn.Write(text)
+   // Read the response
+   response := make([]byte, len(text))
+   conn.Read(response)
+   fmt.Println(string(response))</pre></li>				<li>Close the connection <span class="No-Break">when done:</span><pre class="source-code">
+conn.Close()</pre></li>			</ol>
+			<p>Here is the <span class="No-Break">complete program:</span></p>
+			<pre class="source-code">
+var address = flag.String("a", ":8008", "Server address")
+func main() {
+     flag.Parse()
+     conn, err := net.Dial("tcp", *address)
+     if err != nil {
+          panic(err)
+     }
+     // Send a line of text
+     text := []byte("Hello echo server!")
+     conn.Write(text)
+     // Read the response
+     response := make([]byte, len(text))
+     conn.Read(response)
+     fmt.Println(string(response))
+     conn.Close()
+}</pre>			<p>This example <a id="_idIndexMarker498"/>demonstrates a request-response type of interaction with the server. This is not necessarily always the case. A network connection <a id="_idIndexMarker499"/>provides both an <strong class="source-inline">io.Writer</strong> and an <strong class="source-inline">io.Reader</strong> interface, and <a id="_idIndexMarker500"/>they can be <span class="No-Break">used concurrently.</span></p>
+			<h1 id="_idParaDest-336"><a id="_idTextAnchor337"/>Writing a line-based TCP server</h1>
+			<p>In this <a id="_idIndexMarker501"/>recipe, we will look at a TCP server that works with lines instead of bytes. There are some points you need to be careful about when reading lines from a network connection, especially related to the security of the server. Just because you are expecting to read lines does not mean the client will send <span class="No-Break">well-formed lines.</span></p>
+			<h2 id="_idParaDest-337"><a id="_idTextAnchor338"/>How to do it...</h2>
+			<ol>
+				<li>Use the same structure to set up the server as given in the <span class="No-Break">previous section.</span></li>
+				<li>In the connection handler, use a <strong class="source-inline">bufio.Reader</strong> or <strong class="source-inline">bufio.Scanner</strong> to <span class="No-Break">read lines.</span></li>
+				<li>Wrap the connection with an <strong class="source-inline">io.LimitedReader</strong> to limit <span class="No-Break">line length.</span></li>
+			</ol>
+			<p>Let’s take <a id="_idIndexMarker502"/>a look at how this can work. The following example shows how a connection handler can <span class="No-Break">be implemented:</span></p>
+			<pre class="source-code">
+// Limit line length to 1KiB.
+const MaxLineLength = 1024
+func handleConnection(conn net.Conn) error {
+  defer conn.Close()
+  // Wrap the connection with a limited reader
+  // to prevent the client from sending unbounded
+  // amount of data
+  limiter := &amp;io.LimitedReader {
+    R: conn,
+    N: MaxLineLength+1, // Read one extra byte to detect long lines
+  }
+  reader := bufio.NewReader(limiter)
+  for {
+    bytes, err := reader.ReadBytes(byte('\n'))
+    if err != nil {
+      if err != io.EOF {
+        // Some error other than end-of-stream
+        return err
+      }
+      // End of stream. It could be because the line is too long
+      if limiter.N==0 {
+        // Line was too long
+        return fmt.Errorf("Received a line that is too long")
+      }
+      // End of stream
+      return nil
+    }
+    // Reset the limiter, so the next line can be read with
+    // newlimit
+    limiter.N=MaxLineLength+1
+    // Process the line: send it back to client
+    if _, err := conn.Write(bytes); err != nil {
+      return err
+    }
+  }
+}</pre>			<p>The connection handling routine starts by wrapping the connection in an <strong class="source-inline">io.LimitedReader</strong>. This is necessary to prevent <strong class="source-inline">reader.ReadBytes</strong> from reading an unlimited amount of data until it sees the newline character. Without this, a malicious client can send large amounts of data without any newline characters, consuming all <a id="_idIndexMarker503"/>the server memory. Putting a hard limit on the line length prevents this attack vector. After reading every line, we reset the <strong class="source-inline">limiter.N</strong> to its original value so the next line can be read using the same limits. Note that the limiter is set to read one extra byte. This is because the <strong class="source-inline">io.LimitedReader</strong> returns <strong class="source-inline">io.EOF</strong> for both a legitimate <strong class="source-inline">EOF</strong> (which means the client disconnected), and a read exceeding the limit. If the reader exceeds the limit, that means the last line read is at least one byte above the limit, allowing us to decide this is an <span class="No-Break">invalid line.</span></p>
+			<h1 id="_idParaDest-338"><a id="_idTextAnchor339"/>Sending/receiving files using a TCP connection</h1>
+			<p>Sending and receiving files over a TCP connection demonstrates several important points <a id="_idIndexMarker504"/>about network programming, namely the protocol <a id="_idIndexMarker505"/>design (which deals with who sends what when) and <a id="_idIndexMarker506"/>encoding (which deals with <a id="_idIndexMarker507"/>how data elements are represented on the wire). This example will show how to transfer metadata and an octet stream over a <span class="No-Break">TCP connection.</span></p>
+			<h2 id="_idParaDest-339"><a id="_idTextAnchor340"/>How to do it...</h2>
+			<ol>
+				<li>Use the same structure to set up the server as in the <span class="No-Break">previous section.</span></li>
+				<li>On the sender end (client), do <span class="No-Break">the following:</span><ul><li>Encode file metadata containing the filename, size, and mode and <span class="No-Break">send it.</span></li><li>Send the contents of <span class="No-Break">the file.</span></li><li>Close <span class="No-Break">the connection.</span></li></ul></li>
+				<li>On the receiver end (server), do <span class="No-Break">the following:</span><ul><li>Decode file metadata. Create a file to store the received file contents with the <span class="No-Break">given mode.</span></li><li>Receive file contents and write <span class="No-Break">the file.</span></li><li>After all file content is received, close <span class="No-Break">the file.</span></li></ul></li>
+			</ol>
+			<p>The first part is the transfer of metadata about the file. There are several ways this can be done: you can work with a text-based encoding scheme such as key-value pairs or JSON, but the <a id="_idIndexMarker508"/>problem with such schemes is that they <a id="_idIndexMarker509"/>are not fixed length. A simple, effective, and portable <a id="_idIndexMarker510"/>encoding scheme is binary <a id="_idIndexMarker511"/>encoding using the <strong class="source-inline">encoding/binary</strong> package. That does not solve the encoding of the filename, which is not a fixed-sized string. So, we include the length of the filename in the file metadata, and encode the filename using exactly the necessary number <span class="No-Break">of bytes.</span></p>
+			<p>The fixed-sized <strong class="source-inline">fileMetadata</strong> structure is <span class="No-Break">as follows:</span></p>
+			<pre class="source-code">
+type fileMetadata struct {
+     Size    uint64
+     Mode    uint32
+     NameLen uint16
+}</pre>			<p>This structure is 14 bytes on all platforms (eight bytes of <strong class="source-inline">Size</strong>, four bytes of <strong class="source-inline">Mode</strong>, and two bytes of <strong class="source-inline">NameLen</strong>.) Using <strong class="source-inline">binary/encoding.Write</strong>, you can encode this fixed-size structure on the wire using either <strong class="source-inline">binary.BigEndian</strong> or <strong class="source-inline">binary.LittleEndian</strong> encoding, and the receiving end will decode <span class="No-Break">it successfully.</span></p>
+			<p>More detailed information on endianness is included in the <span class="No-Break">next chapter.</span></p>
+			<p>The rest of the client is <span class="No-Break">as follows:</span></p>
+			<pre class="source-code">
+var address = flag.String("a", ":8008", "Server address")
+var file = flag.String("file", "", "File to send")
+func main() {
+     flag.Parse()
+     // Open the file
+     file, err := os.Open(*file)
+     if err != nil {
+          panic(err)
+     }
+     // Connect the receiver
+     conn, err := net.Dial("tcp", *address)
+     if err != nil {
+          panic(err)
+     }
+     // Encode file metadata
+     fileInfo, err := file.Stat()
+     if err != nil {
+          panic(err)
+     }
+     md := fileMetadata{
+          Size:    uint64(fileInfo.Size()),
+          Mode:    uint32(fileInfo.Mode()),
+          NameLen: uint16(len(fileInfo.Name())),
+     }
+     if err := binary.Write(conn, binary.LittleEndian, md); err != nil {
+          panic(err)
+     }
+     // The file name
+     if _, err := conn.Write([]byte(fileInfo.Name())); err != nil {
+          panic(err)
+     }
+     // The file contents
+     if _, err := io.Copy(conn, file); err != nil {
+          panic(err)
+     }
+     conn.Close()
+}</pre>			<p>Note <a id="_idIndexMarker512"/>the use of <strong class="source-inline">io.Copy</strong> to transfer the actual <a id="_idIndexMarker513"/>contents of the file. Using <strong class="source-inline">io.Copy</strong>, you can <a id="_idIndexMarker514"/>transfer arbitrary-size files <a id="_idIndexMarker515"/>to the receiver without consuming significant amounts <span class="No-Break">of memory.</span></p>
+			<p>Now let’s look at the <span class="No-Break">server (receiver):</span></p>
+			<pre class="source-code">
+func handleConnection(conn net.Conn) {
+     defer conn.Close()
+     // Read the file metadata
+     var meta fileMetadata
+     err := binary.Read(conn, binary.LittleEndian, &amp;meta)
+     if err != nil {
+          fmt.Println(err)
+          return
+     }
+     // Do not allow file names that are too long
+     if meta.NameLen &gt; 255 {
+          fmt.Println("File name too long")
+          return
+     }
+     // Read the file name
+     name := make([]byte, meta.NameLen)
+     _, err = io.ReadFull(conn, name)
+     if err != nil {
+          fmt.Println(err)
+          return
+     }
+     path:=filepath.Join("downloads",string(name))
+     // Create the file
+     file, err := os.OpenFile(
+          path,
+          os.O_CREATE|os.O_WRONLY,
+          os.FileMode(meta.Mode),
+     )
+     if err != nil {
+          fmt.Println(err)
+          return
+     }
+     defer file.Close()
+     // Copy the file contents
+     _, err = io.CopyN(file, conn, int64(meta.Size))
+     if err != nil {
+          // Remove file in case of error
+             os.Remove(path)
+             fmt.Println(err)
+             return
+     }
+     fmt.Printf("Received file %s: %d bytes\n", string(name), meta.
+     Size)
+}</pre>			<p>The first <a id="_idIndexMarker516"/>operation is a fixed-size read operation <a id="_idIndexMarker517"/>of the file metadata. Then we read the <a id="_idIndexMarker518"/>filename. Note the filename length check before <a id="_idIndexMarker519"/>reading the filename. It is an important defensive approach to validate and limit all memory allocations involving size read from an external system or user. Here, we reject filenames that are longer than 255 bytes. Then, we create the file using the given mode and use <strong class="source-inline">io.CopyN</strong> to read exact file size bytes from the input. In case of an error, we remove the partially <span class="No-Break">downloaded file.</span></p>
+			<h1 id="_idParaDest-340"><a id="_idTextAnchor341"/>Writing a TLS client/server</h1>
+			<p><strong class="bold">Transport Layer Security</strong> (<strong class="bold">TLS</strong>) provides <a id="_idIndexMarker520"/>end-to-end <a id="_idIndexMarker521"/>encryption without revealing the encryption key to prevent man-in-the-middle attacks. It also provides authentication of peers and message integrity guarantees. This recipe shows how to set up a TLS server for securing network communications. However, first, a few words on public key cryptography can <span class="No-Break">be useful.</span></p>
+			<p>A cryptographic <strong class="bold">key pair</strong> contains <a id="_idIndexMarker522"/>a private key and a public key. The private key is kept secret and the public key <span class="No-Break">is published.</span></p>
+			<p>This is how a key pair is used to encrypt messages: Since the public key of a party is published, anybody can create a message and encrypt it using the public key, then send it to the party that has the private key. Only the private key owner can decrypt that message. That also means that if the private key is revealed, anybody with that private key can eavesdrop on <span class="No-Break">such messages.</span></p>
+			<p>This is how a key pair is used to ensure message integrity: The owner of a private key can create a signature (hash) of a message using its private key. Anybody with a public key can verify the integrity of the message, that is, the public key can be used to validate whether a signature is generated by the corresponding <span class="No-Break">private key.</span></p>
+			<p>Public keys are <a id="_idIndexMarker523"/>distributed in the form of <strong class="bold">digital certificates</strong>. A digital certificate is a file that contains the public key of an entity signed by a trusted third party, a <strong class="bold">certificate authority</strong> (<strong class="bold">CA</strong>). There <a id="_idIndexMarker524"/>are many well-known CAs that publish their own public keys as certificates (root certificates), and these root certificates are shipped with most modern operating systems, so when <a id="_idIndexMarker525"/>you get a certificate, you can validate its authenticity using the public key of the CA that signed it. Once you validate that a public key is authentic, you can connect the owner of the public key, which has the corresponding private key, and establish a <span class="No-Break">secure channel.</span></p>
+			<p>The root certificate of a CA is usually signed by the <span class="No-Break">CA itself.</span></p>
+			<p>If you need to create certificates for your internal servers, you usually create a CA for your environment by creating a self-signed root CA. You keep the private key for that CA secret and publish the public key internally. There are automated tools that will help you create CAs and certificates for <span class="No-Break">your servers.</span></p>
+			<h2 id="_idParaDest-341"><a id="_idTextAnchor342"/>How to do it...</h2>
+			<p>Here’s how you can set up a server and client <span class="No-Break">for TLS:</span></p>
+			<ol>
+				<li>Create or purchase an X.509 certificate for your server. If the server is not an internet-facing server, a self-signed certificate is usually sufficient. If this is an internet-facing server, you either have to get a certificate from one of the CA organizations, or publish your own public key certificate so the clients that want to connect to your servers can use that certificate to authenticate and <span class="No-Break">encrypt traffic.</span></li>
+				<li>For the <a id="_idIndexMarker526"/>server, do <span class="No-Break">the following:</span><ul><li>Load the certificate <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">crypto/tls.LoadX509KeyPair</strong></span><span class="No-Break">.</span></li><li>Create a <strong class="source-inline">crypto/tls.Config</strong> using <span class="No-Break">the certificate.</span></li><li>Create a listener <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">crypto/tls.Listen</strong></span><span class="No-Break">.</span></li><li>The rest of the server follows the same TCP <span class="No-Break">server layout.</span></li></ul></li>
+			</ol>
+			<p>The following code segment illustrates <span class="No-Break">these steps:</span></p>
+			<pre class="source-code">
+var (
+   address     = flag.String(
+     "a", ":4433", "Address to listen")
+   certificate = flag.String(
+     "c", "../server.crt", "Certificate file")
+   key         = flag.String(
+     "k", "../privatekey.pem", "Private key")
+)
+func main() {
+   flag.Parse()
+   // 2.1 Load the key pair
+   cer, err := tls.LoadX509KeyPair(*certificate, *key)
+   if err != nil {
+        panic(err)
+   }
+   // 2.2 Create TLS configuration for the listener
+   config := &amp;tls.Config{
+        Certificates: []tls.Certificate{cer},
+   }
+   // 2.3 Create the listener
+   listener, err := tls.Listen("tcp", *address, config)
+   if err != nil {
+        panic(err)
+        return
+   }
+   defer listener.Close()
+   fmt.Println("Listening TLS on ", listener.Addr())
+   // 2.4 Listen to incoming TCP connections
+   for {
+        conn, err := listener.Accept()
+        if err != nil {
+             fmt.Println(err)
+             return
+        }
+        go handleConnection(conn)
+   }
+}</pre>			<p>Note that both the certificate and the private key are necessary to set up the server. Once the TLS listener is set up, the rest of the code is identical to an unencrypted <span class="No-Break">TCP server.</span></p>
+			<p>For the client, please follow <span class="No-Break">these steps:</span></p>
+			<ol>
+				<li>If you are using a certificate from a well-known CA, use <strong class="source-inline">crypto/x509.SystemCertPool</strong>. If you have a self-signed certificate or some other custom certificate, create an empty certificate pool <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">crypto/x509.NewCertPool</strong></span><span class="No-Break">.</span></li>
+				<li>Load the <a id="_idIndexMarker527"/>server certificate, and add it to the <span class="No-Break">certificate pool.</span></li>
+				<li>Use <strong class="source-inline">crypto/tls.Dial</strong> with a TLS configuration initialized using the <span class="No-Break">certificate pool.</span></li>
+				<li>The rest of the client follows the same TCP client layout <span class="No-Break">described here.</span></li>
+			</ol>
+			<p>The following code segment shows <span class="No-Break">these steps:</span></p>
+			<pre class="source-code">
+var (
+     addr     = flag.String(
+       "addr", "", "Server address")
+     certFile = flag.String(
+       "cert", "../server.crt", "TLS certificate file")
+)
+func main() {
+     flag.Parse()
+     // 3.1 Create new certificate pool
+     roots := x509.NewCertPool()
+     // 3.2 Load server certificate
+     certData, err := os.ReadFile(*certFile)
+     if err != nil {
+          panic(err)
+     }
+     ok := roots.AppendCertsFromPEM(certData)
+     if !ok {
+          panic("failed to parse root certificate")
+     }
+     // 3.3 Connect the server
+     conn, err := tls.Dial("tcp", *addr, &amp;tls.Config{
+          RootCAs: roots,
+     })
+     if err != nil {
+          panic(err)
+     }
+     // 3.4 Send a line of text
+     text := []byte("Hello echo server!")
+     conn.Write(text)
+     // Read the response
+     response := make([]byte, len(text))
+     conn.Read(response)
+     fmt.Println(string(response))
+     conn.Close()
+}</pre>			<p>Again, loading the certificate and adding it to a certificate pool is only required if the server certificate is signed by a CA that is not recognized by the operating system. Many websites that <a id="_idIndexMarker528"/>use HTTPS have certificates signed by a well-known CA, and that’s why you can connect them without installing custom certificates: the operating system already trusts <span class="No-Break">the CA.</span></p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">There are examples of this under the book’s <span class="No-Break">GitHub (</span><a href="https://github.com/PacktPublishing/Go-Recipes-for-Developers/tree/main/src/chp13"><span class="No-Break">https://github.com/PacktPublishing/Go-Recipes-for-Developers/tree/main/src/chp13</span></a><span class="No-Break">).</span></p>
+			<h1 id="_idParaDest-342"><a id="_idTextAnchor343"/>A TCP proxy for TLS termination and load-balancing</h1>
+			<p>Most internet-facing applications use a reverse proxy (ingress) to separate the internal resources <a id="_idIndexMarker529"/>from the external world. The reverse proxy is usually connected by the external clients using encrypted connections (TLS), and forwards <a id="_idIndexMarker530"/>the requests to backend services via unencrypted channels (<span class="No-Break"><em class="italic">Figure 11</em></span><em class="italic">.1</em>) or by re-encrypting the connection using the internal CA. The reverse proxy usually also performs some sort of load-balancing to distribute the <span class="No-Break">work evenly.</span></p>
+			<div>
+				<div id="_idContainer025" class="IMG---Figure">
+					<img src="image/B21961_13_1.jpg" alt="Figure 13.1 – TLS proxy with round-robin load balancing and TLS termination" width="720" height="318"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 13.1 – TLS proxy with round-robin load balancing and TLS termination</p>
+			<p>In this <a id="_idIndexMarker531"/>section, we will look at such a reverse proxy that accepts TLS traffic from external hosts, and forwards that traffic to backend servers using unencrypted TCP while distributing the requests to those servers in a <span class="No-Break">round-robin fashion.</span></p>
+			<p>As a Go <a id="_idIndexMarker532"/>developer, you are unlikely to write your own reverse proxy or load balancer, as there are multiple options available already. However, it is an interesting application and I am including it here to show how something like this can be done in Go, in particular the <span class="No-Break">proxy itself.</span></p>
+			<h2 id="_idParaDest-343"><a id="_idTextAnchor344"/>How to do it...</h2>
+			<p>Here, we assume that the proxy is given the list of available backend servers. Many times, you will need to use a platform-specific discovery mechanism to find out what the available <span class="No-Break">servers are:</span></p>
+			<ol>
+				<li>Create an external facing TLS receiver using the certificate and key for the <span class="No-Break">proxy host.</span></li>
+				<li>Listen to incoming <span class="No-Break">TLS connections.</span></li>
+				<li>When a client connects, select a backend server <span class="No-Break">and connect.</span></li>
+				<li>Start a proxy goroutine to forward all traffic coming from the external host to the backend server, and traffic coming from the backend server to the <span class="No-Break">external host.</span></li>
+				<li>Terminate <a id="_idIndexMarker533"/>the proxy when one of the <span class="No-Break">connections closes.</span></li>
+			</ol>
+			<p>The following <a id="_idIndexMarker534"/>program illustrates <span class="No-Break">these steps:</span></p>
+			<pre class="source-code">
+var (
+     tlsAddress      = flag.String(
+       "a", ":4433", "TLS address to listen")
+     serverAddresses = flag.String(
+       "s", ":8080", "Server addresses, comma separated")
+     certificate     = flag.String(
+       "c", "../server.crt", "Certificate file")
+     key             = flag.String(
+       "k", "../privatekey.pem", "Private key")
+)
+func main() {
+     flag.Parse()
+     // 1. Create external facing TLS receiver
+     // Load the key pair
+     cer, err := tls.LoadX509KeyPair(*certificate, *key)
+     if err != nil {
+          panic(err)
+     }
+     // Create TLS configuration for the listener
+     config := &amp;tls.Config{
+          Certificates: []tls.Certificate{cer},
+     }
+     // Create the tls listener
+     tlsListener, err := tls.Listen("tcp", *tlsAddress, config)
+     if err != nil {
+          panic(err)
+     }
+     defer tlsListener.Close()
+     fmt.Println("Listening TLS on ", tlsListener.Addr())
+     // Listen to incoming TLS connections
+     servers := strings.Split(*serverAddresses, ",")
+     fmt.Println("Forwarding to servers: ", servers)
+     nextServer := 0
+     for {
+          // 2. Listen to incoming TLS connections
+          conn, err := tlsListener.Accept()
+          if err != nil {
+               fmt.Println(err)
+               return
+          }
+          retries := 0
+          for {
+               // 3. Select the next server
+               server := servers[nextServer]
+               nextServer++
+               if nextServer &gt;= len(servers) {
+                    nextServer = 0
+               }
+               // Start a connection to this server
+               targetConn, err := net.Dial("tcp", server)
+               if err != nil {
+                    retries++
+                    fmt.Errorf("Cannot connect to %s", server)
+                    if retries &gt; len(servers) {
+                         panic("None of the servers are available")
+                    }
+                    continue
+               }
+               // 4. Start the proxy
+               go handleProxy(conn, targetConn)
+          }
+     }
+}</pre>			<p>We have already covered the details of setting up a TLS receiver in the previous recipes, so let’s take a look at how the backend server is selected. This implementation is given a list of all <a id="_idIndexMarker535"/>available backend servers. Every accepted client connection is assigned the next server in the list, pointed to by the <strong class="source-inline">nextServer</strong> index. The proxy uses <strong class="source-inline">net.Dial</strong> to connect the selected server, and if the connection fails (the server may be temporarily down), it skips to the next server in the list. If this fails <strong class="source-inline">len(servers)</strong> times, then all backend servers are unavailable, and the <a id="_idIndexMarker536"/>program terminates. However, if one server is selected, a proxy is started and the main goroutine goes back to listening to <span class="No-Break">new connections.</span></p>
+			<p>Let’s see how the proxy handler <span class="No-Break">is written:</span></p>
+			<pre class="source-code">
+func handleProxy(conn, targetConn net.Conn) {
+     defer conn.Close()
+     defer targetConn.Close()
+     // Copy data from the client to the server
+     go io.Copy(targetConn, conn)
+     // Copy data from the server to the client
+     io.Copy(conn, targetConn)
+}</pre>			<p>As I mentioned in the previous sections, a network connection contains two concurrent streams, one going from the client host to the server, and the other going from the server to the client host. Both of these streams can include data in flight at the same time. Due to this, proxying a TCP connection involves two <strong class="source-inline">io.Copy</strong> operations, one from server to client, and one from client to server. Furthermore, at least one of these has to run in a separate goroutine. In the preceding example, the traffic from the external connection to the backend server is copied in a separate goroutine, and the traffic from the backend server to the external host is copied in the proxy goroutine. The copy operation will terminate if either side closes the connection, which will cause the last copy operation to terminate, closing the other connection <span class="No-Break">as well.</span></p>
+			<h1 id="_idParaDest-344"><a id="_idTextAnchor345"/>Setting read/write deadlines</h1>
+			<p>If you do <a id="_idIndexMarker537"/>not want to wait indefinitely for a connected host to send data, or for the connected host to receive the data you sent, you have to set <span class="No-Break">a deadline.</span></p>
+			<h2 id="_idParaDest-345"><a id="_idTextAnchor346"/>How to do it...</h2>
+			<p>Depending on your specific protocol, you can set read or write deadlines, and you may choose to set these deadlines for individual I/O operations, <span class="No-Break">or globally:</span></p>
+			<ol>
+				<li>Set the deadline before <span class="No-Break">the operation:</span><pre class="source-code">
+conn.SetDeadline(time.Now().Add(timeoutSeconds * timeSecond))
+if n, err:=conn.Read(data); err!=nil {
+  if errors.Is(err, os.ErrDeadlineExceeded) {
+    // Deadline exceeded.
+  } else {
+    // Some other error
+  }
+}</pre></li>				<li>If you will continue using the connection after a deadline is exceeded, you have to reset <span class="No-Break">the deadline:</span><pre class="source-code">
+conn.SetDeadline(time.Time{})</pre></li>			</ol>
+			<p>Or, set a new deadline with a time in <span class="No-Break">the future.</span></p>
+			<h1 id="_idParaDest-346"><a id="_idTextAnchor347"/>Unblocking a blocked read or write operation</h1>
+			<p>Sometimes, you <a id="_idIndexMarker538"/>need to unblock a read or write operation based on an external event. This recipe shows how you can unblock such an <span class="No-Break">I/O operation.</span></p>
+			<h2 id="_idParaDest-347"><a id="_idTextAnchor348"/>How to do it...</h2>
+			<ul>
+				<li>If you want to unblock an I/O operation with no intention of reusing the connection again, close the <span class="No-Break">connection asynchronously:</span><pre class="source-code">
+cancel:=make(chan struct{})
+done:=make(chan struct{})
+// Close the connection if a message is sent to cancel channel
+go func() {
+   select {
+      case &lt;-cancel:
+         conn.Close()
+      case &lt;-done:
+   }
+}()
+go handleConnection(conn)</pre></li>				<li>If you <a id="_idIndexMarker539"/>want to unblock an I/O operation but not terminate it, set the deadline <span class="No-Break">to now:</span><pre class="source-code">
+unblock:=make(chan struct{})
+// Unblock the connection if a message is sent to unblock channel
+go func() {
+  &lt;-unblock
+  conn.SetDeadline(time.Now())
+}()
+timedout:=false
+if n, err:=conn.Read(data); err!=nil {
+   if errors.Is(err,os.ErrDeadlineExceeded) {
+      // Reset connection deadline
+      conn.SetDeadline(time.Time{})
+      timedout=true
+      // continue using the connection
+   } else {
+      // Handle error
+   }
+}
+if timedout {
+  // Read timedout
+} else {
+  // Read did not timeout
+}</pre></li>			</ul>
+			<h2 id="_idParaDest-348"><a id="_idTextAnchor349"/>How it works...</h2>
+			<p>A TCP read operation blocks until there is something available to read, which only happens when some data is received from the peer. A TCP write operation will block when no <a id="_idIndexMarker540"/>more data can be buffered on the sending side. The preceding recipe shows two ways you can unblock <span class="No-Break">these calls.</span></p>
+			<p>Closing a connection unblocks read/write operations with an error because the connection is closed while waiting for data to arrive, or while waiting for data to be written. Closing a connection discards all unread or unwritten data and destroys all resources allocated for <span class="No-Break">that connection.</span></p>
+			<p>Setting the timeout asynchronously will set a deadline for the waiting operation, and when that deadline passes, the operation fails but the connection remains open. You can reset the deadline and retry <span class="No-Break">the operation.</span></p>
+			<h1 id="_idParaDest-349"><a id="_idTextAnchor350"/>Writing UDP clients/servers</h1>
+			<p>Unlike TCP, UDP is connectionless. That means instead of establishing a connection with another peer <a id="_idIndexMarker541"/>and sending data back and forth, you simply send data packets and receive them. There are no delivery or <span class="No-Break">ordering guarantees.</span></p>
+			<p>One of the <a id="_idIndexMarker542"/>prominent uses of UDP is the <strong class="bold">Domain Name Service</strong> (<strong class="bold">DNS</strong>) protocol. UDP is also the choice for many streaming protocols (voice over IP, video streaming, etc.) where occasional package loss is tolerable. Network monitoring tools also <span class="No-Break">favor UDP.</span></p>
+			<p>Despite being connectionless, the UDP networking APIs offer an interface similar to the TCP networking APIs. Here, we will show a simple client-server UDP echo server to demonstrate how these APIs can <span class="No-Break">be used.</span></p>
+			<h2 id="_idParaDest-350"><a id="_idTextAnchor351"/>How to do it...</h2>
+			<p>The following steps show how to write a <span class="No-Break">UDP server:</span></p>
+			<ol>
+				<li>Resolve the UDP address the server will listen on <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">net.ResolveUDPAddr</strong></span><span class="No-Break">:</span><pre class="source-code">
+  addr, err := net.ResolveUDPAddr("udp4", *address)
+  if err != nil {
+    panic(err)
+  }</pre></li>				<li>Create a <span class="No-Break">UDP listener:</span><pre class="source-code">
+  // Create a UDP connection
+  conn, err := net.ListenUDP("udp4", addr)
+  if err != nil {
+    panic(err)
+  }
+  defer conn.Close()</pre><p class="list-inset">Even though <strong class="source-inline">net.ListenUDP</strong> returns a <strong class="source-inline">*net.UDPConn</strong>, the returned object resembles a listener and not a connection. UDP is connectionless, so this call starts listening UDP packets on the given address. The clients technically do not <em class="italic">connect</em> the server and start a two-way stream; they simply send a packet. That’s why, in the next step, the read operation also returns the address of the sender, so a response can <span class="No-Break">be sent.</span></p></li>				<li>Read from <a id="_idIndexMarker543"/>the listener. This will return the remote address of <span class="No-Break">the peer:</span><pre class="source-code">
+  // Listen to incoming UDP connections
+  buf := make([]byte, 1024)
+  n, remoteAddr, err := conn.ReadFromUDP(buf)
+  if err != nil {
+    // Handle the error
+  }
+  fmt.Printf("Received %d bytes from %s\n", n, remoteAddr)</pre></li>				<li>Send the response to the peer using the address obtained in the <span class="No-Break">previous step:</span><pre class="source-code">
+  if n &gt; 0 {
+    _, err := conn.WriteToUDP(buf[:n], remoteAddr)
+    if err != nil {
+      // Handle the error
+    }
+  }</pre></li>			</ol>
+			<p>Now let’s take a look at the <span class="No-Break">UDP client:</span></p>
+			<ol>
+				<li>Resolve the address of <span class="No-Break">the server:</span><pre class="source-code">
+  addr, err := net.ResolveUDPAddr("udp4", *serverAddress)
+  if err != nil {
+    panic(err)
+  }</pre></li>				<li>Create a UDP connection. This requires a local address and a remote address. If the local <a id="_idIndexMarker544"/>address is nil, the local address is automatically chosen. If the remote address is nil, it is assumed to be the <span class="No-Break">local system:</span><pre class="source-code">
+  // Create a UDP connection, local address chosen randomly
+  conn, err := net.DialUDP("udp4", nil, addr)
+  if err != nil {
+    panic(err)
+  }
+  fmt.Printf("UDP server %s\n", conn.RemoteAddr())
+  defer conn.Close()</pre><p class="list-inset">Again, UDP is connectionless. The preceding call to <strong class="source-inline">DialUDP</strong> creates a socket that will be used in subsequent calls. It does not create a connection to <span class="No-Break">the server.</span></p></li>				<li>Send data to the server <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">conn.Write</strong></span><span class="No-Break">:</span><pre class="source-code">
+  // Send a line of text
+  text := []byte("Hello echo server!")
+  n, err := conn.Write(text)
+  if err != nil {
+    panic(err)
+  }
+  fmt.Printf("Written %d bytes\n", n)</pre></li>				<li>Read <a id="_idIndexMarker545"/>data from the server <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">conn.Read</strong></span><span class="No-Break">:</span><pre class="source-code">
+  // Read the response
+  response := make([]byte, 1024)
+  conn.ReadFromUDP(response)</pre></li>			</ol>
+			<h1 id="_idParaDest-351"><a id="_idTextAnchor352"/>Working with HTTP</h1>
+			<p>HTTP is a <a id="_idIndexMarker546"/>client-server protocol where the client (a user agent or proxy) sends requests to a server, and the server returns a response. It is an application layer hypertext protocol, and the backbone of the World <span class="No-Break">Wide Web.</span></p>
+			<h1 id="_idParaDest-352"><a id="_idTextAnchor353"/>Making HTTP calls</h1>
+			<p>The Go standard <a id="_idIndexMarker547"/>library offers two basic ways of issuing HTTP calls to interact with websites and web services: if you do not need to configure timeouts, transport properties, or redirect policies, simply use the shared client. If you need to do additional configuration, use <strong class="source-inline">http.Client</strong>. This recipe <span class="No-Break">demonstrates both.</span></p>
+			<h2 id="_idParaDest-353"><a id="_idTextAnchor354"/>How to do it...</h2>
+			<ul>
+				<li>The standard library includes a shared HTTP client. You can use that to interact with web servers using the <span class="No-Break">default configuration:</span><pre class="source-code">
+response, err := http.Get("http://example.com")
+if err!=nil {
+  // Handle error
+}
+// Always close response body
+defer response.Body.Close()
+if response.StatusCode/100==2 {
+  // HTTP 2xx, call was successful.
+  // Work with response.Body
+}</pre></li>				<li>If you need to <a id="_idIndexMarker548"/>apply different timeout values, change the redirect policy, or configure the transport, create a new <strong class="source-inline">http.Client</strong>, initialize it, and <span class="No-Break">use that:</span><pre class="source-code">
+client:=http.Client{
+  // Set a timeout for all outgoing calls.
+  // If the call does not complete within 30 seconds, timeout.
+  Timeout: 30*time.Second,
+}
+response, err:=client.Get("http://example.com")
+if err!=nil {
+  // handle error
+}
+// Always close response body
+defer response.Body.Close()</pre></li>				<li>You can call websites using HTTPS (using TLS) if the operating system already has the certificate for the CA that issued that website’s certificate. This is the case for most public websites over <span class="No-Break">the internet:</span><pre class="source-code">
+response, err := http.Get("https://example.com")</pre></li>				<li>If you are using TLS with a custom CA, or if you are using self-signed certificates, you have to create a <strong class="source-inline">http.Client</strong> with a <strong class="source-inline">Transport</strong> containing <span class="No-Break">the certificate.</span><ul><li>Create a new <span class="No-Break">certificate pool:</span><pre class="source-code">
+roots := x509.NewCertPool()</pre></li><li>Load the <span class="No-Break">server certificate:</span><pre class="source-code">certData, err := os.ReadFile(*certFile)
+if err != nil {
+  panic(err)
+}</pre></li><li>Add the <a id="_idIndexMarker549"/>certificate to the <span class="No-Break">certificate pool:</span><pre class="source-code">ok := roots.AppendCertsFromPEM(certData)
+if !ok {
+  panic("failed to parse root certificate")
+}</pre></li><li>Create a <span class="No-Break">TLS config:</span><pre class="source-code">config:=tls.Config{
+  RootCAs: roots,
+}</pre></li><li>Create an HTTP Transport using the <span class="No-Break">TLS config:</span><pre class="source-code">transport := &amp;http.Transport {
+  TLSClientConfig: &amp;config,
+}</pre></li><li>Create an <span class="No-Break">HTTP client:</span><pre class="source-code">client:= &amp;http.Client{
+  Transport: transport,
+}</pre></li><li>Use <span class="No-Break">the </span><span class="No-Break"><a id="_idIndexMarker550"/></span><span class="No-Break">client:</span><pre class="source-code">resp, err:=client.Get(url)
+if err!=nil {
+  // Handle error
+}
+defer resp.Body.Close()</pre></li></ul></li>			</ul>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">Always close the response body when you are done working with it, and try to read all data available <a id="_idIndexMarker551"/>in the body. The <strong class="source-inline">response.Body</strong> represents a streaming connection to the server. The server will reserve resources for the connection as long as there is data in transit and the client keeps the connection open. It also prevents the client from reusing <span class="No-Break">keep-alive connections.</span></p>
+			<h1 id="_idParaDest-354"><a id="_idTextAnchor355"/>Running an HTTP server</h1>
+			<p>The standard Go library offers an HTTP server with sensible defaults that you can use out of <a id="_idIndexMarker552"/>the box, similar to the way HTTP clients are implemented. If you need to configure transport specifics, timeouts, and so on, then you can create a new <strong class="source-inline">http.Server</strong> and work with it. This section describes <span class="No-Break">both approaches.</span></p>
+			<h2 id="_idParaDest-355"><a id="_idTextAnchor356"/>How to do it...</h2>
+			<ul>
+				<li>Create an <strong class="source-inline">http.Handler</strong> to handle <span class="No-Break">HTTP requests:</span><pre class="source-code">
+func myHandler(w http.ResponseWriter, req *http.Request) {
+  if req.Method == http.MethodGet {
+    // Handle an HTTP GET request
+  }
+  ...
+}</pre></li>				<li><span class="No-Break">Call </span><span class="No-Break"><strong class="source-inline">http.ListenAndServe</strong></span><span class="No-Break">:</span><pre class="source-code">
+err:=http.ListenAndServe(":8080",http.HandlerFunc(myHandler))
+log.Fatal(err)</pre></li>				<li>The <strong class="source-inline">ListenAndServe</strong> function either returns immediately due to an error setting up a network listener (for example, if the address is already in use) or successfully starts listening. When the server is asynchronously closed (by calling <strong class="source-inline">server.Close()</strong> or <strong class="source-inline">server.Shutdown()</strong>), it <span class="No-Break">returns </span><span class="No-Break"><strong class="source-inline">ErrServerClosed</strong></span><span class="No-Break">.</span></li>
+				<li>Alternatively, you can <a id="_idIndexMarker553"/>use a <strong class="source-inline">http.Server</strong> struct to better control <span class="No-Break">server options:</span><ul><li>Create an <strong class="source-inline">http.Handler</strong> <span class="No-Break">as described.</span></li><li>Initialize an <span class="No-Break"><strong class="source-inline">http.Server</strong></span><span class="No-Break"> instance:</span><pre class="source-code">
+server := http.Server {
+  // The address to listen
+  Addr: ":8080",
+  // The handler function
+  Handler: http.HandlerFunc(myHandler),
+  // The handlers must read the request within 10 seconds
+  ReadTimeout: 10*time.Second,
+  // The headers of a request must be read within 5 seconds
+  ReadHeaderTimeout: 5*time.Second,
+}</pre></li><li>Listen <span class="No-Break">HTTP requests:</span><pre class="source-code">err:=server.ListenAndServe()
+log.Fatal(err)</pre></li></ul></li>			</ul>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">A common <a id="_idIndexMarker554"/>way to create an HTTP handler is to use a request multiplexer. Recipes for using a request multiplexer will be <span class="No-Break">covered later.</span></p>
+			<h1 id="_idParaDest-356"><a id="_idTextAnchor357"/>HTTPS – setting up a TLS server</h1>
+			<p>To start <a id="_idIndexMarker555"/>a TLS server, you need a certificate and a private key. You can either purchase one from a CA or generate our own certificates with your internal CA. Once you have your certificate, you can use the recipes in this section to start your <span class="No-Break">HTTPS server.</span></p>
+			<h2 id="_idParaDest-357"><a id="_idTextAnchor358"/>How to do it...</h2>
+			<p>To create a TLS HTTP server, use one of <span class="No-Break">the following:</span></p>
+			<ol>
+				<li>Use the <strong class="source-inline">Server.ListenAndServeTLS</strong> method with the certificate and <span class="No-Break">key files:</span><pre class="source-code">
+server := http.Server {
+   Addr: ":4443",
+   Handler: handler,
+}
+server.ListenAndServeTLS("cert.pem", "key.pem")</pre></li>				<li>To use the default HTTP server, set a handler function (or <strong class="source-inline">http.Handler</strong>) and <span class="No-Break">call </span><span class="No-Break"><strong class="source-inline">http.ListenAndServeTLS</strong></span><span class="No-Break">:</span><pre class="source-code">
+http.HandleFunc("/",func(w http.ResponseWriter, req *http.Request) {
+  // Handle request
+})
+http.ListenAndServeTLS("cert.pem", "key.pem")</pre></li>				<li>Or prepare a <strong class="source-inline">http.Transport</strong> <span class="No-Break">with certificates:</span><p class="upper-roman">3.1	Load the <a id="_idIndexMarker556"/><span class="No-Break">TLS certificate:</span></p><pre class="source-code">
+cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
+if err!=nil {
+  panic(err)
+}</pre><p class="upper-roman">3.2	Create a `tls.Config` using <span class="No-Break">the certificate:</span></p><pre class="source-code">tlsConfig := &amp;tls.Config{
+  Certificates: []tls.Certificate{cert},
+}</pre><p class="upper-roman">3.3	Create a `http.Server` using <span class="No-Break">the `tlsConfig`:</span></p><pre class="source-code">server := http.Server{
+  Addr:      ":4443",
+  Handler:   handler,
+  TLSConfig: tlsConfig,
+}</pre><p class="upper-roman">3.4	<span class="No-Break">Call `server.ListenAndServeTLS`</span></p><pre class="source-code">server.ListenAndServeTLS("","")</pre></li>			</ol>
+			<h1 id="_idParaDest-358"><a id="_idTextAnchor359"/>Writing HTTP handlers</h1>
+			<p>When an HTTP request arrives at a server, the server looks at the HTTP method (GET, POST, etc), the hostname <a id="_idIndexMarker557"/>the client used (the <strong class="source-inline">Host</strong> header), and the URL to decide how to handle the request. The mechanism that determines <a id="_idIndexMarker558"/>which handler should handle such a request is called a <strong class="bold">request multiplexer</strong>. The Go standard library comes with one, and there are many third-party open source multiplexers. In this section, we will look at the standard library multiplexer and how it can <span class="No-Break">be used.</span></p>
+			<h2 id="_idParaDest-359"><a id="_idTextAnchor360"/>How to do it...</h2>
+			<ol>
+				<li>You can use an anonymous function for simple cases, such as a <span class="No-Break">health-check endpoint:</span><pre class="source-code">
+mux := http.NewServeMux()
+mux.HandleFunc("GET /health",func(w http.ResponseWriter, req *http.Request) {
+  w.Write([]byte("Ok")
+})
+...
+server := http.Server {
+  Handler: mux,
+  Addr: ":8080",
+  ...
+}
+server.ListenAndServe()</pre><p class="list-inset">The preceding handler will respond to <strong class="source-inline">GET /health</strong> endpoint requests with an <strong class="source-inline">Ok</strong> and <strong class="source-inline">HTTP </strong><span class="No-Break"><strong class="source-inline">200</strong></span><span class="No-Break"> status.</span></p></li>				<li>You can use a data type that implements the <span class="No-Break"><strong class="source-inline">http.Handler</strong></span><span class="No-Break"> interface:</span><ul><li>Create a new data type, which can be a struct containing information that you will <a id="_idIndexMarker559"/>need to implement <span class="No-Break">the handler:</span><pre class="source-code">
+// The RandomService reads random data from a source, and 
+// returns random numbers
+type RandomService struct {
+  rndSource io.Reader
+}</pre></li><li>Implement the `<span class="No-Break">http.Handler` interface:</span><pre class="source-code">func (svc RandomService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+  // Read 4 bytes from the random number source, convert it to string
+  data:= make([]byte,4)
+  _,err:=svc.rndSource.Read(data)
+  if err!=nil {
+    // This will return an HTTP 500 error with the error message
+    // as the message body
+    http.Error(w,err.Error(),http.StatusInternalServerError)
+    return
+  }
+  // Decode random data using binary little endian encoding
+  value:=binary.LittleEndian.Uint32(data)
+  // Write the data to the output
+  w.Write([]byte(strconv.Itoa(int(value))))
+}</pre></li><li>Create an instance of the handler type and <span class="No-Break">initialize it</span><pre class="source-code">file, err:=os.Open("/dev/random")
+if err!=nil {
+  panic(err)
+}
+defer file.Close()
+svc:=RandomService {
+  rndSource: file,
+}</pre></li></ul></li>				<li>Create <span class="No-Break">a multiplexer:</span><pre class="source-code">
+mux:=http.NewServeMux()</pre></li>				<li>Assign the <a id="_idIndexMarker560"/>handler to a pattern. The following example assigns <strong class="source-inline">GET</strong> requests for <strong class="source-inline">/rnd</strong> path to the instance constructed at <span class="No-Break"><em class="italic">step 3</em></span><span class="No-Break">.</span><pre class="source-code">
+mux.Handle("GET /rnd", svc)</pre></li>				<li>Start <span class="No-Break">the server.</span><pre class="source-code">
+server := http.Server {
+  Handler: mux,
+  Addr: ":8080",
+  ...
+}
+server.ListenAndServe()</pre></li>				<li>A more general method involves creating data types with multiple methods as handlers. This pattern is especially useful for web service development because it allows for creating structures that serve all the APIs related to a specific <span class="No-Break">business domain:</span><ul><li>Create a data type. This can be a struct containing all the necessary information to implement handlers, such as database connections, public/private keys, and <span class="No-Break">so on:</span><pre class="source-code">
+type UserHandler struct {
+  DB *sql.DB
+}</pre></li></ul></li>				<li>Create methods <a id="_idIndexMarker561"/>using the signature for <strong class="source-inline">http.HandlerFunc</strong> to implement multiple <span class="No-Break">API endpoints:</span><pre class="source-code">
+func (hnd UserHandler) GetUser(w http.ResponseWriter, req *http.Request) {
+  ...
+}</pre></li>				<li>Create an initialize <span class="No-Break">the handlers.</span><pre class="source-code">
+userDb, err:=sql.Open(driver, UserDBUrl)
+if err!=nil {
+  panic(err)
+}
+userHandler := UserHandler {
+  DB: userDb,
+}</pre></li>				<li>Create a <span class="No-Break">request multiplexer</span><pre class="source-code">
+mux := http.NewServeMux()</pre></li>				<li>Assign handler methods <span class="No-Break">to patterns:</span><pre class="source-code">
+mux.Handle("GET /users/{userId}",userHandler.GetUser)
+mux.Handle("POST /users", userHandler.NewUser)
+mux.Handle("DELETE /users/{userId}", userHandler.DeleteUser)</pre></li>				<li>Use the multiplexer to start <span class="No-Break">the server.</span><pre class="source-code">
+server := http.Server{
+   Addr: serverAddr,
+   Handler: mux,
+}
+server.ListenAndServe()</pre></li>			</ol>
+			<p>The following <a id="_idIndexMarker562"/>code snippet illustrates how you can use the standard library request multiplexer tools when writing <span class="No-Break">HTTP handlers:</span></p>
+			<pre class="source-code">
+func (hnd UserHandler) GetUser(w http.ResponseWriter, req *http.Request) {
+  // User req.PathValue("userId") to get userId portion of /users/
+  // {userId}
+  // That is, if this API is invoked with GET /users/123, then after 
+  // the following line `userId` is assigned to "123"
+  userId:=req.PathValue("userId")
+  // Get user data from the DB
+  user, err:=GetUserInformation(hnd.DB,userId)
+  if err!=nil {
+    http.Error(w,err.Error(),http.StatusNotFound)
+    return
+  }
+  // Marshal user data to JSON
+  data, err:=json.Marshal(user)
+  if err!=nil {
+    http.Error(w, err.Error(),http.StatusInternalServerError)
+    return
+  }
+  // Set the content type header. You **must** set all headers before
+  // writing the body. Once the body is placed on the write, there is 
+  // no way to change a header that is already written.
+  w.Header().Set("Content-Type","application/json")
+  w.Write(data)
+}</pre>			<h1 id="_idParaDest-360"><a id="_idTextAnchor361"/>Serving static files on the file system</h1>
+			<p>Not all files <a id="_idIndexMarker563"/>served by web applications are dynamically <a id="_idIndexMarker564"/>generated. JavaScript files, cascading stylesheets, and some HTML pages are usually served verbatim. This section shows several methods to serve <span class="No-Break">such files.</span></p>
+			<h2 id="_idParaDest-361"><a id="_idTextAnchor362"/>How to do it...</h2>
+			<p>There are several ways a static file can be served <span class="No-Break">via HTTP:</span></p>
+			<ol>
+				<li>To serve all static files under a directory, use <strong class="source-inline">http.FileServer</strong> to create <span class="No-Break">a handler:</span><pre class="source-code">
+fileHandler := http.FileServer(http.Dir("/var/www"))
+server:=http.Server{
+  Addr: addr,
+  Handler: fileHandler,
+}
+http.ListenAndServe()</pre><p class="list-inset">The above snippet will serve the files under <strong class="source-inline">/var/www</strong> at the root path. That is, a <strong class="source-inline">GET /index.html</strong> request will serve the <strong class="source-inline">/var/www/index.html</strong> file with <strong class="source-inline">Content-Type: text/html</strong>. Similarly, a <strong class="source-inline">GET /css/styles.css</strong> will serve <strong class="source-inline">/var/www/css/styles.css </strong>with <span class="No-Break"><strong class="source-inline">Content-Type: text/css</strong></span><span class="No-Break">.</span></p></li>				<li>To serve <a id="_idIndexMarker565"/>all static files under a directory but with <a id="_idIndexMarker566"/>a different URL path prefix, <span class="No-Break">use </span><span class="No-Break"><strong class="source-inline">http.StripPrefix</strong></span><span class="No-Break">:</span><pre class="source-code">
+fileHandler := http.StripPrefix("/static/", http.FileHandler(http.Dir("/var/www"))</pre><p class="list-inset">The above call wraps the given file handler with another that strips the given prefix from the URL path. For a <strong class="source-inline">GET /static/index.hml</strong> request , this handler will serve <strong class="source-inline">/var/www/index.html</strong> with <strong class="source-inline">Content-Type: text/html</strong>. If the path does not include the given prefix, this will return <strong class="source-inline">HTTP 404 </strong><span class="No-Break"><strong class="source-inline">Not Found</strong></span><span class="No-Break">.</span></p></li>				<li>To add additional logic to URL-filename mapping, implement the <strong class="source-inline">http.FileSystem</strong> interface and use <strong class="source-inline">FileServerFS</strong> with that file system. You can combine this handler with <strong class="source-inline">http.StripPrefix</strong> to further change URL <span class="No-Break">path processing:</span><pre class="source-code">
+// Serve only HTML files in the given directory
+type htmlFS struct {
+  fs *http.FileSystem
+}
+// Filter file names by their extension before opening them
+func (h htmlFS) Open(name string) (http.File, error) {
+  if strings.ToLower(filepath.Ext(name))==".html" {
+    return h.fs.Open(name)
+  }
+  return nil, os.ErrNotFound
+}
+...
+htmlHandler := http.FileHandler(htmlFS{fs:http.Dir("/var/www"))
+// htmlHandler serves all HTML files under /var/www</pre></li>			</ol>
+			<h1 id="_idParaDest-362"><a id="_idTextAnchor363"/>Handling HTML forms</h1>
+			<p>HTML forms are an essential component of capturing data in web applications. An HTML form can be <a id="_idIndexMarker567"/>processed on the server side through the use of a <strong class="source-inline">Form</strong> HTML element, or it can be processed on the client side using JavaScript. In this section, we will look at handling HTTP form submissions for <span class="No-Break">server-side processing.</span></p>
+			<h2 id="_idParaDest-363"><a id="_idTextAnchor364"/>How to do it...</h2>
+			<p>On the client side, do <span class="No-Break">the following.</span></p>
+			<ol>
+				<li>Enclose data input fields in a <strong class="source-inline">Form</strong> <span class="No-Break">HTML element:</span><pre class="source-code">
+&lt;form method="POST" action="/auth/login"&gt;
+&lt;input type="text" name="userName"&gt;
+&lt;input type="password" name="password"&gt;
+&lt;button type="submit"&gt;Submit&lt;/button&gt;
+&lt;/form&gt;</pre><p class="list-inset">Here, the <strong class="source-inline">method</strong> attribute determines the HTTP method, which is <strong class="source-inline">POST</strong>, and the <strong class="source-inline">action</strong> attribute determines the URL. Note that this URL is relative to the current page URL. When the form is submitted, the client-side processing will prepare a <strong class="source-inline">POST</strong> request for the given URL, and send the contents of input fields as name-value pairs encoded as <span class="No-Break"><strong class="source-inline">application/x-www-form-urlencoded</strong></span><span class="No-Break"> encoding.</span></p></li>				<li>On the server side, do <span class="No-Break">the following:</span><ul><li>Write a handler to process the <strong class="source-inline">POST</strong> request. In the handler, do <span class="No-Break">the following:</span><ul><li>Call <strong class="source-inline">http.Request.ParseForm</strong> to process <span class="No-Break">submitted data.</span></li><li>Get the submitted information <span class="No-Break">from </span><span class="No-Break"><strong class="source-inline">http.Request.PostForm</strong></span><span class="No-Break">.</span></li><li>Process <span class="No-Break">the request.</span></li></ul></li></ul><p class="list-inset">The following <a id="_idIndexMarker568"/>example implements a simple login scenario using the submitted username and password. The handler uses an authenticator that performs the actual user validation and returns a cookie if the login is successful. This cookie contains information to identify the user in the <span class="No-Break">subsequent calls:</span></p><pre class="source-code">
+type UserHandler struct {
+  Auth Authenticator
+}
+func (h UserHandler) HandleLogin(w http.ResponseWriter, req *http.Request) {
+  // Parse the submitted form. This fills up req.PostForm
+  // with the submitted information
+  if err:=req.ParseForm(); err!=nil {
+    http.Error(w, err.Error(), http.StatusBadRequest)
+    return
+  }
+  // Get the submitted fields
+  userName := req.PostForm.Get("userName")
+  password := req.PostForm.Get("password")
+  // Handle the login request, and get a cookie
+  cookie,err:=h.Auth.Authenticate(userName,password);
+  if err!=nil {
+    // Send the user back to login page, setting an error
+    // cookie containing an error message
+    http.SetCookie(w,h.NewErrorCookie("Username or password 
+    invalid"))
+    http.Redirect(w, req, "/login.html", http.StatusFound)
+    return
+  }
+  // Set the cookie representing user session
+  http.SetCookie(w,cookie)
+  // Redirect the user to the main page
+  http.Redirect(w,req,"/dashboard.html",http.StatusFound)
+}</pre><ul><li>Register the handler to handle the <strong class="source-inline">POST</strong> requests for <span class="No-Break">the URL:</span><pre class="source-code">userHandler := UserHandler {
+  Auth: authenticator,
+}
+mux := http.NewServeMux()
+mux.HandleFunc("POST /auth/login", userHandler.HandleLogin)
+mux.HandleFunc("GET /login.html", userHandler.ShowLoginPage)</pre></li></ul></li>			</ol>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">You have to be <a id="_idIndexMarker569"/>careful when working with cookies. In our example, a cookie was created by the server application and sent to the client. Subsequent calls to the server will include that cookie for the server to keep track of the user session. However, there is no guarantee that the cookie submitted by the client is a valid cookie. Malicious clients can send forged or expired cookies. Use cryptographic methods to ensure the cookie is created by the server, such as signing a cookie using a secret key, or using a JSON <span class="No-Break">Web Token.</span></p>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">The preceding example includes another usage of cookies to send status information from one page to another. If login fails, the user is redirected to the login page with a cookie containing the error message. The login page handler can check the presence of this cookie and display <span class="No-Break">the message.</span></p>
+			<p>An example implementation is <span class="No-Break">given here:</span></p>
+			<pre class="source-code">
+func (h UserHandler) ShowLoginPage(w http.ResponseWriter, req *http.Request) {
+  loginFormData:=map[string]any{}
+  cookie, err:= req.Cookie("error_cookie")
+  if err==nil {
+    loginFormData["error"] = cookie.Value
+    // Unset the cookie
+    http.SetCookie(w, &amp;http.cookie {
+      Name: "error_cookie",
+      MaxAge: 0,
+    })
+  }
+  w.Header().Set("Content-Type","text/html")
+  loginFormTemplate.Execute(w,loginFormData)
+}</pre>			<p>An <a id="_idIndexMarker570"/>implementation of the <strong class="source-inline">NewErrorCookie</strong> method looks like <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+func (h UserHandler) NewErrorCookie(msg string) *http.Cookie {
+  return &amp;http.Cookie {
+    Name: "error_cookie",
+    Value: msg,
+    MaxAge: 60, // Cookie lives for 60 seconds
+    Path:   "/",
+  }
+}</pre>			<h1 id="_idParaDest-364"><a id="_idTextAnchor365"/>Writing a handler for downloading large files</h1>
+			<p>When <a id="_idIndexMarker571"/>an HTTP client requests a large file, it is usually not feasible to load all the file data and then send it to the client. Use <strong class="source-inline">io.Copy</strong> to stream large content <span class="No-Break">to clients.</span></p>
+			<h2 id="_idParaDest-365"><a id="_idTextAnchor366"/>How to do it...</h2>
+			<p>This is how you can write a handler to download a <span class="No-Break">large file:</span></p>
+			<ol>
+				<li>Set the <span class="No-Break"><strong class="source-inline">Content-Type</strong></span><span class="No-Break"> header.</span></li>
+				<li>Set the <span class="No-Break"><strong class="source-inline">Content-Length</strong></span><span class="No-Break"> header.</span></li>
+				<li>Write the file contents <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">io.Copy</strong></span><span class="No-Break">.</span></li>
+			</ol>
+			<p>These steps are <span class="No-Break">illustrated here:</span></p>
+			<pre class="source-code">
+func DownloadHandler(w http.ResponseWriter, req *http.Request) {
+  fileName := req.PathValue("fileName")
+  f, err:= os.Open(filepath.Join("/data",fileName))
+  if err!=nil {
+    http.Error(w,err.Error(),http.StatusNotFound)
+    return
+  }
+  defer f.Close()
+  w.Header.Set("Content-Type","application/octet-stream")
+  w.Header.Set("Content-Length",  strconv.Itoa(f.Length()))
+  io.Copy(w,f)
+}</pre>			<h1 id="_idParaDest-366"><a id="_idTextAnchor367"/>Handling HTTP uploaded files and forms as a stream</h1>
+			<p>The standard <a id="_idIndexMarker572"/>library provides methods to deal with file uploads. You can call <strong class="source-inline">http.Request.ParseMultipartForm</strong>, and work with uploaded files. There is one problem with this approach: <strong class="source-inline">ParseMultipartForm</strong> processes all uploads up to a given memory limit. It may even use temporary files. This is not a scalable approach if you are dealing with large files. This section describes how you can work with file uploads without creating temporary files or a large <span class="No-Break">memory footprint.</span></p>
+			<h2 id="_idParaDest-367"><a id="_idTextAnchor368"/>How to do it...</h2>
+			<p>On the client side, do <span class="No-Break">the following:</span></p>
+			<ol>
+				<li>Create an HTML form with <span class="No-Break"><strong class="source-inline">multipart/form-data</strong></span><span class="No-Break"> encoding.</span></li>
+				<li>Add the form fields and files that you are planning <span class="No-Break">to upload.</span></li>
+			</ol>
+			<p>An example is <span class="No-Break">given here:</span></p>
+			<pre class="source-code">
+&lt;form action="/upload" method="post" enctype="multipart/form-data"&gt;
+  &lt;input type="text" name="textField"&gt;
+  &lt;input type="file" name="fileField"&gt;
+  &lt;button type="submit"&gt;submit&lt;/button&gt;
+&lt;/form&gt;</pre>			<p>When submitted, this form will create a multipart message containing <span class="No-Break">two parts:</span></p>
+			<ul>
+				<li>There’s a part with <strong class="source-inline">Content-Disposition: form-data; name="textField"</strong>. The contents of this part will contain the input the user typed for the <strong class="source-inline">textField</strong> <span class="No-Break">input field.</span></li>
+				<li>There’s also a part with <strong class="source-inline">Content-Disposition: form-data; name="fileField"; filename=&lt;name of the file user selected&gt;</strong>. The contents of this part will contain the <span class="No-Break">file contents.</span></li>
+			</ul>
+			<p>On the server side, do <span class="No-Break">the following:</span></p>
+			<ol>
+				<li>Use <strong class="source-inline">http.Request.MultipartReader</strong> to get a multipart body reader from the request. If the request is not a multipart request (multipart/mixes or multipart/form-data), this <span class="No-Break">will fail:</span><pre class="source-code">
+reader, err:=request.MultipartReader()
+if err!=nil {
+  http.Error(w,"Not a multipart request",http.StatusBadRequest)
+  return
+}</pre></li>				<li>Process <a id="_idIndexMarker573"/>the parts of the submitted data one by one by <span class="No-Break">calling </span><span class="No-Break"><strong class="source-inline">MultipartReader.NextPart</strong></span><span class="No-Break">:</span><pre class="source-code">
+for {
+  part, err:= reader.NextPart()
+  if errors.Is(err,io.EOF) {
+    break
+  }
+  if err!=nil {
+    http.Error(w,err.Error(),http.StatusBadRequest)
+    return
+  }
+}</pre></li>				<li>Check whether the part is form data or file using the <span class="No-Break"><strong class="source-inline">Content-Disposition</strong></span><span class="No-Break"> header:</span><ul><li>If <strong class="source-inline">Content-Disposition</strong> is <strong class="source-inline">form-data</strong> without a <strong class="source-inline">filename</strong> parameter, then this part contains a <span class="No-Break">form field.</span></li><li>If <strong class="source-inline">Content-Disposition</strong> is <strong class="source-inline">form-data</strong> with a <strong class="source-inline">filename</strong> parameter, then <a id="_idIndexMarker574"/>this part is a file. You can read the file contents from <span class="No-Break">the body.</span><pre class="source-code">
+formValues:=make(url.Values)
+if fileName:=part.FileName(); fileName!="" {
+  // This part contains a file
+  output, err:=os.Create(fileName)
+  if err!=nil {
+    // Handle error
+  }
+  defer output.Close()
+  if err:=io.Copy(output,part); err!=nil {
+    // Handle error
+  }
+} else if fieldName := part.FormName(); fieldName!="" {
+  // This part contains form data for an input field
+  data, err := io.ReadAll(part)
+  if err!=nil {
+    // Handle error
+  }
+  formValues[fieldName]=append(formValues[fieldName],
+  string(data))
+}</pre></li></ul></li>			</ol>
+		</div>
+	</div></div></body></html>

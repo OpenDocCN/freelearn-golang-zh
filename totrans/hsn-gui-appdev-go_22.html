@@ -1,0 +1,168 @@
+<html><head></head><body><div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Connecting GoMail to a Real Email Server</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">In many chapters of this book, we've explored ways of building a Go-based email application called <strong>GoMail</strong>. All of these examples have used a dummy email server—some code in the <kbd>client</kbd> package, which allows us to build the GUI portions of a mail client without needing to manage server communication. In this final appendix, we step through adding code to connect to a real email server.</p>
+<p class="mce-root">Building on the exploration in <a href="7d70ada3-8bc9-4c54-b15d-8707e43fc0ce.xhtml">Chapter 12</a>, <em>Concurrency, Networking, and Cloud Services</em> (particularly the authentication—<em>OAuth 2.0</em> example), we'll use the Gmail public API and the built-in capabilities of the Go language to bring this together.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Download Gmail credentials</h1>
+                </header>
+            
+            <article>
+                
+<p>In <a href="https://cdp.packtpub.com/hands_on_gui_application_development_in_go/wp-admin/post.php?post=709&amp;action=edit#post_35">Chapter 12</a><span>, </span><em>Concurrency, Networking, and Cloud Services</em>, we wrote the OAuth2 handlers and Gmail integration using only the standard library. For this final code exploration, we'll use the helpful library that Google has created for interacting with Gmail servers. To use this library, we need the client credentials in a different format (<kbd>credentials.json</kbd>). To access this, log in to your Google account and go to the Go quickstart page at <a href="https://developers.google.com/gmail/api/quickstart/go">https://developers.google.com/gmail/api/quickstart/go</a><span>. Once here, you'll need to click on </span><span class="packt_screen">ENABLE THE GMAIL API</span> and then <span class="packt_screen">DOWNLOAD CLIENT CONFIGURATION</span>. This will download the <kbd>credentials.json</kbd> file that we'll need to initialize the library in the next section, <em>Creating server provider</em>.</p>
+<p>Once you've downloaded the credentials file, you'll need to install the two required libraries using <kbd>go get -u google.golang.org/api/gmail/v1</kbd> and <kbd>go get -u golang.org/x/oauth2/google</kbd>. You're then ready to add the code to connect to Gmail and access your emails.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Creating a server provider</h1>
+                </header>
+            
+            <article>
+                
+<p>The following code outlines the contents of the <kbd>gmail.go</kbd> <span>file </span>that's available in the <kbd>client</kbd> package of the repository for this book. If you want to jump straight to trying out this functionality, then simply copy your <kbd>credentials.json</kbd> file to the current directory and skip to the next section, <em>Update an example to use Gmail</em>.</p>
+<p>We start by adding the necessary OAuth2 setup and token storage by copying the <kbd>getClient()</kbd>, <kbd>getTokenFromWeb()</kbd>, <kbd>tokenFromFile()</kbd>, and <kbd>saveToken()</kbd> functions from Google's Gmail quickstart Go file at <a href="https://github.com/gsuitedevs/go-samples/blob/master/gmail/quickstart/quickstart.go">github.com/gsuitedevs/go-samples/blob/master/gmail/quickstart/quickstart.go</a>. These are very similar to the OAuth2 code that was created before but works better with the Google libraries.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Downloading inbox messages</h1>
+                </header>
+            
+            <article>
+                
+<p>Next, we need to set up the client from the credentials file that has been saved (in the current directory). We add a new function to parse the data, set up the authentication, and configure <kbd>*<span>gmail.Service</span></kbd><span> using the following code:</span></p>
+<pre><span>func </span>setupService() *gmail.Service {<br/>   b, err := ioutil.ReadFile(<span>"credentials.json"</span>)<br/>   <span>if </span>err != nil {<br/>      log.Fatalf(<span>"Unable to read client secret file: %v"</span>, err)<br/>   }<br/><br/>   config, err := google.ConfigFromJSON(b, gmail.<span>GmailReadonlyScope</span>,<br/>      gmail.<span>GmailComposeScope</span>)<br/>   <span>if </span>err != nil {<br/>      log.Fatalf(<span>"Unable to parse client secret file to config: %v"</span>, err)<br/>   }<br/>   client := getClient(config)<br/><br/>   srv, err := gmail.New(client)<br/>   <span>if </span>err != nil {<br/>      log.Fatalf(<span>"Unable to retrieve Gmail client: %v"</span>, err)<br/>   }<br/><br/>   <span>return </span>srv<br/>}</pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mceNonEditable"/>
+<p>The service returned from this function will be used for each subsequent call to the Gmail API as it contains the authentication configuration and credentials. Next, we need to prepare the email list by downloading all of the messages in the user's inbox. The <kbd>INBOX</kbd> LabelID is used to filter messages that haven't been archived. This function requests the message list and iterates through the metadata to initiate the full download of each message. For a full implementation, we would need to add paging support (the response contains <kbd>nextPageToken</kbd>, which indicates when more data is available), but this example will handle up to 100 messages:</p>
+<pre><span>func </span>downloadMessages(srv *gmail.Service) {<br/>   req := srv.Users.Messages.List(<span>user</span>)<br/>   req.LabelIds(<span>"INBOX"</span>)<br/>   resp, err := req.Do()<br/>   <span>if </span>err != nil {<br/>      log.Fatalf(<span>"Unable to retrieve Inbox items: %v"</span>, err)<br/>   }<br/><br/>   <span>var </span>emails []*EmailMessage<br/>   <span>for </span>_, message := <span>range </span>resp.Messages {<br/>      email := downloadMessage(srv, message)<br/>      emails = append(emails, email)<br/>   }<br/>}</pre>
+<p>To download each individual message, we need to implement the <kbd>downloadMessage()</kbd> function referenced previously. For the specified message, we download the full content using the Gmail Go API. From the resulting data, we extract the information we need from the message headers. As well as parsing the <kbd>Date</kbd> header, we need to decode the message body, which is in a serialized, Base64 encoded format:</p>
+<pre><span>func </span>downloadMessage(srv *gmail.Service, message *gmail.Message) *EmailMessage {<br/>   mail, err := srv.Users.Messages.Get(<span>user</span>, message.Id).Do()<br/>   <span>if </span>err != nil {<br/>      log.Fatalf(<span>"Unable to retrieve message payload: %v"</span>, err)<br/>   }<br/><br/>   <span>var </span>subject string<br/>   <span>var </span>to, from Email<br/>   <span>var </span>date time.Time<br/><br/>   content := decodeBody(mail.Payload)<br/>   <span>for </span>_, header := <span>range </span>mail.Payload.Headers {<br/>      <span>switch </span>header.Name {<br/>      <span>case </span><span>"Subject"</span>:<br/>         subject = header.Value<br/>      <span>case </span><span>"To"</span>:<br/>         to = Email(header.Value)<br/>      <span>case </span><span>"From"</span>:<br/>         from = Email(header.Value)<br/>      <span>case </span><span>"Date"</span>:<br/>         value := strings.Replace(header.Value, <span>"(UTC)"</span>, <span>""</span>, -<span>1</span>)<br/>         date, err = time.Parse(<span>"Mon, _2 Jan 2006 15:04:05 -0700"</span>,<br/>            strings.TrimSpace(value))<br/>         <span>if </span>err != nil {<br/>            log.Println(<span>"Error: Could not parse date"</span>, value)<br/>            date = time.Now()<br/>         } <span>else </span>{<br/>            log.Println(<span>"date"</span>, header.Value)<br/>         }<br/>      }<br/>   }<br/><br/>   <span>return </span>NewMessage(subject, content, to, from, date)<br/>}</pre>
+<p>The <kbd>decodeBody()</kbd> function is as shown in the following. For plain text emails, the content is in the <kbd>Body.Data</kbd> field. For multi-part messages (where the body is empty), we access the first of the multiple parts and decode that instead. Decoding the Base64 content is handled by the standard library decoder:</p>
+<pre><span>func </span>decodeBody(payload *gmail.MessagePart) string {<br/>   data := payload.Body.Data<br/>   <span>if </span>data == <span>"" </span>{<br/>      data = payload.Parts[<span>0</span>].Body.Data<br/>   }<br/>   content, err := base64.StdEncoding.DecodeString(data)<br/>   <span>if </span>err != nil {<br/>      fmt.Println(<span>"Failed to decode body"</span>, err)<br/>   }<br/><br/>   <span>return </span>string(content)<br/>}</pre>
+<p>The final step in preparing this code is to complete the <kbd>EmailServer</kbd> interface methods. The <kbd>ListMessages()</kbd> function will return the result of <kbd>downloadMessages()</kbd>, and we can set up <kbd>CurrentMessage()</kbd> to return the email at the top of the list. Full implementation is in this book's code repository.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Sending messages</h1>
+                </header>
+            
+            <article>
+                
+<p>To send a message, we have to package up the data in a raw format to send through the API. We'll re-use the <kbd>ToGMailEncoding()</kbd> function from the <kbd>Post</kbd> example in <a href="7d70ada3-8bc9-4c54-b15d-8707e43fc0ce.xhtml">Chapter 12</a>, <em>Concurrency, Networking, and Cloud Services</em>. Before encoding the email, we set an appropriate "From" email address (be sure to use the email address of the account you are signed in with or a registered alias) and the current date for the time of sending. After encoding, we set the data to the <kbd>Raw</kbd> field of a <kbd>gmail.Message</kbd> type and pass it to the Gmail <kbd>Send()</kbd> function:</p>
+<pre><span>func </span>(g *gMailServer) Send(email *EmailMessage) {<br/>   email.From = <span>"YOUR EMAIL ADDRESS"<br/></span><span>   </span>email.Date = time.Now()<br/><br/>   data := email.ToGMailEncoding()<br/>   msg := &amp;gmail.Message{Raw:data}<br/><br/>   srv.Users.Messages.Send(<span>user</span>, msg).Do()<br/>}</pre>
+<p>This minimal code will be enough to implement sending a message. All of the hard work has been done by the earlier setup code—which provided the <kbd>srv</kbd> object.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Listening for new messages</h1>
+                </header>
+            
+            <article>
+                
+<p>Although Google provides the ability to use push messaging, the setup is very complicated—so instead, we'll poll for new messages. Every 10 seconds, we should download any new messages that have arrived. To do this, we can use the history API, which returns any messages that appeared after a specific point in history (set using <kbd>StartHistoryId()</kbd>). <kbd>HistoryId</kbd> is a chronological number that marks the order that messages arrived in. Before we can use the history API, we need to have a valid <kbd>HistoryId</kbd>—we can do this by adding the following line to the <kbd>downloadMessage()</kbd> function:</p>
+<pre>g.history = uint64(math.Max(float64(g.history), float64(mail.HistoryId)))</pre>
+<p>Once we have a point in history to query from, we need a new function that can download any messages since this point in time. The following code is similar to <kbd>downloadMessages()</kbd> in the preceding code but will only download new messages:</p>
+<pre><span>func </span>(g *gMailServer) downloadNewMessages(srv *gmail.Service) []*EmailMessage{<br/>   req := srv.Users.History.List(g.user)<br/>   req.StartHistoryId(g.history)<br/>   req.LabelId(<span>"INBOX"</span>)<br/>   resp, err := req.Do()<br/>   <span>if </span>err != nil {<br/>      log.Fatalf(<span>"Unable to retrieve Inbox items: %v"</span>, err)<br/>   }<br/><br/>   <span>var </span>emails []*EmailMessage<br/>   <span>for </span>_, history := <span>range </span>resp.History {<br/>      <span>for </span>_, message := <span>range </span>history.Messages {<br/>         email := downloadMessage(srv, message)<br/>         emails = append(emails, email)<br/>      }<br/>   }<br/><br/>   <span>return </span>emails<br/>}</pre>
+<p>To complete the functionality, we update our <kbd>Incoming()</kbd> method so that it sets up the channel and starts a thread to poll for new messages. Every <kbd>10</kbd> seconds, we'll download any new messages that have appeared and pass each to the <kbd>in</kbd> channel that was created:</p>
+<pre><span>func </span>(g *gMailServer) Incoming() <span>chan </span>*EmailMessage {<br/>   in := make(<span>chan </span>*EmailMessage)<br/><br/>   <span>go func</span>() {<br/>      <span>for </span>{<br/>         time.Sleep(<span>10 </span>* time.<span>Second</span>)<br/><br/>         <span>for </span>_, email := <span>range d</span>ownloadNewMessages(srv) {<br/>            g.emails = append([]*EmailMessage{email}, g.emails...)<br/>            in &lt;- email<br/>         }<br/>      }<br/>   }()<br/><br/>   <span>return </span>in<br/>}</pre>
+<p>The complete code can be found in the <kbd>client</kbd> package of this book's code repository. Let's look at how to use this new email server in our previous examples.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Updating an example to use Gmail</h1>
+                </header>
+            
+            <article>
+                
+<p>In any one of the GoMail example apps, you'll need to edit the main server setup in <kbd>main.go</kbd>. Replace the server initiation by changing <kbd>client.NewTestServer()</kbd> to <kbd>client.NewGMailServer()</kbd>. With the <kbd>credentials.json</kbd> file in place, running this new code will obtain a connection to your Gmail account for reading and sending emails. Note that, for this example, you'll need to run from the command line and follow the OAuth2 setup steps. To make a better user experience, you can provide a more sophisticated implementation of the <span><kbd>getTokenFromWeb()</kbd> function.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  </body></html>

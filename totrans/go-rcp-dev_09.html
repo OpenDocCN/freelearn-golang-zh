@@ -1,0 +1,336 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer018">
+			<h1 id="_idParaDest-248" class="chapter-number"><a id="_idTextAnchor249"/>9</h1>
+			<h1 id="_idParaDest-249"><a id="_idTextAnchor250"/>The Context Package</h1>
+			<p>Context is the circumstances in which something happens. When we are talking about a program, the context is the program environment, settings, and so on. For a server program (an HTTP server responding to a client request, an RPC server responding to function calls, etc.) or a program that responds to user requests (an interactive program, a command-line application, etc.), you can talk about a request-specific context. A request-specific context is created when the server or program starts processing a particular request and terminates when the processing ends. The request context contains information such as a request identifier that helps you identify log messages generated while processing a request, or the identity of the caller so you can determine the access rights of the caller. One of the uses of the <strong class="source-inline">context</strong> package is to provide an abstraction of such a request context, that is, an object that keeps <span class="No-Break">request-specific data.</span></p>
+			<p>You may also have concerns about the running time of a request. You usually want to limit the amount of time a request is processed, or you may want to detect that the client is no longer interested in the results of the request (such as a WebSocket peer disconnecting). The <strong class="source-inline">context</strong> package is designed to handle these use cases <span class="No-Break">as well.</span></p>
+			<p>The <strong class="source-inline">context</strong> package defines the <strong class="source-inline">context.Context</strong> interface. It has <span class="No-Break">two uses:</span></p>
+			<ul>
+				<li>Add a timeout and/or cancellation to <span class="No-Break">request processing</span></li>
+				<li>Pass request-specific metadata down <span class="No-Break">the stack</span></li>
+			</ul>
+			<p>The use of <strong class="source-inline">context.Context</strong> is not limited to server programs. The term “request processing” should be taken in a broad sense: the request can be a network request through a TCP connection, an HTTP request, a command read from a command line, running a program with a certain flag, and so on. So, the uses for <strong class="source-inline">context.Context</strong> are much <span class="No-Break">more diverse.</span></p>
+			<p>This chapter shows common uses of the <strong class="source-inline">context</strong> package. In this chapter, you will learn about <span class="No-Break">the following:</span></p>
+			<ul>
+				<li>Passing request-scoped data <span class="No-Break">using context</span></li>
+				<li>Using contexts for cancellation <span class="No-Break">and timeouts</span></li>
+			</ul>
+			<h1 id="_idParaDest-250"><a id="_idTextAnchor251"/>Using context for passing request-scoped data</h1>
+			<p>Request-scoped <a id="_idIndexMarker339"/>objects are those that are created<a id="_idIndexMarker340"/> when request processing starts and discarded when request processing ends. These are usually lightweight objects, such as a request identifier, authentication information identifying the caller, or loggers. In this section, you will see how these objects can be passed around using <span class="No-Break">a context.</span></p>
+			<h2 id="_idParaDest-251"><a id="_idTextAnchor252"/>How to do it...</h2>
+			<p>The idiomatic way of adding data values to a context is <span class="No-Break">as follows:</span></p>
+			<ol>
+				<li>Define a context key type. This avoids accidental name collisions. The use of an unexported type name such as the following is common. This pattern limits the ability to put or get context values of this particular type to the <span class="No-Break">current package:</span><pre class="source-code">
+<strong class="source-inline">type requestIDKeyType int</strong></pre></li>			</ol>
+			<p class="callout-heading">Warning</p>
+			<p class="callout">You might be tempted to use <strong class="source-inline">struct{}</strong> instead of <strong class="source-inline">int</strong> here. After all,  <strong class="source-inline">struct{}</strong> does not consume any additional memory. You have to be very careful when working with 0-size structures as the Go language specification does not offer any guarantees about the equivalence of two 0-size structures. That is, if you create multiple variables of a 0-size type, they may sometimes be equal and sometimes not. In short, do not use <strong class="source-inline">struct{}</strong> <span class="No-Break">for this.</span></p>
+			<ol>
+				<li value="2">Define the key value, or values, using the key type. In the following code line, <strong class="source-inline">requestIDKey</strong> is defined to be of type <strong class="source-inline">requestIDKeyType</strong> with the value <strong class="source-inline">0</strong> (<strong class="source-inline">requestIDKey</strong> is initialized to its <strong class="source-inline">0</strong> value <span class="No-Break">when declared):</span><pre class="source-code">
+var requestIDKey requestIDKeyType</pre></li>				<li>Use <strong class="source-inline">context.WithValue</strong> to add the new value to the context. You can define a couple of helper functions to set and get values to and from <span class="No-Break">the context:</span><pre class="source-code">
+func WithRequestID(ctx context.Context,requestID string) context.Context {
+  return context.WithValue(ctx,requestIDKey,requestID)
+}
+func GetRequestID(ctx context.Context) string {
+  id,_:=ctx.Value(requestIDKey).(string)
+  return id
+}</pre></li>				<li>Pass the new context to the functions called from the <span class="No-Break">current function:</span><pre class="source-code">
+newCtx:=WithRequestID(ctx,requestID)
+handleRequest(newCtx)</pre></li>			</ol>
+			<h2 id="_idParaDest-252"><a id="_idTextAnchor253"/>How it works...</h2>
+			<p>You may have noticed that <strong class="source-inline">context.Context</strong> does not exactly look like a key-value map (there is no <strong class="source-inline">SetValue</strong> method; in fact, <strong class="source-inline">context.Context</strong> is immutable) even though you can use it to store key-value pairs. In fact, you cannot add a key value to a context, but you<a id="_idIndexMarker341"/> can <a id="_idIndexMarker342"/>get a new context containing that key value while keeping the old context. Contexts have layers like an onion; every addition to a context creates a new context that is linked to the old one, but with <span class="No-Break">more features:</span></p>
+			<pre class="source-code">
+// ctx: An empty context
+ctx := context.Background()
+// ctx1: ctx + {key1:value1}
+ctx1 := context.WithValue(ctx, "key1", "value1")
+// ctx2: ctx1 + {key2:value2}
+ctx2 := context.WithValue(ctx, "key2", "value2")</pre>			<p>In the preceding code, <strong class="source-inline">ctx</strong>, <strong class="source-inline">ctx1</strong>, and <strong class="source-inline">ctx2</strong> are three different contexts. The <strong class="source-inline">ctx</strong> context is empty. <strong class="source-inline">ctx1</strong> contains <strong class="source-inline">ctx</strong> and the <strong class="source-inline">key1: value1</strong> key-value pair. <strong class="source-inline">ctx2</strong> contains <strong class="source-inline">ctx1</strong> and the <strong class="source-inline">key2: value2</strong> key-value pair . So, say you do <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+val1,_ := ctx2.Value("key1")
+val2,_ := ctx2.Value("key2")
+fmt.Println(val1, val2)</pre>			<p>This will print <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+value1 value2</pre>			<p>Say you do the same <span class="No-Break">with </span><span class="No-Break"><strong class="source-inline">ctx1</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+val1,_ = ctx1.Value("key1")
+val2,_ = ctx1.Value("key2")
+fmt.Println(val1, val2)</pre>			<p>This will print<a id="_idIndexMarker343"/> <span class="No-Break">the</span><span class="No-Break"><a id="_idIndexMarker344"/></span><span class="No-Break"> following:</span></p>
+			<pre class="source-code">
+value1 &lt;nil&gt;</pre>			<p>The following is used <span class="No-Break">for </span><span class="No-Break"><strong class="source-inline">ctx</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+val1,_ = ctx.Value("key1")
+val2,_ = ctx.Value("key2")
+fmt.Println(val1, val2)</pre>			<p>This will print <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+&lt;nil&gt; &lt;nil&gt;</pre>			<p class="callout-heading">Tip</p>
+			<p class="callout">Even though you cannot set the values in a context (that is, a context is immutable), you can set a pointer to a struct and set the values in <span class="No-Break">that struct.</span></p>
+			<p><span class="No-Break">That is:</span></p>
+			<pre class="source-code">
+type ctxData struct {
+  value int
+}
+...
+ctx:=context.WithValue(context.Background(),dataKey, &amp;ctxData{})
+...
+if data,exists:=ctx.Value(dataKey); exists {
+  data.(*ctxData).value=1
+}</pre>			<p>The standard library provides a couple of predefined <span class="No-Break">context values:</span></p>
+			<ul>
+				<li><strong class="source-inline">context.Background()</strong> returns a context that has no values and that cannot be canceled. This is usually the base context for <span class="No-Break">most operations.</span></li>
+				<li><strong class="source-inline">context.TODO()</strong> is similar to <strong class="source-inline">context.Background()</strong> with a name that says wherever it is used should eventually be refactored to accept a <span class="No-Break">real context.</span></li>
+			</ul>
+			<h2 id="_idParaDest-253"><a id="_idTextAnchor254"/>There’s more...</h2>
+			<p>A context is usually<a id="_idIndexMarker345"/> shared <a id="_idIndexMarker346"/>among multiple goroutines. You have to be careful about concurrency issues especially if you put pointers to objects in a context. Take a look at the following example, which shows an authentication middleware for an <span class="No-Break">HTTP service:</span></p>
+			<pre class="source-code">
+type AuthInfo struct {
+  // Set when AuthInfo is created
+  UserID string
+  // Lazy-initialized
+  privileges map[string]Privilege
+}
+type authInfoKeyType int
+var authInfoKey authInfoKeyType
+// Set the privileges if is it not initialized.
+// Do not do this!!
+func (auth *AuthInfo) GetPrivileges() map[string]Privilege {
+   if auth.privileges==nil {
+      auth.privileges=GetPrivileges(auth.UserID)
+   }
+   return auth.privileges
+}
+// Authentication middleware
+func AuthMiddleware(next http.Handler) func(http.Handler) http.Handler {
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.
+        Request) {
+            // Authenticate the caller
+            var authInfo *AuthInfo
+            var err error
+            authInfo, err = authenticate(r)
+            if err != nil {
+                http.Error(w, err.Error(), http.StatusUnauthorized)
+                return
+            }
+            // Create a new context with the authentication info
+            newCtx := context.WithValue(r.Context(), authInfoKey, 
+            authInfo)
+            // Pass the new context to the next handler
+            next.ServeHTTP(w, r.WithContext(newCtx))
+        })
+    }
+}</pre>			<p>The authentication middleware creates an <strong class="source-inline">*AuthInfo</strong> instance and calls the next handler in the chain using a context with the authentication info. The problem in this code is that <strong class="source-inline">*AuthInfo</strong> contains a <strong class="source-inline">privileges</strong> field that is initialized when <strong class="source-inline">AuthInfo.GetPrivileges</strong> is called. Since the context can be passed to multiple goroutines by the handlers, this lazy initialization scheme is prone to data races; several goroutines calling <strong class="source-inline">AuthInfo.GetPrivileges</strong> may attempt to initialize the map <a id="_idIndexMarker347"/>multiple <a id="_idIndexMarker348"/>times, one overwriting <span class="No-Break">the other.</span></p>
+			<p>This can be corrected using <span class="No-Break">a mutex:</span></p>
+			<pre class="source-code">
+type AuthInfo struct {
+  sync.Mutex
+  UserID string
+  privileges map[string]Privilege
+}
+func (auth *AuthInfo) GetPrivileges() map[string]Privilege {
+   // Use mutex to initialize the privileges in a thread-safe way
+   auth.Lock()
+   defer auth.Unlock()
+   if auth.privileges==nil {
+      auth.privileges=GetPrivileges(auth.UserID)
+   }
+   return auth.privileges
+}</pre>			<p>It can also be corrected<a id="_idIndexMarker349"/> by<a id="_idIndexMarker350"/> initializing the privileges once in <span class="No-Break">the middleware:</span></p>
+			<pre class="source-code">
+     authInfo, err=authenticate(r)
+     if err!=nil {
+       http.Error(w,err.Error(),http.StatusUnauthorized)
+       return
+     }
+     // Initialize the privileges here when the structure is created
+     authInfo.GetPrivileges()</pre>			<h1 id="_idParaDest-254"><a id="_idTextAnchor255"/>Using context for cancellations</h1>
+			<p>There are several <a id="_idIndexMarker351"/>reasons why you might want to cancel a computation: the client may have disconnected, or you may have multiple goroutines working on a computation and one of them failed, so you no longer want the others to continue. You can use other methods, such as a <strong class="source-inline">done</strong> channel that you close to signal cancellation, but a context can be more convenient depending on the use case. A context can be canceled many times (only the first call will actually cancel; the remaining ones will be ignored), whereas you cannot close an already closed channel as it will panic. Also, you can create a tree of contexts where canceling one context only cancels goroutines controlled by it, without <span class="No-Break">affecting others.</span></p>
+			<h2 id="_idParaDest-255"><a id="_idTextAnchor256"/>How to do it...</h2>
+			<p>These are the steps to create a cancelable context and to detect <span class="No-Break">a cancellation:</span></p>
+			<ol>
+				<li>Use <strong class="source-inline">context.WithCancel</strong> to create a new cancelable context based on an existing context, and a <span class="No-Break">cancellation function:</span><pre class="source-code">
+ctx:=context.Background()
+cancelable, cancel:=context.WithCancel(ctx)
+defer cancel()</pre><p class="list-inset">Make sure the <strong class="source-inline">cancel</strong> function is eventually called. Canceling releases the resources associated with <span class="No-Break">the context.</span></p></li>				<li>Pass the cancelable context to computations or goroutines that can <span class="No-Break">be canceled:</span><pre class="source-code">
+go cancelableGoroutine1(cancelable)
+go cancelableGoroutine2(cancelable)
+cancelableFunc(cancelable)</pre></li>				<li>In the cancelable <a id="_idIndexMarker352"/>function, check whether the context is canceled using the <strong class="source-inline">ctx.Done()</strong> channel, <span class="No-Break">or </span><span class="No-Break"><strong class="source-inline">ctx.Err()</strong></span><span class="No-Break">:</span><pre class="source-code">
+func cancelableFunc(ctx context.Context) {
+  // Process some data
+  // Check context cancelation
+  select {
+     case &lt;-ctx.Done():
+        // Context canceled
+        return
+     default:
+  }
+  // Continue computation
+}</pre><p class="list-inset">Or, use <span class="No-Break">the following:</span></p><pre class="source-code"> func cancelableFunc(ctx context.Context) {
+   // Process some data
+   // Check context cancelation
+   if ctx.Err()!=nil {
+       // Context canceled
+       return
+   }
+   // Continue computation
+}</pre></li>				<li>To cancel a<a id="_idIndexMarker353"/> function manually, call the <span class="No-Break">cancellation function:</span><pre class="source-code">
+ctx:=context.Background()
+cancelable, cancel:=context.WithCancel(ctx)
+defer cancel()
+wg:=sync.WaitGroup{}
+wg.Add(1)
+go cancelableGoroutine1(cancelable,&amp;wg)
+if err:=process(ctx); err!=nil {
+   // Cancel the context
+   cancel()
+   // Do other things
+}
+wg.Wait()</pre></li>				<li>Ensure the <strong class="source-inline">cancel</strong> function is called eventually (use <span class="No-Break"><strong class="source-inline">defer cancel()</strong></span><span class="No-Break">):</span></li>
+			</ol>
+			<pre class="source-code">
+cancelable, cancel := context.WithCancel(ctx)
+defer cancel()
+...</pre>			<p class="callout-heading">Warning</p>
+			<p class="callout">Ensuring <strong class="source-inline">cancel</strong> is called is important. If you do not cancel a cancelable context, goroutines associated with that context will leak (i.e., there will be no way to terminate the goroutines and they will <span class="No-Break">consume memory).</span></p>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">The <strong class="source-inline">cancel</strong> function can be called multiple times. Subsequent calls will <span class="No-Break">be ignored.</span></p>
+			<h2 id="_idParaDest-256"><a id="_idTextAnchor257"/>How it works...</h2>
+			<p><strong class="source-inline">context.WithCancel</strong> returns<a id="_idIndexMarker354"/> a new context and the <strong class="source-inline">cancel</strong> closure. The returned context is a cancelable context based on the <span class="No-Break">original context:</span></p>
+			<pre class="source-code">
+// Empty context, no cancelation
+originalContext := context.Background()
+// Cancelable context based on originalContext
+cancelableContext1, cancel1 := context.WithCancel(originalContext)</pre>			<p>You can use this context to control <span class="No-Break">several goroutines:</span></p>
+			<pre class="source-code">
+go f1(cancelableContext1)
+go f2(cancelableContext1)</pre>			<p>You can also create other cancelable contexts based on a <span class="No-Break">cancelable context:</span></p>
+			<pre class="source-code">
+cancelableContext2, cancel2 := context.WithCancel(cancelableContext)
+go g1(cancelableContext2)
+go g2(cancelableContext2)</pre>			<p>Now, we have two cancelable contexts. Calling <strong class="source-inline">cancel2</strong> will only <span class="No-Break">cancel </span><span class="No-Break"><strong class="source-inline">cancelableContext2</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+cancal2() // canceling g1 and g2 only</pre>			<p>Calling <strong class="source-inline">cancel1</strong> will cancel both <strong class="source-inline">cancelableContext1</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">cancelableContext2</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+cancel1() // canceling f1, f2, g1, g2</pre>			<p>Context cancellation is not an automated way to cancel goroutines. You have to check for context <a id="_idIndexMarker355"/>cancellation and <span class="No-Break">cleanup accordingly:</span></p>
+			<pre class="source-code">
+func f1(cancelableContext context.Context) {
+   for {
+      if cancelableContext.Err()!=nil {
+         // Context is canceled
+         // Cleanup and return
+         return
+      }
+      // Process
+   }
+}</pre>			<h1 id="_idParaDest-257"><a id="_idTextAnchor258"/>Using context for timeouts</h1>
+			<p>A timeout is simply<a id="_idIndexMarker356"/> an automated cancellation. The context will cancel after a timer expires. This is useful in limiting resource consumption for computations that are not likely <span class="No-Break">to finish.</span></p>
+			<h2 id="_idParaDest-258"><a id="_idTextAnchor259"/>How to do it...</h2>
+			<p>These are the steps to create a context with timeout and to detect when a timeout <span class="No-Break">event happens:</span></p>
+			<ol>
+				<li>Use <strong class="source-inline">context.WithTimeout</strong> to create a new cancelable context that will auto-cancel after a given duration based on an existing context and a <span class="No-Break">cancellation function:</span><pre class="source-code">
+ctx:=context.Background()
+timeoutable, cancel:=context.WithTimeout(ctx,5*time.Second)
+defer cancel()</pre><p class="list-inset">Alternatively, you can use <strong class="source-inline">WithDeadline</strong> to cancel the context at a <span class="No-Break">given moment.</span></p><p class="list-inset">Make sure the <strong class="source-inline">cancel</strong> function is <span class="No-Break">eventually called.</span></p></li>				<li>Pass the timeout context to computations or goroutines that can <span class="No-Break">time out:</span><pre class="source-code">
+go longRunningGoroutine1(timeoutable)
+go longRunningGoroutine2(timeoutable)</pre></li>				<li>In the goroutine, check <a id="_idIndexMarker357"/>whether the context is canceled using the <strong class="source-inline">ctx.Done()</strong> channel <span class="No-Break">or </span><span class="No-Break"><strong class="source-inline">ctx.Err()</strong></span><span class="No-Break">:</span><pre class="source-code">
+func longRunningGoroutine(ctx context.Context) {
+  // Process some data
+  // Check context cancelation
+  select {
+     case &lt;-ctx.Done():
+        // Context canceled
+        return
+     default:
+  }
+  // Continue computation
+}</pre><p class="list-inset">Alternatively, use <span class="No-Break">the following:</span></p><pre class="source-code"> func cancelableFunc(ctx context.Context) {
+   // Process some data
+   // Check context cancelation
+   if ctx.Err()!=nil {
+       // Context canceled
+       return
+   }
+   // Continue computation
+}</pre></li>				<li>To cancel a function <a id="_idIndexMarker358"/>manually, call the <span class="No-Break">cancellation function:</span><pre class="source-code">
+ctx:=context.Background()
+timeoutable, cancel:=context.WithTimeout(ctx, 5*time.Second)
+defer cancel()
+wg:=sync.WaitGroup{}
+wg.Add(1)
+go longRunningGoroutine(timeoutable,&amp;wg)
+if err:=process(ctx); err!=nil {
+   // Cancel the context
+   cancel()
+   // Do other things
+}
+wg.Wait()</pre></li>				<li>Ensure the <strong class="source-inline">cancel</strong> function is called eventually (use <span class="No-Break"><strong class="source-inline">defer cancel()</strong></span><span class="No-Break">):</span><pre class="source-code">
+timeoutable, cancel := context.WithTimeout(ctx,5*time.Second)
+defer cancel()
+...</pre></li>			</ol>
+			<h2 id="_idParaDest-259"><a id="_idTextAnchor260"/>How it works...</h2>
+			<p>The timeout feature is simply cancellation with an attached timer. When the timer expires, the<a id="_idIndexMarker359"/> context <span class="No-Break">is canceled.</span></p>
+			<h2 id="_idParaDest-260"><a id="_idTextAnchor261"/>There’s more...</h2>
+			<p>There may be situations where a goroutine blocks without any obvious way to cancel it. For instance, you may block waiting to read from a <span class="No-Break">network connection:</span></p>
+			<pre class="source-code">
+func readData(conn net.Conn) {
+  // Read a block of data from the connection
+  msg:=make([]byte,1024)
+  n, err:=conn.Read(msg)
+  ...
+}</pre>			<p>This operation cannot be canceled, because <strong class="source-inline">Read</strong> does not take  <strong class="source-inline">Context</strong>. If you want to cancel such an operation, you can close the underlying connection (or file) asynchronously. The following code snippet demonstrates a use case where all data from a connection must be read within one second, or a goroutine will close the <span class="No-Break">connection </span><span class="No-Break"><a id="_idIndexMarker360"/></span><span class="No-Break">asynchronously:</span></p>
+			<pre class="source-code">
+timeout, cancel := context.WithTimeout(context.Background(),1*time.Second)
+defer cancel()
+// Close the connection when context times out
+go func() {
+   // Wait for cancelation signal
+   &lt;-cancelable.Done()
+   // Close the connection
+   conn.Close()
+}()
+wg:=sync.WaitGroup()
+wg.Add(1)
+// This goroutine must complete within a second, or the connection 
+// will be closed
+go func() {
+   defer wg.Done()
+    // Read a block of data from the connetion
+   msg:=make([]byte,1024)
+   // This call may block
+   n, err:=conn.Read(msg)
+   if err!=nil {
+      return
+   }
+   // Process data
+}()
+wg.Wait() // Wait for the processing of connection to complete
+...</pre>			<h1 id="_idParaDest-261"><a id="_idTextAnchor262"/>Using cancellations and timeouts in servers</h1>
+			<p>Network servers<a id="_idIndexMarker361"/> usually start a new context <a id="_idIndexMarker362"/>when a new request is received. Usually, the <a id="_idIndexMarker363"/>server cancels the context when the requester closes the connection. Most HTTP frameworks, including the standard library, follow this basic pattern. If you are writing your own TCP server, you have to implement <span class="No-Break">it yourself.</span></p>
+			<h2 id="_idParaDest-262"><a id="_idTextAnchor263"/>How to do it...</h2>
+			<p>These are the steps to handle network connections with a timeout <span class="No-Break">or cancellation:</span></p>
+			<ol>
+				<li>When you accept a network connection, create a new context with a cancellation <span class="No-Break">or timeout:</span></li>
+				<li>Ensure the context is <span class="No-Break">canceled eventually.</span></li>
+				<li>Pass the context to <span class="No-Break">the handler:</span><pre class="source-code">
+ln, err:=net.Listen("tcp",":8080")
+if err!=nil {
+  return err
+}
+for {
+  conn, err:=ln.Accept()
+  if err!=nil {
+    return err
+  }
+  go func(c net.Conn) {
+     // Step 1:
+     // Request times out after duration: RequestTimeout
+     ctx, cancel:=context.WithTimeout(context.
+     Background(),RequestTimeout)
+     // Step 2:
+     // Make sure cancel is called
+     defer cancel()
+     // Step 3:
+     // Pass the context to handler
+     handleRequest(ctx,c)
+  }(conn)
+}</pre></li>			</ol>
+		</div>
+	</div></div></body></html>

@@ -1,0 +1,585 @@
+<html><head></head><body>
+		<div id="_idContainer161">
+			<h1 id="_idParaDest-67"><a id="_idTextAnchor073"/>Chapter 4: Building API Authentication</h1>
+			<p>This chapter is dedicated to the best practices and recommendations to follow while building a public <strong class="bold">REpresentational State Transfer</strong> (<strong class="bold">REST</strong>) <strong class="bold">application programming interface</strong> (<strong class="bold">API</strong>). It explores how to write an authentication middleware to secure the access to the API endpoints and how to serve them through <strong class="bold">HyperText Transfer Protocol Secure</strong> (<strong class="bold">HTTPS</strong>).</p>
+			<p>In this chapter, we will focus on the following main topics:</p>
+			<ul>
+				<li>Exploring authentication </li>
+				<li>Introducing <strong class="bold">JavaScript Object Notation</strong> (<strong class="bold">JSON</strong>) <strong class="bold">Web Tokens</strong> (<strong class="bold">JWTs</strong>)</li>
+				<li>Persisting client sessions and cookies</li>
+				<li>Authenticating with Auth0</li>
+				<li>Building an HTTPS server</li>
+			</ul>
+			<p>By the end of this chapter, you will be able to build a RESTful API with both private and public endpoints.</p>
+			<h1 id="_idParaDest-68"><a id="_idTextAnchor074"/>Technical requirements</h1>
+			<p>To follow the instructions in this chapter, you will need the following:</p>
+			<ul>
+				<li>A complete understanding of the previous chapter—this chapter is a follow-up of the previous one and it will use the same source code. Hence, some snippets won't be explained, to avoid repetition.</li>
+				<li>A basic understanding of API authentication concepts and the HTTPS protocol.</li>
+			</ul>
+			<p>The code bundle for this chapter is hosted on GitHub at <a href="https://github.com/PacktPublishing/Building-Distributed-Applications-in-Gin/tree/main/chapter04">https://github.com/PacktPublishing/Building-Distributed-Applications-in-Gin/tree/main/chapter04</a>.</p>
+			<h1 id="_idParaDest-69"><a id="_idTextAnchor075"/>Exploring authentication</h1>
+			<p>In <a id="_idIndexMarker255"/>the previous chapter, the API we built exposed multiple endpoints. For now, those endpoints are public and don't require any authentication. In a real-world scenario, you would need to secure those endpoints.</p>
+			<p>The following diagram illustrates the endpoints to be secured by the end of this chapter:</p>
+			<div>
+				<div id="_idContainer120" class="IMG---Figure">
+					<img src="image/Figure_4.1_B17115.jpg" alt="Figure 4.1 – Securing RESTful API endpoints&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.1 – Securing RESTful API endpoints</p>
+			<p><strong class="bold">Listing</strong> recipes will require no <a id="_idIndexMarker256"/>authentication, while the endpoints responsible for <strong class="bold">adding</strong>, <strong class="bold">updating</strong>, or <strong class="bold">deleting</strong> a recipe will require authentication.</p>
+			<p>Multiple methods can be used to secure the preceding endpoints—here are a few of the methods we could use: API keys, Basic Auth, client sessions, OpenID Connect, <strong class="bold">Open Authorization</strong> (<strong class="bold">OAuth</strong>) 2.0, and so on. The most basic authentication mechanism is the usage of API keys.</p>
+			<h2 id="_idParaDest-70"><a id="_idTextAnchor076"/>Using API keys</h2>
+			<p>In <a id="_idIndexMarker257"/>this method, the client provides a secret, called an <strong class="bold">API key</strong>, in the request header. The key is then verified at the endpoint handler when an HTTP request is being issued. The following is an implementation of API key authentication. The HTTP handler checks for the <strong class="source-inline">X-API-KEY</strong> header in the HTTP request; if the key is wrong or not found in the request header, then an unauthorized error (<strong class="source-inline">401</strong>) is thrown, as illustrated in the following code snippet (the full code has been cropped for brevity):</p>
+			<p class="source-code">func (handler *RecipesHandler) NewRecipeHandler(</p>
+			<p class="source-code">             c *gin.Context) {</p>
+			<p class="source-code">   if c.GetHeader("X-API-KEY") != os.Getenv("X_API_KEY") {</p>
+			<p class="source-code">       c.JSON(http.StatusUnauthorized, gin.H{</p>
+			<p class="source-code">          "error": "API key not provided or invalid"})</p>
+			<p class="source-code">       return</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">}</p>
+			<p>Run the application<a id="_idIndexMarker258"/> after running the MongoDB and Redis containers, but this time set the <strong class="source-inline">X-API-KEY</strong> environment variable as follows:</p>
+			<p class="source-code">X_API_KEY=eUbP9shywUygMx7u  MONGO_URI="mongodb://admin:password@localhost:27017/test?authSource=admin" MONGO_DATABASE=demo go run *.go</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">You can use OpenSSL to generate a random secret string with the following command: <strong class="source-inline">openssl rand</strong> <strong class="source-inline">-base64 16</strong>.</p>
+			<p>If you try to add a new recipe, a <strong class="source-inline">401</strong> error message will be returned, as shown in the following screenshot:</p>
+			<div>
+				<div id="_idContainer121" class="IMG---Figure">
+					<img src="image/Figure_4.2_B17115.jpg" alt="Figure 4.2 – New recipe&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.2 – New recipe</p>
+			<p>However, if you<a id="_idIndexMarker259"/> include a valid <strong class="source-inline">X-API-KEY</strong> header in the <strong class="source-inline">POST</strong> request, the recipe will be inserted, as shown in the following screenshot:</p>
+			<div>
+				<div id="_idContainer122" class="IMG---Figure">
+					<img src="image/Figure_4.3_B17115.jpg" alt="Figure 4.3 – X-API-KEY header in POST request&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.3 – X-API-KEY header in POST request</p>
+			<p>If you're not a fan <a id="_idIndexMarker260"/>of Postman as an HTTP/s client, you can execute the following cURL command on your terminal:</p>
+			<p class="source-code">cu<strong class="bold">rl --locatio</strong>n --request POST 'http://localhost:8080/recipes' \</p>
+			<p class="source-code">--header 'X-API-KEY: eUbP9shywUygMx7u' \</p>
+			<p class="source-code">--header 'Content-Type: application/json' \</p>
+			<p class="source-code">--data-raw '{</p>
+			<p class="source-code">   "name": "Homemade Pizza",</p>
+			<p class="source-code">   "ingredients": ["..."],</p>
+			<p class="source-code">   "instructions": ["..."],</p>
+			<p class="source-code">   "tags": ["dinner", "fastfood"]</p>
+			<p class="source-code">}'</p>
+			<p>For now, only the <strong class="source-inline">POST /recipes</strong> request is secured. To avoid repeating the same code snippet in other HTTP endpoints, create an authentication middleware by writing the following code:</p>
+			<p class="source-code">func AuthMiddleware() gin.HandlerFunc {</p>
+			<p class="source-code">   return func(c *gin.Context) {</p>
+			<p class="source-code">       if c.GetHeader("X-API-KEY") != </p>
+			<p class="source-code">               os.Getenv("X_API_KEY") {</p>
+			<p class="source-code">           c.AbortWithStatus(401)</p>
+			<p class="source-code">       }</p>
+			<p class="source-code">       c.Next()</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">}</p>
+			<p>In the router <a id="_idIndexMarker261"/>definition, use the authentication middleware. Lastly, regroup the endpoints in a single group, as follows:</p>
+			<p class="source-code">authorized := router.Group("/")</p>
+			<p class="source-code">authorized.Use(AuthMiddleware()){</p>
+			<p class="source-code">       authorized.POST("/recipes", </p>
+			<p class="source-code">                       recipesHandler.NewRecipeHandler)</p>
+			<p class="source-code">       authorized.GET("/recipes", </p>
+			<p class="source-code">                      recipesHandler.ListRecipesHandler)</p>
+			<p class="source-code">       authorized.PUT("/recipes/:id", </p>
+			<p class="source-code">                      recipesHandler.UpdateRecipeHandler)</p>
+			<p class="source-code">       authorized.DELETE("/recipes/:id", </p>
+			<p class="source-code">                        recipesHandler.DeleteRecipeHandler)</p>
+			<p class="source-code">}</p>
+			<p>At this stage, rerun <a id="_idIndexMarker262"/>the application. If you issue a <strong class="source-inline">GET /recipes</strong> request, a <strong class="source-inline">401</strong> error will be returned, as illustrated in the following screenshot. This is normal because the route handler for list recipes is behind the authentication middleware:</p>
+			<div>
+				<div id="_idContainer123" class="IMG---Figure">
+					<img src="image/Figure_4.4_B17115.jpg" alt="Figure 4.4 – API key required on GET /recipes&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.4 – API key required on GET /recipes</p>
+			<p>You want the <strong class="source-inline">GET /recipes</strong> request to be public, therefore register the endpoint outside of the group router, as follows:</p>
+			<p class="source-code">func main() {</p>
+			<p class="source-code">   router := gin.Default()</p>
+			<p class="source-code">   router.GET("/recipes", </p>
+			<p class="source-code">              recipesHandler.ListRecipesHandler)</p>
+			<p class="source-code">   authorized := router.Group("/")</p>
+			<p class="source-code">   authorized.Use(AuthMiddleware())</p>
+			<p class="source-code">   {</p>
+			<p class="source-code">       authorized.POST("/recipes", </p>
+			<p class="source-code">                       recipesHandler.NewRecipeHandler)</p>
+			<p class="source-code">       authorized.PUT("/recipes/:id", </p>
+			<p class="source-code">                      recipesHandler.UpdateRecipeHandler)</p>
+			<p class="source-code">       authorized.DELETE("/recipes/:id",   </p>
+			<p class="source-code">                        recipesHandler.DeleteRecipeHandler)</p>
+			<p class="source-code">       authorized.GET("/recipes/:id", </p>
+			<p class="source-code">                      recipesHandler.GetOneRecipeHandler)</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">  </p>
+			<p class="source-code">  router.Run()</p>
+			<p class="source-code">}</p>
+			<p>If you test it out, this <a id="_idIndexMarker263"/>time the endpoint will return a list of recipes, as illustrated in the following screenshot:</p>
+			<div>
+				<div id="_idContainer124" class="IMG---Figure">
+					<img src="image/Figure_4.5_B17115.jpg" alt="Figure 4.5 – List of recipes&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.5 – List of recipes</p>
+			<p>API keys are simple; however, anyone who makes a request to an API transmits their key, and in theory, the <a id="_idIndexMarker264"/>key can be picked up easily with a <strong class="bold">man-in-the-middle</strong> (<strong class="bold">MITM</strong>) attack when<a id="_idIndexMarker265"/> no encryption is in use. That's why, in the next section, we will cover a more secure authentication mechanism known as JWTs.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">MITM refers to a situation where an attacker positions themself in a conversation between two parties in order to<a id="_idIndexMarker266"/> steal their credentials. For more details, check out the following link: <a href="https://snyk.io/learn/man-in-the-middle-attack/">https://snyk.io/learn/man-in-the-middle-attack/</a>.</p>
+			<h1 id="_idParaDest-71"><a id="_idTextAnchor077"/>Introducing JWTs</h1>
+			<p>According <a id="_idIndexMarker267"/>to <strong class="bold">Request for Comments</strong> (<strong class="bold">RFC</strong>) <em class="italic">7519</em> (<a href="https://tools.ietf.org/html/rfc7519">https://tools.ietf.org/html/rfc7519</a>):</p>
+			<p class="author-quote"><em class="italic">"A JSON Web Token (JWT) is an open standard that defines a compact and self-contained way for securely transmitting information between parties as a JSON object. This information can be verified and trusted because it is digitally signed. JWTs can be signed using a secret or a public/private key pair."</em></p>
+			<p>A JWT token <a id="_idIndexMarker268"/>consists of three parts separated by dots, as depicted in the following screenshot:</p>
+			<div>
+				<div id="_idContainer125" class="IMG---Figure">
+					<img src="image/Figure_4.6_B17115.jpg" alt="Figure 4.6 – JWT parts&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.6 – JWT parts</p>
+			<p>The <strong class="bold">header</strong> indicates<a id="_idIndexMarker269"/> the algorithm used to generate the signature. The <strong class="bold">payload</strong> contains <a id="_idIndexMarker270"/>information about the user, along with the token expiration date. Finally, the <strong class="bold">signature</strong> is the result of <a id="_idIndexMarker271"/>hashing the header and payload parts with a secret key.</p>
+			<p>Now that we've seen how<a id="_idIndexMarker272"/> JWT works, let's integrate it into our API. To get started, install the JWT Go implementation with the following command:</p>
+			<p class="source-code">go get github.com/dgrijalva/jwt-go</p>
+			<p>The package will be automatically added to the <strong class="source-inline">go.mod</strong> file, as follows:</p>
+			<p class="source-code">module github.com/mlabouardy/recipes-api</p>
+			<p class="source-code">go 1.15</p>
+			<p class="source-code">require (</p>
+			<p class="source-code">   github.com/dgrijalva/jwt-go v3.2.0+incompatible </p>
+			<p class="source-code">   // indirect</p>
+			<p class="source-code">   github.com/gin-gonic/gin v1.6.3</p>
+			<p class="source-code">   github.com/go-redis/redis v6.15.9+incompatible</p>
+			<p class="source-code">   github.com/go-redis/redis/v8 v8.4.10</p>
+			<p class="source-code">   go.mongodb.org/mongo-driver v1.4.5</p>
+			<p class="source-code">   golang.org/x/net v0.0.0-20201202161906-c7110b5ffcbb</p>
+			<p class="source-code">)</p>
+			<p>Before getting <a id="_idIndexMarker273"/>your hands dirty, let me explain how the JWT authentication will be implemented. Basically, the client will need to sign in using a username and password. If those credentials are valid, a JWT token will be generated and returned. The client will use the token in future requests by including an <strong class="source-inline">Authorization</strong> header. If a request is issued to the API, the token will be verified by comparing its signature against a signature generated with the secret key, and the API will return the target response. Otherwise, a <strong class="source-inline">401</strong> error will be returned.</p>
+			<p>The following sequence diagram illustrates the communication between the client and the API:</p>
+			<div>
+				<div id="_idContainer126" class="IMG---Figure">
+					<img src="image/Figure_4.7_B17115.jpg" alt="Figure 4.7 – Sequence diagram &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.7 – Sequence diagram </p>
+			<p>With <a id="_idIndexMarker274"/>that being said, create an <strong class="source-inline">auth.go</strong> file under the <strong class="source-inline">handlers</strong> folder. This file will expose the functions that will handle the authentication workflow. Here is the code to do this (the full code has been cropped for brevity):</p>
+			<p class="source-code">package handlers</p>
+			<p class="source-code">import (</p>
+			<p class="source-code">   "net/http"</p>
+			<p class="source-code">   "os"</p>
+			<p class="source-code">   "time"</p>
+			<p class="source-code">   "github.com/dgrijalva/jwt-go"</p>
+			<p class="source-code">)</p>
+			<p class="source-code">type AuthHandler struct{}</p>
+			<p class="source-code">type Claims struct {</p>
+			<p class="source-code">   Username string `json:"username"`</p>
+			<p class="source-code">   jwt.StandardClaims</p>
+			<p class="source-code">}</p>
+			<p class="source-code">type JWTOutput struct {</p>
+			<p class="source-code">   Token   string    `json:"token"`</p>
+			<p class="source-code">   Expires time.Time `json:"expires"`</p>
+			<p class="source-code">}</p>
+			<p class="source-code">func (handler *AuthHandler) SignInHandler(c *gin.Context) {}</p>
+			<p>Next, you <a id="_idIndexMarker275"/>need to define an entity model for user credentials. In the <strong class="source-inline">models</strong> folder, create a <strong class="source-inline">user.go</strong> struct with username and password attributes, as follows:</p>
+			<p class="source-code">package models</p>
+			<p class="source-code">type User struct {</p>
+			<p class="source-code">   Password string `json:"password"`</p>
+			<p class="source-code">   Username string `json:"username"`</p>
+			<p class="source-code">}</p>
+			<p>With the model being defined, we can go ahead and implement the authentication handler.</p>
+			<h2 id="_idParaDest-72"><a id="_idTextAnchor078"/>Sign-in HTTP handler</h2>
+			<p><strong class="source-inline">SignInHandler</strong> will <a id="_idIndexMarker276"/>encode the request body into a <strong class="source-inline">User</strong> struct and verify the credentials are correct. Then, it will issue a JWT token with an expiration time of 10 minutes. The signature of the JWT is the output of combining the Base64 representation of the header and payload along with a secret key (notice the usage of the <strong class="source-inline">JWT_SECRET</strong> environment variable). The combination is then passed to an <strong class="source-inline">HS256</strong> hashing algorithm. It's worth mentioning that you must keep your credentials out of the source code as a security measure. The implementation is shown here:</p>
+			<p class="source-code">func (handler *AuthHandler) SignInHandler(c *gin.Context) {</p>
+			<p class="source-code">   var user models.User</p>
+			<p class="source-code">   if err := c.ShouldBindJSON(&amp;user); err != nil {</p>
+			<p class="source-code">       c.JSON(http.StatusBadRequest, gin.H{"error": </p>
+			<p class="source-code">           err.Error()})</p>
+			<p class="source-code">       return</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">   if user.Username != "admin" || user.Password != </p>
+			<p class="source-code">          "password" {</p>
+			<p class="source-code">       c.JSON(http.StatusUnauthorized, gin.H{"error": </p>
+			<p class="source-code">          "Invalid username or password"})</p>
+			<p class="source-code">       return</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">   expirationTime := time.Now().Add(10 * time.Minute)</p>
+			<p class="source-code">   claims := &amp;Claims{</p>
+			<p class="source-code">       Username: user.Username,</p>
+			<p class="source-code">       StandardClaims: jwt.StandardClaims{</p>
+			<p class="source-code">           ExpiresAt: expirationTime.Unix(),</p>
+			<p class="source-code">       },</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">   token := jwt.NewWithClaims(jwt.SigningMethodHS256, </p>
+			<p class="source-code">                              claims)</p>
+			<p class="source-code">   tokenString, err := token.SignedString([]byte(</p>
+			<p class="source-code">                       os.Getenv("JWT_SECRET")))</p>
+			<p class="source-code">   if err != nil {</p>
+			<p class="source-code">       c.JSON(http.StatusInternalServerError, </p>
+			<p class="source-code">              gin.H{"error": err.Error()})</p>
+			<p class="source-code">       return</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">   jwtOutput := JWTOutput{</p>
+			<p class="source-code">       Token:   tokenString,</p>
+			<p class="source-code">       Expires: expirationTime,</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">   c.JSON(http.StatusOK, jwtOutput)</p>
+			<p class="source-code">}</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">For more information on how the<a id="_idIndexMarker277"/> hashing algorithm works, check out the official RFC: <a href="https://tools.ietf.org/html/rfc7518">https://tools.ietf.org/html/rfc7518</a>.</p>
+			<p>With the <strong class="source-inline">SignInHandler</strong> handler created, let's register this handler on the <strong class="source-inline">POST /signin</strong> endpoint by <a id="_idIndexMarker278"/>updating the <strong class="source-inline">main.go</strong> file, as follows (the code has been cropped for brevity):</p>
+			<p class="source-code">package main</p>
+			<p class="source-code">import (</p>
+			<p class="source-code">   ...</p>
+			<p class="source-code">)</p>
+			<p class="source-code">var authHandler *handlers.AuthHandler</p>
+			<p class="source-code">var recipesHandler *handlers.RecipesHandler</p>
+			<p class="source-code">func init() {</p>
+			<p class="source-code">   ...</p>
+			<p class="source-code">   recipesHandler = handlers.NewRecipesHandler(ctx, </p>
+			<p class="source-code">      collection, redisClient)</p>
+			<p class="source-code">   authHandler = &amp;handlers.AuthHandler{}</p>
+			<p class="source-code">}</p>
+			<p class="source-code">func main() {</p>
+			<p class="source-code">   router := gin.Default()</p>
+			<p class="source-code">   router.GET("/recipes", </p>
+			<p class="source-code">              recipesHandler.ListRecipesHandler)</p>
+			<p class="source-code">   router.POST("/signin", authHandler.SignInHandler)</p>
+			<p class="source-code">   ...</p>
+			<p class="source-code">}</p>
+			<p>Next, we <a id="_idIndexMarker279"/>update the authentication middleware in <strong class="source-inline">handler/auth.go</strong> to check for the <strong class="source-inline">Authorization</strong> header instead of the <strong class="source-inline">X-API-KEY</strong> attribute. The header is then passed to the <strong class="source-inline">ParseWithClaims</strong> method. It generates a signature using the header and payload from the <strong class="source-inline">Authorization</strong> header and the secret key. Then, it verifies if the signature matches the one on the JWT. If not, the JWT is not considered valid, and a <strong class="source-inline">401</strong> status code is returned. The Go implementation is shown here:</p>
+			<p class="source-code">func (handler *AuthHandler) AuthMiddleware() gin.HandlerFunc {</p>
+			<p class="source-code">   return func(c *gin.Context) {</p>
+			<p class="source-code">       tokenValue := c.GetHeader("Authorization")</p>
+			<p class="source-code">       claims := &amp;Claims{}</p>
+			<p class="source-code">       tkn, err := jwt.ParseWithClaims(tokenValue, claims, </p>
+			<p class="source-code">              func(token *jwt.Token) (interface{}, error) {</p>
+			<p class="source-code">           return []byte(os.Getenv("JWT_SECRET")), nil</p>
+			<p class="source-code">       })</p>
+			<p class="source-code">       if err != nil {</p>
+			<p class="source-code">           c.AbortWithStatus(http.StatusUnauthorized)</p>
+			<p class="source-code">       }</p>
+			<p class="source-code">       if tkn == nil ||!tkn.Valid {</p>
+			<p class="source-code">           c.AbortWithStatus(http.StatusUnauthorized)</p>
+			<p class="source-code">       }</p>
+			<p class="source-code">       c.Next()</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">}</p>
+			<p>Rerun the application with the following command:</p>
+			<p class="source-code">JWT_SECRET=eUbP9shywUygMx7u MONGO_URI="mongodb://admin:password@localhost:27017/test?authSource=admin" MONGO_DATABASE=demo go run *.go</p>
+			<p>The server logs are shown in the following screenshot:</p>
+			<div>
+				<div id="_idContainer127" class="IMG---Figure">
+					<img src="image/Figure_4.8_B17115.jpg" alt="Figure 4.8 – Application logs&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.8 – Application logs</p>
+			<p>Now, if you try to<a id="_idIndexMarker280"/> insert a new recipe, a <strong class="source-inline">401</strong> error will be returned, as follows:</p>
+			<div>
+				<div id="_idContainer128" class="IMG---Figure">
+					<img src="image/Figure_4.9_B17115.jpg" alt="Figure 4.9 – Unauthorized endpoint&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.9 – Unauthorized endpoint</p>
+			<p>You need to sign in first using the <strong class="source-inline">admin/password</strong> credentials by executing a <strong class="source-inline">POST</strong> request on the <strong class="source-inline">/signin</strong> endpoint. Once successful, the endpoint will return a token that looks like this:</p>
+			<div>
+				<div id="_idContainer129" class="IMG---Figure">
+					<img src="image/Figure_4.10_B17115.jpg" alt="Figure 4.10 – Sign-in endpoint&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.10 – Sign-in endpoint</p>
+			<p>The token <a id="_idIndexMarker281"/>consists of three parts separated by a dot. You can decode the token by going to <a href="https://jwt.io/">https://jwt.io/</a> to return the following output (your results might look different):</p>
+			<div>
+				<div id="_idContainer130" class="IMG---Figure">
+					<img src="image/Figure_4.11_B17115.jpg" alt="Figure 4.11 – Decoding a JWT token&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.11 – Decoding a JWT token</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">The header and payload parts are Base64-encoded, but you can use the <strong class="source-inline">base64</strong> command to decode their value.</p>
+			<p>Now, for<a id="_idIndexMarker282"/> further requests, you need to include the token in the <strong class="source-inline">Authorization</strong> header to be able to access secured endpoints such as posting a new recipe, as illustrated in the following screenshot:</p>
+			<div>
+				<div id="_idContainer131" class="IMG---Figure">
+					<img src="image/Figure_4.12_B17115.jpg" alt="Figure 4.12 – Posting a new recipe&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.12 – Posting a new recipe</p>
+			<p>So far, everything is going well—however, in 10 minutes, the token will expire. If, for instance, you try to post a new recipe, a <strong class="source-inline">401</strong> unauthorized message will be thrown even though you have included the <strong class="source-inline">Authorization</strong> header, as we can see in the following screenshot:</p>
+			<div>
+				<div id="_idContainer132" class="IMG---Figure">
+					<img src="image/Figure_4.13_B17115.jpg" alt="Figure 4.13 – Expired JWT &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.13 – Expired JWT </p>
+			<p>So, let's check out how you can renew this token after it expires. </p>
+			<h2 id="_idParaDest-73"><a id="_idTextAnchor079"/>Renewing a JWT </h2>
+			<p>You can increase the <a id="_idIndexMarker283"/>expiration time to make a JWT token last; however, this is not a permanent solution. What you can do instead is to expose an endpoint to allow the user to refresh a token, which will let the client application refresh the token without asking the user for the username and password again. The function handler is shown in the following code snippet—it takes the previous token and returns a new token with a renewed expiry time:</p>
+			<p class="source-code">func (handler *AuthHandler) RefreshHandler(c *gin.Context) {</p>
+			<p class="source-code">   tokenValue := c.GetHeader("Authorization")</p>
+			<p class="source-code">   claims := &amp;Claims{}</p>
+			<p class="source-code">   tkn, err := jwt.ParseWithClaims(tokenValue, claims, </p>
+			<p class="source-code">          func(token *jwt.Token) (interface{}, error) {</p>
+			<p class="source-code">       return []byte(os.Getenv("JWT_SECRET")), nil</p>
+			<p class="source-code">   })</p>
+			<p class="source-code">   if err != nil {</p>
+			<p class="source-code">       c.JSON(http.StatusUnauthorized, gin.H{"error": </p>
+			<p class="source-code">          err.Error()})</p>
+			<p class="source-code">       return</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">   if tkn == nil ||!tkn.Valid {</p>
+			<p class="source-code">       c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid	                                              token"})</p>
+			<p class="source-code">       return</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">   if time.Unix(claims.ExpiresAt, 0).Sub(time.Now()) &gt; </p>
+			<p class="source-code">            30*time.Second {</p>
+			<p class="source-code">       c.JSON(http.StatusBadRequest, gin.H{"error": </p>
+			<p class="source-code">            "Token is not expired yet"})</p>
+			<p class="source-code">       return</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">   expirationTime := time.Now().Add(5 * time.Minute)</p>
+			<p class="source-code">   claims.ExpiresAt = expirationTime.Unix()</p>
+			<p class="source-code">   token := jwt.NewWithClaims(jwt.SigningMethodHS256, </p>
+			<p class="source-code">                              claims)</p>
+			<p class="source-code">   tokenString, err := token.SignedString(os.Getenv(</p>
+			<p class="source-code">                       "JWT_SECRET"))</p>
+			<p class="source-code">   if err != nil {</p>
+			<p class="source-code">       c.JSON(http.StatusInternalServerError, </p>
+			<p class="source-code">           gin.H{"error": err.Error()})</p>
+			<p class="source-code">       return</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">   jwtOutput := JWTOutput{</p>
+			<p class="source-code">       Token:   tokenString,</p>
+			<p class="source-code">       Expires: expirationTime,</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">   c.JSON(http.StatusOK, jwtOutput)</p>
+			<p class="source-code">}</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">In a web application, the <strong class="source-inline">/refresh</strong> endpoint can be used to refresh the JWT token in the background without asking the user to sign in every couple of minutes.</p>
+			<p>Register <a id="_idIndexMarker284"/>the <strong class="source-inline">RefreshHandler</strong> handler on the <strong class="source-inline">POST /refresh</strong> endpoint with the following code:</p>
+			<p class="source-code">router.POST("/refresh", authHandler.RefreshHandler)</p>
+			<p>If you rerun the app, the <strong class="source-inline">/refresh</strong> endpoint will be exposed, as shown in the following screenshot:</p>
+			<div>
+				<div id="_idContainer133" class="IMG---Figure">
+					<img src="image/Figure_4.14_B17115.jpg" alt="Figure 4.14 – /refresh endpoint &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.14 – /refresh endpoint </p>
+			<p>You can now issue a <strong class="source-inline">POST</strong> request on the <strong class="source-inline">/refresh</strong> endpoint, and a new token will be generated and returned.</p>
+			<p>Awesome—you now have a working authentication workflow! However, the user credentials are still hardcoded in the application code source. You can improve this by storing them in your <strong class="bold">MongoDB</strong> server. An updated sequence diagram is provided here:</p>
+			<div>
+				<div id="_idContainer134" class="IMG---Figure">
+					<img src="image/Figure_4.15_B17115.jpg" alt="Figure 4.15 – Storing credentials in MongoDB&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.15 – Storing credentials in MongoDB</p>
+			<p>To be <a id="_idIndexMarker285"/>able to interact with the MongoDB server, you need to add the MongoDB collection to the <strong class="source-inline">AuthHandler</strong> struct in the <strong class="source-inline">auth.go</strong> file, as illustrated in the following code snippet. Then, you can issue a <strong class="source-inline">FindOne</strong> operation on the <strong class="source-inline">users</strong> collection to verify if the given credentials exist:</p>
+			<p class="source-code">type AuthHandler struct {</p>
+			<p class="source-code">   collection *mongo.Collection</p>
+			<p class="source-code">   ctx        context.Context</p>
+			<p class="source-code">}</p>
+			<p class="source-code">func NewAuthHandler(ctx context.Context, collection </p>
+			<p class="source-code">          *mongo.Collection) *AuthHandler {</p>
+			<p class="source-code">   return &amp;AuthHandler{</p>
+			<p class="source-code">       collection: collection,</p>
+			<p class="source-code">       ctx:        ctx,</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">}</p>
+			<p>Next, update<a id="_idIndexMarker286"/> the <strong class="source-inline">SignInHandler</strong> method to verify if the user credentials are valid by comparing them with entries in the database. Here is how it should be done:</p>
+			<p class="source-code">func (handler *AuthHandler) SignInHandler(c *gin.Context) {</p>
+			<p class="source-code">   </p>
+			<p class="source-code">   h := sha256.New()</p>
+			<p class="source-code">   cur := handler.collection.FindOne(handler.ctx, bson.M{</p>
+			<p class="source-code">       "username": user.Username,</p>
+			<p class="source-code">       "password": string(h.Sum([]byte(user.Password))),</p>
+			<p class="source-code">   })</p>
+			<p class="source-code">   if cur.Err() != nil {</p>
+			<p class="source-code">       c.JSON(http.StatusUnauthorized, gin.H{"error": </p>
+			<p class="source-code">           "Invalid username or password"})</p>
+			<p class="source-code">       return</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">   ...</p>
+			<p class="source-code">}</p>
+			<p>In the <strong class="source-inline">init()</strong> method, you need to set up a connection to the <strong class="source-inline">users</strong> collection then pass the collection<a id="_idIndexMarker287"/> instance to the <strong class="source-inline">AuthHandler</strong> instance, as follows:</p>
+			<p class="source-code">collectionUsers := client.Database(os.Getenv(</p>
+			<p class="source-code">                   "MONGO_DATABASE")).Collection("users")</p>
+			<p class="source-code">authHandler = handlers.NewAuthHandler(ctx, collectionUsers)</p>
+			<p>Make sure to save the <strong class="source-inline">main.go</strong> changes, and the API is then ready!</p>
+			<h2 id="_idParaDest-74"><a id="_idTextAnchor080"/>Hashing and salting passwords</h2>
+			<p>Before <a id="_idIndexMarker288"/>running the app, we need to initialize the <em class="italic">users</em> collection with <a id="_idIndexMarker289"/>some users. Create a new project in <strong class="bold">Visual Studio Code</strong> (<strong class="bold">VSCode</strong>), and then define a <strong class="source-inline">main.go</strong> file with the following content:</p>
+			<p class="source-code">func main() {</p>
+			<p class="source-code">   users := map[string]string{</p>
+			<p class="source-code">       "admin":      "fCRmh4Q2J7Rseqkz",</p>
+			<p class="source-code">       "packt":      "RE4zfHB35VPtTkbT",</p>
+			<p class="source-code">       "mlabouardy": "L3nSFRcZzNQ67bcc",</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">   ctx := context.Background()</p>
+			<p class="source-code">   client, err := mongo.Connect(ctx, </p>
+			<p class="source-code">       options.Client().ApplyURI(os.Getenv("MONGO_URI")))</p>
+			<p class="source-code">   if err = client.Ping(context.TODO(), </p>
+			<p class="source-code">          readpref.Primary()); err != nil {</p>
+			<p class="source-code">       log.Fatal(err)</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">   collection := client.Database(os.Getenv(</p>
+			<p class="source-code">       "MONGO_DATABASE")).Collection("users")</p>
+			<p class="source-code">   h := sha256.New()</p>
+			<p class="source-code">   for username, password := range users {</p>
+			<p class="source-code">       collection.InsertOne(ctx, bson.M{</p>
+			<p class="source-code">           "username": username,</p>
+			<p class="source-code">           "password": string(h.Sum([]byte(password))),</p>
+			<p class="source-code">       })</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">}</p>
+			<p>The preceding code will insert three users (<strong class="source-inline">admin</strong>, <strong class="source-inline">packt</strong>, <strong class="source-inline">mlabouardy</strong>) into the <strong class="source-inline">users</strong><em class="italic"> </em>collection. The passwords are <strong class="bold">hashed</strong> and <strong class="bold">salted</strong> before they are saved into MongoDB using the <em class="italic">SHA256</em> algorithm for security purposes. The algorithm generates a unique 256-bit<a id="_idIndexMarker290"/> signature for the password that can be decrypted back to <a id="_idIndexMarker291"/>the original password. That way, sensitive information can remain secure.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">Storing plaintext passwords in the database is not recommended. By hashing and salting users' passwords, we make sure that hackers are not able to sign in, as the stolen data won't contain the credentials.</p>
+			<p>You can run the code with the <strong class="source-inline">MONGO_URI="mongodb://admin:password@localhost:27017/test?authSource=admin" MONGO_DATABASE=demo go run main.go</strong> command. Check if the users have been inserted using MongoDB Compass (for a step-by-step guide on how to use MongoDB Compass, head back to <a href="B17115_03_Final_JM_ePub.xhtml#_idTextAnchor054"><em class="italic">Chapter 3</em></a><em class="italic">, Managing Data Persistence with MongoDB</em>), as illustrated in the following screenshot:</p>
+			<div>
+				<div id="_idContainer135" class="IMG---Figure">
+					<img src="image/Figure_4.16_B17115.jpg" alt="Figure 4.16 – Users collection&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.16 – Users collection</p>
+			<p>As you might <a id="_idIndexMarker292"/>notice, the passwords are hashed and salted. With the users<a id="_idIndexMarker293"/> being inserted into MongoDB, we can test out the sign-in endpoint by issuing a <strong class="source-inline">POST</strong> request with the following payload:</p>
+			<div>
+				<div id="_idContainer136" class="IMG---Figure">
+					<img src="image/Figure_4.17_B17115.jpg" alt="Figure 4.17 – Sign-in endpoint&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.17 – Sign-in endpoint</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">We can improve the JWT implementation by setting a cookie on the client side with the JWT value. That way, the cookie is sent along with the request.</p>
+			<p>You can take this further and create a sign-up endpoint to create a new user and save it to the MongoDB database. You should now be familiar with how to implement an authentication mechanism with JWT.</p>
+			<h1 id="_idParaDest-75"><a id="_idTextAnchor081"/>Persisting client sessions and cookies</h1>
+			<p>Up to now, you had to include the <strong class="source-inline">Authorization</strong> header on each request. A better solution is to generate a <strong class="bold">session cookie</strong>. Session cookies<a id="_idIndexMarker294"/> allow users to be recognized within an application without having to authenticate every time. Without a cookie, every time you issue an API request, the server will treat you like a completely new visitor. </p>
+			<p>To generate a<a id="_idIndexMarker295"/> session cookie, proceed as follows:</p>
+			<ol>
+				<li>Install <em class="italic">Gin middleware</em> for session management with the following command:<p class="source-code">go get github.com/gin-contrib/sessions</p></li>
+				<li>Configure <em class="italic">Redis</em> as a store for users' sessions with the following code:<p class="source-code">store, _ := redisStore.NewStore(10, "tcp", </p><p class="source-code">      "localhost:6379", "", []byte("secret"))</p><p class="source-code">router.Use(sessions.Sessions("recipes_api", store))</p><p class="callout-heading">Note</p><p class="callout">Instead of hardcoding the Redis <strong class="bold">Uniform Resource Identifier</strong> (<strong class="bold">URI</strong>), you can use an environment variable. That way, you can keep configuration out of the API source code.</p></li>
+				<li>Then, update <strong class="source-inline">SignInHandler</strong> to generate a session with a unique ID, as illustrated in the following code snippet. The session starts once a user logs in and expires sometime after that. The session information of the logged-in user will be stored in the Redis cache:<p class="source-code">func (handler *AuthHandler) SignInHandler(c *gin.Context) {</p><p class="source-code">   var user models.User</p><p class="source-code">   if err := c.ShouldBindJSON(&amp;user); err != nil {</p><p class="source-code">       c.JSON(http.StatusBadRequest, gin.H{"error": </p><p class="source-code">           err.Error()})</p><p class="source-code">       return</p><p class="source-code">   }</p><p class="source-code">   h := sha256.New()</p><p class="source-code">   cur := handler.collection.FindOne(handler.ctx, bson.M{</p><p class="source-code">       "username": user.Username,</p><p class="source-code">       "password": string(h.Sum([]byte(user.Password))),</p><p class="source-code">   })</p><p class="source-code">   if cur.Err() != nil {</p><p class="source-code">       c.JSON(http.StatusUnauthorized, gin.H{"error": </p><p class="source-code">           "Invalid username or password"})</p><p class="source-code">       return</p><p class="source-code">   }</p><p class="source-code">   sessionToken := xid.New().String()</p><p class="source-code">   session := sessions.Default(c)</p><p class="source-code">   session.Set("username", user.Username)</p><p class="source-code">   session.Set("token", sessionToken)</p><p class="source-code">   session.Save()</p><p class="source-code">   c.JSON(http.StatusOK, gin.H{"message":                                "User signed in"})</p><p class="source-code">}</p></li>
+				<li>Next, update <strong class="source-inline">AuthMiddleware</strong> to obtain the token from the request cookie. If the<a id="_idIndexMarker296"/> cookie is not set, we return a <strong class="source-inline">403</strong> code (<strong class="source-inline">Forbidden</strong>) by returning an <strong class="source-inline">http.StatusForbidden</strong> response, as illustrated in the following code snippet:<strong class="source-inline">    </strong><p class="source-code">func (handler *AuthHandler) AuthMiddleware() gin.	  	      HandlerFunc {</p><p class="source-code">   return func(c *gin.Context) {</p><p class="source-code">       session := sessions.Default(c)</p><p class="source-code">       sessionToken := session.Get("token")</p><p class="source-code">       if sessionToken == nil {</p><p class="source-code">           c.JSON(http.StatusForbidden, gin.H{</p><p class="source-code">               "message": "Not logged",</p><p class="source-code">           })</p><p class="source-code">           c.Abort()</p><p class="source-code">       }</p><p class="source-code">       c.Next()</p><p class="source-code">   }</p><p class="source-code">}</p></li>
+				<li>Start the server on port 8080, and issue a <strong class="source-inline">POST</strong> request on the <strong class="source-inline">/signin</strong> endpoint with a valid username and password. A cookie should be generated, like the one shown in the following screenshot:</li>
+			</ol>
+			<div>
+				<div id="_idContainer137" class="IMG---Figure">
+					<img src="image/Figure_4.18_B17115.jpg" alt="Figure 4.18 – Session cookie&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.18 – Session cookie</p>
+			<p>Now the session will <a id="_idIndexMarker297"/>be persisted across all other API routes. Therefore, you can interact with API endpoints without including any authorization header, as illustrated in the following screenshot:</p>
+			<div>
+				<div id="_idContainer138" class="IMG---Figure">
+					<img src="image/Figure_4.19_B17115.jpg" alt="Figure 4.19 – Session-based authentication&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.19 – Session-based authentication</p>
+			<p>The previous example uses the Postman client, but if you're a <strong class="source-inline">cURL</strong> fan, do the following:</p>
+			<ol>
+				<li value="1"> Use the following command to store the generated cookie in a text file:<p class="source-code">curl -c cookies.txt -X POST http://localhost:8080/signin -d '{"username":"admin", "password":"fCRmh4Q2J7Rseqkz"}'</p></li>
+				<li>Then, inject<a id="_idIndexMarker298"/> the <strong class="source-inline">cookies.txt</strong> file in future requests, like this:<p class="source-code">curl -b cookies.txt -X POST http://localhost:8080/recipes -d '{"name":"Homemade Pizza", "steps":[], "instructions":[]}'</p><p class="callout-heading">Note</p><p class="callout">You can implement a refresh route to generate a new session cookie with a renewed expiry time.</p><p>All the sessions generated by the API will be persisted in Redis. You can use the Redis Insight <strong class="bold">user interface</strong> (<strong class="bold">UI</strong>) (hosted on a Docker container) to browse the saved session, as illustrated in the following screenshot:</p><div id="_idContainer139" class="IMG---Figure"><img src="image/Figure_4.20_B17115.jpg" alt="Figure 4.20 – List of sessions stored in Redis&#13;&#10;"/></div><p class="figure-caption">Figure 4.20 – List of sessions stored in Redis</p></li>
+				<li>To log out, you can implement the <strong class="source-inline">SignOutHandler</strong> handler to clear the session cookie with the following command:<p class="source-code">func (handler *AuthHandler) SignOutHandler(c       *gin.Context) {</p><p class="source-code">   session := sessions.Default(c)</p><p class="source-code">   session.Clear()</p><p class="source-code">   session.Save()</p><p class="source-code">   c.JSON(http.StatusOK, gin.H{"message":                                "Signed out..."})</p><p class="source-code">}</p></li>
+				<li>Remember to register the handler on the <strong class="source-inline">main.go</strong> file, like so:<p class="source-code">router.POST("/signout", authHandler.SignOutHandler)</p></li>
+				<li>Run the <a id="_idIndexMarker299"/>application, and a sign-out endpoint should be exposed, as illustrated in the following screenshot:<div id="_idContainer140" class="IMG---Figure"><img src="image/Figure_4.21_B17115.jpg" alt="Figure 4.21 – Sign-out handler&#13;&#10;"/></div><p class="figure-caption">Figure 4.21 – Sign-out handler</p></li>
+				<li>Now, test it out with the Postman client by executing a <strong class="source-inline">POST</strong> request, like so:<div id="_idContainer141" class="IMG---Figure"><img src="image/Figure_4.22_B17115.jpg" alt="Figure 4.22 – Signing out&#13;&#10;"/></div><p class="figure-caption">Figure 4.22 – Signing out</p><p>The session cookie will be deleted, and if you now try to add a new recipe, a <strong class="source-inline">403</strong> error will be returned, as illustrated in the following screenshot:</p><div id="_idContainer142" class="IMG---Figure"><img src="image/Figure_4.23_B17115.jpg" alt="Figure 4.23 – Adding a new recipe&#13;&#10;"/></div><p class="figure-caption">Figure 4.23 – Adding a new recipe</p></li>
+				<li>Make sure to <a id="_idIndexMarker300"/>commit the changes to GitHub by creating a new feature branch. Then, merge the branch into development mode, as follows:</li>
+			</ol>
+			<p class="source-code">git add .</p>
+			<p class="source-code">git commit -m "session based authentication"</p>
+			<p class="source-code">git checkout -b feature/session</p>
+			<p class="source-code">git push origin feature/session</p>
+			<p>The following screenshot shows the pull requests containing the JWT and cookie authentication features:</p>
+			<div>
+				<div id="_idContainer143" class="IMG---Figure">
+					<img src="image/Figure_4.24_B17115.jpg" alt="Figure 4.24 – Pull requests on GitHub&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.24 – Pull requests on GitHub</p>
+			<p>Awesome! The API endpoints are now secured and can be served to the public.</p>
+			<h1 id="_idParaDest-76"><a id="_idTextAnchor082"/>Authenticating with Auth0</h1>
+			<p>So far, the authentication mechanism is built in within the application. Maintaining such a system might be a bottleneck in the long run, which is why you might need to consider an external service such<a id="_idIndexMarker301"/> as <strong class="bold">Auth0</strong>. This is an all-in-one authentication solution <a id="_idIndexMarker302"/>that gives you access to powerful reporting and analytics as well as a <strong class="bold">role-based access control</strong> (<strong class="bold">RBAC</strong>) system.</p>
+			<p>To get started, follow these steps:</p>
+			<ol>
+				<li value="1">Create a <a id="_idIndexMarker303"/>free account (<a href="https://auth0.com/signup">https://auth0.com/signup</a>). Once created, set up a <a id="_idIndexMarker304"/>tenant domain in the region where you're located, as illustrated in the following screenshot:<div id="_idContainer144" class="IMG---Figure"><img src="image/Figure_4.25_B17115.jpg" alt="Figure 4.25 – Auth0 tenant domain&#13;&#10;"/></div><p class="figure-caption">Figure 4.25 – Auth0 tenant domain</p></li>
+				<li>Then, create a<a id="_idIndexMarker305"/> new API called <strong class="source-inline">Recipes API</strong>. Set the identifier to <a href="https://api.recipes">https://api.recipes</a><strong class="source-inline">.io</strong> and the signing algorithm to <strong class="source-inline">RS256</strong>, as illustrated in the following screenshot:<div id="_idContainer145" class="IMG---Figure"><img src="image/Figure_4.26_B17115.jpg" alt="Figure 4.26 – Auth0 new API&#13;&#10;"/></div><p class="figure-caption">Figure 4.26 – Auth0 new API</p></li>
+				<li>Once the <a id="_idIndexMarker306"/>API is created, you need to integrate the Auth0 service into the API. Download the following Go packages:<p class="source-code">go get -v gopkg.in/square/go-jose.v2</p><p class="source-code">go get -v github.com/auth0-community/go-auth0</p></li>
+				<li>Next, update <strong class="source-inline">AuthMiddleware</strong>, as illustrated in the following code snippet. The middleware will check if an access token exists and if this is valid. If it passes the checks, the request will proceed. If not, a <strong class="source-inline">401 Authorization</strong> error is returned:<p class="source-code">func (handler *AuthHandler) AuthMiddleware() gin.HandlerFunc {</p><p class="source-code">   return func(c *gin.Context) {</p><p class="source-code">       var auth0Domain = "https://" + os.Getenv(</p><p class="source-code">           "AUTH0_DOMAIN") + "/"</p><p class="source-code">       client := auth0.NewJWKClient(auth0.JWKClientOptions{</p><p class="source-code">           URI: auth0Domain + ".well-known/jwks.json"}, </p><p class="source-code">           nil)</p><p class="source-code">       configuration := auth0.NewConfiguration(client, </p><p class="source-code">           []string{os.Getenv("AUTH0_API_IDENTIFIER")}, </p><p class="source-code">           auth0Domain, jose.RS256)</p><p class="source-code">       validator := auth0.NewValidator(configuration, 	                                       nil)</p><p class="source-code">       _, err := validator.ValidateRequest(c.Request)</p><p class="source-code">       if err != nil {</p><p class="source-code">           c.JSON(http.StatusUnauthorized,  	 	          	                  gin.H{"message": "Invalid token"})</p><p class="source-code">           c.Abort()</p><p class="source-code">           return</p><p class="source-code">       }</p><p class="source-code">       c.Next()</p><p class="source-code">   }</p><p class="source-code">}</p><p>Auth0 uses RS256 algorithm-signing access tokens. The verification process uses a public key (located at <strong class="source-inline">AUTH0_DOMAIN/.well-known/jwks.json</strong>) in <strong class="bold">JSON Web Key Set</strong> (<strong class="bold">JWKS</strong>) format<a id="_idIndexMarker307"/> to verify the given token.</p></li>
+				<li>Run the <a id="_idIndexMarker308"/>application with <strong class="source-inline">AUTH0_DOMAIN</strong> and <strong class="source-inline">AUTH0_API_IDENTIFIER</strong>, as illustrated in the following code snippet. Make sure to replace those variables with the values you copied from your Auth0 dashboard:<p class="source-code">AUTH0_DOMAIN=DOMAIN.eu.auth0.com  AUTH0_API_IDENTIFIER="https://api.recipes.io" MONGO_URI="mongodb://admin:password@localhost:27017/test?authSource=admin" MONGO_DATABASE=demo go run *.go</p><p>Now, if you try to issue a request to your API without sending an access token, you will see this message:</p><div id="_idContainer146" class="IMG---Figure"><img src="image/Figure_4.27_B17115.jpg" alt="Figure 4.27 – Unauthorized access&#13;&#10;"/></div><p class="figure-caption">Figure 4.27 – Unauthorized access</p></li>
+				<li>To generate an access token. Head back to the <strong class="bold">Auth0</strong> dashboard, click on<strong class="bold"> APIs</strong>, then select <strong class="bold">Recipes API</strong>. From there, click on the <strong class="bold">Test</strong> tab and copy the cURL command shown in the following screenshot:<div id="_idContainer147" class="IMG---Figure"><img src="image/Figure_4.28_B17115.jpg" alt="Figure 4.28 – Generating  access token with cURL&#13;&#10;"/></div><p class="figure-caption">Figure 4.28 – Generating  access token with cURL</p></li>
+				<li>Execute the <a id="_idIndexMarker309"/>following command on your terminal session to generate an access token that you can use to communicate with your backend API:<p class="source-code">curl --request POST \</p><p class="source-code">  --url https://recipesapi-packt.eu.auth0.com/oauth/token \</p><p class="source-code">  --data '{"client_id":"MyFRmUZS","client_secret":"7fArWGkSva","audience":"https://api.recipes.io","grant_type":"client_credentials"}'</p><p>An access token will be generated, as follows (you should have a different value):</p><p class="source-code">{</p><p class="source-code"> "access_token":"eyJhbGciOiJSUzI1NiIsInR5cCI 6IkpXVCIsImtpZCI6IkZ5T19SN2dScDdPakp3RmJQRVB3dCDz",</p><p class="source-code">   "expires_in":86400,</p><p class="source-code">   "token_type":"Bearer"</p><p class="source-code">}</p></li>
+				<li>Now, update your<a id="_idIndexMarker310"/> API request to include the access token, as shown in the following screenshot:<div id="_idContainer148" class="IMG---Figure"><img src="image/Figure_4.29_B17115.jpg" alt="Figure 4.29 – Authorized access&#13;&#10;"/></div><p class="figure-caption">Figure 4.29 – Authorized access</p></li>
+				<li>This can also be tested straight from the command line with cURL. Just replace the <strong class="source-inline">ACCESS_TOKEN</strong> value shown in the following code snippet with your test token and then paste it into your terminal:<p class="source-code">curl --request POST \</p><p class="source-code">  --url http://localhost:8080/recipes \</p><p class="source-code">  --header 'Authorization: Bearer ACCESS_TOKEN'\</p><p class="source-code">  --data '{"name":"Pizza "}'</p></li>
+			</ol>
+			<p>Awesome! You just<a id="_idIndexMarker311"/> developed a secure API with Go and the Gin framework.</p>
+			<h1 id="_idParaDest-77"><a id="_idTextAnchor083"/>Building an HTTPS server</h1>
+			<p>So far, the API is served<a id="_idIndexMarker312"/> locally through HTTP, but for a real-world application, it should be served under a domain name through HTTPS.</p>
+			<p>To set this up, proceed as follows:</p>
+			<ol>
+				<li value="1">Use the <strong class="source-inline">ngrok</strong> solution to serve our local web API with a public <strong class="bold">Uniform Resource Locator</strong> (<strong class="bold">URL</strong>) that supports both HTTP and HTTPS. <p class="callout-heading">Note</p><p class="callout">In advanced chapters, we will explore how to purchase a domain name and set up HTTPS for free on a <a id="_idIndexMarker313"/>cloud provider such as <strong class="bold">Amazon Web Services</strong> (<strong class="bold">AWS</strong>).</p></li>
+				<li>Download the ZIP file based on your <strong class="bold">operating system</strong> (<strong class="bold">OS</strong>) from the official Ngrok page at <a href="https://ngrok.com/download">https://ngrok.com/download</a>. In this book, we will work with version 2.3.35. Once downloaded, unzip Ngrok from a terminal with the following commands:<p class="source-code">unzip ngrok-stable-darwin-amd64.zip</p><p class="source-code">cp ngrok /usr/local/bin/</p><p class="source-code">chmod +x /usr/local/bin/ngrok</p></li>
+				<li>Verify if it's properly installed by executing the following command:<p class="source-code">ngrok version</p><p>It should output the following message:</p><div id="_idContainer149" class="IMG---Figure"><img src="image/Figure_4.30_B17115.jpg" alt="Figure 4.30 – Ngrok version&#13;&#10;"/></div><p class="figure-caption">Figure 4.30 – Ngrok version</p></li>
+				<li>Configure Ngrok to listen and forward requests into port 8080, which is the port where the RESTful API is exposed, by running the following command:<p class="source-code">ngrok http 8080</p><p>A public URL will be generated that can be used as a proxy to interact with the API from the<a id="_idIndexMarker314"/> internet, as illustrated here:</p><div id="_idContainer150" class="IMG---Figure"><img src="image/Figure_4.31_B17115.jpg" alt="Figure 4.31 – Ngrok forwarding&#13;&#10;"/></div><p class="figure-caption">Figure 4.31 – Ngrok forwarding</p></li>
+				<li>Navigate to the forwarding URL using the HTTPS protocol. A <strong class="bold">Connection is secure</strong> message should be displayed next to the URL, as illustrated in the following screenshot:</li>
+			</ol>
+			<p class="figure-caption"> </p>
+			<div>
+				<div id="_idContainer151" class="IMG---Figure">
+					<img src="image/Figure_4.32_B17115.jpg" alt="Figure 4.32 – Serving through HTTPS&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.32 – Serving through HTTPS</p>
+			<p>You can now access the <a id="_idIndexMarker315"/>API from another machine or device or share it with others. In the next section, we will cover how to create your own <strong class="bold">Secure Sockets Layer</strong> (<strong class="bold">SSL</strong>) certificates to secure a domain name running locally.</p>
+			<h2 id="_idParaDest-78"><a id="_idTextAnchor084"/>Self-signed certificates</h2>
+			<p>SSL certificates are what <a id="_idIndexMarker316"/>websites use to move from HTTP and HTTPS. The certificate uses SSL/<strong class="bold">Transport Layer Security</strong> (<strong class="bold">TLS</strong>) encryption to keep user data secure, verify ownership of the website, prevent attackers from creating a fake version of the site, and gain user trust.</p>
+			<p>To create <a id="_idIndexMarker317"/>self-signed certificates, proceed as follows:</p>
+			<ol>
+				<li value="1">Create a directory where the certificates will be stored and use the OpenSSL command line to generate public and private keys, as follows:<p class="source-code">mkdir certs</p><p class="source-code">openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout certs/localhost.key -out certs/localhost.crt</p></li>
+				<li>You'll need to fill a simple questionnaire—make sure to set the fully qualified hostname <a id="_idIndexMarker318"/>to <strong class="source-inline">localhost</strong>, as shown here:<div id="_idContainer152" class="IMG---Figure"><img src="image/Figure_4.33_B17115.jpg" alt="Figure 4.33 – Generating self-signed certificates&#13;&#10;"/></div><p class="figure-caption">Figure 4.33 – Generating self-signed certificates</p><p>In doing so, two files will be generated, as follows:</p><p><strong class="source-inline">localhost.crt</strong>: Self-signed certificate</p><p><strong class="source-inline">localhost.key</strong>: Private key</p><p class="callout-heading">Note</p><p class="callout">In advanced chapters, we will cover how to retrieve a valid certificate for production with <a id="_idIndexMarker319"/>Let's Encrypt (<a href="https://letsencrypt.org">https://letsencrypt.org</a>) for free.</p></li>
+				<li>Update <strong class="source-inline">main.go</strong> to run the server on HTTPS by utilizing the self-signed certificates, as follows (note that we use port 443 now, which is the default HTTPS port):<p class="source-code">router.RunTLS(":443", "certs/localhost.crt", "certs/localhost.key")</p></li>
+				<li>Run the application, and the logs will confirm the API is served through HTTPS, as illustrated here:<div id="_idContainer153" class="IMG---Figure"><img src="image/Figure_4.34_B17115.jpg" alt="Figure 4.34 – Listening and serving HTTPS&#13;&#10;"/></div><p class="figure-caption">Figure 4.34 – Listening and serving HTTPS</p></li>
+				<li>Head to your<a id="_idIndexMarker320"/> browser, and then navigate to <a href="https://localhost/recipes">https://localhost/recipes</a>. A secure-website icon will be shown on the left side of the URL bar, as illustrated in the following screenshot:<div id="_idContainer154" class="IMG---Figure"><img src="image/Figure_4.35_B17115.jpg" alt="Figure 4.35 – Encrypted connection to localhost&#13;&#10;"/></div><p class="figure-caption">Figure 4.35 – Encrypted connection to localhost</p><p class="callout-heading">Note</p><p class="callout">If you're using Google Chrome as your default browser, you need to enable the <strong class="source-inline">allow-insecure-localhost</strong> option for the browser to accept the self-signed certificates.</p><p>If you're using cURL to interact with the API, skip certificate verification, otherwise <a id="_idIndexMarker321"/>you'll get the following error message:</p><div id="_idContainer155" class="IMG---Figure"><img src="image/Figure_4.36_B17115.jpg" alt="Figure 4.36 – Self-signed certificate verification&#13;&#10;"/></div><p class="figure-caption">Figure 4.36 – Self-signed certificate verification</p><p>You can fix the preceding error by specifying a certificate bundle on the <strong class="bold">command-line interface</strong> (<strong class="bold">CLI</strong>) with the following command:</p><p class="source-code">curl --cacert certs/localhost.crt <strong class="source-inline">https://localhost/recipes</strong></p><p>Or, you can use a <strong class="source-inline">–k</strong> flag to skip the SSL verification, as follows (not recommended if interacting with external websites):</p><p class="source-code">curl -k <strong class="source-inline">https://localhost/recipes</strong></p></li>
+				<li>For development, simply keep using the localhost, or access the API from a custom domain. You can create an alias with a domain name locally by adding the following entry to your <strong class="source-inline">/etc/hosts</strong> file: <p class="source-code"> 127.0.0.1 api.recipes.io</p></li>
+				<li>Once the <a id="_idIndexMarker322"/>changes are saved, you can test it out by executing a <strong class="source-inline">ping</strong> command on <strong class="source-inline">api.recipes.io</strong>, as follows:</li>
+			</ol>
+			<div>
+				<div id="_idContainer156" class="IMG---Figure">
+					<img src="image/Figure_4.37_B17115.jpg" alt="Figure 4.37 – ping output&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.37 – ping output</p>
+			<p>The domain name is reachable and points to <strong class="source-inline">127.0.0.1</strong>. You can now access the RESTful API by navigating to <a href="https://api.recipes.io:8080">https://api.recipes.io:8080</a>, as illustrated in the following screenshot:</p>
+			<div>
+				<div id="_idContainer157" class="IMG---Figure">
+					<img src="image/Figure_4.38_B17115.jpg" alt="Figure 4.38 – Alias domain name&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.38 – Alias domain name</p>
+			<p>Great! You will now be able to secure your API endpoints with authentication and serve your API through a custom domain name locally.</p>
+			<p>Before we wrap up this chapter, you need to update the API documentation to include the authentication endpoints <a id="_idIndexMarker323"/>we implemented throughout the chapter, as follows:</p>
+			<ol>
+				<li value="1">First, update the general metadata to include an <strong class="source-inline">Authorization</strong> header in the API requests, as follows:<p class="source-code">// Recipes API</p><p class="source-code">//</p><p class="source-code">// This is a sample recipes API. You can find out more </p><p class="source-code">   about the API at </p><p class="source-code">   https://github.com/PacktPublishing/Building-</p><p class="source-code">   Distributed-Applications-in-Gin.</p><p class="source-code">//</p><p class="source-code">//  Schemes: http</p><p class="source-code">//  Host: api.recipes.io:8080</p><p class="source-code">//  BasePath: /</p><p class="source-code">//  Version: 1.0.0</p><p class="source-code">//  Contact: Mohamed Labouardy </p><p class="source-code">//  &lt;mohamed@labouardy.com&gt; https://labouardy.com</p><p class="source-code">//  SecurityDefinitions:</p><p class="source-code">//  api_key:</p><p class="source-code">//    type: apiKey</p><p class="source-code">//    name: Authorization</p><p class="source-code">//    in: header</p><p class="source-code">//</p><p class="source-code">//  Consumes:</p><p class="source-code">//  - application/json</p><p class="source-code">//</p><p class="source-code">//  Produces:</p><p class="source-code">//  - application/json</p><p class="source-code">// swagger:meta</p><p class="source-code">package main</p></li>
+				<li>Then, write a <strong class="source-inline">swagger:operation</strong> annotation on top of the <strong class="source-inline">SignInHandler</strong> handler, as <a id="_idIndexMarker324"/>follows:<p class="source-code">// swagger:operation POST /signin auth signIn</p><p class="source-code">// Login with username and password</p><p class="source-code">// ---</p><p class="source-code">// produces:</p><p class="source-code">// - application/json</p><p class="source-code">// responses:</p><p class="source-code">//     '200':</p><p class="source-code">//         description: Successful operation</p><p class="source-code">//     '401':</p><p class="source-code">//         description: Invalid credentials</p><p class="source-code">func (handler *AuthHandler) SignInHandler(c *gin.Context) {}</p></li>
+				<li>Write a <strong class="source-inline">swagger:operation</strong> annotation on top of the <strong class="source-inline">RefreshHandler</strong> handler, as<a id="_idIndexMarker325"/> follows:<p class="source-code">// swagger:operation POST /refresh auth refresh</p><p class="source-code">// Get new token in exchange for an old one</p><p class="source-code">// ---</p><p class="source-code">// produces:</p><p class="source-code">// - application/json</p><p class="source-code">// responses:</p><p class="source-code">//     '200':</p><p class="source-code">//         description: Successful operation</p><p class="source-code">//     '400':</p><p class="source-code">//         description: Token is new and doesn't need </p><p class="source-code">//                      a refresh</p><p class="source-code">//     '401':</p><p class="source-code">//         description: Invalid credentials</p><p class="source-code">func (handler *AuthHandler) RefreshHandler(c *gin.Context) </p><p class="source-code">{}</p></li>
+				<li>The<a id="_idIndexMarker326"/> operation expects a request body with the following attributes:<p class="source-code">// API user credentials</p><p class="source-code">// It is used to sign in</p><p class="source-code">//</p><p class="source-code">// swagger:model user</p><p class="source-code">type User struct {</p><p class="source-code">  // User's password</p><p class="source-code">  //</p><p class="source-code">  // required: true</p><p class="source-code">  Password string `json:"password"`</p><p class="source-code">  // User's login</p><p class="source-code">  //</p><p class="source-code">  // required: true</p><p class="source-code">  Username string `json:"username"`</p><p class="source-code">}</p></li>
+				<li>Generate the OpenAPI specification, then serve the JSON file with the Swagger UI by executing the following commands:<p class="source-code"><strong class="bold">swagger generate spec -o ./swagger.json  </strong></p><p class="source-code"><strong class="bold">swagger serve --flavor=swagger ./swagger.json</strong></p><p>The <a id="_idIndexMarker327"/>authentication endpoints (<strong class="source-inline">/refresh</strong> and <strong class="source-inline">/signin</strong>) should be added to the list of operations, as shown in the following screenshot:</p><div id="_idContainer158" class="IMG---Figure"><img src="image/Figure_4.39_B17115.jpg" alt="Figure 4.39 – Authentication operations&#13;&#10;"/></div><p class="figure-caption">Figure 4.39 – Authentication operations</p></li>
+				<li>Now, click on the <strong class="source-inline">signin </strong>endpoint, and you will be able to fill the username and password attributes directly from the Swagger UI, as illustrated in the following screenshot:<div id="_idContainer159" class="IMG---Figure"><img src="image/Figure_4.40_B17115.jpg" alt="Figure 4.40 – Sign-in credentials&#13;&#10;"/></div><p class="figure-caption">Figure 4.40 – Sign-in credentials</p></li>
+				<li>Next, click on <strong class="bold">Execute</strong> and <a id="_idIndexMarker328"/>a token should be generated that you can include in the <strong class="source-inline">Authorization</strong> header to interact with endpoints that require authorization, as illustrated in the following screenshot:</li>
+			</ol>
+			<div>
+				<div id="_idContainer160" class="IMG---Figure">
+					<img src="image/Figure_4.41_B17115.jpg" alt="Figure 4.41 – Authorization header&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.41 – Authorization header</p>
+			<p>You now are able to build a secure Gin RESTful API and serve it through the HTTPS protocol.</p>
+			<h1 id="_idParaDest-79"><a id="_idTextAnchor085"/>Summary</h1>
+			<p>In this chapter, you learned a few of the best practices and recommendations for building a secure RESTful API based on the Gin web framework. You also covered how to implement JWT in Golang and how to persist session cookies across API requests. </p>
+			<p>You have also explored how a third-party solution such as Auth0 can be used as an authentication provider and how it can be integrated with Golang to secure API endpoints. Finally, you learned how to serve an API through the HTTPS protocol.</p>
+			<p>In the next chapter, we will build a user-friendly UI (also known as a frontend) on top of the RESTful API with the React web framework.</p>
+			<h1 id="_idParaDest-80"><a id="_idTextAnchor086"/>Questions</h1>
+			<ol>
+				<li value="1">How would you implement a sign-up endpoint to create a new user account?</li>
+				<li>How would you implement a profile endpoint to return a user profile?</li>
+				<li>How would you generate a Swagger specification for a sign-out endpoint?</li>
+			</ol>
+			<h1 id="_idParaDest-81"><a id="_idTextAnchor087"/>Further reading</h1>
+			<ul>
+				<li><em class="italic">OAuth 2.0 Cookbook</em> by Adolfo Eloy Nascimento, Packt Publishing</li>
+				<li><em class="italic">SSL Complete Guide - </em>HTTP to HTTPS by Bogdan Stashchuk, Packt Publishing</li>
+			</ul>
+		</div>
+	</body></html>

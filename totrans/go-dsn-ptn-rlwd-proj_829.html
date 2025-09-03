@@ -1,0 +1,38 @@
+<html><head></head><body>
+<div class="book" title="Rate limiting with service middleware">
+<div class="book" title="Middleware in Go kit"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_1"><a id="ch10lvl2sec00133" class="calibre1"/>Middleware in Go kit</h2></div></div></div><p class="calibre10">Endpoint middleware in Go kit is specified by the <code class="email">endpoint.Middleware</code> function type:</p><pre class="programlisting">type Middleware func(Endpoint) Endpoint 
+</pre><p class="calibre10">A piece of middleware is simply a function that takes <code class="email">Endpoint</code> and returns <code class="email">Endpoint</code>. Remember that <code class="email">Endpoint</code> is also a function:</p><pre class="programlisting">type Endpoint func(ctx context.Context, request
+  interface{}) (response interface{}, err error) 
+</pre><p class="calibre10">This gets a little confusing, but they are the same as the wrappers we built for <code class="email">http.HandlerFunc</code>. A middleware function returns an <code class="email">Endpoint</code> function that does something before and/or after calling the <code class="email">Endpoint</code> being wrapped. The arguments passed into the function that returns the <code class="email">Middleware</code> are closured in, which means that they are available to the inner code (via closures) without the state having to be stored anywhere else.</p><p class="calibre10">We are going to use the <code class="email">NewTokenBucketLimiter</code> middleware from Go kit's <code class="email">ratelimit</code> package, and if we take a look at the code, we'll see how it uses closures and returns functions to inject a call to the token bucket's <code class="email">TakeAvailable</code> method before passing execution to the <code class="email">next</code> endpoint:</p><pre class="programlisting">func NewTokenBucketLimiter(tb *ratelimit.Bucket)
+  endpoint.Middleware { 
+  return func(next endpoint.Endpoint) endpoint.Endpoint { 
+    return func(ctx context.Context, request interface{})
+    (interface{}, error) { 
+      if tb.TakeAvailable(1) == 0 { 
+        return nil, ErrLimited 
+      } 
+      return next(ctx, request) 
+    } 
+  } 
+} 
+</pre><p class="calibre10">A pattern has emerged within Go kit where you obtain the endpoint and then put all middleware adaptations inside their own block immediately afterwards. The returned function is given the endpoint when it is called, and the same variable is overwritten with the result.</p><p class="calibre10">For a simple example, consider this code:</p><pre class="programlisting">e := getEndpoint(srv) 
+{ 
+  e = getSomeMiddleware()(e) 
+  e = getLoggingMiddleware(logger)(e) 
+  e = getAnotherMiddleware(something)(e) 
+} 
+</pre><p class="calibre10">We will now do this for our endpoints; update the code inside the main function to add the rate limiting middleware:</p><pre class="programlisting">  hashEndpoint := vault.MakeHashEndpoint(srv) 
+  { 
+    hashEndpoint = ratelimitkit.NewTokenBucketLimiter
+     (rlbucket)(hashEndpoint) 
+  } 
+  validateEndpoint := vault.MakeValidateEndpoint(srv) 
+  { 
+    validateEndpoint = ratelimitkit.NewTokenBucketLimiter
+     (rlbucket)(validateEndpoint) 
+  } 
+  endpoints := vault.Endpoints{ 
+    HashEndpoint:     hashEndpoint, 
+    ValidateEndpoint: validateEndpoint, 
+  } 
+</pre><p class="calibre10">There's nothing much to change here; we're just updating the <code class="email">hashEndpoint</code> and <code class="email">validateEndpoint</code> variables before assigning them to the <code class="email">vault.Endpoints</code> struct.</p></div></div></body></html>

@@ -1,0 +1,744 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Testing</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we will cover the following recipes:</p>
+<ul>
+<li>Mocking using the standard library</li>
+<li>Using the Mockgen package</li>
+<li>Using table-driven tests to improve coverage</li>
+<li>Using third-party testing tools</li>
+<li>Practical fuzzing</li>
+<li>Behavior testing using Go</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Introduction</h1>
+                </header>
+            
+            <article>
+                
+<p>This chapter will be different from the previous chapters; this will focus on testing and testing methodologies. Go provides excellent testing support out of the box, however, it can be difficult to understand coming from more dynamic languages where monkey patching and mocking are relatively straightforward.</p>
+<p>Go testing encourages a specific structure for your code, in particular, testing and mocking interfaces is very straightforward and well supported. Some types of code can be more difficult to test. For example, it can be difficult to test code that makes use of package-level global variables, places that have not been abstracted into interfaces, and structs that have non-exported variables or methods. This chapter will share some recipes for testing Go code.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Mocking using the standard library</h1>
+                </header>
+            
+            <article>
+                
+<p>In Go, mocking typically means implementing an interface with a test version that allows you to control runtime behavior from tests. It may also refer to mocking functions and methods, for which we'll explore another trick in this recipe. This trick uses the <kbd>Patch</kbd> and <kbd>Restore</kbd> functions defined at <a href="https://play.golang.org/p/oLF1XnRX3C">https://play.golang.org/p/oLF1XnRX3C</a>.</p>
+<p>In general, it's better to compose code so that you can use interfaces frequently and the code is in small testable chunks. Code that contains lots of branching conditions or deeply nested logic can be tricky to test and tests tend to be more brittle at the end. This is because a developer will need to keep track of more mock objects, patches, return values, and states within their tests.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Download and install Go on your operating system from <a href="https://golang.org/doc/install">https://golang.org/doc/install</a> and configure your <kbd>GOPATH</kbd> environment variable.</li>
+<li>Open a terminal/console application.</li>
+<li>Navigate to your <kbd>GOPATH/src</kbd> and create a project directory, for example, <kbd>$GOPATH/src/github.com/yourusername/customrepo</kbd>.</li>
+</ol>
+<p style="padding-left: 60px">All code will be run and modified from this directory.</p>
+<ol start="4">
+<li>Optionally, install the latest tested version of the code using the <kbd>go get github.com/agtorre/go-cookbook/</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter8/mocking</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter8/mocking">https://github.com/agtorre/go-cookbook/tree/master/chapter8/mocking</a> or use this as an exercise to write some of your own code.</li>
+</ol>
+<ol start="3">
+<li>Create a file called <kbd>mock.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package mocking<br/><br/>        // DoStuffer is a simple interface<br/>        type DoStuffer interface {<br/>            DoStuff(input string) error<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>patch.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package mocking<br/><br/>        import "reflect"<br/><br/>        // Restorer holds a function that can be used<br/>        // to restore some previous state.<br/>        type Restorer func()<br/><br/>        // Restore restores some previous state.<br/>        func (r Restorer) Restore() {<br/>            r()<br/>        }<br/><br/>        // Patch sets the value pointed to by the given destination to <br/>        // the given value, and returns a function to restore it to its <br/>        // original value. The value must be assignable to the element <br/>        //type of the destination.<br/>        func Patch(dest, value interface{}) Restorer {<br/>            destv := reflect.ValueOf(dest).Elem()<br/>            oldv := reflect.New(destv.Type()).Elem()<br/>            oldv.Set(destv)<br/>            valuev := reflect.ValueOf(value)<br/>            if !valuev.IsValid() {<br/>                // This isn't quite right when the destination type is <br/>                // not nilable, but it's better than the complex <br/>                // alternative.<br/>                valuev = reflect.Zero(destv.Type())<br/>            }<br/>            destv.Set(valuev)<br/>            return func() {<br/>                destv.Set(oldv)<br/>            }<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>exec.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package mocking<br/><br/>        import "errors"<br/><br/>        var ThrowError = func() error {<br/>            return errors.New("always fails")<br/>        }<br/><br/>        func DoSomeStuff(d DoStuffer) error {<br/><br/>            if err := d.DoStuff("test"); err != nil {<br/>                return err<br/>            }<br/><br/>            if err := ThrowError(); err != nil {<br/>                return err<br/>            }<br/><br/>            return nil<br/>        }
+</pre>
+<ol start="6">
+<li>Create a file called <kbd>mock_test.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package mocking<br/><br/>        type MockDoStuffer struct {<br/>            // closure to assist with mocking<br/>            MockDoStuff func(input string) error<br/>        }<br/><br/>        func (m *MockDoStuffer) DoStuff(input string) error {<br/>            if m.MockDoStuff != nil {<br/>                return m.MockDoStuff(input)<br/>            }<br/>            // if we don't mock, return a common case<br/>            return nil<br/>        }
+</pre>
+<ol start="7">
+<li>Create a file called <kbd>exec_test.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package mocking<br/><br/>        import (<br/>            "errors"<br/>            "testing"<br/>        )<br/><br/>        func TestDoSomeStuff(t *testing.T) {<br/>            tests := []struct {<br/>                name       string<br/>                DoStuff    error<br/>                ThrowError error<br/>                wantErr    bool<br/>            }{<br/>                {"base-case", nil, nil, false},<br/>                {"DoStuff error", errors.New("failed"), nil, true},<br/>                {"ThrowError error", nil, errors.New("failed"), true},<br/>            }<br/>            for _, tt := range tests {<br/>                t.Run(tt.name, func(t *testing.T) {<br/>                    // An example of mocking an interface<br/>                    // with our mock struct<br/>                    d := MockDoStuffer{}<br/>                    d.MockDoStuff = func(string) error {<br/>                    return tt.DoStuff }<br/><br/>                   // mocking a function that is declared as a variable<br/>                   // will not work for func A(),<br/>                   // must be var A = func()<br/>                   defer Patch(&amp;ThrowError, func() error { return <br/>                   tt.ThrowError }).Restore()<br/><br/>                  if err := DoSomeStuff(&amp;d); (err != nil) != tt.wantErr <br/>                  {<br/>                      t.Errorf("DoSomeStuff() error = %v, <br/>                      wantErr %v", err, tt.wantErr)<br/>                  }<br/>                })<br/>            }<br/>        }
+</pre>
+<ol start="8">
+<li><span>Fill in tests for the remaining functions, go up one directory and run</span> <kbd>go test</kbd>. Ensure that all the tests pass:</li>
+</ol>
+<pre>
+<strong>      $go test</strong><br/><strong>      PASS</strong><br/><strong>      ok github.com/agtorre/go-cookbook/chapter8/mocking 0.006s</strong>
+</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>This recipe demonstrates how to mock interfaces as well as functions that have been declared as variables. There are also certain libraries that can mimic this patch/restore directly on declared functions, but they bypass a lot of Go's type safety to accomplish that feat. If you need to patch functions from an external package, you may use the following trick:</p>
+<pre>
+// whatever package you wanna patch<br/>import "github.com/package" <br/><br/>// this is patchable using the method described in this recipe<br/>var packageDoSomething = package.DoSomething
+</pre>
+<p>For this recipe, we start by setting up our test and using table-driven tests. There's a lot of literature about this technique, and I recommend exploring it further. Once our tests are set up, we choose outputs for our mocked functions. In order to mock our interface, our mocked objects define closures that can be rewritten at runtime. The patch/restore technique is applied to change our global function and restore it after each loop. This is thanks to <kbd>t.Run</kbd>, which sets up a new function for each loop of the test.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using the Mockgen package</h1>
+                </header>
+            
+            <article>
+                
+<p>The previous example used our custom mock objects. When you're working with a lot of interfaces, writing these can become cumbersome and error prone. This is a place where generating code makes a lot of sense. Fortunately, there's a package called <kbd>github.com/golang/mock/gomock</kbd> that provides a generation of mock objects and gives us a very useful library to use in conjunction with interface testing.</p>
+<p>This recipe will explore some of the functionality of <kbd>gomock</kbd> and will cover trade-offs on where, when, and how to work with and generate mock objects.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Refer to the <em>Getting ready</em> section of <span><span>the</span></span> <span><em>Mocking using the standard library</em> recipe of this chapter.</span></li>
+<li>Run the <kbd>go get github.com/golang/mock/</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter8/mockgen</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter8/mockgen">https://github.com/agtorre/go-cookbook/tree/master/chapter8/mockgen</a> or use this as an exercise to write some of your own.</li>
+<li>Create a file called <kbd>interface.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package mockgen<br/><br/>        // GetSetter implements get a set of a<br/>        // key value pair<br/>        type GetSetter interface {<br/>            Set(key, val string) error<br/>            Get(key string) (string, error)<br/>        }
+</pre>
+<ol start="4">
+<li>Create a directory named <kbd>internal</kbd>.</li>
+<li>Run the <kbd>mockgen -destination internal/mocks.go -package internal github.com/agtorre/go-cookbook/chapter8/mockgen GetSetter</kbd> command:
+<ul>
+<li>Ensure that you replace the package path with your local version.</li>
+<li>This will create a file named <kbd>internal/mocks.go</kbd>.</li>
+</ul>
+</li>
+<li>Create a file called <kbd>exec.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package mockgen<br/><br/>        // Controller is a struct demonstrating<br/>        // one way to initialize interfaces<br/>        type Controller struct {<br/>            GetSetter<br/>        }<br/><br/>        // GetThenSet checks if a value is set. If not<br/>        // it sets it.<br/>        func (c *Controller) GetThenSet(key, value string) error {<br/>            val, err := c.Get(key)<br/>            if err != nil {<br/>                return err<br/>            }<br/><br/>            if val != value {<br/>                return c.Set(key, value)<br/>            }<br/>            return nil<br/>        }
+</pre>
+<ol start="7">
+<li>Create a file called <kbd>interface_test.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package mockgen<br/><br/>        import (<br/>            "errors"<br/>            "testing"<br/><br/>            "github.com/agtorre/go-cookbook/chapter8/mockgen/internal"<br/>            "github.com/golang/mock/gomock"<br/>        )<br/><br/>        func TestExample(t *testing.T) {<br/>            ctrl := gomock.NewController(t)<br/>            defer ctrl.Finish()<br/><br/>            mockGetSetter := internal.NewMockGetSetter(ctrl)<br/><br/>            var k string<br/>            mockGetSetter.EXPECT().Get("we can put anything <br/>            here!").Do(func(key string) {<br/>                k = key<br/>            }).Return("", nil)<br/><br/>            customError := errors.New("failed this time")<br/><br/>            mockGetSetter.EXPECT().Get(gomock.Any()).Return("", <br/>            customError)<br/><br/>            if _, err := mockGetSetter.Get("we can put anything <br/>            here!"); err != nil {<br/>                t.Errorf("got %#v; want %#v", err, nil)<br/>            }<br/>            if k != "we can put anything here!" {<br/>                t.Errorf("bad key")<br/>            }<br/><br/>            if _, err := mockGetSetter.Get("key"); err == nil {<br/>                t.Errorf("got %#v; want %#v", err, customError)<br/>            }<br/>        }
+</pre>
+<ol start="8">
+<li>Create a file called <kbd>exec_test.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package mockgen<br/><br/>        import (<br/>            "errors"<br/>            "testing"<br/><br/>            "github.com/agtorre/go-cookbook/chapter8/mockgen/internal"<br/>            "github.com/golang/mock/gomock"<br/>        )<br/><br/>        func TestController_Set(t *testing.T) {<br/>            tests := []struct {<br/>                name string<br/>                getReturnVal string<br/>                getReturnErr error<br/>                setReturnErr error<br/>                wantErr bool<br/>            }{<br/>                {"get error", "value", errors.New("failed"), nil, <br/>                true},<br/>                {"value match", "value", nil, nil, false},<br/>                {"no errors", "not set", nil, nil, false},<br/>                {"set error", "not set", nil, errors.New("failed"),<br/>                true},<br/>            }<br/>            for _, tt := range tests {<br/>                t.Run(tt.name, func(t *testing.T) {<br/>                    ctrl := gomock.NewController(t)<br/>                    defer ctrl.Finish()<br/><br/>                    mockGetSetter := internal.NewMockGetSetter(ctrl)<br/>                    mockGetSetter.EXPECT().Get("key").AnyTimes()<br/>                    .Return(tt.getReturnVal, tt.getReturnErr)<br/>                    mockGetSetter.EXPECT().Set("key", <br/>                    gomock.Any()).AnyTimes().Return(tt.setReturnErr)<br/><br/>                    c := &amp;Controller{<br/>                        GetSetter: mockGetSetter,<br/>                    }<br/>                    if err := c.GetThenSet("key", "value"); (err != <br/>                    nil) != tt.wantErr {<br/>                        t.Errorf("Controller.Set() error = %v, wantErr <br/>                        %v", err, tt.wantErr)<br/>                    }<br/>                })<br/>             }<br/>        }
+</pre>
+<ol start="9">
+<li><span>Fill in te</span>sts for t<span>he remaining functions, go up one directory, and run</span> <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>The generated mock objects allow tests to specify what arguments are expected, the number of times a function will be called, and what to return, and they allow us to set additional artifacts, for example, we could write to a channel directly if the original function had a similar workflow. The <kbd>interface_test.go</kbd> file showcases some examples of using mock objects while calling them in-line. Generally, tests will look more like <kbd>exec_test.go</kbd> where we'll want intercept interface function calls performed by our actual code and change their behavior at test time.</p>
+<p>The <kbd>exec_test.go</kbd> file also showcases how you might use mocked objects in a table-driven test environment. The <kbd>Any()</kbd> function means that the mocked function can be called zero or more times, which is great for cases where the code terminates early.</p>
+<p>One last trick demonstrated in this recipe is sticking mocked objects into the <kbd>internal</kbd> package. This is useful when you need to mock functions declared in packages outside your own. This allows those methods to be defined in a <kbd>non _test.go</kbd> file, but doesn't allow to export them to users of your libraries. Generally, it's easier to just stick mocked objects into <kbd>_test.go</kbd> files using the same package name as the tests you're currently writing.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using table-driven tests to improve coverage</h1>
+                </header>
+            
+            <article>
+                
+<p>This recipe will demonstrate the process to write a table-driven test, collect test coverage, and improve it. It will also make use of the <kbd>github.com/cweill/gotests</kbd> package to generate tests. If you've been downloading the test code for other chapters, these should look very familiar. Using a combination of this recipe and the previous two, you should be able to achieve 100% test coverage in all cases with some work.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Refer to the <em>Getting ready</em> section of <span>the <em>Mocking using the standard library</em> recipe of this chapter.</span></li>
+<li>Run the <kbd>go get github.com/cweill/gotests/</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter8/coverage</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter8/coverage">https://github.com/agtorre/go-cookbook/tree/master/chapter8/coverage</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>coverage.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import "errors"<br/><br/>        // Coverage is a simple function with some branching conditions<br/>        func Coverage(condition bool) error {<br/>            if condition {<br/>                return errors.New("condition was set")<br/>            }<br/>            return nil<br/>        }
+</pre>
+<ol start="4">
+<li>Run the <kbd>gotests -all -w</kbd> command.</li>
+<li>This will generate a file named <kbd>coverage_test.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import "testing"<br/><br/>        func TestCoverage(t *testing.T) {<br/>            type args struct {<br/>                condition bool<br/>            }<br/>            tests := []struct {<br/>                name string<br/>                args args<br/>                wantErr bool<br/>            }{<br/>                // TODO: Add test cases.<br/>            }<br/>            for _, tt := range tests {<br/>                t.Run(tt.name, func(t *testing.T) {<br/>                    if err := Coverage(tt.args.condition); (err != nil) <br/>                    != tt.wantErr {<br/>                        t.Errorf("Coverage() error = %v, wantErr %v", <br/>                        err, tt.wantErr)<br/>                    }<br/>                })<br/>            }<br/>        }
+</pre>
+<ol start="6">
+<li>Fill in the <kbd>TODO</kbd> section with the following:</li>
+</ol>
+<pre>
+        {"no condition", args{true}, true},
+</pre>
+<ol start="7">
+<li>Run the <kbd>go test -cover</kbd> command, and you will see the following output:</li>
+</ol>
+<pre>
+<strong>      go test -cover </strong><br/><strong>      PASS</strong><br/><strong>      coverage: 66.7% of statements</strong><br/><strong>      ok github.com/agtorre/go-cookbook/chapter8/coverage 0.007s</strong>
+</pre>
+<ol start="8">
+<li>Add another item to the <kbd>TODO</kbd> section:</li>
+</ol>
+<pre>
+        {"condition", args{false}, false},
+</pre>
+<ol start="9">
+<li>Run the <kbd>go test -cover</kbd> command, and you will see the following output:</li>
+</ol>
+<pre>
+<strong>      go test -cover </strong><br/><strong>      PASS</strong><br/><strong>      coverage: 100.0% of statements</strong><br/><strong>      ok github.com/agtorre/go-cookbook/chapter8/coverage 0.007s</strong>
+</pre>
+<ol start="10">
+<li>Run the following commands:</li>
+</ol>
+<pre>
+<strong>      go test -coverprofile=cover.out </strong><br/><strong>      go tool cover -html=cover.out -o coverage.html</strong>
+</pre>
+<ol start="11">
+<li>Open the <kbd>coverage.html</kbd> file in a browser to see a graphical coverage report.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>go test -cover</kbd> command comes with a basic Go installation. It can be used to collect a coverage report of your Go application. In addition, it has the ability to output coverage metrics and an HTML coverage report. This tool is often wrapped by other tools, which will be covered in the next recipe. These table-driven test styles are covered at <a href="https://github.com/golang/go/wiki/TableDrivenTests">https://github.com/golang/go/wiki/TableDrivenTests</a> and are an excellent way to make clean tests that can handle many cases without writing a bunch of extra code.</p>
+<p>This recipe starts by automatically generating test code, then filling in test cases as needed to help create more coverage. The only time this is especially tricky is when you have non-variable functions or methods being invoked. For example, it can be tricky to make <kbd>gob.Encode()</kbd> return an error to increase test coverage. It can also seem quirky to use the method described in the <em>Mocking using the standard library</em> recipe of this chapter and use <kbd>var gobEncode = gob.Encode</kbd> to allow patching. For this reason, it can be difficult to advocate for 100% test coverage and instead argue for focusing on testing the external interface extensively, that is, testing many variations of input and output, and in some cases, as we'll see in the <em>Behavior testing using Go</em> recipe of this chapter, fuzzing can become useful.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using third-party testing tools</h1>
+                </header>
+            
+            <article>
+                
+<p>There are a number of helpful tools for Go testing. Tools that make it easier to get an idea of code coverage at a per-function level, tools to do assertions to reduce testing lines of code, and test runners. This recipe will cover <kbd>github.com/axw/gocov</kbd> and <kbd>github.com/smartystreets/goconvey</kbd> packages to demonstrate some of this functionality. There are a number of other notable test frameworks depending on your needs. The <kbd>github.com/smartystreets/goconvey</kbd> package supports both assertions and is a test runner. It used to be the cleanest way to have labeled subtests prior to Go 1.7.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Refer to the <em>Getting ready</em> section of <span>the <em>Mocking using the standard library</em><br/>
+recipe of this chapter.</span></li>
+<li>Run the <kbd>go get github.com/axw/gocov</kbd> command.</li>
+<li>Run the <kbd>go get github.com/smartystreets/goconvey/</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter8/tools</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter8/tools">https://github.com/agtorre/go-cookbook/tree/master/chapter8/tools</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>funcs.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package tools<br/><br/>        import (<br/>            "fmt"<br/>        )<br/><br/>        func example() error {<br/>            fmt.Println("in example")<br/>            return nil<br/>        }<br/><br/>        var example2 = func() int {<br/>            fmt.Println("in example2")<br/>            return 10<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>structs.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package tools<br/><br/>        import (<br/>            "errors"<br/>            "fmt"<br/>        )<br/><br/>        type c struct {<br/>            Branch bool<br/>        }<br/><br/>        func (c *c) example3() error {<br/>            fmt.Println("in example3")<br/>            if c.Branch {<br/>                fmt.Println("branching code!")<br/>                return errors.New("bad branch")<br/>            }<br/>            return nil<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>funcs_test.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package tools<br/><br/>        import (<br/>            "testing"<br/><br/>            . "github.com/smartystreets/goconvey/convey"<br/>        )<br/><br/>        func Test_example(t *testing.T) {<br/>            tests := []struct {<br/>                name string<br/>            }{<br/>                {"base-case"},<br/>            }<br/>            for _, tt := range tests {<br/>                Convey(tt.name, t, func() {<br/>                    res := example()<br/>                    So(res, ShouldBeNil)<br/>                })<br/>            }<br/>        }<br/><br/>        func Test_example2(t *testing.T) {<br/>            tests := []struct {<br/>                name string<br/>            }{<br/>                {"base-case"},<br/>            }<br/>            for _, tt := range tests {<br/>                Convey(tt.name, t, func() {<br/>                    res := example2()<br/>                    So(res, ShouldBeGreaterThanOrEqualTo, 1)<br/>                })<br/>            }<br/>        }
+</pre>
+<ol start="6">
+<li>Create a file called <kbd>structs_test.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package tools<br/><br/>        import (<br/>            "testing"<br/><br/>            . "github.com/smartystreets/goconvey/convey"<br/>        )<br/><br/>        func Test_c_example3(t *testing.T) {<br/>            type fields struct {<br/>                Branch bool<br/>            }<br/>            tests := []struct {<br/>                name string<br/>                fields fields<br/>                wantErr bool<br/>            }{<br/>                {"no branch", fields{false}, false},<br/>                {"branch", fields{true}, true},<br/>            }<br/>            for _, tt := range tests {<br/>                Convey(tt.name, t, func() {<br/>                    c := &amp;c{<br/>                        Branch: tt.fields.Branch,<br/>                    }<br/>                    So((c.example3() != nil), ShouldEqual, tt.wantErr)<br/>                })<br/>            }<br/>        }
+</pre>
+<ol start="7">
+<li>Run the <kbd>gocov test | gocov report</kbd> command, and you will see the following output:</li>
+</ol>
+<pre>
+<strong>      $ gocov test | gocov report</strong><br/><strong>      ok github.com/agtorre/go-cookbook/chapter8/tools 0.006s <br/>      coverage: 100.0% of statements</strong><br/><br/><strong>      github.com/agtorre/go-cookbook/chapter8/tools/struct.go <br/>      c.example3 100.00% (5/5)</strong><br/><strong>      github.com/agtorre/go-cookbook/chapter8/tools/funcs.go example <br/>      100.00% (2/2)</strong><br/><strong>      github.com/agtorre/go-cookbook/chapter8/tools/funcs.go @12:16 <br/>      100.00% (2/2)</strong><br/><strong>      github.com/agtorre/go-cookbook/chapter8/tools ---------- <br/>      100.00% (9/9)</strong><br/><br/><strong>      Total Coverage: 100.00% (9/9)</strong>
+</pre>
+<ol start="8">
+<li>Run the <kbd>goconvey</kbd> command, and it will open a browser that should look like this:</li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img class="image-border" src="assets/4ade351b-624e-4f0c-9f64-615cb799df68.png"/></div>
+<ol start="9">
+<li>Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>This recipe demonstrates how to wire <kbd>goconvey</kbd> command into your tests. The <kbd>Convey</kbd> keyword basically replaces <kbd>t.Run</kbd> and adds additional labels in the <kbd>goconvey</kbd> web UI, but it behaves slightly differently. If you have nested convey blocks, they're always re-executed in order, that is, as follows:</p>
+<pre>
+Convey("Outer loop", t, func(){<br/>    a := 1<br/>    Convey("Inner loop", t, func() {<br/>        a = 2<br/>    })<br/>    Convey ("Inner loop2", t, func(){<br/>        fmt.Println(a)<br/>     })<br/>})
+</pre>
+<p>The preceding code, using <kbd>goconvey</kbd> command, will print <kbd>1</kbd>. If we would used the built-in <kbd>t.Run</kbd> instead, it would instead print <kbd>2</kbd>. In other words, Go <kbd>t.Run</kbd> tests are run sequentially and are never repeated. This behavior can be useful for putting the setup code in outer convey blocks, but it's important to remember this distinction if you have to work with both.</p>
+<p>When using convey assertions, there's a check mark on successes in the UI and additional stats. It can also reduce the size of if checks to a single line and it's even possible to create custom assertions.</p>
+<p>If you leave up the <kbd>goconvey</kbd> web interface and turn on notifications, as you save your code, tests will automatically be run and you'll receive notifications on any increase or decrease in coverage as well as when your build fails.</p>
+<p>All three tools <span>assertions, the test runner, and the web UI</span> can be used independently or together.</p>
+<p>The <kbd>gocov</kbd> tool can be useful when working toward higher test coverage. It can quickly identify functions that are lacking in coverage and help you deep dive into your coverage report. In addition, <kbd>gocov</kbd> can be used to generate an alternate HTML report that is shipped with the Go code by using the <kbd>github.com/matm/gocov-html</kbd> package.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Practical fuzzing</h1>
+                </header>
+            
+            <article>
+                
+<p>This recipe will explore fuzzing and how it can be used to help validate functions. In the <em>Currency conversions and float64 considerations</em> recipe from <a href="1157db74-cc47-41c7-bed2-b3d0872397d6.xhtml" target="_blank">Chapter 3</a>, <em>Data Conversion and Composition</em>, we created a function that takes decimal US currency as a string and returns an int64 version representing cents. We'll modify that function and demonstrate finding a panic with fuzzing.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Refer to the <em>Getting ready</em> section of <span>the <em>Mocking using the standard library</em> recipe of this chapter.</span></li>
+<li>Run the <kbd>go get github.com/dvyukov/go-fuzz/go-fuzz</kbd> command.</li>
+<li>Run the <kbd>go get github.com/dvyukov/go-fuzz/go-fuzz-build</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter8/fuzz</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter8/fuzz">https://github.com/agtorre/go-cookbook/tree/master/chapter8/fuzz</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>dollars.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package fuzz<br/><br/>        import (<br/>            "errors"<br/>            "strconv"<br/>            "strings"<br/>        )<br/><br/>        // ConvertStringDollarsToPennies takes a dollar amount<br/>        // as a string, i.e. 1.00, 55.12 etc and converts it<br/>        // into an int64<br/>        func ConvertStringDollarsToPennies(amount string) (int64, <br/>        error) {<br/>            // check if amount can convert to a valid float<br/>            val, err := strconv.ParseFloat(amount, 64)<br/>            if err != nil {<br/>                return 0, err<br/>            }<br/><br/>            if val &gt; 1000 &amp;&amp; val &lt; 1100 {<br/>                panic("invalid range")<br/>            }<br/><br/>            // split the value on "."<br/>            groups := strings.Split(amount, ".")<br/><br/>            // if there is no . result will still be<br/>            // captured here<br/>            result := groups[0]<br/><br/>            // base string<br/>            r := ""<br/><br/>            // handle the data after the "."<br/>            if len(groups) == 2 {<br/>                if len(groups[1]) != 2 {<br/>                    return 0, errors.New("invalid cents")<br/>                }<br/>                r = groups[1]<br/>                if len(r) &gt; 2 {<br/>                    r = r[:2]<br/>                }<br/>            }<br/><br/>            // pad with 0, this will be<br/>            // 2 0's if there was no .<br/>            for len(r) &lt; 2 {<br/>                r += "0"<br/>            }<br/><br/>            result += r<br/>        <br/>            // convert it to an int<br/>            return strconv.ParseInt(result, 10, 64)<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>fuzz.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package fuzz<br/><br/>        // Fuzz is the interface required to use gofuzz<br/>        func Fuzz(data []byte) int {<br/>            amount := string(data)<br/><br/>            _, err := ConvertStringDollarsToPennies(amount)<br/>            if err != nil {<br/>                return 0<br/>            }<br/>            return 1<br/>        }
+</pre>
+<ol start="5">
+<li>Run the <kbd>go-fuzz-build github.com/agtorre/go-cookbook/chapter8/fuzz</kbd> command or change the path to match your own code.</li>
+<li>Run the following commands:</li>
+</ol>
+<pre>
+<strong>      mkdir -p output/corpus</strong><br/><br/><strong>      echo "0.01" &gt; output/corpus/a</strong><br/><strong>      echo "-0.01" &gt; output/corpus/b</strong><br/><strong>      echo "0.10" &gt; output/corpus/c</strong><br/><strong>      echo "1.00" &gt; output/corpus/d</strong><br/><strong>      echo "-1.00" &gt; output/corpus/e</strong><br/><strong>      echo "1.11" &gt; output/corpus/f</strong><br/><strong>      echo "1" &gt; output/corpus/g</strong><br/><strong>      echo "2" &gt; output/corpus/h</strong><br/><strong>      echo "999.99" &gt; output/corpus/i</strong>
+</pre>
+<ol start="7">
+<li>Run the <kbd>go-fuzz -bin=./fuzz-fuzz.zip -workdir=output</kbd> command, and you will see the following output:</li>
+</ol>
+<pre>
+<strong>      go-fuzz -bin=./fuzz-fuzz.zip -workdir=output</strong><br/><br/><strong>      .</strong><br/><strong>      .</strong><br/><strong>      .</strong><br/><strong>      2017/04/02 10:58:43 slaves: 4, corpus: 91 (11s ago), crashers: <br/>      1, restarts: 1/7064, execs: 204856 (13630/sec), cover: 453, <br/>      uptime: 15s</strong><br/><strong>      2017/04/02 10:58:46 slaves: 4, corpus: 91 (14s ago), crashers: <br/>      1, restarts: 1/7244, execs: 253555 (14086/sec), cover: 453, <br/>      uptime: 18s</strong>
+</pre>
+<ol start="8">
+<li>Exit by pressing <em>Ctrl</em> + <em>C</em> after a few iterations have been run.</li>
+<li>Fill in the tests for the remaining functions, go up one directory, and run the <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>github.com/dvyukov/go-fuzz</kbd> package uses evolutionary algorithms to build a corpus of inputs in order to test Go code. In our case, we introduced an intentional panic in order to demonstrate the behavior when a crash is found. Fuzzing is a practical way to find unexpected panics, especially when doing programming handling array bounds or arbitrary input.</p>
+<p>When fuzzing an application, on of the most difficult parts is writing an appropriate fuzz function. The <kbd>go-fuzz</kbd> application will adapt based on the responses from this function. If your fuzz function returns <kbd>1</kbd>, it considered a successful input. If <kbd>-1</kbd> is returned, the item will not be included in the corpus, and if <kbd>0</kbd> is returned, it's given lower priority. We can change the fuzz function in step 4 to return <kbd>-1</kbd> instead of <kbd>0</kbd> in order to find interesting input that is accepted but that may not have been expected. For example, <kbd>+1</kbd> is a possible input for this function.</p>
+<p>We also helped our fuzzer by suggesting some items to the corpus. These items were taken from our unit tests and represent known good values. This is important to help Go fuzz converge on relevant input, for example, if your function takes a range of integers as input, testing non-integer input can take a lot of time.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Behavior testing using Go</h1>
+                </header>
+            
+            <article>
+                
+<p>Behavior testing or integration testing is a good method of performing end-to-end black box testing. One popular framework for this type of testing is cucumber (<a href="https://cucumber.io/">https://cucumber.io/</a>), which uses the Gherkin language to describe the steps to a test in English and then implement those steps in code. Go has a cucumber library as well (<kbd>github.com/DATA-DOG/godog</kbd>). This recipe will explore using <kbd>godog</kbd> package to write behavior tests.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Refer to the <em>Getting ready</em> section of <span>the <em>Mocking using the standard library</em><br/>
+recipe of this chapter.</span></li>
+<li>Run the <kbd>go get github.com/DATA-DOG/godog</kbd> command.</li>
+<li>Run the <kbd>go get github.com/DATA-DOG/godog/cmd/godog</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter8/bdd</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter8/bdd">https://github.com/agtorre/go-cookbook/tree/master/chapter8/bdd</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>handler.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package bdd<br/><br/>        import (<br/>            "encoding/json"<br/>            "fmt"<br/>            "net/http"<br/>        )<br/><br/>        // HandlerRequest will be json decoded<br/>        // into by Handler<br/>        type HandlerRequest struct {<br/>            Name string `json:"name"`<br/>        }<br/><br/>        // Handler takes a request and renders a response<br/>        func Handler(w http.ResponseWriter, r *http.Request) {<br/>            w.Header().Set("Content-Type", "text/plain; charset=utf-8")<br/>            if r.Method != http.MethodPost {<br/>                w.WriteHeader(http.StatusMethodNotAllowed)<br/>                return<br/>            }<br/><br/>            dec := json.NewDecoder(r.Body)<br/>            var req HandlerRequest<br/>            if err := dec.Decode(&amp;req); err != nil {<br/>                w.WriteHeader(http.StatusBadRequest)<br/>                return<br/>            }<br/><br/>            w.WriteHeader(http.StatusOK)<br/>            w.Write([]byte(fmt.Sprintf("BDD testing %s", req.Name)))<br/>        }
+</pre>
+<ol start="4">
+<li>Create a new directory called <kbd>features</kbd>, and create a file called <kbd>features/handler.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        Feature: Bad Method<br/>         Scenario: Good request<br/>         Given we create a HandlerRequest payload with:<br/>            | reader |<br/>            | coder |<br/>            | other |<br/>         And we POST the HandlerRequest to /hello<br/>         Then the response code should be 200<br/>         And the response body should be:<br/>            | BDD testing reader |<br/>            | BDD testing coder |<br/>            | BDD testing other |
+</pre>
+<ol start="5">
+<li>Run the <kbd>godog</kbd> command, and you will see the following output:</li>
+</ol>
+<pre>
+<strong>      $ godog</strong><br/><strong>      .</strong><br/><strong>      1 scenarios (1 undefined)</strong><br/><strong>      4 steps (4 undefined)</strong><br/><strong>      89.062µs</strong><br/><strong>      .</strong>
+</pre>
+<ol start="6">
+<li>This should give you a skeleton to implement the tests that we wrote in our feature file; copy those into <kbd>handler_test.go</kbd> and implement the first two steps:</li>
+</ol>
+<pre>
+        package bdd<br/><br/>        import (<br/>            "bytes"<br/>            "encoding/json"<br/>            "fmt"<br/>            "net/http/httptest"<br/><br/>            "github.com/DATA-DOG/godog"<br/>            "github.com/DATA-DOG/godog/gherkin"<br/>        )<br/><br/>        var payloads []HandlerRequest<br/>        var resps []*httptest.ResponseRecorder<br/><br/>        func weCreateAHandlerRequestPayloadWith(arg1 <br/>        *gherkin.DataTable) error {<br/>            for _, row := range arg1.Rows {<br/>                h := HandlerRequest{<br/>                    Name: row.Cells[0].Value,<br/>                }<br/>                payloads = append(payloads, h)<br/>            }<br/>            return nil<br/>        }<br/><br/>        func wePOSTTheHandlerRequestToHello() error {<br/>            for _, p := range payloads {<br/>                v, err := json.Marshal(p)<br/>                if err != nil {<br/>                    return err<br/>                }<br/>                w := httptest.NewRecorder()<br/>                r := httptest.NewRequest("POST", "/hello", <br/>                bytes.NewBuffer(v))<br/><br/>                Handler(w, r)<br/>                resps = append(resps, w)<br/>            }<br/>            return nil<br/>        }
+</pre>
+<ol start="7">
+<li>Run the <kbd>godog</kbd> command, and you will see the following output:</li>
+</ol>
+<pre>
+<strong>      $ godog</strong><br/><strong>      .</strong><br/><strong>      1 scenarios (1 pending)</strong><br/><strong>      4 steps (2 passed, 1 pending, 1 skipped)</strong><br/><strong>      .</strong>
+</pre>
+<ol start="8">
+<li>Fill in the remaining two steps:</li>
+</ol>
+<pre>
+        func theResponseCodeShouldBe(arg1 int) error {<br/>            for _, r := range resps {<br/>                if got, want := r.Code, arg1; got != want {<br/>                    return fmt.Errorf("got: %d; want %d", got, want)<br/>                }<br/>            }<br/>            return nil<br/>        }<br/><br/>        func theResponseBodyShouldBe(arg1 *gherkin.DataTable) error {<br/>            for c, row := range arg1.Rows {<br/>                b := bytes.Buffer{}<br/>                b.ReadFrom(resps[c].Body)<br/>                if got, want := b.String(), row.Cells[0].Value;<br/>                got != want <br/>                {<br/>                    return fmt.Errorf("got: %s; want %s", got, want)<br/>                }<br/>            }<br/>            return nil<br/>        }<br/><br/>        func FeatureContext(s *godog.Suite) {<br/>            s.Step(`^we create a HandlerRequest payload with:$`, <br/>            weCreateAHandlerRequestPayloadWith)<br/>            s.Step(`^we POST the HandlerRequest to /hello$`, <br/>            wePOSTTheHandlerRequestToHello)<br/>            s.Step(`^the response code should be (d+)$`, <br/>            theResponseCodeShouldBe)<br/>            s.Step(`^the response body should be:$`, <br/>            theResponseBodyShouldBe)<br/>        }
+</pre>
+<ol start="9">
+<li>Run the <kbd>godog</kbd> command, and you will see the following output:</li>
+</ol>
+<pre>
+<strong>      $ godog </strong><br/><strong>      .</strong><br/><strong>      1 scenarios (1 passed)</strong><br/><strong>      4 steps (4 passed)</strong><br/><strong>      552.605µs</strong><br/><strong>      .</strong>
+</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>Cucumber frameworks work excellently for pair programming, end-to-end testing, and any sort of testing that is best communicated with written instructions and is understandable for non-technical people. Once a step has been implemented, it's generally possible to reuse it wherever it's needed. If you want to test integrations between services, tests can be written to use actual HTTP clients if you first ensure that your environment is set up to receive HTTP connections.<br/>
+The datadog implementation of BDD is lacking a few features that you might expect if you've used other Cucumber frameworks, including lack of examples, passing a context between functions, and a number of other key words. However, it's a good start, and by using a few tricks in this recipe, such as globals for tracking state (and ensuring that you clean up those globals between scenarios), it's possible to build a fairly robust set of tests. The datadog testing package also uses a third-party test runner, so it's impossible to put it together with packages such as <kbd>gocov</kbd> or <kbd>go test -cover</kbd>.</p>
+<p> </p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

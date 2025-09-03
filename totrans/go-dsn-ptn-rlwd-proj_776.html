@@ -1,0 +1,37 @@
+<html><head></head><body>
+<div class="book" title="Entities and data access">
+<div class="book" title="Putting data into Google Cloud Datastore"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_2"><a id="ch09lvl2sec0099" class="calibre1"/>Putting data into Google Cloud Datastore</h2></div></div></div><p class="calibre10">Before we save data into Datastore, we want to ensure that our question is valid. Add the following method underneath the Question struct definition:</p><pre class="programlisting">func (q Question) OK() error { 
+  if len(q.Question) &lt; 10 { 
+    return errors.New("question is too short") 
+  } 
+  return nil 
+} 
+</pre><p class="calibre10">The <code class="email">OK</code> function will return an error if something is wrong with the question, or else it will return <code class="email">nil</code>. In this case, we just check to make sure the question has at least 10 characters.</p><p class="calibre10">To persist this data in the data store, we are going to add a method to the <code class="email">Question</code> struct itself. At the bottom of <code class="email">questions.go</code>, add the following code:</p><pre class="programlisting">func (q *Question) Create(ctx context.Context) error { 
+  log.Debugf(ctx, "Saving question: %s", q.Question) 
+  if q.Key == nil { 
+    q.Key = datastore.NewIncompleteKey(ctx, "Question", nil) 
+  } 
+  user, err := UserFromAEUser(ctx) 
+  if err != nil { 
+    return err 
+  } 
+  q.User = user.Card() 
+  q.CTime = time.Now() 
+  q.Key, err = datastore.Put(ctx, q.Key, q) 
+  if err != nil { 
+    return err 
+  } 
+  return nil 
+} 
+</pre><p class="calibre10">The <code class="email">Create</code> method takes a pointer to <code class="email">Question</code> as the receiver, which is important because we want to make changes to the fields.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="note00139" class="calibre1"/>Note</h3><p class="calibre10">If the receiver was <code class="email">(q Question)</code> without <code class="email">*</code>, we would get a copy of the question rather than a pointer to it, and any changes we made to it would only affect our local copy and not the original <code class="email">Question</code> struct itself.</p></div><p class="calibre10">The first thing we do is use <code class="email">log</code> (from the <a class="calibre1" href="https://godoc.org/google.golang.org/appengine/log">https://godoc.org/google.golang.org/appengine/log</a> package) to write a debug statement saying we are saving the question. When you run your code in a development environment, you will see this appear in the terminal; in production, it goes into a dedicated logging service provided by Google Cloud Platform.</p><p class="calibre10">If the key is <code class="email">nil</code> (that means this is a new question), we assign an incomplete key to the field, which informs Datastore that we want it to generate a key for us. The three arguments we pass are <code class="email">context.Context</code> (which we must pass to all datastore functions and methods), a string describing the kind of entity, and the parent key; in our case, this is <code class="email">nil</code>.</p><p class="calibre10">Once we know there is a key in place, we call a method (which we will add later) to get or create <code class="email">User</code> from an App Engine user and set it to the question and then set the <code class="email">CTime</code> field (created time) to <code class="email">time.Now</code>, timestamping the point at which the question was asked.</p><p class="calibre10">One we have our <code class="email">Question</code> function in good shape, we call <code class="email">datastore.Put</code> to actually place it inside the data store. As usual, the first argument is <code class="email">context.Context</code>, followed by the question key and the question entity itself.</p><p class="calibre10">Since Google Cloud Datastore treats keys as separate and distinct from entities, we have to do a little extra work if we want to keep them together in our own code. The <code class="email">datastore.Put</code> method returns two arguments: the complete key and <code class="email">error</code>. The key argument is actually useful because we're sending in an incomplete key and asking the data store to create one for us, which it does during the put operation. If successful, it returns a new <code class="email">datastore.Key</code> object to us, representing the completed key, which we then store in our <code class="email">Key</code> field in the <code class="email">Question</code> object.</p><p class="calibre10">If all is well, we return <code class="email">nil</code>.</p><p class="calibre10">Add another helper to update an existing question:</p><pre class="programlisting">func (q *Question) Update(ctx context.Context) error { 
+  if q.Key == nil { 
+    q.Key = datastore.NewIncompleteKey(ctx, "Question", nil) 
+  } 
+  var err error 
+  q.Key, err = datastore.Put(ctx, q.Key, q) 
+  if err != nil { 
+    return err 
+  } 
+  return nil 
+} 
+</pre><p class="calibre10">This method is very similar except that it doesn't set the <code class="email">CTime</code> or <code class="email">User</code> fields, as they will already have been set.</p></div></div></body></html>

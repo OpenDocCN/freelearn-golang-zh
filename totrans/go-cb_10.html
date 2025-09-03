@@ -1,0 +1,754 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Distributed Systems</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we will cover the following recipes:</p>
+<ul>
+<li>Using service discovery with Consul</li>
+<li>Implementing basic consensus using Raft</li>
+<li>Using containerization with Docker</li>
+<li>Orchestration and deployment strategies</li>
+<li>Monitoring applications</li>
+<li>Collecting metrics</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Introduction</h1>
+                </header>
+            
+            <article>
+                
+<p>Sometimes, application-level parallelism is not enough, and things that seem simple in development can become complex during deployment<span>. Distributed systems provide a number of challenges not found when developing on a single machine. These applications have added complexity for things such as monitoring, writing applications that require strong consistency guarantees, and service discovery. In addition, you must always be mindful of single points of failure, such as a database. Otherwise your distributed applications can fail when this single component fails.</span></p>
+<p>This chapter will explore methods of managing distributed data, orchestration, containerization, metrics, and monitoring. These will become part of your toolbox for writing and maintaining microservices and large distributed applications.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using service discovery with Consul</h1>
+                </header>
+            
+            <article>
+                
+<p>When using the microservice approach to applications, you end up with a lot of servers listening on a variety of IPs, domains, and ports. These IP addresses will vary by environment (staging versus production), and it can be tricky to keep them static for configuration between services. You also want to know when a machine or service is down or unreachable due to a network partition. Consul is a tool that provides a lot of functionality, but we'll explore registering services with Consul and querying them from our other services.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Download and install Go on your operating system from <a href="https://golang.org/doc/install">https://golang.org/doc/install</a> and <a href="https://golang.org/doc/install">﻿</a>configure your <kbd>GOPATH</kbd> environment variable.</li>
+<li>Open a terminal/console application.</li>
+<li>Navigate to <kbd>GOPATH/src</kbd> and create a project directory, for example, <kbd>$GOPATH/src/github.com/yourusername/customrepo</kbd>.<br/>
+All code will be run and modified from this directory.</li>
+<li>Optionally, install the latest tested version of the code by running the <kbd>go get github.com/agtorre/go-cookbook/</kbd> command.</li>
+<li>Install Consul from <a href="https://www.consul.io/intro/getting-started/install.html">https://www.consul.io/intro/getting-started/install.html</a>.<a href="https://www.consul.io/intro/getting-started/install.html"/></li>
+<li>Run the <kbd>go get github.com/hashicorp/consul/api</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter10/discovery</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter10/discovery">https://github.com/agtorre/go-cookbook/tree/master/chapter10/discovery</a>, or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>client.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package discovery<br/><br/>        import "github.com/hashicorp/consul/api"<br/><br/>        // Client exposes api methods we care<br/>        // about<br/>        type Client interface {<br/>            Register(tags []string) error<br/>            Service(service, tag string) ([]*api.ServiceEntry,  <br/>            *api.QueryMeta, error)<br/>        }<br/><br/>        type client struct {<br/>            client *api.Client<br/>            address string<br/>            name string<br/>            port int<br/>        }<br/><br/>        //NewClient iniitalizes a consul client<br/>        func NewClient(config *api.Config, address, name string, port         <br/>        int) (Client, error) {<br/>            c, err := api.NewClient(config)<br/>            if err != nil {<br/>                return nil, err<br/>            }<br/>            cli := &amp;client{<br/>                client: c,<br/>                name: name,<br/>                address: address,<br/>                port: port,<br/>            }<br/>            return cli, nil<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>operations.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package discovery<br/><br/>        import "github.com/hashicorp/consul/api"<br/><br/>        // Register adds our service to consul<br/>        func (c *client) Register(tags []string) error {<br/>            reg := &amp;api.AgentServiceRegistration{<br/>                ID: c.name,<br/>                Name: c.name,<br/>                Port: c.port,<br/>                Address: c.address,<br/>                Tags: tags,<br/>            }<br/>            return c.client.Agent().ServiceRegister(reg)<br/>        }<br/><br/>        // Service return a service<br/>        func (c *client) Service(service, tag string) <br/>        ([]*api.ServiceEntry, *api.QueryMeta, error) {<br/>            return c.client.Health().Service(service, tag, false, <br/>            nil)<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>exec.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package discovery<br/><br/>        import (<br/>            "fmt"<br/><br/>            consul "github.com/hashicorp/consul/api"<br/>        )<br/><br/>        // Exec creates a consul entry then queries it<br/>        func Exec() error {<br/>            config := consul.DefaultConfig()<br/>            config.Address = "localhost:8500"<br/>            name := "discovery"<br/><br/>            // faked name and port for example<br/>            cli, err := NewClient(config, "localhost", name, 8080)<br/>            if err != nil {<br/>                return err<br/>            }<br/><br/>            if err := cli.Register([]string{"Go", "Awesome"}); err !=   <br/>            nil {<br/>                return err<br/>            }<br/><br/>            entries, _, err := cli.Service(name, "Go")<br/>            if err != nil {<br/>                return err<br/>            }<br/>            for _, entry := range entries {<br/>                fmt.Printf("%#v\n", entry.Service)<br/>            }<br/><br/>            return nil<br/>        }
+</pre>
+<ol start="6">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file named <kbd>main.go</kbd> with the following content. Ensure that you modify the <kbd>channels</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import "github.com/agtorre/go-cookbook/chapter10/discovery"<br/><br/>        func main() {<br/>            if err := discovery.Exec(); err != nil {<br/>                panic(err)<br/>            }<br/>        }
+</pre>
+<ol start="8">
+<li>Start Consul in a separate terminal using the <kbd>consul <span class="s2">agent -dev -node=localhost</span></kbd> command.</li>
+<li>Run the <kbd>go run main.go</kbd> command.</li>
+<li>You may also run:</li>
+</ol>
+<pre>
+      <strong>go build<br/>    </strong><strong>  ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should see the following output:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      &amp;api.AgentService{ID:"discovery", Service:"discovery", Tags:    <br/>      []string{"Go", "Awesome"}, Port:8080, Address:"localhost",     <br/>      EnableTagOverride:false, CreateIndex:0x23, ModifyIndex:0x23}</strong>
+</pre>
+<ol start="11">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">Consul provides a robust Go API library. It can feel daunting when first starting, but this recipe shows how you might approach wrapping it. Configuring Consul further is beyond the scope of this recipe, but this shows the basic for registering a service and querying for other services given a key and tag.</p>
+<p class="mce-root">It would be possible using this to register new microservices at startup time, query for all dependent services, and deregister at shutdown. You might also want to cache this information so that you're not hitting Consul for every request, but this recipe provides the basic tools that you can expand upon. The Consul agent also makes these repeated requests fast and efficient (<a href="https://www.consul.io/intro/getting-started/agent.html">https://www.consul.io/intro/getting-started/agent.html</a>).</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing basic consensus using Raft</h1>
+                </header>
+            
+            <article>
+                
+<p>Raft is a consensus algorithm that allows distributed systems to keep a shared and managed state (<a href="https://raft.github.io/">https://raft.github.io/</a>). Setting up a Raft system is complex in many ways, for one you need consensus for an election to occur and succeed. This can be difficult to bootstrap when working with multiple nodes and it can be difficult to get started. A basic cluster can be run on a single node/leader, but if you want redundancy, at least three nodes allows for a single node failure.<br/>
+This recipe implements a basic in-memory Raft cluster, constructs a state machine that can transition between certain allowed states, and connects the distributed state machine to a web handler that can trigger the transition. This can be useful when you're implementing the base finite state machine interface that Raft requires or when testing. This recipe uses <a href="https://github.com/hashicorp/raft">https://github.com/hashicorp/raft</a> for the base Raft implementation.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Refer to the <em>Getting ready</em> section of the <em>Using service discovery with Consul</em> recipe in this chapter.</li>
+<li>Run the <kbd>go get github.com/hashicorp/raft</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter10/consensus</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter10/consensus">https://github.com/agtorre/go-cookbook/tree/master/chapter10/consensus</a>, or use this as an exercise to write some of your own code.</li>
+</ol>
+<p> </p>
+<ol start="3">
+<li>Create a file called <kbd>state.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package consensus<br/><br/>        type state string<br/><br/>        const (<br/>            first state = "first"<br/>            second = "second"<br/>            third = "third"<br/>        )<br/><br/>        var allowedState map[state][]state<br/><br/>        func init() {<br/>            // setup valid states<br/>            allowedState = make(map[state][]state)<br/>            allowedState[first] = []state{second, third}<br/>            allowedState[second] = []state{third}<br/>            allowedState[third] = []state{first}<br/>        }<br/><br/>        // CanTransition checks if a new state is valid<br/>        func (s *state) CanTransition(next state) bool {<br/>            for _, n := range allowedState[*s] {<br/>                if n == next {<br/>                    return true<br/>                }<br/>            }<br/>            return false<br/>        }<br/><br/>        // Transition will move a state to the next<br/>        // state if able<br/>        func (s *state) Transition(next state) {<br/>            if s.CanTransition(next) {<br/>                *s = next<br/>            }<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>config.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package consensus<br/><br/>        import "github.com/hashicorp/raft"<br/><br/>        var rafts map[string]*raft.Raft<br/><br/>        func init() {<br/>            rafts = make(map[string]*raft.Raft)<br/>        }<br/><br/>        // Config creates num in-memory raft<br/>        // nodes and connects them<br/>        func Config(num int) {<br/>            conf := raft.DefaultConfig()<br/>            snapshotStore := raft.NewDiscardSnapshotStore()<br/><br/>            addrs := []string{}<br/>            transports := []*raft.InmemTransport{}<br/>            for i := 0; i &lt; num; i++ {<br/>                addr, transport := raft.NewInmemTransport("")<br/>                addrs = append(addrs, addr)<br/>                transports = append(transports, transport)<br/>            }<br/>            peerStore := &amp;raft.StaticPeers{StaticPeers: addrs}<br/>            memstore := raft.NewInmemStore()<br/><br/>            for i := 0; i &lt; num; i++ {<br/>                for j := 0; j &lt; num; j++ {<br/>                    if i != j {<br/>                        transports[i].Connect(addrs[j], transports[j])<br/>                    }<br/>                }<br/><br/>                r, err := raft.NewRaft(conf, NewFSM(), memstore, <br/>                memstore, snapshotStore, peerStore, transports[i])<br/>                if err != nil {<br/>                    panic(err)<br/>                }<br/>                r.SetPeers(addrs)<br/>                rafts[addrs[i]] = r<br/>            }<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>fsm.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package consensus<br/><br/>        import (<br/>            "io"<br/><br/>            "github.com/hashicorp/raft"<br/>        )<br/><br/>        // FSM implements the raft FSM interface<br/>        // and holds a state<br/>        type FSM struct {<br/>            state state<br/>        }<br/><br/>        // NewFSM creates a new FSM with<br/>        // start state of "first"<br/>        func NewFSM() *FSM {<br/>            return &amp;FSM{state: first}<br/>        }<br/><br/>        // Apply updates our FSM<br/>        func (f *FSM) Apply(r *raft.Log) interface{} {<br/>            f.state.Transition(state(r.Data))<br/>            return string(f.state)<br/>        }<br/><br/>        // Snapshot needed to satisfy the raft FSM interface<br/>        func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {<br/>            return nil, nil<br/>        }<br/><br/>        // Restore needed to satisfy the raft FSM interface<br/>        func (f *FSM) Restore(io.ReadCloser) error {<br/>            return nil<br/>        }
+</pre>
+<ol start="6">
+<li>Create a file called <kbd>handler.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package consensus<br/><br/>        import (<br/>            "net/http"<br/>            "time"<br/>        )<br/><br/>        // Handler grabs the get param ?next= and tries<br/>        // to transition to the state contained there<br/>        func Handler(w http.ResponseWriter, r *http.Request) {<br/>            r.ParseForm()<br/>            for k, rf := range rafts {<br/>                if k == rf.Leader() {<br/>                    state := r.FormValue("next")<br/>                    result := rf.Apply([]byte(state), 1*time.Second)<br/>                    if result.Error() != nil {<br/>                        w.WriteHeader(http.StatusBadRequest)<br/>                        return<br/>                    }<br/>                    newState, ok := result.Response().(string)<br/>                    if !ok {<br/>                        w.WriteHeader(http.StatusInternalServerError)<br/>                        return<br/>                    }<br/><br/>                    if newState != state {<br/>                        w.WriteHeader(http.StatusBadRequest)<br/>                        w.Write([]byte("invalid transition"))<br/>                        return<br/>                    }<br/>                    w.WriteHeader(http.StatusOK)<br/>                    w.Write([]byte(result.Response().(string)))<br/>                    return<br/>                }<br/>            }<br/>        }
+</pre>
+<ol start="7">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file named <kbd>main.go</kbd> with the following content. Ensure that you modify the <kbd>channels</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "net/http"<br/><br/>            "github.com/agtorre/go-cookbook/chapter10/consensus"<br/>        )<br/><br/>        func main() {<br/>            consensus.Config(3)<br/><br/>            http.HandleFunc("/", consensus.Handler)<br/>            err := http.ListenAndServe(":3333", nil)<br/>            panic(err)<br/>        }
+</pre>
+<ol start="9">
+<li>Run the <kbd>go run main.go</kbd> command. Alternatively, you may also run the following commands:</li>
+</ol>
+<pre>
+<strong>      go build</strong><br/><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"/>
+<p style="padding-left: 60px"><span>You should now see the following output by running the preceding command:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      2017/04/23 16:49:24 [INFO] raft: Node at 95c86c4c-9192-a8a6-  <br/>      5e38-66c033bb3955 [Follower] entering Follower state (Leader:   <br/>      "")</strong><br/><strong>      2017/04/23 16:49:24 [INFO] raft: Node at 2406e36b-7e3e-0965- <br/>      8863-70a5dc1a2e69 [Follower] entering Follower state (Leader: <br/>      "")</strong><br/><strong>      2017/04/23 16:49:24 [INFO] raft: Node at 2b5367e6-eea6-e195-  <br/>      df40-1aeebfe8cdc7 [Follower] entering Follower state (Leader:   <br/>      "")</strong><br/><strong>      2017/04/23 16:49:25 [WARN] raft: Heartbeat timeout from ""   <br/>      reached, starting election</strong><br/><strong>      2017/04/23 16:49:25 [INFO] raft: Node at 2406e36b-7e3e-0965-  <br/>      8863-70a5dc1a2e69 [Candidate] entering Candidate state</strong><br/><strong>      2017/04/23 16:49:25 [DEBUG] raft: Votes needed: 2</strong><br/><strong>      2017/04/23 16:49:25 [DEBUG] raft: Vote granted from 2406e36b-<br/>      7e3e-0965-8863-70a5dc1a2e69. Tally: 1</strong><br/><strong>      2017/04/23 16:49:25 [DEBUG] raft: Vote granted from 95c86c4c-  <br/>      9192-a8a6-5e38-66c033bb3955. Tally: 2</strong><br/><strong>      2017/04/23 16:49:25 [INFO] raft: Election won. Tally: 2</strong><br/><strong>      2017/04/23 16:49:25 [INFO] raft: Node at 2406e36b-7e3e-0965-  <br/>      8863-70a5dc1a2e69 [Leader] entering Leader state</strong><br/><strong>      2017/04/23 16:49:25 [INFO] raft: pipelining replication to peer   <br/>      95c86c4c-9192-a8a6-5e38-66c033bb3955</strong><br/><strong>      2017/04/23 16:49:25 [INFO] raft: pipelining replication to peer   <br/>      2b5367e6-eea6-e195-df40-1aeebfe8cdc7</strong><br/><strong>      2017/04/23 16:49:25 [DEBUG] raft: Node 2406e36b-7e3e-0965-8863- <br/>      70a5dc1a2e69 updated peer set (2): [2406e36b-7e3e-0965-8863- <br/>      70a5dc1a2e69 95c86c4c-9192-a8a6-5e38-66c033bb3955 2b5367e6-<br/>      eea6-e195-df40-1aeebfe8cdc7]</strong><br/><strong>      2017/04/23 16:49:25 [DEBUG] raft: Node 95c86c4c-9192-a8a6-5e38-  <br/>      66c033bb3955 updated peer set (2): [2406e36b-7e3e-0965-8863-  <br/>      70a5dc1a2e69 95c86c4c-9192-a8a6-5e38-66c033bb3955 2b5367e6-<br/>      eea6-e195-df40-1aeebfe8cdc7]</strong><br/><strong>      2017/04/23 16:49:25 [DEBUG] raft: Node 2b5367e6-eea6-e195-df40- <br/>      1aeebfe8cdc7 updated peer set (2): [2406e36b-7e3e-0965-8863-  <br/>      70a5dc1a2e69 95c86c4c-9192-a8a6-5e38-66c033bb3955 2b5367e6-  <br/>      eea6-e195-df40-1aeebfe8cdc7]</strong>
+</pre>
+<ol start="10">
+<li>In a separate terminal, run the following command:</li>
+</ol>
+<pre>
+<strong>      $ curl "http://localhost:3333/?next=second" </strong><br/><strong>      second</strong><br/><br/><strong>      $ curl "http://localhost:3333/?next=third" </strong><br/><strong>      third</strong><br/><br/><strong>      $ curl "http://localhost:3333/?next=second" </strong><br/><strong>      invalid transition</strong><br/><br/><strong>      $ curl "http://localhost:3333/?next=first" </strong><br/><strong>      first</strong>
+</pre>
+<ol start="11">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>When the application starts, we initialize multiple Raft objects. These each have their own address and transport. The <kbd>InmemTransport{}</kbd> function also provides a method to connect the other transports called <kbd>Connect()</kbd>. Once these connections are established, the Raft cluster holds an election. When communicating to a Raft cluster, clients must communicate with the leader. In our case, one handler can talk to all of the nodes, so the handler is responsible for having the leader <kbd>Raft</kbd> object <kbd>call Apply()</kbd>. This in turn runs <kbd>apply()</kbd> on all of the other nodes.<br/>
+This recipe does not deal with snapshots and is only concerned with FSM state changes.<br/>
+The <kbd>InmemTransport{}</kbd> function simplifies the election and bootstrapping process by allowing everything to reside in memory. In practice, this isn't very helpful besides testing and proof of concepts since go routines can freely access shared memory.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using containerization with Docker</h1>
+                </header>
+            
+            <article>
+                
+<p>Docker is a container technology for packaging and shipping applications. Other advantages include portability, a container will run the same way regardless of the host OS. It provides a lot of the advantages of a virtual machine, in a more light-weight container. It's possible to limit resources consumption of individual containers and sandbox your environment. It can be extremely useful for having a common environment for your applications locally and when you ship your code to production. Docker is written in Go and is open source, so it's simple to take advantage of the client and libraries. This recipe will set up a Docker container for a basic Go application, store some version information about the container, and demonstrate hitting a handler from a Docker endpoint.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li><span>Refer to the</span> <em>Getting ready</em> <span>section of</span> <span>the</span> <em>Using service discovery for Consul</em> <span>recipe of this chapter.</span></li>
+<li>Install Docker from <a href="https://store.docker.com/search?type=edition&amp;offering=community">https://store.docker.com/search?type=edition&amp;offering=community</a>. This will also include Docker compose.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter10/docker</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter10/docker">https://github.com/agtorre/go-cookbook/tree/master/chapter10/docker</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>dockerfile</kbd> with the following content:</li>
+</ol>
+<pre>
+        FROM alpine<br/><br/>        ADD ./example/example /example<br/>        EXPOSE 8000<br/>        ENTRYPOINT /example 
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>setup.sh</kbd> with the following content:</li>
+</ol>
+<pre>
+        #!/usr/bin/env bash<br/><br/>        pushd example<br/>        env GOOS=linux go build -ldflags "-X main.version=1.0 -X     <br/>        main.builddate=$(date +%s)"<br/>        popd<br/>        docker build . -t example<br/>        docker run -d -p 8000:8000 example 
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>version.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package docker<br/><br/>        import (<br/>            "encoding/json"<br/>            "net/http"<br/>            "time"<br/>        )<br/><br/>        // VersionInfo holds artifacts passed in<br/>        // at build time<br/>        type VersionInfo struct {<br/>            Version string<br/>            BuildDate time.Time<br/>            Uptime time.Duration<br/>        }<br/><br/>        // VersionHandler writes the latest version info<br/>        func VersionHandler(v *VersionInfo) http.HandlerFunc {<br/>            t := time.Now()<br/>            return func(w http.ResponseWriter, r *http.Request) {<br/>                v.Uptime = time.Since(t)<br/>                vers, err := json.Marshal(v)<br/>                    if err != nil {<br/>                        w.WriteHeader<br/>                        (http.StatusInternalServerError)<br/>                        return<br/>                    }<br/>                    w.WriteHeader(http.StatusOK)<br/>                    w.Write(vers)<br/>            }<br/>        }
+</pre>
+<ol start="6">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file <kbd>main.go</kbd> with the following content. Ensure that you modify the <kbd>channels</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/>            "net/http"<br/>            "strconv"<br/>            "time"<br/><br/>            "github.com/agtorre/go-cookbook/chapter10/docker"<br/>        )<br/><br/>        // these are set at build time<br/>        var (<br/>            version string<br/>            builddate string<br/>            )<br/><br/>            var versioninfo docker.VersionInfo<br/><br/>            func init() {<br/>                // parse buildtime variables<br/>                versioninfo.Version = version<br/>                i, err := strconv.ParseInt(builddate, 10, 64)<br/>                    if err != nil {<br/>                        panic(err)<br/>                    }<br/>                    tm := time.Unix(i, 0)<br/>                    versioninfo.BuildDate = tm<br/>            }<br/><br/>            func main() {<br/>            http.HandleFunc("/version",     <br/>            docker.VersionHandler(&amp;versioninfo))<br/>            fmt.Printf("version %s listening on :8000\n",   <br/>            versioninfo.Version)<br/>            panic(http.ListenAndServe(":8000", nil))<br/>        }
+</pre>
+<ol start="8">
+<li>Navigate back to the starting directory.</li>
+<li>Run the following command:</li>
+</ol>
+<pre>
+<strong>      $ bash setup.sh</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should now see the following output:</span></p>
+<pre>
+<strong>      $ bash setup.sh</strong><br/><strong>      ~/go/src/github.com/agtorre/go- <br/>      cookbook/chapter10/docker/example   <br/>      ~/go/src/github.com/agtorre/go-cookbook/chapter10/docker</strong><br/><strong>      ~/go/src/github.com/agtorre/go-cookbook/chapter10/docker</strong><br/><strong>      Sending build context to Docker daemon 6.031 MB</strong><br/><strong>      Step 1/4 : FROM alpine</strong><br/><strong>       ---&gt; 4a415e366388</strong><br/><strong>      Step 2/4 : ADD ./example/example /example</strong><br/><strong>       ---&gt; de34c3c5451e</strong><br/><strong>      Removing intermediate container bdcd9c4f4381</strong><br/><strong>      Step 3/4 : EXPOSE 8000</strong><br/><strong>       ---&gt; Running in 188f450d4e7b</strong><br/><strong>       ---&gt; 35d1a2652b43</strong><br/><strong>      Removing intermediate container 188f450d4e7b</strong><br/><strong>      Step 4/4 : ENTRYPOINT /example</strong><br/><strong>       ---&gt; Running in cf0af4f48c3a</strong><br/><strong>       ---&gt; 3d737fc4e6e2</strong><br/><strong>      Removing intermediate container cf0af4f48c3a</strong><br/><strong>      Successfully built 3d737fc4e6e2</strong><br/><strong>      b390ef429fbd6e7ff87058dc82e15c3e7a8b2e<br/>      69a601892700d1d434e9e8e43b</strong>
+</pre>
+<ol start="10">
+<li>Run the following commands:</li>
+</ol>
+<pre>
+<strong>      $ docker ps</strong><br/><strong>      CONTAINER ID IMAGE COMMAND CREATED STATUS PORTS NAMES</strong><br/><strong>      b390ef429fbd example "/bin/sh -c /example" 22 seconds ago Up 23    <br/>      seconds 0.0.0.0:8000-&gt;8000/tcp optimistic_wescoff</strong><br/><br/><strong>      $ curl localhost:8000/version</strong><br/><strong>      {"Version":"1.0","BuildDate":"2017-04-   <br/>      30T21:55:56Z","Uptime":48132111264}</strong><br/><br/><strong>      $docker kill optimistic_wescoff # grab from first output</strong><br/><strong>      optimistic_wescoff</strong>
+</pre>
+<ol start="11">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>This recipe created a script that compiles the Go binary for the Linux architecture and sets a variety of private variables in <kbd>main.go</kbd>. These variables are used to return version information on a version endpoint. Once the binary is compiled, a Docker container is created that contains the binary. This allows us to use very small container images as the Go runtime is self contained in the binary. We then run the container while exposing the port on which the container is listening for HTTP traffic. Lastly, we curl the port on localhost and see our version information returned.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Orchestration and deployment strategies</h1>
+                </header>
+            
+            <article>
+                
+<p>Docker makes orchestration and deployment much more simple. In this recipe, we'll set up a connection to MongoDB, inserting a document and querying it all from Docker containers. This recipe will set up the same environment as the <em>Using NoSQL with MongoDB and mgo</em> recipe, in <a href="e4c2a55e-c570-4490-b981-2685a89be7d2.xhtml" target="_blank">Chapter 5</a>, <em>All about Databases and Storage</em>, but will run the application and environment inside of containers and will use Docker compose to orchestrate and connect them. This can later be used in conjunction with Docker Swarm, an integrated Docker tool that allows you to manage a cluster, to create and deploy nodes that can be scaled up or down easily, and to manage load balancing (<a href="https://docs.docker.com/engine/swarm/">https://docs.docker.com/engine/swarm/</a>). Another good example of container orchestration is Kubernetes (<a href="https://kubernetes.io/">https://kubernetes.io/</a>), a container orchestration framework written by Google using the Go programming language.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li><span>Refer to the <em>Getting ready</em> section of the</span> <em>Using containerization with Docker</em> recipe.</li>
+<li>Run the <kbd>go get gopkg.in/mgo.v2</kbd> command.</li>
+<li>Run the <kbd>go get github.com/tools/godep</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter10/orchestrate</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter10/orchestrate">https://github.com/agtorre/go-cookbook/tree/master/chapter10/orchestrate</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>dockerfile</kbd> with the following content:</li>
+</ol>
+<pre>
+        FROM golang:alpine<br/><br/>        ENV GOPATH /code/<br/>        ADD . /code/src/github.com/agtorre/go-   <br/>        cookbook/chapter10/docker<br/>        WORKDIR /code/src/github.com/agtorre/go-    <br/>        cookbook/chapter10/docker/example<br/>        RUN go build<br/><br/>        ENTRYPOINT /code/src/github.com/agtorre/go-  <br/>        cookbook/chapter10/docker/example/example
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>docker-compose.yml</kbd> with the following content:</li>
+</ol>
+<pre>
+        version: '2'<br/>        services:<br/>         app:<br/>         build: .<br/>         mongodb:<br/>         image: "mongo:latest"
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>mongo.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package orchestrate<br/><br/>        import (<br/>            "fmt"<br/><br/>            mgo "gopkg.in/mgo.v2"<br/>            "gopkg.in/mgo.v2/bson"<br/>        )<br/><br/>        // State is our data model<br/>        type State struct {<br/>            Name string `bson:"name"`<br/>            Population int `bson:"pop"`<br/>        }<br/><br/>        // ConnectAndQuery connects, inserts a document, then<br/>        // queries it<br/>        func ConnectAndQuery(session *mgo.Session) error {<br/>            conn := session.DB("gocookbook").C("example")<br/><br/>            // we can inserts many rows at once<br/>            if err := conn.Insert(&amp;State{"Washington", 7062000}, <br/>            &amp;State{"Oregon", 3970000}); err != nil {<br/>                return err<br/>            }<br/><br/>            var s State<br/>            if err := conn.Find(bson.M{"name": "Washington"}).One(&amp;s); <br/>            err!= nil {<br/>                return err<br/>            }<br/>            fmt.Printf("State: %#v\n", s)<br/>            return nil<br/>        }
+</pre>
+<ol start="6">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a <kbd>main.go</kbd> file with the following content. Ensure that you modify the <kbd>orchestrate</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>             "github.com/agtorre/go-cookbook/chapter10/orchestrate"<br/>             mgo "gopkg.in/mgo.v2"<br/>        )<br/><br/>        func main() {<br/>            session, err := mgo.Dial("mongodb")<br/>            if err != nil {<br/>                panic(err)<br/>            }<br/>            if err := orchestrate.ConnectAndQuery(session); err != nil <br/>            {<br/>                panic(err)<br/>            }<br/>        }
+</pre>
+<ol start="8">
+<li>Navigate back to the starting directory.</li>
+<li>Run the <kbd>godep save ./...</kbd> command.</li>
+<li>Run the <kbd>docker-compose up -d</kbd> command.</li>
+<li>Run the <kbd>docker logs docker_app_1</kbd> command.</li>
+</ol>
+<p style="padding-left: 60px"><span>You should now see the following output:</span></p>
+<pre>
+<strong>      $ docker logs docker_app_1</strong><br/><strong>      State: docker.State{Name:"Washington", Population:7062000}</strong>
+</pre>
+<ol start="12">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>This configuration is good for local development. Once the <kbd>docker-compose up</kbd> command is run, the local directory is rebuilt, it establishes a connection to a MongoDB instance using the latest version and begins operating against it. This recipe uses godeps for dependency management so that the entire <kbd>GOPATH</kbd> environment variable doesn't need to be mounted by the <kbd>Dockerfile</kbd> file.</p>
+<p>This can provide a good baseline when starting on apps that require connections to external services, all of the <a href="e4c2a55e-c570-4490-b981-2685a89be7d2.xhtml" target="_blank">Chapter 5</a>, <em>All about Databases and Storage</em>, can make use of this approach rather than creating a local instance of the database. For production, you likely won't want to run your datastorage behind a Docker container, but you'll also generally have static host names for configuration.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Monitoring applications</h1>
+                </header>
+            
+            <article>
+                
+<p>There are a variety of ways to monitor Go applications. One of the easiest ways is to set up Prometheus, a monitoring application written in Go (<a href="https://prometheus.io">https://prometheus.io</a>). This is an application that polls an endpoint based on your configuration file and collects a lot of information about your app, including the number of goroutines, memory usage, and much more. This app will use the techniques from the previous recipe to set up a Docker environment to host Prometheus and connect to it.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li><span>Refer to the <em>Getting ready</em> section</span> <span>of the <em>Using containerization with Docker</em> recipe.</span></li>
+<li>Run the <kbd>go get github.com/prometheus/client_golang/prometheus/promhttp</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter10/monitoring</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter10/monitoring">https://github.com/agtorre/go-cookbook/tree/master/chapter10/monitoring</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>Dockerfile</kbd> with the following content:</li>
+</ol>
+<pre>
+        FROM golang:alpine<br/><br/>        ENV GOPATH /code/<br/>        ADD . /code/src/github.com/agtorre/go-<br/>        cookbook/chapter10/monitoring<br/>        WORKDIR /code/src/github.com/agtorre/go-<br/>        cookbook/chapter10/monitoring<br/>        RUN go build<br/><br/>        ENTRYPOINT /code/src/github.com/agtorre/go-<br/>        cookbook/chapter10/monitoring/monitoring
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>docker-compose.yml</kbd> with the following content:</li>
+</ol>
+<pre>
+        version: '2'<br/>        services:<br/>         app:<br/>         build: .<br/>         prometheus:<br/>         ports: <br/>         - 9090:9090<br/>         volumes: <br/>         - ./prometheus.yml:/etc/prometheus/prometheus.yml<br/>         image: "prom/prometheus"
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>main.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "net/http"<br/><br/>            "github.com/prometheus/client_golang/prometheus/promhttp"<br/>        )<br/><br/>        func main() {<br/>            http.Handle("/metrics", promhttp.Handler())<br/>            panic(http.ListenAndServe(":80", nil))<br/>        }
+</pre>
+<ol start="6">
+<li>Create a file called <kbd>prometheus.yml</kbd> with the following content:</li>
+</ol>
+<pre>
+        global:<br/>         scrape_interval: 15s # By default, scrape targets every 15 <br/>         seconds.<br/><br/>        # A scrape configuration containing exactly one endpoint to <br/>        scrape:<br/>        # Here it's Prometheus itself.<br/>        scrape_configs:<br/>         # The job name is added as a label `job=&lt;job_name&gt;` to any <br/>         timeseries scraped from this config.<br/>         - job_name: 'app'<br/><br/>         # Override the global default and scrape targets from this job          <br/>         every 5 seconds.<br/>         scrape_interval: 5s<br/><br/>         static_configs:<br/>         - targets: ['app:80']
+</pre>
+<ol start="7">
+<li>Run the <kbd>godep save ./...</kbd> command.</li>
+<li>Run the <kbd>docker-compose up -d</kbd> command.</li>
+</ol>
+<p style="padding-left: 60px"><span>You should now see the following:</span></p>
+<pre>
+<strong>      $ docker-compose up</strong><br/><strong>      Creating monitoring_app_1</strong><br/><strong>      Creating monitoring_prometheus_1</strong><br/><strong>      Attaching to monitoring_app_1, monitoring_prometheus_1</strong><br/><strong>      prometheus_1 | time="2017-04-30T02:35:17Z" level=info <br/>      msg="Starting prometheus (version=1.6.1, branch=master,       <br/>      revision=4666df502c0e239ed4aa1d80abbbfb54f61b23c3)" <br/>      source="main.go:88" </strong><br/><strong>      prometheus_1 | time="2017-04-30T02:35:17Z" level=info msg="Build       <br/>      context (go=go1.8.1, user=root@7e45fa0366a7, date=20170419-<br/>      14:32:22)" source="main.go:89" </strong><br/><strong>      prometheus_1 | time="2017-04-30T02:35:17Z" level=info <br/>      msg="Loading configuration file /etc/prometheus/prometheus.yml"       <br/>      source="main.go:251" </strong><br/><strong>      prometheus_1 | time="2017-04-30T02:35:17Z" level=info <br/>      msg="Loading series map and head chunks..."      <br/>      source="storage.go:421" </strong><br/><strong>      prometheus_1 | time="2017-04-30T02:35:17Z" level=info msg="0       <br/>      series loaded." source="storage.go:432" </strong><br/><strong>      prometheus_1 | time="2017-04-30T02:35:17Z" level=info <br/>      msg="Starting target manager..." source="targetmanager.go:61" </strong><br/><strong>      prometheus_1 | time="2017-04-30T02:35:17Z" level=info <br/>      msg="Listening on :9090" source="web.go:259" 
+</strong>
+</pre>
+<ol start="9">
+<li>Navigate your browser to <kbd>http://localhost:9090/</kbd>. You should see a variety of metrics related to your app!</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>The Prometheus client handler will return a variety of stats about your application to a Prometheus server. This allows you to point multiple Prometheus servers at an app without the need to reconfigure or deploy the app. Most of these stats are generic and beneficial for things such as detecting memory leaks. A lot of other solutions require you to periodically send information to a server instead. The next recipe, <em>Collecting metrics</em>, will demonstrate how to ship custom metrics to the Prometheus server.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Collecting metrics</h1>
+                </header>
+            
+            <article>
+                
+<p>In addition to general information about your app, it can be helpful to emit metrics that are app specific. For example, we might want to collect timing data or keep track of the number of times an event occurs.</p>
+<p>This recipe will use the <kbd>github.com/rcrowley/go-metrics</kbd> package to collect metrics and expose them via an endpoint. There are various exporter tools to export metrics to places such as Prometheus and InfluxDB, also written in Go.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Refer to the <em>Getting ready</em> section of the <em>Using service discovery with Consul</em> recipe in this chapter.</li>
+<li>Run the <kbd>go get github.com/rcrowley/go-metrics</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter10/metrics</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter10/metrics">https://github.com/agtorre/go-cookbook/tree/master/chapter10/metrics</a>, or use this as an exercise to write some of your own code.</li>
+</ol>
+<ol start="3">
+<li>Create a file called <kbd>handler.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package metrics<br/><br/>        import (<br/>            "net/http"<br/>            "time"<br/><br/>            metrics "github.com/rcrowley/go-metrics"<br/>        )<br/><br/>        // CounterHandler will update a counter each time it's called<br/>        func CounterHandler(w http.ResponseWriter, r *http.Request) {<br/>            c := metrics.GetOrRegisterCounter("counterhandler.counter", <br/>            nil)<br/>            c.Inc(1)<br/><br/>            w.WriteHeader(http.StatusOK)<br/>            w.Write([]byte("success"))<br/>        }<br/><br/>        // TimerHandler records the duration required to compelete<br/>        func TimerHandler(w http.ResponseWriter, r *http.Request) {<br/>            currt := time.Now()<br/>            t := metrics.GetOrRegisterTimer("timerhandler.timer", nil)<br/><br/>            w.WriteHeader(http.StatusOK)<br/>            w.Write([]byte("success"))<br/>            t.UpdateSince(currt)<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>report.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package metrics<br/><br/>        import (<br/>            "net/http"<br/><br/>            gometrics "github.com/rcrowley/go-metrics"<br/>        )<br/><br/>        // ReportHandler will emit the current metrics in json format<br/>        func ReportHandler(w http.ResponseWriter, r *http.Request) {<br/><br/>            w.WriteHeader(http.StatusOK)<br/><br/>            t := gometrics.GetOrRegisterTimer(<br/>            "reporthandler.writemetrics", nil)<br/>            t.Time(func() {<br/>                gometrics.WriteJSONOnce(gometrics.DefaultRegistry, w)<br/>            })<br/>        }
+</pre>
+<ol start="5">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file named <kbd>main.go</kbd> with the following content. Ensure that you modify the <kbd>channels</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "net/http"<br/><br/>            "github.com/agtorre/go-cookbook/chapter10/metrics"<br/>        )<br/><br/>        func main() {<br/>            // handler to populate metrics<br/>            http.HandleFunc("/counter", metrics.CounterHandler)<br/>            http.HandleFunc("/timer", metrics.TimerHandler)<br/>            http.HandleFunc("/report", metrics.ReportHandler)<br/>            fmt.Println("listening on :8080")<br/>            panic(http.ListenAndServe(":8080", nil))<br/>        }
+</pre>
+<ol start="7">
+<li>Run <kbd>go run main.go</kbd>. Alternatively, you may also run the following:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should now see the following:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      listening on :8080</strong>
+</pre>
+<ol start="8">
+<li>Run the following commands from a separate shell:</li>
+</ol>
+<pre>
+<strong>      $ curl localhost:8080/counter </strong><br/><strong>      success</strong><br/><br/><strong>      $ curl localhost:8080/timer </strong><br/><strong>      success</strong><br/><br/><strong>      $ curl localhost:8080/report </strong><br/><strong>      {"counterhandler.counter":{"count":1},<br/>      "reporthandler.writemetrics":      {"15m.rate":0,"1m.rate":0,"5m.<br/>      rate":0,"75%":0,"95%":0,"99%":0,"99.9%":0,"count":0,"max":0,"mean<br/>      ":0,"mean.rate":0,"median":0,"min":0,"stddev":0},"timerhandler.ti<br/>      mer":{"15m.rate":0.0011080303990206543,"1m.rate"<br/>      :0.015991117074135343,"5m.rate":0.0033057092356765017,"75%":60485<br/>      ,"95%":60485,"99%":60485,"99.9%":60485,"count":1,"max":60485,"mea<br/>      n":60485,"mean.rate":1.1334543719787356,"median":60485,"min":6048<br/>      5,"stddev":0}}</strong>
+</pre>
+<ol start="9">
+<li>Try hitting all the endpoints a few more times to see how they change.</li>
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>The gometrics keeps all of your metrics in a registry. Once it's set up, you can use any of the metric omit options, such as counter or timer, and it will store this update in the registry. There are multiple exporters that will export metrics to third-party tools. In our case, we set up a handler that omits all the metrics in the JSON format.</p>
+<p>We set up three handlers--one that increments a counter, one that records the time to exit the handler, and one that prints a report (while also incrementing an additional counter). The <kbd>GetOrRegister</kbd> functions are useful for atomically getting or creating a metric emitter if it doesn't currently exist in a thread-safe way. Alternatively, you can register everything once in advance.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

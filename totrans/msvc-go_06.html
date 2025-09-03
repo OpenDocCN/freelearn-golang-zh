@@ -1,0 +1,365 @@
+<html><head></head><body>
+		<div id="_idContainer029">
+			<h1 id="_idParaDest-88" class="chapter-number" lang="en-GB"><a id="_idTextAnchor088"/>6</h1>
+			<h1 id="_idParaDest-89" lang="en-GB"><a id="_idTextAnchor089"/>Asynchronous Communication</h1>
+			<p lang="en-GB">In the previous chapter, we illustrated how services can communicate with each other using a synchronous request-response model. There are other communication models that provide various benefits to the application developer, such as asynchronous communication, which we are going to cover in this chapter.</p>
+			<p lang="en-GB">In this chapter, you are going to learn the basics of asynchronous communication and some common techniques for using it, as well as some benefits and challenges it brings to microservice developers. We will cover a popular piece of asynchronous communication software, Apache Kafka, and illustrate how to use it for establishing communication between our microservices. </p>
+			<p lang="en-GB">In this chapter, we are going to cover the following topics:</p>
+			<ul>
+				<li lang="en-GB">Asynchronous communication basics</li>
+				<li lang="en-GB">Using Apache Kafka for messaging</li>
+				<li lang="en-GB">Asynchronous communication best practices</li>
+			</ul>
+			<p lang="en-GB">Let’s proceed to the basics of asynchronous communication.</p>
+			<h1 id="_idParaDest-90" lang="en-GB"><a id="_idTextAnchor090"/>Technical requirements</h1>
+			<p lang="en-GB">To complete this chapter, you need Go 1.11+ or above, similar to the previous chapters.</p>
+			<p lang="en-GB"><a id="_idTextAnchor091"/>You can find the GitHub code for this chapter here: <a href="https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter06">https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter06</a></p>
+			<h1 id="_idParaDest-91" lang="en-GB"><a id="_idTextAnchor092"/>Asynchronous communication basics</h1>
+			<p lang="en-GB">In this section, we are going to cover some theoretical aspects of asynchronous communication. You will learn the benefits and the common issues of an asynchronous communication model, and the common ways of using it, as well as getting some real-world examples of asynchronous communication.</p>
+			<p lang="en-GB">Asynchronous communication is communication between a sender and one or multiple receivers, where a sender does not necessarily expect an immediate response to their messages. In the synchronous communication model, which we covered in <a href="B18865_05.xhtml#_idTextAnchor076"><em class="italic" lang="">Chapter 5</em></a>, the caller sending the request would expect an immediate (or nearly immediate, taking into account network latency) response to it. In asynchronous communication, it may take an arbitrary amount of time for the receiver to respond to the request, or to not respond at all (for example, when receiving a no-reply notification).</p>
+			<p lang="en-GB">We can illustrate the differences between the two models using two examples. An example of synchronous communication is a phone call – two people having a phone conversation are in direct and immediate communication with each other, and they expect to hear the responses in real time. An example of asynchronous communication is sending mail to people. It can take time to respond to such mail, and the sender does not expect an immediate response to their messages.</p>
+			<p lang="en-GB">It does not mean, however, that asynchronous communication is necessarily slower than the synchronous model. In most cases, asynchronous processing is as quick as synchronous processing and often can be even faster: asynchronous processing is often much less interruptive and leads to higher processing efficiency. It’s like replying to 10 emails, one by one, compared to switching between 10 parallel phone calls — the latter example of synchronous processing can sometimes be way slower due to context switching and frequent interruptions. </p>
+			<h2 id="_idParaDest-92" lang="en-GB"><a id="_idTextAnchor093"/>Benefits and challenges of asynchronous communication</h2>
+			<p lang="en-GB">The asynchronous communication model comes with its own benefits and challenges. Developers need to consider both in order to make a decision on whether to use this model. What are the benefits of using asynchronous communication? Let’s find out:</p>
+			<ul>
+				<li lang="en-GB">The first benefit is a more streamlined approach to processing messages. Imagine you have a service whose purpose is to process data and report the status to another service. The reporting service does not necessarily need to wait for any response back from the service it is reporting to, as it would do in the synchronous model. In asynchronous mode, it just needs confirmation that the status message was sent successfully. This is similar to sending a large number of postcards to your relatives – if you send a dozen postcards, you don’t want to wait until each card gets delivered before sending the next one!</li>
+				<li lang="en-GB">The second benefit of an asynchronous communication model is the ability to de-couple the sending and processing of requests. Imagine a caller requesting to download a large video and a remote server that needs to perform such a task. In a synchronous model, the caller would be waiting in real time until the entire video is processed. This could easily take minutes and sometimes even hours, making such waiting very inefficient. Instead, such a task could be performed in an asynchronous way, where the caller would send the task to a server, get an acknowledgment that the task was received, and perform any other activity until an eventual notification of completion (or processing failure) is received.</li>
+				<li lang="en-GB">The third benefit of asynchronous communication is better load balancing. Certain applications can have uneven request loads and are prone to sudden spikes of requests. If communication is synchronous, the server needs to answer every request in real time, and this can easily overload it. Imagine a waiter in a restaurant receiving a thousand dinner orders – such a high number of requests would completely overwhelm the worker, and also affect the clients.</li>
+			</ul>
+			<p lang="en-GB">The benefits that we just described are quite significant, and in many cases, asynchronous communication is the only way to perform certain types of tasks or to provide better system performance. Examples of problems for which asynchronous communication is a good fit include the following:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Long-running processing tasks</strong>: Long-running tasks, such as video processing, are often better done asynchronously. The caller requesting such processing would not necessarily need to wait until it is completed and would eventually get notified of the final result.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Send once, processed by multiple components</strong>: Certain types of messages, such as status reports, can be processed by multiple independent components. Imagine a system where multiple employees need to receive the same message – instead of sending it to each one independently, the message can get published to a component that can be consumed by everyone interested.</li>
+				<li lang="en-GB"><strong class="bold" lang="">High-performance sequential processing</strong>: Certain types of operations are more efficient when performed sequentially and/or in batches. For example, some operations, such as writes to HDD are often more performant when done sequentially (an example would be writing a very large file sequentially, without any interruptions). For such scenarios, asynchronous processing offers great performance improvements compared to more interactive and interruptive synchronous communication because the receiver of such requests can control the processing speed and process tasks one after another.</li>
+			</ul>
+			<p lang="en-GB">While the described benefits of asynchronous communication may seem appealing, it is important to note that it often brings some difficult challenges to developers:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">More complex error handling</strong>: Imagine sending a message to your friend and not receiving a response back. Was it because the friend did not receive the message? Did something happen during this time? Did the response get lost? In synchronous communication, such as a phone call, we would immediately know if the friend is not available and would be able to call back. In the case of an asynchronous scenario, we would need to think about more possible issues, such as the ones we described.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Reliance on additional components for message delivery</strong>: Certain asynchronous communication use cases, such as the publisher-subscriber or message broker models described in the next section, require additional software for delivering messages. Such software often performs additional operations, such as message batching and storing, bringing additional complexity to the system in exchange for additional features it provides.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Asynchronous data flow may seem non-intuitive to many developers and be more complex</strong>: Unlike the synchronous request-response model, where each request is logically followed by a response to it, asynchronous communication may be <strong class="bold" lang="">unidirectional</strong> (no responses are received at all) or may require the caller to perform additional steps in order to receive a response (for example, when the response is sent as a separate notification). Because of this, data flow in asynchronous systems may be more complex than in synchronous request-response interactions.</li>
+			</ul>
+			<p lang="en-GB">Now, let’s cover some asynchronous communication techniques and patterns that can help you in organizing your services and establishing asynchronous communication between them.</p>
+			<h2 id="_idParaDest-93" lang="en-GB"><a id="_idTextAnchor094"/>Techniques and patterns of asynchronous communication</h2>
+			<p lang="en-GB">There are various techniques that help to make the asynchronous interaction between multiple services more efficient in various scenarios, such as sending a message to multiple recipients. In this section, we are going to describe multiple patterns that help to facilitate such interactions.</p>
+			<h3 lang="en-GB">Message broker</h3>
+			<p lang="en-GB">A <strong class="bold" lang="">message broker</strong> is an intermediary component in the communication chain that can play multiple roles:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Message delivery</strong>: It performs the delivery of a message to one or multiple receivers.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Message transformation</strong>: It transforms an incoming message into another format that can be later consumed by receivers.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Message aggregation</strong>: It aggregates multiple messages into a single one for more efficient delivery or processing.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Message routing</strong>: It routes incoming messages to the appropriate destination based on pre-defined rules.</li>
+			</ul>
+			<p lang="en-GB">When you send a postcard to your friend or a relative, the post office plays the role of a message broker, playing an intermediary role in delivering it to the destination. In this example, the main benefit of using the message broker would be the convenience of sending the message (postcard, in our example) without any need to think about how to deliver it. Another benefit of using message brokers is delivery guarantees. A message broker can provide various levels of guarantees for message delivery. Examples of these guarantees include the following:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">At-least-once</strong>: The message gets delivered at least once, but may be delivered multiple times in case of failures.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Exactly-once</strong>: The message broker guarantees that the message gets delivered and it will be delivered exactly once.</li>
+				<li lang="en-GB"><strong class="bold" lang="">At-most-once</strong>: The message can be delivered 0 or 1 time.</li>
+			</ul>
+			<p lang="en-GB">The exactly-once guarantee is often harder to achieve in practice than at-least-once and at-most-once. In the at-least-once model, a message broker can just re-send the message in case of any failure (such as a sudden power loss or a restart). In the exactly-once model, the message broker needs to perform additional checks or store extra metadata to ensure the message is never re-sent to the receiver in any possible case.</p>
+			<p lang="en-GB">Another classification of message brokers is based on the possibility of them losing messages:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Lossy</strong>: A message broker that can occasionally (for example, in case of failures) lose messages</li>
+				<li lang="en-GB"><strong class="bold" lang="">Lossless</strong>: A message broker that provides a guarantee of not losing any messages</li>
+			</ul>
+			<p lang="en-GB">The at-most-once guarantee is an example of a lossy message broker, and at-least-once and exactly-once brokers are examples of lossless ones. Lossy message brokers are faster than lossless ones because they don’t need to handle extra logic for guaranteeing message delivery, such as persisting messages.</p>
+			<h3 lang="en-GB">The publisher-subscriber model</h3>
+			<p lang="en-GB">The <strong class="bold" lang="">publisher-subscriber model</strong> is a model of communication between multiple components (such as microservices) where every component can publish messages and subscribe to the relevant ones.</p>
+			<p lang="en-GB">Let’s take Twitter as an example. Any user can publish messages to their feeds, and other users can subscribe to them. Similarly, microservices can communicate by publishing the data that other services can consume. Imagine that we have a set of services that process various types of user data, such as user photos, videos, and text messages. If a user deleted their profile, we would need to notify all services about this. Instead of notifying each service one by one, we could publish a single event that would indicate that a user profile is deleted, and all services could consume it and perform any relevant actions, such as archiving user data.</p>
+			<p lang="en-GB">The relationship between the publishers, the subscribers, and the data produced by the publisher is illustrated in the following diagram:</p>
+			<p class="IMG---Figure" lang="en-GB"> </p>
+			<div>
+				<div id="_idContainer025" class="IMG---Figure">
+					<img src="image/Figure_6.1_B18865.jpg" alt="Figure 6.1 – The publisher-subscriber model&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 6.1 – The publisher-subscriber model</p>
+			<p lang="en-GB">The publisher-subscriber model provides a flexible solution for sending and delivering data in a system where messages can be processed by multiple components. Each publisher can publish their messages without caring about the delivery process and any difficulties in delivering messages to an arbitrary number (even a very large one) of receivers. Each subscriber can subscribe to the relevant messages and get them delivered without needing to contact the publisher directly and check if there is any new data to consume. The latter feature is especially useful for scenarios with low message rates, such as occasional notification delivery.</p>
+			<p lang="en-GB">Now, as we have covered some high-level asynchronous communication models, let’s move on to the practical side of the chapter and illustrate how you can implement asynchronous communication in your microservices.</p>
+			<h2 id="_idParaDest-94" lang="en-GB"><a id="_idTextAnchor095"/>Using Apache Kafka for messaging</h2>
+			<p lang="en-GB">In this section, we are going to introduce you to Apache Kafka, a popular message broker system that we are going to use to establish asynchronous communication between our microservices. You will learn the basics of Kafka, how to publish messages to it, and how to consume such messages from the microservices we created in the previous chapters.</p>
+			<h3 lang="en-GB">Apache Kafka basics</h3>
+			<p lang="en-GB">Apache Kafka is an open source message broker system that provides the ability to publish and subscribe to messages containing arbitrary data. Originally developed at LinkedIn, Kafka has become perhaps the most popular open source message broker software and is used by thousands of companies around the world.</p>
+			<p lang="en-GB">In the Kafka model, a component that publishes messages is called a <strong class="bold" lang="">producer</strong>. Messages are published in sequential order to objects called <strong class="bold" lang="">topics</strong>. Each message in a topic has a unique numerical <strong class="bold" lang="">offset</strong> in it. Kafka provides APIs for consuming messages (the component for consuming messages is called a <strong class="bold" lang="">consumer</strong>) for the existing topics. Topics can also be partitioned to allow multiple consumers to consume from them (for example, for parallel data processing).</p>
+			<p lang="en-GB">We can illustrate the Kafka data model in the following diagram:</p>
+			<div>
+				<div id="_idContainer026" class="IMG---Figure">
+					<img src="image/Figure_6.2_B18865.jpg" alt="Figure 6.2 – The Apache Kafka data model&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 6.2 – The Apache Kafka data model</p>
+			<p lang="en-GB">Having such a seemingly simple data model, Kafka is a powerful system that offers lots of benefits to its users:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">High write and read throughput</strong>: Kafka is optimized for highly performant write and read operations. It achieves this by doing as many sequential writes and reads as possible, allowing it to efficiently make use of hardware such as hard disk drives, as well as sequentially sending large amounts of data over the network.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Scalability</strong>: Developers can leverage topic partitioning provided by Kafka to achieve more performant parallel processing of their data.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Flexible durability</strong>: Kafka allows users to configure the policies for storing data, such as message retention. Messages can be stored for a fixed amount of time (for example, for 7 days) or indefinitely until there is enough space on the data storage.</li>
+			</ul>
+			<p class="callout-heading" lang="en-GB">Note</p>
+			<p class="callout" lang="en-GB">While Kafka provides many benefits for developers, it is important to note that it is a fairly complex infrastructure component that may be nontrivial to manage and maintain. We are going to use it in this chapter for illustrative purposes, especially taking into account its wide adoption and popularity in the developer community. In this chapter, we will avoid the difficulties of setting up a Kafka cluster by using its Docker version, but for production use cases you may need to get familiar with the relevant Kafka maintenance documentation, available at <a href="https://kafka.apache.org/documentation/">https://kafka.apache.org/documentation/</a></p>
+			<p lang="en-GB">Let’s explore how we can leverage the benefits offered by Kafka for the microservices we developed in the previous chapters.</p>
+			<h2 id="_idParaDest-95" lang="en-GB"><a id="_idTextAnchor096"/>Adopting Kafka for our microservices</h2>
+			<p lang="en-GB">Let’s get back to the rating service example from the previous chapters. The service provided a synchronous API for inserting rating records, allowing its callers to call an endpoint and get an immediate response from the service. Such an API would be useful in many practical use cases, including one where the user submits a rating from a user interface or a web form.</p>
+			<p lang="en-GB">Now consider a scenario where we work with a data provider who frequently publishes rating records (for example, movie ratings from a popular movie database, such as IMDb) that we can use in our rating service. Here, we would need to consume such records and ingest them into our system, so we could use them in addition to the data that was created through our API. The publisher-subscriber model that we described earlier in this chapter would be a great fit for this use case – the publisher would be the data provider that provides the rating data, and the subscriber would be a part of our application (such as a rating service), which would consume the data.</p>
+			<p lang="en-GB">We can illustrate the described model using the following diagram:</p>
+			<div>
+				<div id="_idContainer027" class="IMG---Figure">
+					<img src="image/Figure_6.3_B18865.jpg" alt="Figure 6.3 – The publisher-subscriber model of rating ingestion from a data provider&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 6.3 – The publisher-subscriber model of rating ingestion from a data provider</p>
+			<p lang="en-GB">The model of interaction between the data provider and the rating service is a perfect example of asynchronous communication – the rating service does not necessarily need to process the provider’s data immediately. It is up to us when and how to consume this data – our rating service could do this periodically (for example, once an hour, or once a day), or handle the new rating data as soon as it gets published. Let’s choose the second approach in this chapter. </p>
+			<p lang="en-GB">The only missing piece in our model is the component that allows us to publish the rating data from the data provider and subscribe to it from our rating service. Apache Kafka, which we described earlier, is a great fit for this use case – it provides a performant, scalable, and durable solution for producing and consuming arbitrary data, allowing us to use it as a rating data message broker.</p>
+			<p lang="en-GB">To illustrate the model that we have just described, let’s implement the following logic:</p>
+			<ul>
+				<li lang="en-GB">A new example application that will produce rating data for Apache Kafka</li>
+				<li lang="en-GB">Logic in the rating service to consume the rating data from Apache Kafka and save it to our rating database</li>
+			</ul>
+			<p lang="en-GB">Before we proceed to implement both components, we need to decide which data serialization format to use between them. For simplicity, let’s assume the data provider provides us with the rating data in JSON format. An example of the provided rating data would be as follows:</p>
+			<pre class="source-code" lang="en-GB">
+[{"userId":"105","recordId":"1","recordType":1,"value":5,"providerId":"test-provider","eventType":"put"},{"userId":"105","recordId":"2","recordType":1,"value":4,"providerId":"test-provider","eventType":"put"}]</pre>
+			<p lang="en-GB">Let’s define a Go structure for such rating records. In the <strong class="source-inline" lang="">src/rating/pkg/model/rating.go</strong> file, add the following code:</p>
+			<pre class="source-code" lang="en-GB">
+// RatingEvent defines an event containing rating information.
+type RatingEvent struct {
+    UserID     UserID      `json:"userId"`
+    RecordID   RecordID    `json:"recordId"`
+    RecordType RecordType  `json:"recordType"`
+    Value      RatingValue `json:"value"`
+    EventType  RatingEventType `json:"eventType"`
+}
+// RatingEventType defines the type of a rating event.
+type RatingEventType string
+// Rating event types.
+const (
+    RatingEventTypePut    = "put"
+    RatingEventTypeDelete = "delete"
+)</pre>
+			<p lang="en-GB">Now, let’s implement the example application that reads rating data from a provided file and produces it in Kafka. Create a <strong class="source-inline" lang="">cmd/ratingingester</strong> directory and add a <strong class="source-inline" lang="">main.go</strong> file, containing the following code:</p>
+			<pre class="source-code" lang="en-GB">
+package main
+ 
+import (
+    "encoding/json"
+    "fmt"
+    "os"
+    "time"
+ 
+    "github.com/confluentinc/confluent-kafka-go/kafka"
+    "movieexample.com/rating/pkg/model"
+)
+ 
+func main() {
+    fmt.Println("Creating a Kafka producer")
+ 
+    producer, err := kafka.NewProducer(&amp;kafka.ConfigMap{"bootstrap.servers": "localhost"})
+    if err != nil {
+        panic(err)
+    }
+    defer producer.Close()
+ 
+    const fileName = "ratingsdata.json"
+    fmt.Println("Reading rating events from file " + fileName)
+ 
+    ratingEvents, err := readRatingEvents(fileName)
+    if err != nil {
+        panic(err)
+    }
+ 
+    const topic = "ratings"
+    if err := produceRatingEvents(topic, producer, ratingEvents); err != nil {
+        panic(err)
+    }
+ 
+    const timeout = 10 * time.Second
+    fmt.Println("Waiting " + timeout.String() + " until all events get produced")
+ 
+    producer.Flush(int(timeout.Milliseconds()))
+}</pre>
+			<p lang="en-GB">In the code that we just added, we initialize a Kafka producer by calling <strong class="source-inline" lang="">kafka.NewProducer</strong>, read the rating data from a file, and produce rating events containing the rating data in Kafka. Note that we import the <strong class="source-inline" lang="">github.com/confluentinc/confluent-kafka-go</strong> Kafka library — a Kafka client made by Confluent, a company founded by the creators of Kafka. There are multiple popular open source Kafka libraries for Go, including <strong class="source-inline" lang="">github.com/Shopify/sarama</strong>, which is well maintained and is widely used across many Go projects. You can use either library in your projects depending on your preference.</p>
+			<p lang="en-GB">Now, let’s add a function for reading rating events to the file we just created:</p>
+			<pre class="source-code" lang="en-GB">
+func readRatingEvents(fileName string) ([]model.RatingEvent, error) {
+    f, err := os.Open(fileName)
+    if err != nil {
+        return nil, err
+    }
+    defer f.Close()
+    var ratings []model.RatingEvent
+    if err := json.NewDecoder(f).Decode(&amp;ratings); err != nil {
+        return nil, err
+    }
+    return ratings, nil
+}</pre>
+			<p lang="en-GB">Finally, add a function for producing rating events:</p>
+			<pre class="source-code" lang="en-GB">
+func produceRatingEvents(topic string, producer kafka.Producer, events []model.RatingEvent) error {
+    for _, ratingEvent := range ratingEvents {
+        encodedEvent, err := json.Marshal(ratingEvent)
+    if err != nil {
+        return err
+    }
+ 
+    if err := p.Produce(&amp;kafka.Message{
+TopicPartition: kafka.TopicPartition{Topic: &amp;topic, Partition: kafka.PartitionAny},
+Value:          []byte(encodedEvent),
+}, nil); err != nil {
+        return err
+    }
+    return nil
+}</pre>
+			<p lang="en-GB">Let’s describe some parts of the code that we just wrote:</p>
+			<ul>
+				<li lang="en-GB">We created a Kafka producer by calling a <strong class="source-inline" lang="">kafka.NewProducer</strong> function and providing <strong class="source-inline" lang="">localhost</strong> as the Kafka address for testing it locally.</li>
+				<li lang="en-GB">The program that we created is expected to read rating data from the <strong class="source-inline" lang="">ratingsdata.json</strong> file.</li>
+				<li lang="en-GB">When we produce events to Kafka using a <strong class="source-inline" lang="">Produce</strong> function, we specify a topic partition using a <strong class="source-inline" lang="">kafka.TopicPartition</strong> structure. In the structure, we provide the topic name (in our example, we call it <strong class="source-inline" lang="">ratings</strong>) and the topic partition (in our example, we use <strong class="source-inline" lang="">kafka.PartitionAny</strong> to produce a partition — we will cover this part later, in the <em class="italic" lang="">Asynchronous communication best practices</em> section).</li>
+				<li lang="en-GB">At the end of our main function, we call the <strong class="source-inline" lang="">Flush</strong> function to make sure all messages are sent to Kafka.</li>
+			</ul>
+			<p lang="en-GB">The function that we just created is using the <strong class="source-inline" lang="">github.com/confluentinc/confluent-kafka-go/kafka</strong> library, which we need to include in our Go module. Let’s do this by running the following code:</p>
+			<pre class="source-code" lang="en-GB">
+go mod tidy</pre>
+			<p lang="en-GB">Let’s also add a file containing the rating events. In the directory that we just used, create a <strong class="source-inline" lang="">ratingsdata.json</strong> file, containing the following code:</p>
+			<pre class="source-code" lang="en-GB">
+[{"userId":"105","recordId":"1","recordType":1,"value":5,"providerId":"test-provider","eventType":"put"},{"userId":"105","recordId":"2","recordType":1,"value":4,"providerId":"test-provider","eventType":"put"}]</pre>
+			<p lang="en-GB">Now, our application is ready. We have implemented the logic to read the rating data from a file and publish it to Apache Kafka for further consumption by the rating service. Let’s implement the logic in the rating service to consume the published data. Create a <strong class="source-inline" lang="">rating/internal/ingester/kafka</strong> directory and add an <strong class="source-inline" lang="">ingester.go</strong> file with the following contents:</p>
+			<pre class="source-code" lang="en-GB">
+package kafka
+ 
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "rating/pkg/model"
+ 
+    "github.com/confluentinc/confluent-kafka-go/kafka"
+    "movieexample.com/rating/pkg/model"
+)
+ 
+// Ingester defines a Kafka ingester.
+type Ingester struct {
+    consumer kafka.Consumer
+    topic    string
+}
+ 
+// NewIngester creates a new Kafka ingester.
+func NewIngester(addr string, groupID string, topic string) (*Ingester, error) {
+    consumer, err := kafka.NewConsumer(&amp;kafka.ConfigMap{
+        "bootstrap.servers": addr,
+        "group.id":          groupID,
+        "auto.offset.reset": "earliest",
+    })
+    if err != nil {
+        return nil, err
+    }
+    return &amp;Ingester{consumer, topic}, nil
+}</pre>
+			<p lang="en-GB">Additionally, add this piece of code to it:</p>
+			<pre class="source-code" lang="en-GB">
+// Ingest starts ingestion from Kafka and returns a channel // containing rating events
+// representing the data consumed from the topic.
+func (i *Ingester) Ingest(ctx context.Context) (chan model.RatingEvent, error) {
+    if err := i.consumer.SubscribeTopics([]string{i.topic}, nil); err != nil {
+        return nil, err
+    }
+ 
+    ch := make(chan model.RatingEvent, 1)
+    go func() {
+        for {
+            select {
+            case &lt;-ctx.Done():
+                close(ch)
+                i.consumer.Close()
+            default:
+        }
+        msg, err := i.consumer.ReadMessage(-1)
+        if err != nil {
+            fmt.Println("Consumer error: " + err.Error())
+            continue
+        }
+        var event model.RatingEvent
+        if err := json.Unmarshal(msg.Value, &amp;event); err != nil { 
+            fmt.Println("Unmarshal error: " + err.Error())
+            continue
+        }
+        ch &lt;- event
+        }
+    }()
+    return ch, nil
+}</pre>
+			<p lang="en-GB">In the code we just created, we have implemented a <strong class="source-inline" lang="">NewIngester</strong> function to create a new Kafka ingester, the component that will ingest rating events from it. The <strong class="source-inline" lang="">Ingest</strong> function starts message ingestion in the background and returns a Go channel with <strong class="source-inline" lang="">RatingEvent</strong> structures.</p>
+			<p lang="en-GB">You may notice that in our call to the <strong class="source-inline" lang="">ReadMessage</strong> function, we provided <strong class="source-inline" lang="">-1</strong> as an argument. We specified a <strong class="bold" lang="">consumer offset</strong> — a checkpoint from which we should consume the messages from our topic. The value of <strong class="source-inline" lang="">-1</strong> is specific to Kafka and means that we will always consume from the beginning of the topic, reading all existing messages.</p>
+			<p lang="en-GB">Let’s use this structure in our rating service controller. In our <strong class="source-inline" lang="">rating/internal/controller/controller.go</strong> file, add the following code:</p>
+			<pre class="source-code" lang="en-GB">
+type ratingIngester interface {
+    Ingest(ctx context.Context) (chan model.RatingEvent, error)
+} 
+// StartIngestion starts the ingestion of rating events.
+func (s *RatingService) StartIngestion(ctx context.Context) error {
+    ch, err := s.ingester.Ingest(ctx)
+    if err != nil {
+        return err
+    }
+    for e := range ch {
+        if err := s.PutRating(ctx, e.RecordID, e.RecordType, &amp;model.Rating{UserID: e.UserID, Value: e.Value}); err != nil {
+            return err
+        }
+    }
+    return nil
+}</pre>
+			<p lang="en-GB">In our code, we call the <strong class="source-inline" lang="">Ingest</strong> function and get back a Go channel containing rating events from the topic. We iterate over it using the <strong class="source-inline" lang="">for</strong> operator. It keeps returning us available rating events until the channel is closed (for example, when the Kafka client is closed on service shutdown).</p>
+			<p lang="en-GB">Now, update the existing <strong class="source-inline" lang="">RatingService</strong> structure and the <strong class="source-inline" lang="">New</strong> function in this file to the following:</p>
+			<pre class="source-code" lang="en-GB">
+// RatingService encapsulates the rating service business 
+// logic.
+type RatingService struct {
+    repo     ratingRepository
+    ingester ratingIngester
+}
+ 
+// New creates a rating service.
+func New(repo ratingRepository, ingester ratingIngester) *RatingService {
+    return &amp;RatingService{repo, ingester}
+}</pre>
+			<p lang="en-GB">Now, our rating service is able to asynchronously consume rating events from Kafka, and execute the <strong class="source-inline" lang="">Put</strong> function for each one, writing it to the rating database. At this point, the rating service provides both a synchronous API for the callers that want to create ratings in real time and asynchronous logic for ingesting rating events from Apache Kafka.</p>
+			<p lang="en-GB">We have covered the basics of asynchronous communication and illustrated how to use it in our microservices. Let’s proceed to the final part of the chapter to see some best practices you should keep in mind while using this model.</p>
+			<h1 id="_idParaDest-96" lang="en-GB"><a id="_idTextAnchor097"/>Asynchronous communication best practices</h1>
+			<p lang="en-GB">In this section, we are going to cover the best practices of using the asynchronous communication model. You will learn some high-level recommendations for adopting the model in your applications and using it in a way that would maximize its benefits for you.</p>
+			<h2 id="_idParaDest-97" lang="en-GB"><a id="_idTextAnchor098"/>Versioning</h2>
+			<p lang="en-GB"><strong class="bold" lang="">Versioning</strong> is the technique of associating the format (or a schema) of the data with its version. Imagine you are working on a rating service, and you use a publisher-subscriber model for producing and consuming rating events. If at some point the format of your rating events gets changed, some of the events that are already produced will have an old data format, and some will have the new one. This situation may be hard to handle because the logic consuming such data would need to know how to differentiate between such formats and how to handle each one. Differentiating between two formats without knowing the data schema or its version could be a nontrivial task. Imagine that we have two JSON events:</p>
+			<pre class="source-code" lang="en-GB">
+{"recordID": "1", "rating": 5}
+{"recordID": "2", "rating": 17, "userId": "alex"}</pre>
+			<p lang="en-GB">The second event has a <strong class="source-inline" lang="">userId</strong> field that is not present in the first. Is it because the producer did not provide it or because the data format did not have this field before? </p>
+			<p lang="en-GB">Providing the schema version explicitly would help the data consumer handle this problem. Consider these updated examples:</p>
+			<pre class="source-code" lang="en-GB">
+{"recordID": "1", "rating": 5, "version": 1}
+{"recordID": "2", "rating": 17, "userId": "alex", "version": 2}</pre>
+			<p lang="en-GB">In these examples, we know the versions of events and can now handle each one separately. For example, we may completely ignore events of a certain version (assume there was an application bug and we want to re-process events with an updated version instead) or use the version-specific validation (for instance, allow the records without a <strong class="source-inline" lang="">userId</strong> field for version 1, but disallow for the higher versions).</p>
+			<p lang="en-GB">Versioning is very important to systems that can evolve over time because it makes dealing with different data formats easier. Even if you don’t expect your data format to change, consider using versioning to increase your system’s maintainability in the future.</p>
+			<h2 id="_idParaDest-98" lang="en-GB"><a id="_idTextAnchor099"/>Leveraging partitioning</h2>
+			<p lang="en-GB">In the code examples in the <em class="italic" lang="">Adopting Apache Kafka for our microservices</em> section, we implemented the logic for producing our data to message topics in Apache Kafka. The function for producing a message was as follows:</p>
+			<pre class="source-code" lang="en-GB">
+if err := p.Produce(&amp;kafka.Message{
+TopicPartition: kafka.TopicPartition{Topic: &amp;topic, Partition: kafka.PartitionAny},
+Value:          []byte(encodedEvent),
+}, nil); err != nil {
+    return err
+}</pre>
+			<p lang="en-GB">In this function, we used the <strong class="source-inline" lang="">kafka.PartitionAny</strong> option. As we mentioned in the <em class="italic" lang="">Apache Kafka basics</em> section, Kafka topics can be partitioned to allow multiple consumers to consume different partitions of a topic. Imagine you have a topic with three partitions – you can consume each one independently, as illustrated in the following diagram:</p>
+			<div>
+				<div id="_idContainer028" class="IMG---Figure">
+					<img src="image/Figure_6.4_B18865.jpg" alt="Figure 6.4 – A partitioned topic consumption example&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 6.4 – A partitioned topic consumption example</p>
+			<p lang="en-GB">You can control the number of topic partitions, as well as the partition for each message your services produce. Setting a partition manually may help you to achieve <strong class="bold" lang="">data locality</strong> — the ability to co-locate the data <a id="_idIndexMarker270"/>for various records, storing it together (in our use case, in the same topic partition). For example, you can partition the data using a user identifier, making sure the data for any user is stored on a single topic partition, helping you simplify the data search across the topic partitions.</p>
+			<p lang="en-GB">The list of best practices that we just described is not comprehensive. It does not cover all recommendations for using asynchronous communication in your microservices, but it provides some great ideas for what you should consider. Get familiar with the articles listed in the <em class="italic" lang="">Further reading</em> section for some additional ideas and recommendations.</p>
+			<h1 id="_idParaDest-99" lang="en-GB"><a id="_idTextAnchor100"/>Summary</h1>
+			<p lang="en-GB">In this chapter, we have covered the basics of asynchronous communication and illustrated how to use it in your microservices. You have learned the benefits of asynchronous communication and the common patterns, such as publisher-subscriber and message broker. In addition to this, we have covered the basics of the Apache Kafka message broker and illustrated how to use it in our microservices and how to implement the logic for producing and consuming data from it.</p>
+			<p lang="en-GB">In the next chapter, we are going to cover another important topic of microservice development – data storage. You will learn how to persist and read different types of service data, as well as how to implement the logic for working with MySQL database in your Go microservices.</p>
+			<h1 id="_idParaDest-100" lang="en-GB"><a id="_idTextAnchor101"/>Further reading</h1>
+			<ul>
+				<li lang="en-GB"><em class="italic" lang="">Apache Kafka documentation</em>: <a href="https://kafka.apache.org/documentation/">https://kafka.apache.org/documentation/</a> </li>
+				<li lang="en-GB"><em class="italic" lang="">Publish-subscribe pattern</em>: <a href="https://en.wikipedia.org/wiki/Publish%E2%80%93subscribe_pattern">https://en.wikipedia.org/wiki/Publish%E2%80%93subscribe_pattern</a> </li>
+				<li lang="en-GB"><em class="italic" lang="">Asynchronous message-based communication</em>: <a href="https://docs.microsoft.com/en-us/dotnet/architecture/microservices/architect-microservice-container-applications/asynchronous-message-based-communication ">https://docs.microsoft.com/en-us/dotnet/architecture/microservices/architect-microservice-container-applications/asynchronous-message-based-communication</a></li>
+			</ul>
+		</div>
+	</body></html>

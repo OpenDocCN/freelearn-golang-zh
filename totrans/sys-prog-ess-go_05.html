@@ -1,0 +1,548 @@
+<html><head></head><body>
+<div id="book-content">
+<div id="sbo-rt-content"><div id="_idContainer013">
+			<h1 id="_idParaDest-90" class="chapter-number"><a id="_idTextAnchor126"/>5</h1>
+			<h1 id="_idParaDest-91"><a id="_idTextAnchor127"/>Working with System Events</h1>
+			<p>System events<a id="_idIndexMarker222"/> are an essential aspect of software development, and knowing how to manage and respond to them is crucial for creating robust and responsive applications. This chapter is designed to equip you with the knowledge and skills to effectively manage and respond to system events, a critical aspect of robust and responsive software development. By the end of this chapter, you will have gained practical experience in handling various types of system signals, scheduling tasks, and monitoring filesystem events using Go’s powerful features <span class="No-Break">and libraries.</span></p>
+			<p>In this chapter, we’re going to cover the following <span class="No-Break">main topics:</span></p>
+			<ul>
+				<li>Understanding system events <span class="No-Break">and signals</span></li>
+				<li><span class="No-Break">Handling signals</span></li>
+				<li><span class="No-Break">Task scheduling</span></li>
+				<li>File monitoring <span class="No-Break">with Inotify</span></li>
+				<li><span class="No-Break">Process management</span></li>
+				<li>Building a distributed lock manager <span class="No-Break">in Go</span></li>
+			</ul>
+			<h1 id="_idParaDest-92"><a id="_idTextAnchor128"/>Managing system events</h1>
+			<p>Managing system events<a id="_idIndexMarker223"/> involves understanding and responding to various signals that can impact a process’s execution. We need to get a better understanding of what signals are and how they can be handled in <span class="No-Break">our programs.</span></p>
+			<h2 id="_idParaDest-93"><a id="_idTextAnchor129"/>What are signals?</h2>
+			<p>A signal<a id="_idIndexMarker224"/> serves as a notification to a process that a specific event has occurred. Signals are sometimes equated to software interrupts, resembling hardware interrupts in their capacity to disrupt a program’s normal execution flow. It’s typically impossible to predict precisely when a signal will <span class="No-Break">be triggered.</span></p>
+			<p>When the kernel generates a signal for a process, it is usually due to an event occurring in one of these three categories: hardware-triggered events, user-triggered events, and <span class="No-Break">software events.</span></p>
+			<p>The first category occurs when the hardware detects a fault condition, notifying the kernel and dispatching a corresponding signal to the <span class="No-Break">affected process.</span></p>
+			<p>The second category involves special characters in the terminal, such as the interrupt character (typically <em class="italic">Ctrl + C</em>), resulting in <span class="No-Break">generated signals.</span></p>
+			<p>The last category includes for <a id="_idIndexMarker225"/>example the termination of a child process associated with the <span class="No-Break">main process.</span></p>
+			<p class="callout-heading">Process termination</p>
+			<p class="callout">A program may not catch <strong class="source-inline">SIGKILL</strong> and <strong class="source-inline">SIGSTOP</strong> signals and, therefore, cannot be affected by the <span class="No-Break"><strong class="source-inline">os/signal</strong></span><span class="No-Break"> package.</span></p>
+			<p>In this section, we’ll explore how to handle incoming signals with the <span class="No-Break"><strong class="source-inline">os/signal</strong></span><span class="No-Break"> package.</span></p>
+			<h2 id="_idParaDest-94"><a id="_idTextAnchor130"/>The os/signal package</h2>
+			<p>The <strong class="source-inline">os/signal</strong> package <a id="_idIndexMarker226"/>differentiates signals into two types: synchronous <span class="No-Break">and asynchronous.</span></p>
+			<p>Errors in program execution trigger synchronous signals such as <strong class="source-inline">SIGBUS</strong>, <strong class="source-inline">SIGFPE</strong>, and <strong class="source-inline">SIGSEGV</strong>. By defa<a id="_idTextAnchor131"/>ult, Go programs convert these signals into a <span class="No-Break">runtime panic.</span></p>
+			<p>The remaining signals are asynchronous, meaning that they are not triggered by program errors, but are instead sent from the kernel or some <span class="No-Break">other program.</span></p>
+			<p>The <strong class="source-inline">SIGINT</strong> signal is sent to a process in response to the user pressing the interrupt character on the controlling terminal. The default interrupt character is <strong class="source-inline">^C</strong> (<em class="italic">Ctrl + C</em>). Similarly, the <strong class="source-inline">SIGQUIT</strong> signal is sent to a process when the user presses the quit character on the controlling terminal. The default quit character is <strong class="source-inline">^\</strong> (<em class="italic">Crl + \</em>).</p>
+			<p>Let’s examine <span class="No-Break">the program:</span></p>
+			<pre class="source-code">
+package main
+import (
+  "fmt"
+  "os"
+  "os/signal"
+)
+func main() {
+  signals := make(chan os.Signal, 1)
+  done := make(chan struct{}, 1)
+  signal.Notify(signals, os.Interrupt, )
+  go func() {
+    for {
+      s := &lt;-signals
+      switch s {
+      case os.Interrupt:
+        fmt.Println("INTERRUPT")
+        done &lt;- struct{}{}
+      default:
+        fmt.Println("OTHER")
+      }
+    }
+  }()
+  fmt.Println("awaiting signal")
+  &lt;-done
+  fmt.Println("exiting")
+}</pre>			<p>Let’s break <a id="_idIndexMarker227"/>down the code step <span class="No-Break">by step.</span></p>
+			<p>The code starts by importing necessary packages: <strong class="source-inline">fmt</strong> for formatting and printing, <strong class="source-inline">os</strong> for interacting with the operating system, and <strong class="source-inline">os/signal</strong> for <span class="No-Break">handling signals.</span></p>
+			<p>Let’s start with the <span class="No-Break"><strong class="source-inline">main</strong></span><span class="No-Break"> function:</span></p>
+			<ul>
+				<li><strong class="source-inline">signals := make(chan os.Signal, 1)</strong> creates a buffered channel called signals of type <strong class="source-inline">os.Signal</strong>. It’s used to receive signals from the <span class="No-Break">operating system.</span></li>
+				<li><strong class="source-inline">done := make(chan struct{}, 1)</strong> creates another buffered channel called done of type <strong class="source-inline">struct{}</strong>. This channel is used to signal when the program <span class="No-Break">should exit.</span></li>
+				<li><strong class="source-inline">signal.Notify(signals, os.Interrupt)</strong> registers the <strong class="source-inline">os.Interrupt</strong> signal (usually generated by pressing <em class="italic">Ctrl</em> + <em class="italic">C</em>) with the signals channel. This means that when the program receives an interrupt signal, it will be sent to the <span class="No-Break">signals channel.</span></li>
+				<li>A goroutine is started with <strong class="source-inline">go func() {...}()</strong>. This goroutine runs concurrently with the main program. Inside this goroutine, there’s an infinite loop that listens for signals from the signals channel using <strong class="source-inline">s := &lt;-</strong><span class="No-Break"><strong class="source-inline">signals</strong></span><span class="No-Break">.</span></li>
+				<li>When a signal is received, if the signal is <strong class="source-inline">os.Interrupt</strong>, it prints <strong class="source-inline">INTERRUPT</strong> and sends an empty <strong class="source-inline">struct{}</strong> value to the done channel to indicate that the program should exit. Otherwise, it <span class="No-Break">prints </span><span class="No-Break"><strong class="source-inline">OTHER</strong></span><span class="No-Break">.</span></li>
+			</ul>
+			<p>After setting up the signal handling goroutine, the main program prints <span class="No-Break"><strong class="source-inline">awaiting signal</strong></span><span class="No-Break">.</span></p>
+			<p><strong class="source-inline">&lt;-done</strong> blocks until a value is received from the done channel, which happens when an interrupt signal is received and the goroutine sends an empty <strong class="source-inline">struct{}</strong> value to <strong class="source-inline">done</strong>. This effectively waits for the program to <span class="No-Break">be interrupted.</span></p>
+			<p>After receiving the value from done, the program prints <strong class="source-inline">exiting</strong> and <span class="No-Break">then exits.</span></p>
+			<p>System signals<a id="_idIndexMarker228"/> are a form of inter-process communication in Unix and Unix-like operating systems. They are used to notify a process that a particular event has occurred. Signal handling is crucial for <span class="No-Break">several reasons:</span></p>
+			<ul>
+				<li><strong class="bold">Graceful shutdown</strong>: When a system signal such as <strong class="source-inline">SIGTERM</strong> or <strong class="source-inline">SIGINT</strong> is sent to a process, it’s a <a id="_idIndexMarker229"/>request for the process to terminate. Proper handling of these signals allows an application to close resources, save state, and <span class="No-Break">exit cleanly.</span></li>
+				<li><strong class="bold">Resource management</strong>: Signals such as <strong class="source-inline">SIGUSR1</strong> and <strong class="source-inline">SIGUSR2</strong> can be used to trigger the <a id="_idIndexMarker230"/>application to release or rotate logs, reload configurations without downtime, or perform other <span class="No-Break">housekeeping tasks.</span></li>
+				<li><strong class="bold">Inter-process communication</strong>: Signals can be used to instruct a process to perform certain <a id="_idIndexMarker231"/>actions, like pausing (<strong class="source-inline">SIGSTOP</strong>) or resuming (<strong class="source-inline">SIGCONT</strong>) <span class="No-Break">its operation.</span></li>
+				<li><strong class="bold">Emergency stops</strong>: If there is a critical error, signals such as <strong class="source-inline">SIGKILL</strong> or <strong class="source-inline">SIGABRT</strong> can be used<a id="_idIndexMarker232"/> to stop a <span class="No-Break">process immediately.</span></li>
+			</ul>
+			<p>Sometimes, we need to initiate a task without a system trigger but from a recurring or specific point <span class="No-Break">in time.</span></p>
+			<h1 id="_idParaDest-95"><a id="_idTextAnchor132"/>Task scheduling in Go</h1>
+			<p>Task scheduling<a id="_idIndexMarker233"/> is the act of planning tasks to be executed by a system at certain times or under certain conditions. It’s a fundamental concept in computer science, used in operating systems, databases, networks, and <span class="No-Break">application development.</span></p>
+			<h2 id="_idParaDest-96"><a id="_idTextAnchor133"/>Why schedule?</h2>
+			<p>There are several reasons to <a id="_idIndexMarker234"/>schedule a task, such as <span class="No-Break">the following:</span></p>
+			<ul>
+				<li><strong class="bold">Efficiency</strong>: It allows for the optimal use of resources by running tasks during off-peak hours or when certain conditions <span class="No-Break">are met.</span></li>
+				<li><strong class="bold">Reliability</strong>: Scheduled tasks can be used for routine backups, updates, and maintenance, ensuring these critical operations are <span class="No-Break">not overlooked.</span></li>
+				<li><strong class="bold">Concurrency</strong>: In multi-threaded and distributed systems, scheduling is essential for managing when and how tasks are executed <span class="No-Break">in parallel.</span></li>
+				<li><strong class="bold">Predictability</strong>: It provides a way to ensure that tasks are performed at regular intervals, which is important for tasks such as polling, monitoring, <span class="No-Break">and reporting.</span></li>
+			</ul>
+			<h2 id="_idParaDest-97"><a id="_idTextAnchor134"/>Basic scheduling</h2>
+			<p>Go’s standard library <a id="_idIndexMarker235"/>provides several features that can be used to create a job scheduler, such as goroutines for concurrency and the <strong class="source-inline">time</strong> package for <span class="No-Break">timing events.</span></p>
+			<p>For our example of a job scheduler, we’ll define two main types, <strong class="source-inline">Job</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">Scheduler</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+// Job represents a task to be executed
+type Job func()</pre>			<p><strong class="source-inline">Job</strong> is a type alias for a function that takes no arguments and <span class="No-Break">returns nothing:</span></p>
+			<pre class="source-code">
+// Scheduler holds the jobs and the timer for execution
+type Scheduler struct {
+    jobQueue chan Job
+}</pre>			<p><strong class="source-inline">Scheduler</strong> is a struct that holds a channel named <strong class="source-inline">jobQueue</strong> to store and manage <span class="No-Break">scheduled jobs.</span></p>
+			<p>Now, we’ll need a factory for our <span class="No-Break"><strong class="source-inline">Scheduler</strong></span><span class="No-Break"> type:</span></p>
+			<pre class="source-code">
+// NewScheduler creates a new Scheduler
+func NewScheduler(size int) *Scheduler {
+    return &amp;Scheduler{
+         jobQueue: make(chan Job, size),
+    }
+}</pre>			<p>The <strong class="source-inline">NewScheduler</strong> function creates and returns a new <strong class="source-inline">Scheduler</strong> instance with a specified buffer size for the <strong class="source-inline">jobQueue</strong> channel. The buffer size allows a certain number of jobs to be scheduled and <span class="No-Break">executed concurrently.</span></p>
+			<p>Since we can create our scheduler, let’s attribute to them an action for scheduling and another to start the <span class="No-Break">job itself.</span></p>
+			<pre class="source-code">
+// Start the scheduler to listen for and execute jobs
+func (s *Scheduler) Start() {
+    for job := range s.jobQueue {
+         go job() // Run the job in a new goroutine
+    }
+}</pre>			<p>This method will be<a id="_idIndexMarker236"/> used to schedule a job for execution after a specified delay. It creates a new goroutine that sleeps for the specified duration and then sends the job to the <strong class="source-inline">jobQueue</strong> channel when the time is up. This means that the job will be executed asynchronously after the <span class="No-Break">specified delay:</span></p>
+			<pre class="source-code">
+// Schedule a job to be executed after a delay
+func (s *Scheduler) Schedule(job Job, delay time.Duration) {
+    go func() {
+         time.Sleep(delay)
+         s.jobQueue &lt;- job
+    }()
+}</pre>			<p>This method starts listening for jobs in the <strong class="source-inline">jobQueue</strong> channel and runs them in separate goroutines. It continuously loops and executes any jobs that are sent to <span class="No-Break">the channel.</span></p>
+			<p>With all components <a id="_idIndexMarker237"/>ready to be used, let’s create our <strong class="source-inline">main</strong> function to <span class="No-Break">utilize them:</span></p>
+			<pre class="source-code">
+func main() {
+    scheduler := NewScheduler(10) // Buffer size of 10
+    // Schedule a job to run after 5 seconds
+    scheduler.Schedule(func() {
+         fmt.Println("Job executed at", time.Now())
+    }, 5*time.Second)
+    // Start the scheduler
+    go scheduler.Start()
+    // Wait for input to exit
+    fmt.Println("Scheduler started. Press Enter to exit.")
+    fmt.Scanln()
+}</pre>			<p>We have the following in the <span class="No-Break"><strong class="source-inline">main</strong></span><span class="No-Break"> function:</span></p>
+			<ul>
+				<li>A new <strong class="source-inline">Scheduler</strong> instance has been created with a buffer size of 10 for the <span class="No-Break"><strong class="source-inline">jobQueue</strong></span><span class="No-Break"> channel</span></li>
+				<li>A job is scheduled to print a message along with the current time after a delay of <span class="No-Break">5 seconds</span></li>
+				<li>The <strong class="source-inline">Start</strong> method of the scheduler is called in a new goroutine to start processing scheduled <span class="No-Break">jobs concurrently</span></li>
+				<li>The program <a id="_idIndexMarker238"/>waits for user input (a newline) to exit, providing a message to indicate that the scheduler is running and waiting <span class="No-Break">for input</span></li>
+			</ul>
+			<h2 id="_idParaDest-98"><a id="_idTextAnchor135"/>Handling timer signals</h2>
+			<p>In Go, the <strong class="source-inline">time</strong> package <a id="_idIndexMarker239"/>provides functionality for measuring and displaying time and scheduling events with <strong class="source-inline">Timer</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">Ticker</strong></span><span class="No-Break">.</span></p>
+			<p>Here’s how we can handle timer signals and implement <span class="No-Break">system tasks:</span></p>
+			<pre class="source-code">
+package main
+import (
+    "fmt"
+    "time"
+)
+func main() {
+    // Create a ticker that ticks every second
+    ticker := time.NewTicker(1 * time.Second)
+    defer ticker.Stop()
+    // Create a timer that fires after 10 seconds
+    timer := time.NewTimer(10 * time.Second)
+    defer timer.Stop()
+    // Use a select statement to handle the signals from ticker and timer
+    for {
+         select {
+         case tick := &lt;-ticker.C:
+              fmt.Println("Tick at", tick)
+         case &lt;-timer.C:
+              fmt.Println("Timer expired")
+              return
+         }
+    }
+}</pre>			<p>In this example, a ticker <a id="_idIndexMarker240"/>is used to perform a task every second, and a timer is used to stop the loop after 10 seconds. The <strong class="source-inline">select</strong> statement is used to wait on multiple channel operations, making it easy to handle different <span class="No-Break">timing events.</span></p>
+			<p>Combining these concepts allows you to schedule tasks at regular intervals, after delays, or at specific times, which is essential for many <span class="No-Break">system-level applications.</span></p>
+			<h1 id="_idParaDest-99"><a id="_idTextAnchor136"/>File monitoring</h1>
+			<p>File monitoring is a crucial <a id="_idIndexMarker241"/>aspect of system programming because it enables developers and administrators to stay informed about changes and activities within a filesystem. This real-time awareness of filesystem events is essential for maintaining a system’s integrity, security, and functionality. Without effective file monitoring, system programming tasks become significantly more challenging, as you cannot respond promptly to file-related events that can impact the overall operation of <span class="No-Break">the system.</span></p>
+			<p>One powerful tool for file monitoring in the Linux environment <span class="No-Break">is Inotify.</span></p>
+			<h2 id="_idParaDest-100"><a id="_idTextAnchor137"/>Inotify</h2>
+			<p>Inotify is a Linux<a id="_idIndexMarker242"/> kernel subsystem that provides a mechanism for monitoring filesystem events. It allows you to receive notifications when certain events occur on files or directories, such as when a file is created, modified, or deleted, or when a directory is moved or renamed. In Go, you can use the standard library’s <strong class="source-inline">os</strong> and <strong class="source-inline">syscall</strong> packages to interact with Inotify and handle <span class="No-Break">filesystem events.</span></p>
+			<p>Here’s a basic introduction to working with Inotify and filesystem events in Go using the <span class="No-Break">standard library.</span></p>
+			<p>First, we need to import the <span class="No-Break">necessary packages:</span></p>
+			<pre class="source-code">
+import (
+    "fmt"
+    "os"
+    "golang.org/x/sys/unix"
+)</pre>			<p>Then we create an <span class="No-Break"><strong class="source-inline">Inotify</strong></span><span class="No-Break"> instance:</span></p>
+			<pre class="source-code">
+fd, err := unix.InotifyInit()
+if err != nil {
+    fmt.Println("Error initializing inotify:", err)
+    return
+}
+defer unix.Close(fd)</pre>			<p>Now, we need to add watches to monitor specific files or directories <span class="No-Break">for events:</span></p>
+			<pre class="source-code">
+watchPath := "/path/to/your/directory" // Change this to the directory you want to watch
+    watchDescriptor, err := unix.InotifyAddWatch(fd, watchPath, unix.IN_MODIFY|unix.IN_CREATE|unix.IN_DELETE)
+    if err != nil {
+        fmt.Println("Error adding watch:", err)
+        return
+    }
+    defer unix.InotifyRmWatch(fd, uint32(watchDescriptor))</pre>			<p>In this example, we’re monitoring the specified directory for file modification (<strong class="source-inline">IN_MODIFY</strong>), file creation (<strong class="source-inline">IN_CREATE</strong>), and file deletion (<span class="No-Break"><strong class="source-inline">IN_DELETE</strong></span><span class="No-Break">) events.</span></p>
+			<p>Lastly, we can <a id="_idIndexMarker243"/>start an event loop to listen for <span class="No-Break">filesystem events:</span></p>
+			<pre class="source-code">
+const bufferSize = (unix.SizeofInotifyEvent + unix.NAME_MAX + 1)
+buf := make([]byte, bufferSize)
+for {
+        n, err := unix.Read(fd, buf[:])
+        if err != nil {
+            fmt.Println("Error reading from inotify:", err)
+            return
+        }
+        // Parse the inotify events and handle them
+        var offset uint32
+        for offset &lt; uint32(n) {
+            event := (*unix.InotifyEvent)(unsafe.Pointer(&amp;buf[offset]))
+            nameBytes := buf[offset+unix.SizeofInotifyEvent : offset+unix.SizeofInotifyEvent+uint32(event.Len)]
+            name := string(nameBytes)
+            // Trim the NUL bytes from the name
+            name = string(nameBytes[:clen(nameBytes)])
+            // Process the event
+            fmt.Printf("Event: %s/%s\n", watchPath, name)
+            offset += unix.SizeofInotifyEvent + uint32(event.Len)
+        }
+    }
+}
+func clen(n []byte) int {
+    for i, b := range n {
+        if b == 0 {
+            return i
+        }
+    }
+    return len(n)
+}</pre>			<p>This loop continuously reads and processes <a id="_idIndexMarker244"/>inotify events until an error occurs, such as when the file descriptor is closed, or an unexpected error happens. It’s a common pattern for monitoring filesystem events on Linux using the <strong class="source-inline">golang.org/x/sys/unix</strong> package for inotify system calls. Here’s a detailed breakdown of the <span class="No-Break">loop’s operation:</span></p>
+			<pre class="source-code">
+const bufferSize = (unix.SizeofInotifyEvent + unix.NAME_MAX + 1)
+buf := make([]byte, bufferSize)</pre>			<p>This line initializes a byte slice (<strong class="source-inline">buf</strong>) with a size that’s sufficient to hold an inotify event and the maximum length of a filename. <strong class="source-inline">unix.SizeofInotifyEvent</strong> represents the size of an Inotify <a id="_idIndexMarker245"/>event structure and <strong class="source-inline">unix.NAME_MAX</strong> is the maximum length of a filename, ensuring that the buffer can accommodate the event data and the name of the file triggering <span class="No-Break">the event.</span></p>
+			<p>Inside the loop, the code processes each inotify event <span class="No-Break">as follows:</span></p>
+			<pre class="source-code">
+<strong class="source-inline">var offset uint32</strong></pre>			<p>An <strong class="source-inline">offset</strong> variable is initialized to track the start of the next event in <span class="No-Break">the buffer:</span></p>
+			<pre class="source-code">
+<strong class="source-inline">event := (*unix.InotifyEvent)(unsafe.Pointer(&amp;buf[offset]))</strong></pre>			<p>This converts the bytes at the current offset into an InotifyEvent struct by using <strong class="source-inline">unsafe.Pointer</strong> and a type cast, allowing direct access to the <span class="No-Break">event data:</span></p>
+			<pre class="source-code">
+<strong class="source-inline">nameBytes := buf[offset+unix.SizeofInotifyEvent : offset+unix.SizeofInotifyEvent+uint32(event.Len)]</strong>
+<strong class="source-inline">name := string(nameBytes[:clen(nameBytes)])</strong></pre>			<p>This extracts the filename associated with the inotify event. The filename is appended to the event struct in the buffer, and <strong class="source-inline">event.Len</strong> includes the length of this name. The <strong class="source-inline">clen</strong> function trims any NUL bytes used as padding, and the resulting byte slice is converted to a Go string representing the name of the file. Finally, the offset is updated to point to the start of the next Inotify event in the buffer, preparing for the next iteration of <span class="No-Break">the loop:</span></p>
+			<pre class="source-code">
+<strong class="source-inline">offset += unix.SizeofInotifyEvent + uint32(event.Len)</strong></pre>			<p>This approach efficiently processes multiple inotify events that may be read in a single <strong class="source-inline">unix.Read </strong>call, ensuring that each event and its associated filename is <span class="No-Break">handled correctly.</span></p>
+			<p>Working directly with inotify using the <strong class="source-inline">os</strong> and <strong class="source-inline">syscall</strong> packages versus using a higher-level library such as <strong class="source-inline">fsnotify</strong> involves several trade-offs in terms of complexity, portability, and abstraction level. Each approach has its advantages and disadvantages, depending on the specific requirements of your project and your familiarity with the underlying <span class="No-Break">system calls.</span></p>
+			<p>Let’s explore the <span class="No-Break"><strong class="source-inline">fsnotify</strong></span><span class="No-Break"> package.</span></p>
+			<h2 id="_idParaDest-101"><a id="_idTextAnchor138"/>fsnotify</h2>
+			<p>The <strong class="source-inline">fsnotify</strong> package provides several advantages. The <strong class="source-inline">fsnotify</strong> package abstracts away <a id="_idIndexMarker246"/>platform-specific details and provides a consistent API for handling filesystem events on different operating systems, such as Windows, macOS, <span class="No-Break">and Linux.</span></p>
+			<p>It also simplifies the process of setting up watches and handling events, making it easier to work with filesystem events in a <span class="No-Break">cross-platform manner.</span></p>
+			<p>From the robustness perspective, this package handles edge cases and corner scenarios that may not be evident when working directly with inotify or other platform-specific mechanisms. This property results in a more stable and <span class="No-Break">reliable solution.</span></p>
+			<p>Last, but not least, <strong class="source-inline">fsnotify</strong> is actively maintained by the Go community, which means you can expect updates, bug fixes, and improvements <span class="No-Break">over time.</span></p>
+			<p>We can import it <span class="No-Break">like this:</span></p>
+			<pre class="source-code">
+import "github.com/fsnotify/fsnotify"</pre>			<p>Here’s how we can achieve the same functionality using the <span class="No-Break"><strong class="source-inline">fsnotify</strong></span><span class="No-Break"> package:</span></p>
+			<pre class="source-code">
+package main
+import (
+     "fmt"
+     "log"
+     "os"
+     "os/signal"
+     "syscall"
+     "github.com/fsnotify/fsnotify"
+)
+func main() {
+     watchPath := "/path/to/your/directory"
+     watcher, err := fsnotify.NewWatcher()
+     if err != nil {
+          log.Fatal("Error creating watcher:", err)
+     }
+     defer watcher.Close()
+     err = watcher.Add(watchPath)
+     if err != nil {
+          log.Fatal("Error adding watch:", err)
+     }
+     go func() {
+          for {
+               select {
+               case event := &lt;-watcher.Events:
+                    // Handle the event
+                    fmt.Printf("Event: %s\n", event.Name)
+               case err := &lt;-watcher.Errors:
+                    log.Println("Error:", err)
+               }
+          }
+     }()
+     // Create a channel to receive signals
+     signalCh := make(chan os.Signal, 1)
+     signal.Notify(signalCh, os.Interrupt, syscall.SIGINT)
+     // Block until a SIGINT signal is received
+     &lt;-signalCh
+     fmt.Println("Received SIGINT. Exiting...")
+}</pre>			<p>In this program, we created a goroutine that listens for events from the <strong class="source-inline">fsnotify</strong> watcher. It handles both events and errors that occur during the <span class="No-Break">monitoring process.</span></p>
+			<p>Now, your program will continuously monitor the specified directory for filesystem events and print them as they occur or until an interrupt signal <span class="No-Break">is received.</span></p>
+			<p>Overall, using <a id="_idIndexMarker247"/>the <strong class="source-inline">fsnotify</strong> package simplifies working with filesystem events in Go and ensures your code is more portable across different <span class="No-Break">operating systems.</span></p>
+			<h2 id="_idParaDest-102"><a id="_idTextAnchor139"/>File rotation</h2>
+			<p>File rotation<a id="_idIndexMarker248"/> is a critical process used in computer systems to manage and maintain log files, backups, and other types of data files. It involves periodically renaming, archiving, and deleting old files and creating new ones to ensure efficient and <span class="No-Break">organized storage.</span></p>
+			<p>Common use cases<a id="_idIndexMarker249"/> for file rotation are <span class="No-Break">as follows:</span></p>
+			<ul>
+				<li><strong class="bold">System logs</strong>: Operating <a id="_idIndexMarker250"/>systems and applications generate log files to record events and errors. Rotating these logs ensures that they don’t become too large and that historical data is available <span class="No-Break">for analysis.</span></li>
+				<li><strong class="bold">Backup files</strong>: Regularly<a id="_idIndexMarker251"/> rotating backup files helps ensure that you have recent and historical copies of your data in case of data loss or <span class="No-Break">system failures.</span></li>
+				<li><strong class="bold">Compliance logs</strong>: Industries <a id="_idIndexMarker252"/>and organizations often need to maintain detailed records for compliance and auditing purposes. File rotation ensures these records are retained <span class="No-Break">and organized.</span></li>
+				<li><strong class="bold">Application-specific data</strong>: Some <a id="_idIndexMarker253"/>applications generate data files, such as transaction logs or user-generated content, which should be rotated to manage <span class="No-Break">storage efficiently.</span></li>
+				<li><strong class="bold">Web server logs</strong>: Web <a id="_idIndexMarker254"/>servers often generate access logs containing information about website visitors. Rotating these logs helps manage web traffic data and aids in analysis and <span class="No-Break">security monitoring.</span></li>
+				<li><strong class="bold">Sensor data and IoT devices</strong>: IoT devices<a id="_idIndexMarker255"/> and sensors frequently generate data. File<a id="_idIndexMarker256"/> rotation enables the efficient management and storage of this data, especially in scenarios where continuous data collection <span class="No-Break">is essential.</span></li>
+			</ul>
+			<h3>Implementing log rotation</h3>
+			<p>To create a Go program that<a id="_idIndexMarker257"/> implements log rotation based on the <strong class="source-inline">fsnotify</strong> package, you’ll first need to import the packages that <span class="No-Break">we’re using:</span></p>
+			<pre class="source-code">
+package main
+import (
+    "fmt"
+    "io"
+    "os"
+    "path/filepath"
+    "sync"
+    "time"
+    "github.com/fsnotify/fsnotify"
+)</pre>			<p>Here, we define two constants. <strong class="source-inline">logFilePath</strong> is a string constant representing the path to the log file that will be monitored and rotated. <strong class="source-inline">maxFileSize</strong> is an integer constant representing the maximum size (in bytes) that the log file can reach before rotation occurs (you should replace <strong class="source-inline">your_log_file.log</strong> with the actual path to your <span class="No-Break">log file):</span></p>
+			<pre class="source-code">
+const (
+    logFilePath = "your_log_file.log"
+    maxFileSize = 1024 * 1024 * 10    // 10 MB (adjust as needed)
+)</pre>			<p>We initialize the <strong class="source-inline">fsnotify</strong> watcher, check for any errors during initialization, and defer the closure of the watcher to ensure it closes properly when the <span class="No-Break">program exits:</span></p>
+			<pre class="source-code">
+    // Initialize fsnotify
+    watcher, err := fsnotify.NewWatcher()
+    if err != nil {
+        fmt.Println("Error creating watcher:", err)
+        return
+    }
+    defer watcher.Close()</pre>			<p>We add the log<a id="_idIndexMarker258"/> file specified by <strong class="source-inline">logFilePath</strong> to the list of files monitored by the <strong class="source-inline">fsnotify</strong> watcher. If an error occurs during this operation, we print an error message and exit <span class="No-Break">the program:</span></p>
+			<pre class="source-code">
+    // Add the log file to be watched
+    err = watcher.Add(logFilePath)
+    if err != nil {
+        fmt.Println("Error adding log file to watcher:", err)
+        return
+    }</pre>			<p>We create a <strong class="source-inline">sync.Mutex</strong> named <strong class="source-inline">mu</strong> to synchronize access to shared resources (in this case, the log file) to prevent concurrent <span class="No-Break">access issues:</span></p>
+			<pre class="source-code">
+    // Initialize a mutex to synchronize file access
+    var mu sync.Mutex</pre>			<p>The next section starts a goroutine to listen for filesystem events (such as file writes) on the monitored log file. When a file write event is detected, the code checks whether the file size exceeds the <strong class="source-inline">maxFileSize</strong>. If it does, it locks the mutex (<strong class="source-inline">mu</strong>), calls the <strong class="source-inline">rotateLogFile</strong> function to perform log rotation, and then unlocks the mutex. Also, it listens for errors from the <strong class="source-inline">fsnotify</strong> watcher and prints any errors that occur while watching <span class="No-Break">the file:</span></p>
+			<pre class="source-code">
+    // Watch for events (create, write) on the log file
+    go func() {
+        for {
+            select {
+            case event, ok := &lt;-watcher.Events:
+                if !ok {
+                    return
+                }
+                if event.Op&amp;fsnotify.Write == fsnotify.Write {
+                    // Check the file size
+                    fi, err := os.Stat(logFilePath)
+                    if err != nil {
+                        fmt.Println("Error getting file info:", err)
+                        continue
+                    }
+                    fileSize := fi.Size()
+                    if fileSize &gt;= maxFileSize {
+                        mu.Lock()
+                        rotateLogFile()
+                        mu.Unlock()
+                    }
+                }
+            case err, ok := &lt;-watcher.Errors:
+                if !ok {
+                    return
+                }
+                fmt.Println("Error watching file:", err)
+            }
+        }
+    }()</pre>			<p>Now we <a id="_idIndexMarker259"/>need to set up a channel to receive signals, register the <strong class="source-inline">SIGINT</strong> signal (<em class="italic">Ctrl</em> + <em class="italic">C</em>) and a corresponding signal, and then wait until one of these signals is received. Once a signal is received, it will print a message and exit <span class="No-Break">the program:</span></p>
+			<pre class="source-code">
+// Create a channel to receive signals
+signalCh := make(chan os.Signal, 1)
+signal.Notify(signalCh, os.Interrupt, syscall.SIGINT)
+// Block until a SIGINT signal is received
+&lt;-signalCh
+fmt.Println("Received SIGINT. Exiting...")</pre>			<p>We still need to declare the function that rotates the <span class="No-Break">log file:</span></p>
+			<pre class="source-code">
+func rotateLogFile() {
+    // Close the current log file
+    err := closeLogFile()
+    if err != nil {
+        fmt.Println("Error closing log file:", err)
+        return
+    }
+    // Rename the current log file with a timestamp
+    timestamp := time.Now().Format("20060102150405")
+    newLogFilePath := fmt.Sprintf("your_log_file_%s.log", timestamp) // Replace with your desired naming convention
+    err = os.Rename(logFilePath, newLogFilePath)
+    if err != nil {
+        fmt.Println("Error renaming log file:", err)
+        return
+    }
+    // Create a new log file
+    err = createLogFile()
+    if err != nil {
+        fmt.Println("Error creating new log file:", err)
+        return
+    }
+    fmt.Println("Log rotated.")
+}</pre>			<p>The <strong class="source-inline">rotateLogFile</strong> function is responsible <a id="_idIndexMarker260"/>for performing log rotation. It does <span class="No-Break">the following:</span></p>
+			<ul>
+				<li>Calls <strong class="source-inline">closeLogFile</strong> to close the current <span class="No-Break">log file</span></li>
+				<li>Generates a timestamp to be used in the new <span class="No-Break">log filename</span></li>
+				<li>Rename the current log file to include <span class="No-Break">the timestamp</span></li>
+				<li>Calls <strong class="source-inline">createLogFile</strong> to create a new <span class="No-Break">log file</span></li>
+				<li>Prints a message indicating that the log has <span class="No-Break">been rotated</span></li>
+			</ul>
+			<p>This <a id="_idIndexMarker261"/>function is responsible for closing the current log file. If you’re using the standard Go <strong class="source-inline">log</strong> package to log messages to a file, you can close the log file using the <span class="No-Break"><strong class="source-inline">logFile.Close()</strong></span><span class="No-Break"> method:</span></p>
+			<pre class="source-code">
+func closeLogFile() error {
+    // Assuming you have a global log file variable
+    if logFile != nil {
+        return logFile.Close()
+    }
+    return nil
+}</pre>			<p>This function is responsible for creating a new log file. If you’re using the standard Go log package, you can create a new log file by opening it <span class="No-Break">with </span><span class="No-Break"><strong class="source-inline">os.Create</strong></span><span class="No-Break">.</span></p>
+			<pre class="source-code">
+func createLogFile() error {
+    // Replace "your_log_file.log" with the desired log file path
+    logFile, err := os.Create("your_log_file.log")
+    if err != nil {
+        return err
+    }
+    log.SetOutput(logFile) // Set the new log file as the output
+    return nil
+}</pre>			<p>The <a id="_idIndexMarker262"/>choice between using inotify directly and using <strong class="source-inline">fsnotify</strong> depends on your specific needs. If you require portability and simplicity, and your filesystem monitoring needs are relatively standard, fsnotify is likely the better choice. On the other hand, if you need very specific functionality that fsnotify does not support, or if you are working on an educational project to learn more about system calls and filesystem events at a low level, you might opt for the direct use of inotify with the <strong class="source-inline">os</strong> and <span class="No-Break"><strong class="source-inline">syscall</strong></span><span class="No-Break"> packages.</span></p>
+			<p>We can <a id="_idIndexMarker263"/>manage signals and file events, but sometimes, we want to manage <span class="No-Break">another process.</span></p>
+			<h1 id="_idParaDest-103"><a id="_idTextAnchor140"/>Process management</h1>
+			<p>Process management<a id="_idIndexMarker264"/> involves starting, stopping, and managing the state of processes. It’s a critical aspect of operating systems and applications that are needed to control <span class="No-Break">child processes.</span></p>
+			<h2 id="_idParaDest-104"><a id="_idTextAnchor141"/>Execution and timeouts</h2>
+			<p>Timeout control is particularly important for the <span class="No-Break">following reasons:</span></p>
+			<ul>
+				<li><strong class="bold">Resource management</strong>: Processes that hang or take too long can consume system resources, leading<a id="_idIndexMarker265"/> <span class="No-Break">to inefficiency</span></li>
+				<li><strong class="bold">Reliability</strong>: Ensuring that a process is completed within a given timeframe can be crucial for <span class="No-Break">time-sensitive operations</span></li>
+				<li><strong class="bold">Deadlock prevention</strong>: In a system with interdependent processes, timeouts can prevent deadlocks by ensuring that no process waits indefinitely for <span class="No-Break">a resource</span></li>
+			</ul>
+			<h2 id="_idParaDest-105"><a id="_idTextAnchor142"/>Execute and control process execution time</h2>
+			<p>In Go, you <a id="_idIndexMarker266"/>can use the <strong class="source-inline">os/exec</strong> package to start external<a id="_idIndexMarker267"/> processes. Combined with channels and <strong class="source-inline">select</strong> statements, you can effectively manage process <span class="No-Break">execution time.</span></p>
+			<p>Here’s an example of how to create a utility that executes a process and kills it if it doesn’t finish within a <span class="No-Break">certain timeframe:</span></p>
+			<pre class="source-code">
+package main
+import (
+    «context»
+    «fmt»
+    «os/exec»
+    "time"
+)
+func main() {
+    // Define the command and the timeout duration.
+    cmd := exec.Command(«sleep», «2») // Replace «sleep» «2» with your command and arguments
+    timeout := 3 * time.Second         // Set your timeout duration
+    // Create a context that is canceled after the timeout duration.
+    ctx, cancel := context.WithTimeout(context.Background(), timeout)
+    defer cancel()
+    // Start the command.
+    if err := cmd.Start(); err != nil {
+         fmt.Println("Error starting command:", err)
+         return
+    }
+    // Wait for the command to finish or for the timeout context to be canceled.
+    done := make(chan error, 1)
+    go func() {
+         done &lt;- cmd.Wait()
+    }()
+    select {
+    case &lt;-ctx.Done():
+         // The context's deadline was reached; kill the process.
+         if err := cmd.Process.Kill(); err != nil {
+              fmt.Println("Failed to kill process:", err)
+         }
+         fmt.Println("Process killed as timeout reached")
+    case err := &lt;-done:
+         // The process finished before the timeout.
+         if err != nil {
+              fmt.Println("Process finished with error:", err)
+         } else {
+              fmt.Println("Process finished successfully")
+         }
+    }
+}</pre>			<p>In this code, we <a id="_idIndexMarker268"/>have <a id="_idIndexMarker269"/><span class="No-Break">the following:</span></p>
+			<ul>
+				<li><strong class="source-inline">context.WithTimeout</strong> is used to create a context that automatically cancels after a <span class="No-Break">specified duration</span></li>
+				<li><strong class="source-inline">cmd.Start()</strong> begins the execution of the command, and <strong class="source-inline">cmd.Wait()</strong> waits for it <span class="No-Break">to finish</span></li>
+				<li>The <strong class="source-inline">select</strong> statement waits for either the command to finish or the timeout to occur, whichever <span class="No-Break">comes first</span></li>
+				<li>If the timeout occurs, the process is killed <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">cmd.Process.Kill()</strong></span></li>
+			</ul>
+			<p class="callout-heading">Note</p>
+			<p class="callout">By deferring the <strong class="source-inline">cancel</strong> function, you are explicitly communicating your intent to cancel the operation when the surrounding function exits. This makes your code more self-documenting and easier to understand for other developers who may work on the <span class="No-Break">code later.</span></p>
+			<h1 id="_idParaDest-106"><a id="_idTextAnchor143"/>Building a distributed lock manager in Go</h1>
+			<p>Unix provides file locks as a mechanism for coordinating access to shared files among multiple processes. File locks<a id="_idIndexMarker270"/> are used to prevent multiple processes from concurrently modifying the same file or region of a file, ensuring data consistency and preventing <span class="No-Break">race conditions.</span></p>
+			<p>We can use the <strong class="source-inline">fcntl</strong> system call to work with file locks. There are two main types of <span class="No-Break">file locks:</span></p>
+			<ul>
+				<li><strong class="bold">Advisory locks</strong>: Advisory locks<a id="_idIndexMarker271"/> are<a id="_idIndexMarker272"/> set by the processes themselves, and it’s up to the processes to cooperate and respect the locks. Processes that don’t cooperate can still access the <span class="No-Break">locked resource.</span></li>
+				<li><strong class="bold">Mandatory locks</strong>: Mandatory locks<a id="_idIndexMarker273"/> are enforced by the operating system, and<a id="_idIndexMarker274"/> processes cannot override them. If a process attempts to access a file region subject to a mandatory lock, the operating system will block the access until the lock <span class="No-Break">is released.</span></li>
+			</ul>
+			<p>Let’s explore how we can use <span class="No-Break">file locks.</span></p>
+			<p>First, open the file <a id="_idIndexMarker275"/>you want to apply locks to using the <span class="No-Break"><strong class="source-inline">os.Open</strong></span><span class="No-Break"> function:</span></p>
+			<pre class="source-code">
+file, err := os.Open("yourfile.txt")
+if err != nil {
+    // Handle error
+}
+defer file.Close()</pre>			<p>To lock the file, you can use the <strong class="source-inline">syscall.FcntlFlock</strong> function in Go. This function allows you to set advisory locks on <span class="No-Break">a file:</span></p>
+			<pre class="source-code">
+lock := syscall.Flock_t{
+    Type:   syscall.F_WRLCK, // Lock type (F_RDLCK for read lock, F_WRLCK for write lock)
+    Whence: io.SeekStart,               // Offset base (0 for the start of the file)
+    Start:  0,               // Start offset
+    Len:    0,               // Length of the locked region (0 for entire file)
+}
+if err := syscall.FcntlFlock(file.Fd(), syscall.F_SETLK, &amp;lock); err != nil {
+    // Handle error
+}</pre>			<p>We set an advisory write lock on the entire file. Other processes can still read or write to the file, but if they attempt to acquire a conflicting write lock, they will block until the lock <span class="No-Break">is released.</span></p>
+			<p>To release the lock, you<a id="_idIndexMarker276"/> can use the same <strong class="source-inline">syscall.FcntlFlock</strong> function with the <span class="No-Break"><strong class="source-inline">F_UNLCK</strong></span><span class="No-Break"> operation:</span></p>
+			<pre class="source-code">
+lock.Type = syscall.F_UNLCK
+if err := syscall.FcntlFlock(file.Fd(), syscall.F_SETLK, &amp;lock); err != nil {
+    // Handle error
+}</pre>			<p>There are several use cases for using <span class="No-Break">file locks:</span></p>
+			<ul>
+				<li><strong class="bold">Preventing data corruption</strong>: File <a id="_idIndexMarker277"/>locks are used to prevent multiple processes or threads from concurrently writing to the same file. This is crucial for preventing data corruption when multiple entities need to update a <span class="No-Break">shared file.</span></li>
+				<li><strong class="bold">Database management</strong>: Many database systems use file locks to ensure that only one instance of the database server can access the database files at a time. This prevents race conditions and maintains <span class="No-Break">database integrity.</span></li>
+				<li><strong class="bold">File synchronization</strong>: File locks are used in scenarios where multiple processes or threads are needed to access shared files in a coordinated manner. For example, log files or configuration files might be accessed by multiple processes, and file locks help to <span class="No-Break">prevent conflicts.</span></li>
+				<li><strong class="bold">Resource allocation</strong>: File locks can be used to allocate resources in a mutually exclusive manner. For example, a cluster of machines might use file locks to coordinate which machine has access to a shared resource at any <span class="No-Break">given time.</span></li>
+				<li><strong class="bold">Message queues</strong>: In some message queue implementations, file locks are used to ensure that only one consumer process can dequeue and process a message from the queue at a time, preventing message duplication or <span class="No-Break">processing conflicts.</span></li>
+				<li><strong class="bold">Caching and shared memory</strong>: File locks can be used to coordinate access to shared memory or cache files among multiple processes to prevent data corruption and <span class="No-Break">race conditions.</span></li>
+				<li><strong class="bold">File editors and file-sharing applications</strong>: Text editors and file-sharing applications often use file locks to ensure that only one user can edit a file at a time, preventing conflicts and <span class="No-Break">data loss.</span></li>
+				<li><strong class="bold">Backup and restore operations</strong>: Backup and restore utilities often use file locks to ensure that a file is not modified while it is being backed up <span class="No-Break">or restored.</span></li>
+				<li><strong class="bold">Simultaneous access control</strong>: In scenarios where processes need to ensure exclusive access to a shared resource, such as a hardware device or a network socket, file locks <a id="_idIndexMarker278"/>can be used to <span class="No-Break">coordinate access.</span></li>
+			</ul>
+			<p class="callout-heading">Note</p>
+			<p class="callout">It’s important to note that while file locks are a useful mechanism for coordinating access to shared resources, they are advisory by default. This means that processes must cooperate and respect the locks; there is no enforcement by the <span class="No-Break">operating system.</span></p>
+			<h1 id="_idParaDest-107"><a id="_idTextAnchor144"/>Summary</h1>
+			<p>Congratulations on completing this detailed and informative chapter on working with system events in Go! This chapter has explored the crucial aspects of system events and signals, equipping you with the knowledge and skills required for effective management and response within <span class="No-Break">Go programming.</span></p>
+			<p>We began by exploring the fundamental concepts of system events and signals. You learned about their various types and their significant role in software execution and <span class="No-Break">inter-process communication.</span></p>
+			<p>Next, we looked at handling signals in Go using the <strong class="source-inline">os/signal</strong> package. You now understand the difference between synchronous and asynchronous signals and how they impact your <span class="No-Break">Go applications.</span></p>
+			<p>You gained insights into task scheduling principles and practical implementation skills using Go’s goroutines and the <span class="No-Break">time package.</span></p>
+			<p>Finally, we explored file monitoring with Inotify. You learned about this Linux kernel subsystem and how to implement it in Go to monitor <span class="No-Break">filesystem events.</span></p>
+			<p>As we wrap up this chapter, you are now equipped with a solid set of skills to gracefully handle interruptions and unforeseen events, schedule tasks effectively, and monitor filesystem events proficiently. In the next chapter, we will explore pipes in <strong class="bold">Inter-Process </strong><span class="No-Break"><strong class="bold">Communication</strong></span><span class="No-Break"> (</span><span class="No-Break"><strong class="bold">IPC</strong></span><span class="No-Break">).</span></p>
+		</div>
+	</div>
+</div>
+</body></html>

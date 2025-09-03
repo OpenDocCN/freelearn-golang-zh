@@ -1,0 +1,514 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">GraphQL and Go</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">In this chapter, we'll introduce a new query language called GraphQL. The traditional API definitions have failed to address the under-fetching and over-fetching APIs. An under-fetching API is an API that provides a minimum set of details for a given request. The drawback of this is that a developer should always create a new API or update the existing one. To overcome this, they can provide extra data that the clients can ignore safely. This causes another side effect; that is, it increases the payload size of the response. This situation is known as <strong>over-fetching</strong>. An over-fetching API provides unnecessary or unwanted data for clients. The response size is crucial when there are limitations regarding network bandwidth when designing APIs for clients.</p>
+<p class="mce-root">GraphQL is a query language that solves this problem. In this chapter, we'll learn how a client can efficiently query data from an API using GraphQL. As with every framework, GraphQL also has a few limitations, but its positives outweigh them.</p>
+<p>In this chapter, we'll cover the following topics:</p>
+<ul>
+<li>What is GraphQL?</li>
+<li><span>Over-fetching and under-fetching problems in the REST API</span></li>
+<li>GraphQL basics</li>
+<li>Creating GraphQL clients in Go</li>
+<li>Creating GraphQL servers in Go</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements </h1>
+                </header>
+            
+            <article>
+                
+<p>The following software needs to be pre-installed in order to run the code samples in this chapter:</p>
+<ul>
+<li>OS: Linux (Ubuntu 18.04)/Windows 10/Mac OS X &gt;=10.13</li>
+<li>Go stable version compiler &gt;= 1.13.5</li>
+<li>Dep: A dependency management tool for Go &gt;= 0.5.3</li>
+<li>Docker version &gt;= 18.09.2</li>
+</ul>
+<p><span>You can download the code for this chapter from </span><a href="https://github.com/PacktPublishing/Hands-On-Restful-Web-services-with-Go/tree/master/chapter10" target="_blank">https://github.com/PacktPublishing/Hands-On-Restful-Web-services-with-Go/tree/master/chapter10</a><span>. Clone the code and use the code samples in the</span><span> </span><kbd>chapter10</kbd> <span>directory.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">What is GraphQL?</h1>
+                </header>
+            
+            <article>
+                
+<p><strong>GraphQL</strong> is a query language that provides a set of rules. Using those rules and constructs, we can design an API that is efficient. According to the official documentation, the definition of GraphQL is as follows:</p>
+<div class="mce-root CDPAlignLeft CDPAlign packt_quote">"GraphQL provides a complete and understandable description of the data in your API, gives clients the power to ask for exactly what they need and nothing more, makes it easier to evolve APIs over time, and enables powerful developer tools." <br/>
+                                                                                                                                                                                         <a href="https://graphql.org/" target="_blank">-https://graphql.org/</a></div>
+<p>GraphQL provides a few features out of the box:</p>
+<ul>
+<li>Schema (a type system)</li>
+<li>Versionless API</li>
+<li>Schema to Code</li>
+</ul>
+<p>A GraphQL schema is a syntax for defining the boundaries of an API. The boundaries contain information about what server resources are exposed via the API. Since it allows an on-the-fly update of the schema without failing all the clients, it helps us create a versionless API. GraphQL provides client and server libraries for handling the resources defined in a schema.</p>
+<p>GraphQL is a language, not a runtime. So, someone has to translate a GraphQL schema to the code that a programming language can understand. A few GraphQL client and server libraries can do some automatic code generation from the schema definitions.</p>
+<p>Regarding its functionality, let's look at the differences between a traditional API and a GraphQL-powered API.</p>
+<p>For example, in e-commerce, a cart page or a wish list page fetches almost the same resources (most of the fields), such as product link, image, and cost. A few things do vary, however. For example, the cart page needs a shipping address but the wish list doesn't.</p>
+<p>The API's flow looks like this:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/cf6b7946-c329-402d-92d9-fb3675fa5cc3.png" style="width:40.92em;height:24.75em;"/></p>
+<p>Let's say that the responses for the preceding requests appear as follows:</p>
+<p>Cart page (web):</p>
+<pre>{<br/>  'product': 'shoe',<br/>  'cost': '20$',<br/>  'link': 'http://example-product/1',<br/>  'image': 'http://example-image.com'<br/>  'shipping_address': 'some_square, Germany'<br/>}</pre>
+<p>Wish list (mobile):</p>
+<pre>{<br/>  'product': 'shoe',<br/>  'cost': '20$',<br/>  'link': 'http://example-product/1',<br/>  'image': 'http://example-image.com'<br/>  'related_products': ['sports_band']<br/>}</pre>
+<p>The API developer usually defines two endpoints, one for the cart and another for the wish list. If the content of both the responses contains almost the same data, they can merge them into one for maintainability. There could be a problem with over-fetching for one of the API calls.</p>
+<p>GraphQL gives the clients exactly what they need. The data that is passed over the wire is always as per the client's request. The following diagram shows this in more detail:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/0c437ad9-633f-49cd-8573-0d5520c5feff.png" style="width:41.17em;height:22.25em;"/></p>
+<p class="mce-root"/>
+<p>The same API endpoint can be used for multiple clients that are accepting the same resources but not the difference in data fields. That is the beauty of GraphQL. We will look at more practical examples in the upcoming sections.</p>
+<p>In the next section, we'll show you a solid example of how over-fetching and under-fetching can occur in an API.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Over-fetching and under-fetching problems in the REST API</h1>
+                </header>
+            
+            <article>
+                
+<p><strong>Over-fetching</strong> happens by an API when a server sends data that is not required by the client. The API is defined in advance and a client only needs to follow the API documentation. The drawback of this is that bandwidth is wasted. Let's take a look at an example.</p>
+<p>You are trying to make use of a GitHub user's REST API to create a user tile display. The main intention here is to look at their followers, their public gist, their starred repositories, and the company name. However, when you make an API call to the GitHub API (<a href="https://developer.github.com/v3/users/#get-a-single-user" target="_blank">https://developer.github.com/v3/users/#get-a-single-user</a>) with the user <kbd>octocat</kbd>, it returns a JSON that looks like this:</p>
+<pre>{<br/>  "login": "octocat",<br/>  "id": 1,<br/>  "node_id": "MDQ6VXNlcjE=",<br/>  "avatar_url": "https://github.com/images/error/octocat_happy.gif",<br/>  "gravatar_id": "",<br/>  "url": "https://api.github.com/users/octocat",<br/>  "html_url": "https://github.com/octocat",<br/>  "followers_url": "https://api.github.com/users/octocat/followers",<br/>  "following_url":<br/>    "https://api.github.com/users/octocat/following{/other_user}",<br/>  "gists_url": "https://api.github.com/users/octocat/gists{/gist_id}",<br/>  "starred_url":<br/>    "https://api.github.com/users/octocat/starred{/owner}{/repo}",<br/>  "subscriptions_url":<br/>    "https://api.github.com/users/octocat/subscriptions",<br/>  "organizations_url": "https://api.github.com/users/octocat/orgs",<br/>  "repos_url": "https://api.github.com/users/octocat/repos",<br/>  "events_url": "https://api.github.com/users/octocat/events{/privacy}",<br/>  "received_events_url":<br/>    "https://api.github.com/users/octocat/received_events",<br/>  "type": "User",<br/>  "site_admin": false,<br/>  "name": "monalisa octocat",<br/>  "company": "GitHub",<br/>  "blog": "https://github.com/blog",<br/>  "location": "San Francisco",<br/>  "email": "octocat@github.com",<br/>  "hireable": false,<br/>  "bio": "There once was...",<br/>  "public_repos": 2,<br/>  "public_gists": 1,<br/>  "followers": 20,<br/>  "following": 0,<br/>  "created_at": "2008-01-14T04:33:35Z",<br/>  "updated_at": "2008-01-14T04:33:35Z",<br/>  "private_gists": 81,<br/>  "total_private_repos": 100,<br/>  "owned_private_repos": 100,<br/>  "disk_usage": 10000,<br/>  "collaborators": 8,<br/>  "two_factor_authentication": true,<br/>  "plan": {<br/>    "name": "Medium",<br/>    "space": 400,<br/>    "private_repos": 20,<br/>    "collaborators": 0<br/>  }<br/>}</pre>
+<p>This is a big JSON file with spaces and newlines when you only need the aforementioned data fields. So, out of 37 fields, we are only going to consume four fields and ignore the rest.</p>
+<p>Ignoring isn't a problem, but all the data traveled over the network to reach the client. This is an unwanted waste of bandwidth. This is called <strong>over-fetching</strong>.</p>
+<p><strong>Under-fetching</strong> is where a response that's sent by an API server is not sufficient for making decisions for a client. That leads to the following conditions:</p>
+<ul>
+<li>A client has to make subsequent API calls to different endpoints to procure data.</li>
+<li>A client has to compute manually on top of procured data and then merge it.</li>
+</ul>
+<p>This is a very inefficient approach as clients have very few resources compared to servers. For example, if a mobile device has to compute costly operations because of under-fetching, the API has to change its strategy to provide sufficient data. That can lead to over-fetching. Finding the right balance is always tricky.</p>
+<p>Let's take the previous example of fetching user information from the GitHub API. To get the starred repositories, we have to call <kbd>User</kbd> and then use the <kbd>starred_url</kbd> API endpoint to make a further query:</p>
+<pre>"starred_url": "https://api.github.com/users/octocat/starred{/owner}{/repo}",</pre>
+<p>This is a classical under-fetching problem that limited the GitHub API until version 3 (V3). They mitigated this problem by introducing GraphQL API V4 (<a href="https://developer.github.com/v4" target="_blank">https://developer.github.com/v4</a>).</p>
+<p>GraphQL solves this problem by taking a whole new approach. It thinks about each entity as a resource and tries to build an API around it. This gives GraphQL the flexibility to compose data on the fly.</p>
+<p>In the next section, we will look at the basics of GraphQL, such as syntax and definitions. This includes types, queries, and functions for manipulating data.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">GraphQL basics</h1>
+                </header>
+            
+            <article>
+                
+<p>A GraphQL schema is composed of many building blocks. These building blocks are as follows:</p>
+<ul>
+<li>Types</li>
+<li>Queries</li>
+<li>Functions</li>
+<li>Aliases</li>
+<li>Variables</li>
+<li>Mutations</li>
+</ul>
+<p>All these blocks are essential for building a functional GraphQL API. We can divide all of these components into two main categories:</p>
+<ul>
+<li>Schemas and types</li>
+<li>Queries and mutations</li>
+</ul>
+<p>There are many features in each category, but we will only discuss the most important ones that can help you understand GraphQL. Let's take an example of fetching a user record from an API.</p>
+<div class="packt_infobox">Note: All the snippets we show from here on are present in the intro directory of <a href="f3dd906b-0446-4b33-a47a-cd2493804fb2.xhtml" target="_blank">Chapter10</a>, <em>GraphQL and Go</em>.</div>
+<p>A typical GraphQL schema looks like this:</p>
+<pre>type Query {<br/>  user: Person<br/>}<br/><br/>type Person {<br/>  name: String,<br/>  address: [Address]<br/>}<br/><br/>type Address {<br/>  city: String,<br/>  street: String,<br/>  postalCode: Float<br/>}</pre>
+<p>This is a GraphQL schema with three types: one special type called <kbd>Query</kbd> and two other custom types called <kbd>Person</kbd>  and <kbd>Address</kbd>.</p>
+<p>This schema is the specification of the API. It defines what types of resources are available for querying. It also defines one special type called <kbd>Query</kbd>, which is used by clients to query for data. In the preceding GraphQL schema, only a <kbd>user</kbd> of the  <kbd>Person</kbd> type can be queried.</p>
+<p>A client query to the <kbd>/api/users</kbd> endpoint looks like this:</p>
+<pre>{<br/>  user {<br/>    name<br/>    address {<br/>      city<br/>      street<br/>      postalCode<br/>    }<br/>  }<br/>}</pre>
+<p>The server then sends sufficient information for the previously requested fields:</p>
+<pre>{<br/>  "data": {<br/>    "user": {<br/>      "name": "alice",<br/>      "address": [{<br/>        "city": "Munich",<br/>        "street": "Marianplatz",<br/>        "postalCode": "80331"<br/>      }]<br/>    }<br/>  }<br/>}</pre>
+<p>If the client doesn't need the <kbd>address</kbd> field and only needs the <kbd>name</kbd> field, it can only request the <kbd>name</kbd> to the same endpoint, that is, <kbd>/api/users</kbd>:</p>
+<pre>{<br/>  user {<br/>    name<br/>  }<br/>}</pre>
+<p>The server's response may be as follows:</p>
+<pre>{<br/>  "data": {<br/>    "user": {<br/>      "name": "alice"<br/>    }<br/>  }<br/>}</pre>
+<p>This response has only retained the <kbd>name</kbd> field and omitted the <kbd>address</kbd> field. This can save a lot of bandwidth.</p>
+<div class="packt_infobox">The shape of the GraphQL response directly matches the query, so clients can predict what they get back.</div>
+<p>We will learn about types and queries in the next section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Types and queries</h1>
+                </header>
+            
+            <article>
+                
+<p>GraphQL has a type system that a server should know about in order to prepare the schema. There are four types of high-level:</p>
+<ul>
+<li>Object level</li>
+<li>Field level</li>
+<li>Non-nullable</li>
+<li>Enumeration</li>
+</ul>
+<p>Let's look at each type in detail.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Object-level types</h1>
+                </header>
+            
+            <article>
+                
+<p>Object-level types are used to define object-level constructs such as queries and resources. They are useful for defining what resources and queries are allowed on an API. The following is what we saw in the previous example, where we defined a query:</p>
+<pre>type Query {<br/>  user: Person<br/>}</pre>
+<p>These are special types and should not be confused with types in a programming language.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Field-level types</h1>
+                </header>
+            
+            <article>
+                
+<p>As the name suggests, field-level types are defined on a resource/query field. They are similar to the types in a programming language. It tells us what data type is going to be returned from the API. It can be further divided into two types:</p>
+<ul>
+<li>Scalar types (String, Int, Float, Boolean, ID)</li>
+<li>Custom types (Address)</li>
+</ul>
+<p>In the previous example, the <kbd>Person</kbd> object-level type has the following fields:</p>
+<ul>
+<li><kbd>name</kbd></li>
+<li><kbd>address</kbd></li>
+</ul>
+<p>The Go struct for the <kbd>Person</kbd> resource looks like this:</p>
+<pre>type Person {<br/> name: String,<br/> address: [Address]<br/>}</pre>
+<p>The <kbd>name</kbd> field has a type called <kbd>String</kbd>, while the <kbd>address</kbd> field has a type called <kbd>[Address]</kbd>, which is a list of addresses.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Non-nullable types</h1>
+                </header>
+            
+            <article>
+                
+<p>This is a special type that uses normal field types with special syntax and makes fields mandatory. When a type has a field with a non-nullable type, it should return non-empty data to the client. The type is defined with ! (<em>exclamatory</em>) at the end.</p>
+<p>Take the <kbd>Person</kbd> type, for example:</p>
+<pre>type Person {<br/>  name: String,<br/>  address: [Address]<br/>}</pre>
+<p>If we make the <kbd>name</kbd> field a non-nullable, it will look like this:</p>
+<pre>type Person {<br/>  name: String!,<br/>  address: [Address]<br/>}</pre>
+<p class="mce-root">This means that if the client requests some data, the response must return a non-empty value for the <kbd>name</kbd> field. It cannot be null. We can also have a non-nullable list, like this:</p>
+<pre>address: [Address]!</pre>
+<p>The preceding syntax can return zero or more elements of the <kbd>Address</kbd> type in the response.</p>
+<p>If we need at least one address to be returned, then we can apply the non-nullable rule to list elements too:</p>
+<pre>address: [Address!]!</pre>
+<p>The preceding rule creates an address field with a list of the <kbd>Address</kbd> type. That list should return at least one address to the clients.</p>
+<p>Next, we'll introduce another important type called <kbd>Enumeration</kbd>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Enumerations</h1>
+                </header>
+            
+            <article>
+                
+<p><strong>Enumerations</strong> (<strong>Enums</strong>) are special types that give flexibility in defining a range of scalar types. They can be helpful for passing a range of information to the client. It brings the following benefits to an API:</p>
+<ul>
+<li>It allows an API to validate the field with a set of types.</li>
+<li>Without throwing out the type system, it communicates that the accessible field value will be in a finite set.</li>
+</ul>
+<p>Let's take a look at an example schema:</p>
+<pre>type Query {<br/>  vehicle: Vehicle<br/>}<br/><br/>enum Vehicle {<br/>  Car<br/>  Bus<br/>}<br/><br/>type Car {<br/>  name: String,<br/>  wheels: Int<br/>}<br/><br/>type Bus {<br/>  name: String,<br/>  wheels: Int<br/>}</pre>
+<p>In this GraphQL schema, we have a query type defined with <kbd>vehicle</kbd> as a field. <kbd>Vehicle</kbd> is an <kbd>Enum</kbd>. The vehicle has <kbd>Car</kbd> and <kbd>Bus</kbd> as its members. This means the query to this schema can expect either a <kbd>Car</kbd> or a <kbd>Bus</kbd>. This gives us flexibility over the predefined type systems.</p>
+<p>In this section, we covered the basics for defining a schema and what types we can define. In the next section, we'll learn how to write advanced queries from the client while fetching data.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Queries and mutations</h1>
+                </header>
+            
+            <article>
+                
+<p>So far, we've seen how the client GraphQL query works. It describes the fields regarding the data that should be supplied. But what if we need data about certain criteria? Can we query with some values? Yes! GraphQL is built on querying and it provides a variety of options we can use while querying.</p>
+<p>Let's go back to the initial example we showcased, that is, a user's API with <kbd>name</kbd> and <kbd>address</kbd>. The client query looks like this:</p>
+<pre>{<br/>  user {<br/>    name<br/>    address {<br/>      street<br/>    }<br/>  }<br/>}</pre>
+<p>The preceding query fetches all the users from the GraphQL server. We can also query a record by using the name. The query syntax uses curved brackets and parenthesis (:) on a field. Let's retrieve users whose name is <kbd>"alice"</kbd>. The preceding client query should be modified using parenthesis, like this:</p>
+<pre>{<br/>  user {<br/>    name(name: "alice")<br/>    address {<br/>      city<br/>      street<br/>    }<br/>  }<br/>}</pre>
+<p>This query only fetches a record/records whose name is <kbd>"alice"</kbd>. This construct is similar to a function call in programming languages. <kbd>name: "alice"</kbd> is called an <kbd>argument</kbd> for the query.</p>
+<p>The GraphQL client can query using query arguments. The values for arguments can be scalar values, custom types, or even enumerations. We can also query on multiple levels. For example, let's search for a user with <kbd>name "alice"</kbd> that comes from <kbd>city: "Munich"</kbd>:</p>
+<pre>{<br/>  user(name: "alice"){<br/>    name<br/>    address(city: "Munich") {<br/>     city <br/>     street<br/>   }<br/>}</pre>
+<p>Querying on multiple levels avoids the concept of multiple API endpoint fetches. The same API endpoint can flexibly change the data that is returned.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Mutations and inputs</h1>
+                </header>
+            
+            <article>
+                
+<p>A REST API has methods such as <kbd>GET</kbd>, <kbd>POST</kbd>, <kbd>PUT</kbd>, and <kbd>DELETE</kbd>. The method itself describes the operation of the API call. Does GraphQL have something similar? Yes <span>– m</span>utations. A <strong>mutation</strong> is a GraphQL client query that updates the state of a resource on the server.</p>
+<p>Let's look at an example of a counter API. A counter API allows clients to increment and return the counter value. In REST, this is a <kbd>POST</kbd> method call. In GraphQL, we have to define mutations in the client query to create-then-fetch results from the server.</p>
+<p>Say the GraphQL schema looks like this:</p>
+<pre>type Query {<br/>  counter: Count<br/>}<br/><br/>type Count {<br/>  id: Int<br/>  value: Int<br/>}</pre>
+<p>The client query can fetch the count value for an <kbd>id</kbd>:</p>
+<pre>{<br/>  counter(id: "250") {<br/>    value<br/>  }<br/>}</pre>
+<p>This query fetches the counter value for <kbd>id:"250"</kbd>. It returns the following JSON if the count is <kbd>1</kbd> in the server (storage):</p>
+<pre>{<br/>  "data": {<br/>    "counter": {<br/>      "value": 1  <br/>    }<br/>  }<br/>}</pre>
+<p>But how can this API be transformed into a create-then-fetch API? This can be done using GraphQL mutations and inputs.</p>
+<p>A special type called <kbd>input</kbd> defines a query argument type on the GraphQL server. So far, we've only seen scalar types as arguments. We can also create custom types and pass them into a client query. Input is used as an argument of a mutation.</p>
+<p>The syntax for <kbd>input</kbd> looks like this:</p>
+<pre>input CounterInput {<br/>  value: Int<br/>}</pre>
+<p>After defining <kbd>input</kbd>, we can define a mutation that updates the state:</p>
+<pre>type Mutation {<br/>  updateCounter(id: Int!, input: CounterInput)<br/>}</pre>
+<p>This mutation defines a query function that inputs <kbd>CounterInput</kbd> and updates its <kbd>value</kbd>. Let's update our schema so that it includes these changes:</p>
+<pre>input CounterInput {<br/>  value: Int<br/>}<br/><br/>type Query {<br/>  getCounter(id: Int!): Count<br/>}<br/><br/>type Count {<br/>  id: Int<br/>  value: Int<br/>}<br/><br/>type Mutation {<br/>  updateCounter(id: Int!, input: CounterInput)<br/>}</pre>
+<p>Now, a client should call a query in order to update a new value for <kbd>id: "250"</kbd>:</p>
+<pre>mutation {<br/>  updateCounter(id: "250", CounterInput: {value: 2}) {<br/>    id<br/>    value<br/>  }<br/>}</pre>
+<p>This client query updates a counter (<kbd>id: "250"</kbd>) value with <kbd>2</kbd> and returns the updated record's ID and value. This is how GraphQL performs a create-then-fetch operation.</p>
+<div class="packt_tip">A GraphQL query is equivalent to REST's <kbd>GET</kbd>.<br/>
+<br/>
+A GraphQL mutation is equivalent to REST's <kbd>PUT</kbd>, <kbd>POST</kbd>, and <kbd>DELETE</kbd>.</div>
+<p>The knowledge you've gained regarding types, schemas, queries, and mutations should be enough for you to understand how GraphQL functions.</p>
+<p>In the next section, we'll create a client query in Go and access GitHub's GraphQL API. This will confirm the theoretical knowledge we have gained so far.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating GraphQL clients in Go</h1>
+                </header>
+            
+            <article>
+                
+<p>When the Go program is a client for the GraphQL server, the client should understand how to compose GraphQL queries correctly and send them to the server. Go cannot do that natively, but it can with the help of an external package called <kbd>machinebox/graphql</kbd>. This is a lightweight client that allows developers to send queries and mutations to servers.</p>
+<p>We can install the package using the <kbd>dep</kbd> tool:</p>
+<pre><strong>dep ensure -add github.com/machinebox/graphql</strong></pre>
+<p>Let's write a tool for fetching data from GitHub's GraphQL API. For that, create a project directory called <kbd>graphqlClient</kbd>:</p>
+<pre><strong>mkdir -p $GOPATH/src/github.com/git-user/chapter10/graphqlClient<br/></strong><strong>touch $GOPATH/src/github.com/git-user/chapter10/graphqlClient/main.go</strong></pre>
+<p>The goal here is to fetch the details of all the available licenses for GitHub projects. GitHub provides an API to fetch all available licenses, but let's say we are only interested in the <kbd>Apache2.0</kbd> license. So, we proceed with the GitHub GraphQL API to fetch the license resource. To make API calls to GitHub, you should add a bearer token in the headers, along with the request.</p>
+<p>We worked with the GitHub API in <a href="ceb99616-b12b-4ec0-9bd4-aedc74933273.xhtml" target="_blank">Chapter 8</a>, <em>Building a REST API Client in Go</em>, to create a CLI client. There, we used a <kbd>GITHUB_TOKEN</kbd>, which acts as a personal access token or bearer token for API requests. An access token is a string that's passed to authenticate a user. We assume that you have the access token at hand (<a href="ceb99616-b12b-4ec0-9bd4-aedc74933273.xhtml" target="_blank">Chapter 8</a>, <em>Building a REST API Client in Go</em>, to find out how and where to get it).</p>
+<p>First, import the necessary packages. We need the <kbd>graphql</kbd> package and some other standard packages such as <kbd>os</kbd> to read the access token and <kbd>log</kbd> to print the response:</p>
+<pre>package main<br/><br/>import (<br/>    "context"<br/>    "log"<br/>    "os"<br/><br/>    "github.com/machinebox/graphql"<br/>)</pre>
+<p>We imported the <kbd>graphql</kbd> package as it is. If it is not available, run the following command:</p>
+<pre><strong>dep init</strong><br/><strong>dep ensure -add github.com/machinebox/graphql</strong></pre>
+<p>The response for the GitHub license looks like this (from the documentation: <a href="https://developer.github.com/v4/object/license/" target="_blank">https://developer.github.com/v4/object/license/</a>):</p>
+<pre>{<br/>  "data": {<br/>    "license": {<br/>      "name": "string",<br/>      "description": "string"<br/>    }<br/>  }<br/>}</pre>
+<p>There are many fields in the schema, but let's assume we are only interested in name and description. So, create a struct in our main program that holds this data structure:</p>
+<pre>// Response of API<br/>type Response struct {<br/>    License struct {<br/>        Name        string `json:"name"`<br/>        Description string `json:"description"`<br/>    } `json:"license"`<br/>}</pre>
+<p>The <kbd>graphql</kbd> package provides a function called <kbd>NewClient</kbd> for creating a GraphQL client. It takes a GraphQL server endpoint as the only argument.</p>
+<p>Once the client has been declared, we can create a new GraphQL client request using the <kbd>graphql.NewRequest</kbd> function. It takes a client query string as the argument:</p>
+<pre>func main() {<br/>    // create a client (safe to share across requests)<br/>    client := graphql.NewClient("https://api.github.com/graphql")<br/><br/>    // make a request to GitHub API<br/>    req := graphql.NewRequest(`<br/>        query {<br/>            license(key: "apache-2.0") {<br/>                name<br/>                description<br/>            }<br/>        }<br/>    `)<br/>    // Next code goes here....<br/>}</pre>
+<p>Once we have both the client and request objects, we can make queries. However, the GitHub API is secured and needs an access token for authorization. For that, we should add a header called <kbd>Authorization</kbd> with the <kbd>'bearer'</kbd> token. The header can be calculated like this:</p>
+<pre>Authorization: 'bearer' + personal_access_token</pre>
+<p>We should concatenate the GitHub access token with the <kbd>'bearer '</kbd> string (<em>note the space after "r"</em>) to form a bearer token. We should pass the whole string as a header to the GitHub GraphQL server. The code for this looks like this:</p>
+<pre>    var GithubToken = os.Getenv("GITHUB_TOKEN")<br/>    req.Header.Add("Authorization", "bearer "+GithubToken)</pre>
+<p>Here, we are reading a personal access token from the environment variable and putting it into the <kbd>Authorization</kbd> header. After this, we should create a context and actually fire the request to the server using the <kbd>client.Run</kbd> function. To do this, we can declare an instance of the <kbd>Response</kbd> struct and pass it to the <kbd>Run</kbd> function. When the query is successful, the JSON response is loaded into the struct instance so that we can access the result:</p>
+<pre>    // define a Context for the request<br/>    ctx := context.Background()<br/><br/>    // run it and capture the response<br/>    var respData Response<br/>    if err := client.Run(ctx, req, &amp;respData); err != nil {<br/>        log.Fatal(err)<br/>    }<br/>    log.Println(respData.License.Description)</pre>
+<p>Here, <kbd>respData</kbd> is the result struct that holds the response from the GraphQL server. Once we receive the response, we can log the description of the <kbd>Apache2.0</kbd> license to the console.</p>
+<p>Let's run the program and see the output:</p>
+<pre><strong>go run github.com/git-user/chapter10/graphqlClient/main.go</strong></pre>
+<p>This prints the license description to the console:</p>
+<pre>2019/12/15 23:16:25 A permissive license whose main conditions require preservation of copyright and license notices. Contributors provide an express grant of patent rights. Licensed works, modifications, and larger works may be distributed under different terms and without source code.</pre>
+<p>This is how a Go client can interact with a GraphQL server. Client queries can be changed but the procedure always remains the same.</p>
+<p>In the next section, we will learn how to implement a server that is similar to the GitHub GraphQL server that is powering API V4. We'll take a simple example of a multiplayer game and try to define a schema API.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating GraphQL servers in Go</h1>
+                </header>
+            
+            <article>
+                
+<p>So far, we've seen how to create a REST API. But how can we create a GraphQL API in Go or any other programming language? We can't do this directly. We need the help of a few packages to build GraphQL servers that can handle requests from clients. Clients can be web-based or mobile. We need two vital things to build a GraphQL server:</p>
+<ul>
+<li>Schema</li>
+<li>Resolvers</li>
+</ul>
+<p>The Schema is what we discussed in the early stage of this chapter. Resolvers, on the other hand, are solid entities that generate HTTP responses. The Schema only validates and routes the request to the corresponding resources; revolvers do the actual logic of computing the result, a database query, or any other backend operation.</p>
+<p>In this section, we'll create a simple server that responds to queries for player data in a multiplayer game. Let's get started:</p>
+<ol>
+<li>Let's say the schema looks like this:</li>
+</ol>
+<pre style="padding-left: 60px">query {<br/>  players {<br/>    highScore<br/>    id<br/>    isOnline<br/>    levelsUnlocked<br/>  }<br/>}</pre>
+<p style="padding-left: 60px">Let's say the server should return this information. Let's start implementing the service. We are going to mock data into our multiplayer game API. The same data can be queried from the database or can be fetched from a file. First, install the necessary packages. We need two packages:</p>
+<ul>
+<li style="padding-left: 60px"><kbd>graphql-go</kbd>: For creating the schema and adding resolvers</li>
+<li style="padding-left: 60px"><kbd>graphql-go-handler</kbd>: For running a server that can route requests to resolvers</li>
+</ul>
+<ol start="2">
+<li>Let's create the project repository:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>mkdir -p $GOPATH/src/github.com/git-user/chapter10/graphqlServer<br/></strong><strong>touch $GOPATH/src/github.com/git-user/chapter10/graphqlServer/<br/>main.go</strong></pre>
+<ol start="3">
+<li>We can install both packages using the <kbd>dep</kbd> tool:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>dep init<span><br/></span><span>dep ensure -add "</span><span>github.com/graphql-go/graphql</span><span>"</span><span><br/></span><span>dep ensure -add "</span><span>github.com/graphql-go/handler</span><span>"</span></strong></pre>
+<ol start="4">
+<li>Now, let's write our <kbd>main.go</kbd> file. It should contain all the necessary imports. The main imports are from the packages we installed along with <kbd>net/http</kbd>:</li>
+</ol>
+<pre style="padding-left: 60px">import (<br/>    "net/http"<br/><br/>    "github.com/graphql-go/graphql"<br/>    "github.com/graphql-go/handler"<br/>)</pre>
+<ol start="5">
+<li>Now, let's define our dummy data, which we serve through resolvers. Define a struct that returns the response for the preceding client query:</li>
+</ol>
+<pre style="padding-left: 60px">// Player holds player response<br/>type Player struct {<br/>    ID             int      `json:"int"`<br/>    Name           string   `json:"name"`<br/>    HighScore      int      `json:"highScore"`<br/>    IsOnline       bool     `json:"isOnline"`<br/>    Location       string   `json:"location"`<br/>    LevelsUnlocked []string `json:"levelsUnlocked"`<br/>}<br/><br/>var players = []Player{<br/>    Player{ID: 123, Name: "Pablo", HighScore: 1100, IsOnline: true,<br/>     Location: "Italy"},<br/>    Player{ID: 230, Name: "Dora", HighScore: 2100, IsOnline: false,<br/>     Location: "Germany"},<br/>}</pre>
+<p style="padding-left: 60px">The previously defined constructs are a simple Go struct and a list. We'll use this information later.</p>
+<ol start="6">
+<li>Now, define a player object using the <kbd>graphql.NewObject</kbd> function. This takes a <kbd>graphql.ObjectConfig</kbd> instance that defines the fields and their types for the object.</li>
+<li>The <kbd>graphql</kbd> package provides scalar types and composite types such as lists. The following is the definition of the player object:</li>
+</ol>
+<pre style="padding-left: 90px">var playerObject = graphql.NewObject(<br/>    graphql.ObjectConfig{<br/>        Name: "Player",<br/>        Fields: graphql.Fields{<br/>            "id": &amp;graphql.Field{<br/>                Type: graphql.Int,<br/>            },<br/>            "name": &amp;graphql.Field{<br/>                Type: graphql.String,<br/>            },<br/>            "highScore": &amp;graphql.Field{<br/>                Type: graphql.String,<br/>            },<br/>            "isOnline": &amp;graphql.Field{<br/>                Type: graphql.Boolean,<br/>            },<br/>            "location": &amp;graphql.Field{<br/>                Type: graphql.String,<br/>            },<br/>            "levelsUnlocked": &amp;graphql.Field{<br/>                Type: graphql.NewList(graphql.String),<br/>            },<br/>        },<br/>    },<br/>)</pre>
+<p style="padding-left: 60px">These object fields will be mapped to the struct <kbd>Player</kbd> fields we defined previously.</p>
+<ol start="8">
+<li>Next comes our main function. Here, we have to define three things:</li>
+</ol>
+<ul>
+<li style="padding-left: 60px">Root query</li>
+<li style="padding-left: 60px">Schema Config</li>
+<li style="padding-left: 60px">Schema</li>
+</ul>
+<p style="padding-left: 60px">A root query defines the root object while querying. A schema defines the structure of the GraphQL response. A new schema can be created from the schema config. Our main function does all these things.</p>
+<ol start="9">
+<li>Then, we create a <kbd>fields</kbd> section and attach it to the root query. These fields have a <kbd>resolver</kbd> that gets called whenever a client makes a query. Let's say we return all the players when someone queries the root object:</li>
+</ol>
+<pre style="padding-left: 60px">func main() {<br/>    // Schema<br/>    fields := graphql.Fields{<br/>        "players": &amp;graphql.Field{<br/>            Type:        graphql.NewList(playerObject),<br/>            Description: "All players",<br/>            Resolve: func(p graphql.ResolveParams) (interface{},<br/>             error) {<br/>                return players, nil<br/>            },<br/>        },<br/>    }<br/>    rootQuery := graphql.ObjectConfig{Name: "RootQuery",<br/>     Fields: fields}<br/>    schemaConfig := graphql.SchemaConfig{Query:<br/>     graphql.NewObject(rootQuery)}<br/>    schema, _ := graphql.NewSchema(schemaConfig)<br/>    ...<br/>}</pre>
+<ol start="10">
+<li>Now, we have a schema. But in order to serve it via HTTP, we should pass this schema to the <kbd>graphql-go</kbd> package's <kbd>handler.New</kbd> function. We can also create an interactive GraphQL browser called <kbd>GraphiQL</kbd>. Let's see how to do this in code:</li>
+</ol>
+<pre style="padding-left: 30px">    h := handler.New(&amp;handler.Config{<br/>        Schema:   &amp;schema,<br/>        Pretty:   true,<br/>        GraphiQL: true,<br/>    })<br/><br/>    http.Handle("/graphql", h)<br/>    http.ListenAndServe(":8000", nil)</pre>
+<p style="padding-left: 60px"><kbd>handler.New</kbd> takes a schema as well as the option to prettify the GraphQL response. The GraphiQL option is used to enable the documentation and the interactive browser editor for the exposed API.</p>
+<ol start="11">
+<li>Now, run the program, like this:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>go run $GOPATH/src/github.com/git-user/chapter10/graphqlServer/<br/>main.go</strong></pre>
+<p style="padding-left: 60px">This starts a GraphQL server on <kbd>localhost:8000</kbd>.</p>
+<ol start="12">
+<li>Open a browser and visit <kbd>http://localhost:8000</kbd>. You should see the interactive GraphQL editor. Now, paste the following client query into the left-hand pane:</li>
+</ol>
+<pre style="padding-left: 60px">query {<br/>  players {<br/>    highScore<br/>    id<br/>    isOnline<br/>    levelsUnlocked<br/>  }<br/>}</pre>
+<p style="padding-left: 60px">You'll see the response that's served by our GraphQL server in the right-hand pane:</p>
+<pre style="padding-left: 60px">{<br/>  "data": {<br/>    "players": [<br/>      {<br/>        "highScore": "1100",<br/>        "id": 123,<br/>        "isOnline": true,<br/>        "levelsUnlocked": []<br/>      },<br/>      {<br/>        "highScore": "2100",<br/>        "id": 230,<br/>        "isOnline": false,<br/>        "levelsUnlocked": []<br/>      }<br/>    ]<br/>  }<br/>}</pre>
+<p>The response contains mock data, but this data should be dynamically generated in a real-world API. For more details about creating advanced queries and mutations within the server, refer to the <kbd>graphql-go</kbd> documentation (<a href="https://github.com/graphql-go/graphql" target="_blank">https://github.com/graphql-go/graphql</a>).</p>
+<div class="packt_tip">You can use <a href="https://github.com/graphql/graphiql">GraphiQL</a> (an interactive GraphQL editor) as an API documentation service for your GraphQL schema. It is similar to the Swagger API specification. See the GitHub interactive API editor for inspiration: <a href="https://developer.github.com/v4/explorer/" target="_blank">https://developer.github.com/v4/explorer/</a>.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we understood the semantics of APIs. An API can over-fetch or under-fetch results for clients. This can cause additional noise in the data. Bandwidth wastage can be a big issue too. To overcome this problem, GraphQL offers a flexible approach for requesting data from APIs. This allows developers to write pragmatic APIs that do exactly what is requested by the client.</p>
+<p>Then, we explored GraphQL in depth by understanding queries, mutations, schema, and types. We introduced many examples and saw what a GraphQL server response looks like.</p>
+<p>Finally, we implemented a Go client for the Github API using a package called <kbd>machinebox/graphql</kbd>. After that, we created a server that responds to a client query.</p>
+<p>In the next chapter, we will discuss scaling APIs using microservices.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

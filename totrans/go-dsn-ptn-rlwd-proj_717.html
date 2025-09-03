@@ -1,0 +1,26 @@
+<html><head></head><body><div class="book" title="Responding" id="5FF7G1-9c484ed022e64a0fb0e1aebf8e05d4fd"><div class="book"><div class="book"><div class="book"><h1 class="title" id="calibre_pb_0"><a id="ch06lvl1sec0038" class="calibre1"/>Responding</h1></div></div></div><p class="calibre10">A big part of any API is responding to requests with a combination of status codes, data, errors, and sometimes headers – the <code class="email">net/http</code> package makes all of this very easy to do. One option we have, which remains the best option for tiny projects or even the early stages of big projects, is to just build the response code directly inside the handler.</p><p class="calibre10">As the number of handlers grows, however, we will end up duplicating a lot of code and sprinkling representation decisions all over our project. A more scalable approach is to abstract the response code into helper functions.</p><p class="calibre10">For the first version of our API, we are going to speak only JSON, but we want the flexibility to add other representations later if we need to.</p><p class="calibre10">Create a new file called <code class="email">respond.go</code> and add the following code:</p><pre class="programlisting">func decodeBody(r *http.Request, v interface{}) error { 
+  defer r.Body.Close() 
+  return json.NewDecoder(r.Body).Decode(v) 
+} 
+func encodeBody(w http.ResponseWriter, r *http.Request, v  interface{}) error { 
+  return json.NewEncoder(w).Encode(v) 
+} 
+</pre><p class="calibre10">These two functions abstract the decoding and encoding of data from and to the <code class="email">Request</code> and <code class="email">ResponseWriter</code> objects, respectively. The decoder also closes the request body, which is recommended. Although we haven't added much functionality here, it means that we do not need to mention JSON anywhere else in our code, and if we decide to add support for other representations or switch to a binary protocol instead, we only need to touch these two functions.</p><p class="calibre10">Next, we are going to add a few more helpers that will make responding even easier. In <code class="email">respond.go</code>, add the following code:</p><pre class="programlisting">func respond(w http.ResponseWriter, r *http.Request, 
+ status int, data interface{}) { 
+  w.WriteHeader(status) 
+  if data != nil { 
+    encodeBody(w, r, data) 
+  } 
+} 
+</pre><p class="calibre10">This function makes it easy to write the status code and some data to the <code class="email">ResponseWriter</code> object using our <code class="email">encodeBody</code> helper.</p><p class="calibre10">Handling errors is another important aspect that is worth abstracting. Add the following <code class="email">respondErr</code> helper:</p><pre class="programlisting">func respondErr(w http.ResponseWriter, r *http.Request, 
+ status int, args ...interface{}) { 
+  respond(w, r, status, map[string]interface{}{ 
+    "error": map[string]interface{}{ 
+      "message": fmt.Sprint(args...), 
+    }, 
+  }) 
+} 
+</pre><p class="calibre10">This method gives us an interface similar to the <code class="email">respond</code> function, but the data written will be enveloped in an <code class="email">error</code> object in order to make it clear that something went wrong. Finally, we can add an HTTP-error-specific helper that will generate the correct message for us using the <code class="email">http.StatusText</code> function from the Go standard library:</p><pre class="programlisting">func respondHTTPErr(w http.ResponseWriter, r *http.Request, status int) { 
+  respondErr(w, r, status, http.StatusText(status)) 
+} 
+</pre><p class="calibre10">Note that these functions are all dog food, which means that they use each other (as in, eating your own dog food), which is important since we want actual responding to happen in only one place for if (or more likely, when) we need to make changes.</p></div></body></html>

@@ -1,0 +1,108 @@
+<html><head></head><body>
+<div class="book" title="Chapter&#xA0;5.&#xA0;Behavioral Patterns - Strategy, Chain of Responsibility, and Command Design Patterns">
+<div class="book" title="Strategy design pattern">
+<div class="book" title="Solving small issues in our library"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_7"><a id="ch05lvl2sec0124" class="calibre1"/>Solving small issues in our library</h2></div></div></div><p class="calibre10">We have a few issues in our code:</p><div class="book"><ul class="itemizedlist"><li class="listitem">It cannot be used as a library. We have critical code written in the <code class="email">main</code> package (strategy creation).<p class="calibre29"><span class="strong"><strong class="calibre2">Solution</strong></span>: Abstract to two different packages the strategy creation from the command-line application.</p></li><li class="listitem">None of the strategies are doing any logging to file or console. We must provide a way to read some logs that an external user can integrate in their logging strategies or formats.<p class="calibre29"><span class="strong"><strong class="calibre2">Solution</strong></span>: Inject an <code class="email">io.Writer</code> interface as dependency to act as a logging sink.</p></li><li class="listitem">Our <code class="email">TextSquare</code> class is always writing to the console (an implementer of the <code class="email">io.Writer</code> interface) and the <code class="email">ImageSquare</code> is always writing to file (another implementer of the <code class="email">io.Writer</code> interface). This is too coupled.<p class="calibre29"><span class="strong"><strong class="calibre2">Solution</strong></span>: Inject an <code class="email">io.Writer</code> interface so that the <code class="email">TextSquare</code> and <code class="email">ImageSquare</code> can write to any of the <code class="email">io.Writer</code> implementations that are available (file and console, but also bytes buffer, binary encoders, <code class="email">JSON</code> handlers... dozens of packages).</p></li></ul></div><p class="calibre10">So, to use it as a library and solve the first issue, we will follow a common approach in Go file structures for apps and libraries. First, we will place our main package and function outside of the root package; in this case, in a folder called <code class="email">cli</code>. It is also common to call this folder <code class="email">cmd</code> or even <code class="email">app</code>. Then, we will place our <code class="email">PrintStrategy</code> interface in the root package, which now will be called the <code class="email">strategy</code> package. Finally, we will create a <code class="email">shapes</code> package in a folder with the same name where we will put both text and image strategies. So, our file structure will be like this:</p><div class="book"><ul class="itemizedlist"><li class="listitem"><span class="strong"><strong class="calibre2">Root package</strong></span>: strategy<p class="calibre29">File: <code class="email">print_strategy.go</code></p></li><li class="listitem"><span class="strong"><strong class="calibre2">SubPackage</strong></span>: shapes<p class="calibre29">Files: <code class="email">image.go</code>, <code class="email">text.go</code>, <code class="email">factory.go</code></p></li><li class="listitem"><span class="strong"><strong class="calibre2">SubPackage</strong></span>: cli<p class="calibre29">File: <code class="email">main.go</code></p></li></ul></div><p class="calibre10">We are going to modify our interface a bit to fit the needs we have written previously:</p><pre class="programlisting">type PrintStrategy interface { 
+  Print() error 
+  SetLog(io.Writer) 
+  SetWriter(io.Writer) 
+} 
+</pre><p class="calibre10">We have added the <code class="email">SetLog(io.Writer)</code> method to add a logger strategy to our types; this is to provide feedback to users. Also, it has a <code class="email">SetWriter</code> method to set the <code class="email">io.Writer</code> strategy. This interface is going to be located on the root package in the <code class="email">print_strategy.go</code> file. So the final schema looks like this:</p><p class="calibre10">
+</p><div class="mediaobject"><img src="../images/00032.jpeg" alt="Solving small issues in our library" class="calibre14"/></div><p class="calibre15"> </p><p class="calibre10">
+</p><p class="calibre10">Both the <code class="email">TextSquare</code> and <code class="email">ImageSquare</code> strategies have to satisfy the <code class="email">SetLog</code> and <code class="email">SetWriter</code> methods which simply store some object on their fields so, instead of implementing the same twice, we can create a struct that implements them and embed this struct in the strategies. By the way, this would be the composite pattern we have seen previously:</p><pre class="programlisting">type PrintOutput struct { 
+  Writer    io.Writer 
+  LogWriter io.Writer 
+} 
+ 
+func(d *PrintOutput) SetLog(w io.Writer) { 
+  d.LogWriter = w 
+} 
+ 
+func(d *PrintOutput) SetWriter(w io.Writer) { 
+  d.Writer = w 
+} 
+</pre><p class="calibre10">So now each strategy must have the <code class="email">PrintOutput</code> struct embedded if we want to modify their <code class="email">Writer</code> and <code class="email">logger</code> fields.</p><p class="calibre10">We also need to modify our strategy implementation. The <code class="email">TextSquare</code> struct now needs a field to store the output <code class="email">io.Writer</code> (the place where it is going to write instead of writing always to the console) and the <code class="email">log</code> writer. These two fields can be provided by embedding the <code class="email">PrintOutput</code> struct. The <code class="email">TextSquare</code> struct is also stored in the file <code class="email">text.go</code> within the shapes package. So, the struct is now like this:</p><pre class="programlisting">package shapes 
+ 
+type TextSquare struct { 
+  strategy.PrintOutput 
+} 
+</pre><p class="calibre10">So now the <code class="email">Print()</code> method is slightly different because, instead of writing directly to the console by using the <code class="email">println</code> function, we have to write whichever <code class="email">io.Writer</code> is stored in the <code class="email">Writer</code> field:</p><pre class="programlisting">func (t *TextSquare) Print() error { 
+  r := bytes.NewReader([]byte("Circle")) 
+  io.Copy(t.Writer, r) 
+  return nil 
+} 
+</pre><p class="calibre10">The <code class="email">bytes.NewReader</code> is a very useful function that takes an array of bytes and converts them to an <code class="email">io.Reader</code> interface. We need an <code class="email">io.Reader</code> interface to use the <code class="email">io.Copy</code> function. The <code class="email">io.Copy</code> function is also incredibly useful as it takes an <code class="email">io.Reader</code> (as the second parameter) and pipes it to an <code class="email">io.Writer</code> (its first parameter). So, we won't return an error in any case. However, it's easier to do so using directly the <code class="email">Write</code> method of <code class="email">t.Writer</code>:</p><pre class="programlisting">func (t *TextSquare) Print() error { 
+  t.Writer.Write([]byte("Circle")) 
+  return nil 
+} 
+</pre><p class="calibre10">You can use whichever method you like more. Usually, you will use the <code class="email">Write</code> method but it's nice to know the <code class="email">bytes.NewReader</code> function too.</p><p class="calibre10">Did you realize that when we use <code class="email">t.Writer</code>, we are actually accessing <code class="email">PrintOutput.Writer</code>? The <code class="email">TextSquare</code> type has a <code class="email">Writer</code> field because the <code class="email">PrintOutput</code> struct has it and it's embedded on the <code class="email">TextSquare</code> struct.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="tip015" class="calibre1"/>Tip</h3><p class="calibre10">Embedding is not inheritance. We have embedded the <code class="email">PrintOutput</code> struct on the <code class="email">TextSquare</code> struct. Now we can access <code class="email">PrintOutput</code> fields as if they were in <code class="email">TextSquare</code> fields. This feels a bit like inheritance but there is a very important difference here: <code class="email">TextSquare</code> is not a <code class="email">PrintOutput</code> value but it has a <code class="email">PrintOutput</code> in its composition. What does it mean? That if you have a function that expects a <code class="email">PrintOutput</code>, you cannot a pass <code class="email">TextSquare</code> just because it has a <code class="email">PrintOutput</code> embedded.</p><p class="calibre10">But, if you have a function that accepts an interface that <code class="email">PrintOutput</code> implements, you can pass <code class="email">TextSquare</code> if it has a <code class="email">PrintOutput</code> embedded. This is what we are doing in our example.</p></div><p class="calibre10">The <code class="email">ImageSquare</code> struct is now like the <code class="email">TextSquare</code>, with a <code class="email">PrintOutput</code> embedded:</p><pre class="programlisting">type ImageSquare struct { 
+  strategy.PrintOutput 
+} 
+</pre><p class="calibre10">The <code class="email">Print</code> method also needs to be modified. Now, we aren't creating a file from the <code class="email">Print</code> method, as it was breaking the single responsibility principle. A file implements an <code class="email">io.Writer</code> so we will open the file outside of the <code class="email">ImageSquare</code> struct and inject it on the <code class="email">Writer</code> field. So, we just need to modify the end of the <code class="email">Print()</code> method where we wrote to the file:</p><pre class="programlisting">draw.Print(bgImage, squareImg.Bounds(), &amp;squareColor, origin, draw.Src) 
+ 
+if i.Writer == nil { 
+  return fmt.Errorf("No writer stored on ImageSquare") 
+} 
+if err := jpeg.Encode(i.Writer, bgImage, quality); err != nil { 
+  return fmt.Errorf("Error writing image to disk") 
+} 
+ 
+if i.LogWriter != nil { 
+  io.Copy(i.LogWriter, "Image written in provided writer\n") 
+} 
+ 
+return nil 
+</pre><p class="calibre10">If you check our previous implementation, after using <code class="email">draw</code>, you can see that we used the <code class="email">Print</code> method, we created a file with <code class="email">os.Create</code> and passed it to the <code class="email">jpeg.Encode</code> function. We have deleted this part about creating the file and we have replaced it with a check looking for a <code class="email">Writer</code> in the fields (<code class="email">if i.Writer != nil</code>). Then, on <code class="email">jpeg.Encode</code> we can replace the file value we were using previously with the content of the <code class="email">i.Writer</code> field. Finally, we are using <code class="email">io.Copy</code> again to log some message to the <code class="email">LogWriter</code> if a logging strategy is provided.</p><p class="calibre10">We also have to abstract the knowledge needed from the user to create instances of implementors of the <code class="email">PrintStrategy</code> for which we are going to use a Factory method:</p><pre class="programlisting">const ( 
+  TEXT_STRATEGY  = "text" 
+  IMAGE_STRATEGY = "image" 
+) 
+ 
+func NewPrinter(s string) (strategy.Output, error) { 
+  switch s { 
+  case TEXT_STRATEGY: 
+    return &amp;TextSquare{ 
+      PrintOutput: strategy.PrintOutput{ 
+        LogWriter: os.Stdout, 
+      }, 
+    }, nil 
+  case IMAGE_STRATEGY: 
+    return &amp;ImageSquare{ 
+      PrintOutput: strategy.PrintOutput{ 
+        LogWriter: os.Stdout, 
+      }, 
+    }, nil 
+  default: 
+    return nil, fmt.Errorf("Strategy '%s' not found\n", s) 
+  } 
+} 
+</pre><p class="calibre10">We have two constants, one of each of our strategies: <code class="email">TEXT_STRATEGY</code> and <code class="email">IMAGE_STRATEGY</code>. Those are the constants that must be provided to the factory to retrieve each square drawer strategy. Our factory method receives an argument <code class="email">s</code>, which is a string with one of the previous constants.</p><p class="calibre10">Each strategy has a <code class="email">PrintOutput</code> type embedded with a default logger to <code class="email">stdout</code> but you can override it later by using the <code class="email">SetLog(io.Writer)</code> methods. This approach could be considered a Factory of prototypes. If it is not a recognized strategy, a proper message error will be returned.</p><p class="calibre10">What we have now is a library. We have all the functionality we need between the <code class="email">strategy</code> and <code class="email">shapes</code> packages. Now we will write the <code class="email">main</code> package and function in a new folder called <code class="email">cli</code>:</p><pre class="programlisting">var output = flag.String("output", "text", "The output to use between "+ 
+  "'console' and 'image' file") 
+ 
+func main() { 
+  flag.Parse() 
+</pre><p class="calibre10">Again, like before, the <code class="email">main</code> function starts by parsing the input arguments on the console to gather the chosen strategy. We can use the variable output now to create a strategy without Factory:</p><pre class="programlisting">activeStrategy, err := shapes.NewPrinter(*output) 
+if err != nil { 
+  log.Fatal(err) 
+} 
+</pre><p class="calibre10">With this snippet, we have our strategy or we stop program execution in the <code class="email">log.Fatal</code> method if any error is found (such as an unrecognized strategy).</p><p class="calibre10">Now we will implement the business needs by using our library. For the purpose of the <code class="email">TextStrategy</code>, we want to write, for example, to <code class="email">stdout</code>. For the purpose of the image, we will write to <code class="email">/tmp/image.jpg</code>. Just like before. So, following the previous statements, we can write:</p><pre class="programlisting">switch *output { 
+case shapes.TEXT_STRATEGY: 
+  activeStrategy.SetWriter(os.Stdout) 
+case shapes.IMAGE_STRATEGY: 
+  w, err := os.Create("/tmp/image.jpg") 
+  if err != nil { 
+    log.Fatal("Error opening image") 
+  } 
+  defer w.Close() 
+ 
+  activeStrategy.SetWriter(w) 
+} 
+</pre><p class="calibre10">In the case of <code class="email">TEXT_STRATEGY</code>, we use <code class="email">SetWriter</code> to set the <code class="email">io.Writer</code> to <code class="email">os.Stdout</code>. In the case of <code class="email">IMAGE_STRATEGY</code>, we create an image in any of our folders and pass the file variable to the <code class="email">SetWriter</code> method. Remember that <code class="email">os.File</code> implements the <code class="email">io.Reader</code> and <code class="email">io.Writer</code> interfaces, so it's perfectly legal to pass it as an <code class="email">io.Writer</code> to the <code class="email">SetWriter</code> method:</p><pre class="programlisting">err = activeStrategy.Print() 
+if err != nil { 
+  log.Fatal(err) 
+} 
+</pre><p class="calibre10">Finally, we call the <code class="email">Print</code> method of whichever strategy was chosen by the user and check for possible errors. Let's try the program now:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ go run main.go --output text</strong></span>
+<span class="strong"><strong class="calibre2">Circle</strong></span>
+</pre><p class="calibre10">It has worked as expected. What about the image strategy?</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ go run main.go --output image</strong></span>
+<span class="strong"><strong class="calibre2">Image written in provided writer</strong></span>
+</pre><p class="calibre10">If we check in <code class="email">/tmp/image.jpg</code>, we can find our red square on the dark background.</p></div></div></div></body></html>

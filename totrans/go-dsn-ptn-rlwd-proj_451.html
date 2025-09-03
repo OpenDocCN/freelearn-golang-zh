@@ -1,0 +1,92 @@
+<html><head></head><body>
+<div class="book" title="Facade design pattern">
+<div class="book" title="Unit test"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_5"><a id="ch04lvl2sec0109" class="calibre1"/>Unit test</h2></div></div></div><p class="calibre10">To start with our API Facade, we will need an interface with the methods asked in <span class="strong"><em class="calibre11">acceptance criteria 2</em></span> and <span class="strong"><em class="calibre11">acceptance criteria 3</em></span>:</p><pre class="programlisting">type CurrentWeatherDataRetriever interface { 
+  GetByCityAndCountryCode(city, countryCode string) (Weather, error) 
+  GetByGeoCoordinates(lat, lon float32) (Weather, error) 
+} 
+</pre><p class="calibre10">We will call <span class="strong"><em class="calibre11">acceptance criteria 2</em></span>
+<code class="email">GetByCityAndCountryCode</code>; we will also need a city name and a country code in the string format. A country code is a two-character code, which represents the <span class="strong"><strong class="calibre2">International Organization for Standardization</strong></span> (<span class="strong"><strong class="calibre2">ISO</strong></span>) name of world countries. It returns a <code class="email">Weather</code> value, which we will define later, and an error if something goes wrong.</p><p class="calibre10">
+<span class="strong"><em class="calibre11">Acceptance criteria 3</em></span> will be called <code class="email">GetByGeoCoordinates</code>, and will need latitude and longitude values in the <code class="email">float32</code> format. It will also return a <code class="email">Weather</code> value and an error. The <code class="email">Weather</code> value is going to be defined according to the returned JSON that the <code class="email">OpenWeatherMap</code> API works with. You can find the description of this JSON at the webpage <a class="calibre1" href="http://openweathermap.org/current#current_JSON">http://openweathermap.org/current#current_JSON</a>.</p><p class="calibre10">If you look at the JSON definition, it has the following type:</p><pre class="programlisting">type Weather struct { 
+  ID   int    `json:"id"` 
+  Name string `json:"name"` 
+  Cod  int    `json:"cod"` 
+  Coord struct { 
+    Lon float32 `json:"lon"` 
+    Lat float32 `json:"lat"` 
+  } `json:"coord"`  
+    
+  Weather []struct { 
+    Id          int    `json:"id"` 
+    Main        string `json:"main"` 
+    Description string `json:"description"` 
+    Icon        string `json:"icon"` 
+  } `json:"weather"` 
+
+  Base string `json:"base"` 
+  Main struct { 
+    Temp     float32 `json:"temp"` 
+    Pressure float32 `json:"pressure"` 
+    Humidity float32 `json:"humidity"` 
+    TempMin  float32 `json:"temp_min"` 
+    TempMax  float32 `json:"temp_max"` 
+  } `json:"main"` 
+
+  Wind struct { 
+    Speed float32 `json:"speed"` 
+    Deg   float32 `json:"deg"` 
+  } `json:"wind"` 
+
+  Clouds struct { 
+    All int `json:"all"` 
+  } `json:"clouds"` 
+  
+  Rain struct { 
+    ThreeHours float32 `json:"3h"` 
+  } `json:"rain"` 
+  
+  Dt  uint32 `json:"dt"` 
+  Sys struct { 
+    Type    int     `json:"type"` 
+    ID      int     `json:"id"` 
+    Message float32 `json:"message"` 
+    Country string  `json:"country"` 
+    Sunrise int     `json:"sunrise"` 
+    Sunset  int     `json:"sunset"` 
+  }`json:"sys"` 
+} 
+</pre><p class="calibre10">It's quite a long struct, but we have everything that a response could include. The struct is called <code class="email">Weather</code>, as it is composed of an ID, a name and a Code (<code class="email">Cod</code>), and a few anonymous structs, which are: <code class="email">Coord</code>, <code class="email">Weather</code>, <code class="email">Base</code>, <code class="email">Main</code>, <code class="email">Wind</code>, <code class="email">Clouds</code>, <code class="email">Rain</code>, <code class="email">Dt</code>, and <code class="email">Sys</code>. We could write these anonymous structs outside of the <code class="email">Weather</code> struct by giving them a name, but it would only be useful if we have to work with them separately.</p><p class="calibre10">After every member and struct within our <code class="email">Weather</code> struct, you can find a <code class="email">`json:"something"`</code> line. This comes in handy when differentiating between the JSON key name and your member name. If the JSON key is <code class="email">something</code>, we aren't forced to call our member <code class="email">something</code>. For example, our ID member will be called <code class="email">id</code> in the JSON response.</p><p class="calibre10">Why don't we give the name of the JSON keys to our types? Well, if your fields in your type are lowercase, the <code class="email">encoding/json</code> package won't parse them correctly. Also, that last annotation provides us a certain flexibility, not only in terms of changing the members' names, but also of omitting some key if we don't need it, with the following signature:</p><pre class="programlisting">`json:"something,omitempty" 
+</pre><p class="calibre10">With <code class="email">omitempty</code> at the end, the parse won't fail if this key is not present in the bytes representation of the JSON key.</p><p class="calibre10">Okay, our acceptance criteria 1 ask for a single point of access to the API. This is going to be called <code class="email">CurrentWeatherData</code>:</p><pre class="programlisting">type CurrentWeatherData struct { 
+  APIkey string 
+} 
+</pre><p class="calibre10">The <code class="email">CurrentWeatherData</code> type has an API key as public member to work. This is because you have to be a registered user in <code class="email">OpenWeatherMap</code> to enjoy their services. Refer to the <code class="email">OpenWeatherMap</code> API's webpage for documentation on how to get an API key. We won't need it in our example, because we aren't going to do integration tests.</p><p class="calibre10">We need mock data so that we can write a <code class="email">mock</code> function to retrieve the data. When sending an HTTP request, the response is contained in a member called body in the form of an <code class="email">io.Reader</code>. We have already worked with types that implement the <code class="email">io.Reader</code> interface, so this should look familiar to you. Our <code class="email">mock</code> function appears like this:</p><pre class="programlisting"> func getMockData() io.Reader { 
+  response := `{
+    "coord":{"lon":-3.7,"lat":40.42},"weather : [{"id":803,"main":"Clouds","description":"broken clouds","icon":"04n"}],"base":"stations","main":{"temp":303.56,"pressure":1016.46,"humidity":26.8,"temp_min":300.95,"temp_max":305.93},"wind":{"speed":3.17,"deg":151.001},"rain":{"3h":0.0075},"clouds":{"all":68},"dt":1471295823,"sys":{"type":3,"id":1442829648,"message":0.0278,"country":"ES","sunrise":1471238808,"sunset":1471288232},"id":3117735,"name":"Madrid","cod":200}` 
+ 
+  r := bytes.NewReader([]byte(response)) 
+  return r 
+} 
+</pre><p class="calibre10">This preceding mocked data was produced by making a request to <code class="email">OpenWeatherMap</code> using an API key. The <code class="email">response</code> variable is a string containing a JSON response. Take a close look at the grave accent (<code class="email">`</code>) used to open and close the string. This way, you can use as many quotes as you want without any problem.</p><p class="calibre10">Further on, we use a special function in the bytes package called <code class="email">NewReader</code>, which accepts an slice of bytes (which we create by converting the type from string), and returns an <code class="email">io.Reader</code> implementor with the contents of the slice. This is perfect to mimic the <code class="email">Body</code> member of an HTTP response.</p><p class="calibre10">We will write a test to try <code class="email">response parser</code>. Both methods return the same type, so we can use the same <code class="email">JSON parser</code> for both:</p><pre class="programlisting">func TestOpenWeatherMap_responseParser(t *testing.T) { 
+  r := getMockData() 
+  openWeatherMap := CurrentWeatherData{APIkey: ""} 
+ 
+  weather, err := openWeatherMap.responseParser(r) 
+  if err != nil { 
+    t.Fatal(err) 
+  } 
+ 
+  if weather.ID != 3117735 { 
+    t.Errorf("Madrid id is 3117735, not %d\n", weather.ID) 
+  } 
+} 
+</pre><p class="calibre10">In the preceding test, we first asked for some mock data, which we store in the variable <code class="email">r</code>. Later, we created a type of <code class="email">CurrentWeatherData</code>, which we called <code class="email">openWeatherMap</code>. Finally, we asked for a weather value for the provided <code class="email">io.Reader</code> interface that we store in the variable <code class="email">weather</code>. After checking for errors, we make sure that the ID is the same as the one stored in the mock data that we got from the <code class="email">getMockData</code> method.</p><p class="calibre10">We have to declare the <code class="email">responseParser</code> method before running tests, or the code won't compile:</p><pre class="programlisting">func (p *CurrentWeatherData) responseParser(body io.Reader) (*Weather, error) { 
+  return nil, fmt.Errorf("Not implemented yet") 
+} 
+</pre><p class="calibre10">With all the aforementioned, we can run this test:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go test -v -run=responseParser .</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestOpenWeatherMap_responseParser</strong></span>
+<span class="strong"><strong class="calibre2">--- FAIL: TestOpenWeatherMap_responseParser (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">        facade_test.go:72: Not implemented yet</strong></span>
+<span class="strong"><strong class="calibre2">FAIL</strong></span>
+<span class="strong"><strong class="calibre2">exit status 1</strong></span>
+<span class="strong"><strong class="calibre2">FAIL</strong></span>
+</pre><p class="calibre10">Okay. We won't write more tests, because the rest would be merely integration tests, which are outside of the scope of explanation of a structural pattern, and will force us to have an API key as well as an Internet connection. If you want to see what the integration tests look like for this example, refer to the code that comes bundled with the book.</p></div></div></body></html>

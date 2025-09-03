@@ -1,0 +1,58 @@
+<html><head></head><body>
+<div class="book" title="Modeling method calls with requests and responses" id="6DVPG1-9c484ed022e64a0fb0e1aebf8e05d4fd">
+<div class="book" title="Endpoints in Go kit"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_1"><a id="ch10lvl2sec00122" class="calibre1"/>Endpoints in Go kit</h2></div></div></div><p class="calibre10">Endpoints are a special function type in Go kit that represent a single RPC method. The definition is inside the <code class="email">endpoint</code> package:</p><pre class="programlisting">type Endpoint func(ctx context.Context, request
+  interface{})  
+(response interface{}, err error) 
+</pre><p class="calibre10">An endpoint function takes <code class="email">context.Context</code> and <code class="email">request</code>, and it returns <code class="email">response</code> or <code class="email">error</code>. The <code class="email">request</code> and <code class="email">response</code> types are <code class="email">interface{}</code>, which tells us that it is up to the implementation code to deal with the actual types when building endpoints.</p><p class="calibre10">Endpoints are powerful because, like <code class="email">http.Handler</code> (and <code class="email">http.HandlerFunc</code>), you can wrap them with generalized middleware to solve a myriad of common issues that arise when building micro-services: logging, tracing, rate limiting, error handling, and more.</p><p class="calibre10">Go kit solves transporting over various protocols and uses endpoints as a general way to jump from their code to ours. For example, the gRPC server will listen on a port, and when it receives the appropriate message, it will call the corresponding <code class="email">Endpoint</code> function. Thanks to Go kit, this will all be transparent to us, as we only need to deal in Go code with our <code class="email">Service</code> interface.</p><div class="book" title="Making endpoints for service methods"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch10lvl3sec0040" class="calibre1"/>Making endpoints for service methods</h3></div></div></div><p class="calibre10">In order to turn our service methods into <code class="email">endpoint.Endpoint</code> functions, we're going to write a function that handles the incoming <code class="email">hashRequest</code>, calls the <code class="email">Hash</code> service method, and depending on the response, builds and returns an appropriate <code class="email">hashResponse</code> object.</p><p class="calibre10">To <code class="email">service.go</code>, add the <code class="email">MakeHashEndpoint</code> function:</p><pre class="programlisting">func MakeHashEndpoint(srv Service) endpoint.Endpoint { 
+  return func(ctx context.Context, request interface{})
+  (interface{}, error) { 
+    req := request.(hashRequest) 
+    v, err := srv.Hash(ctx, req.Password) 
+    if err != nil { 
+      return hashResponse{v, err.Error()}, nil 
+    } 
+    return hashResponse{v, ""}, nil 
+  } 
+} 
+</pre><p class="calibre10">This function takes <code class="email">Service</code> as an argument, which means that we can generate an endpoint from any implementation of our <code class="email">Service</code> interface. We then use a type assertion to specify that the request argument should, in fact, be of type <code class="email">hashRequest</code>. We call the <code class="email">Hash</code> method, passing in the context and <code class="email">Password</code>, which we get from <code class="email">hashRequest</code>. If all is well, we build <code class="email">hashResponse</code> with the value we got back from the <code class="email">Hash</code> method and return it.</p><p class="calibre10">Let's do the same for the <code class="email">Validate</code> method:</p><pre class="programlisting">func MakeValidateEndpoint(srv Service) endpoint.Endpoint { 
+  return func(ctx context.Context, request interface{})
+  (interface{}, error) { 
+    req := request.(validateRequest) 
+    v, err := srv.Validate(ctx, req.Password, req.Hash) 
+    if err != nil { 
+      return validateResponse{false, err.Error()}, nil 
+    } 
+    return validateResponse{v, ""}, nil 
+  } 
+} 
+</pre><p class="calibre10">Here, we are doing the same: taking the request and using it to call the method before building a response. Note that we never return an error from the <code class="email">Endpoint</code> function.</p></div><div class="book" title="Different levels of error"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch10lvl3sec0041" class="calibre1"/>Different levels of error</h3></div></div></div><p class="calibre10">There are two main types of errors in Go kit: transport errors (network failure, timeouts, dropped connection, and so on) and business logic errors (where the infrastructure of making the request and responding was successful, but something in the logic or data wasn't correct).</p><p class="calibre10">If the <code class="email">Hash</code> method returns an error, we are not going to return it as the second argument; instead, we are going to build <code class="email">hashResponse</code>, which contains the error string (accessible via the <code class="email">Error</code> method). This is because the error returned from an endpoint is intended to indicate a transport error, and perhaps Go kit will be configured to retry the call a few times by some middleware. If our service methods return an error, it is considered a business logic error and will probably always return the same error for the same input, so it's not worth retrying. This is why we wrap the error into the response and return it to the client so that they can deal with it.</p></div><div class="book" title="Wrapping endpoints into a Service implementation"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch10lvl3sec0042" class="calibre1"/>Wrapping endpoints into a Service implementation</h3></div></div></div><p class="calibre10">Another very useful trick when dealing with endpoints in Go kit is to write an implementation of our <code class="email">vault.Service</code> interface, which just makes the necessary calls to the underlying endpoints.</p><p class="calibre10">To <code class="email">service.go</code>, add the following structure:</p><pre class="programlisting">type Endpoints struct { 
+  HashEndpoint     endpoint.Endpoint 
+  ValidateEndpoint endpoint.Endpoint 
+} 
+</pre><p class="calibre10">In order to implement the <code class="email">vault.Service</code> interface, we are going to add the two methods to our <code class="email">Endpoints</code> structure, which will build a request object, make the request, and parse the resulting response object into the normal arguments to be returned.</p><p class="calibre10">Add the following <code class="email">Hash</code> method:</p><pre class="programlisting">func (e Endpoints) Hash(ctx context.Context, password
+  string) (string, error) { 
+  req := hashRequest{Password: password} 
+  resp, err := e.HashEndpoint(ctx, req) 
+  if err != nil { 
+    return "", err 
+  } 
+  hashResp := resp.(hashResponse) 
+  if hashResp.Err != "" { 
+    return "", errors.New(hashResp.Err) 
+  } 
+  return hashResp.Hash, nil 
+} 
+</pre><p class="calibre10">We are calling <code class="email">HashEndpoint</code> with <code class="email">hashRequest</code>, which we create using the password argument before caching the general response to <code class="email">hashResponse</code> and returning the Hash value from it or an error.</p><p class="calibre10">We will do this for the Validate method:</p><pre class="programlisting">func (e Endpoints) Validate(ctx context.Context, password,
+ hash string) (bool, error) { 
+  req := validateRequest{Password: password, Hash: hash} 
+  resp, err := e.ValidateEndpoint(ctx, req) 
+  if err != nil { 
+    return false, err 
+  } 
+  validateResp := resp.(validateResponse) 
+  if validateResp.Err != "" { 
+    return false, errors.New(validateResp.Err) 
+  } 
+  return validateResp.Valid, nil 
+} 
+</pre><p class="calibre10">These two methods will allow us to treat the endpoints we have created as though they are normal Go methods; very useful for when we actually consume our service later in this chapter.</p></div></div></div></body></html>

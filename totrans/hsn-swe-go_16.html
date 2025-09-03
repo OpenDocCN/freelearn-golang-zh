@@ -1,0 +1,1878 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building Distributed Graph-Processing Systems</h1>
+                </header>
+            
+            <article>
+                
+<div class="packt_quote">"A distributed system is one in which the failure of a computer you didn't even know existed can render your own computer unusable."</div>
+<div class="packt_quote CDPAlignRight CDPAlign"><span>- Leslie Lamport</span></div>
+<p>The master/worker pattern is a popular approach for building fault-tolerant, distributed systems. The first part of this chapter explores this pattern in depth with a focus on some of the more challenging aspects of distributed systems, such as node discovery and error handling.</p>
+<p>In the second part of this chapter, we will apply the master/worker pattern to build, from scratch, a distributed graph-processing system that can handle massive graphs whose size exceeds the memory capacity of most modern compute nodes. Finally, in the last part of this chapter, we will apply everything learned so far to create a distributed version of the PageRank calculator service for the Links 'R' Us project.</p>
+<p>The following topics will be covered in this chapter:</p>
+<ul>
+<li>The application of the master/worker model for distributed computation</li>
+<li>Strategies for discovering master and worker nodes</li>
+<li>Approaches for dealing with errors</li>
+<li>Using the master/worker model to execute the graph-based algorithms from <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a>, <em>Graph-Based Data Processing</em>, in a distributed fashion</li>
+<li>Creating the distributed version of the Links 'R' Us PageRank calculator service and deploying it to Kubernetes</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>The full code for all topics discussed within this chapter has been published to this book's GitHub repository in the <kbd>Chapter12</kbd> folder.</p>
+<p>You can access the GitHub repository that contains the code and all required resources for each one of this book's chapters by pointing your web browser at the following URL: <a href="https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang">https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang</a>.</p>
+<p>Each example project for this chapter includes a common Makefile that defines the following set of targets:</p>
+<table style="border-collapse: collapse;width: 100%" border="1">
+<tbody>
+<tr>
+<td><strong>Makefile target</strong></td>
+<td><strong>Description</strong></td>
+</tr>
+<tr class="odd">
+<td><kbd>deps</kbd></td>
+<td>Install any required dependencies.</td>
+</tr>
+<tr class="even">
+<td><kbd>test</kbd></td>
+<td>Run all tests and report coverage.</td>
+</tr>
+<tr class="odd">
+<td><kbd>lint</kbd></td>
+<td>Check for lint errors.</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>As with all other chapters from this book, you will need a fairly recent version of Go, which you can download at<span> <a href="https://golang.org/dl/">https://golang.org/dl/</a></span>.</p>
+<p>To run some of the code in this chapter, you will need to have a working Docker <sup><span class="citation">[2]</span></sup> installation on your machine. Furthermore, for the last part of this chapter, you will need access to a Kubernetes cluster. If you don't have access to a Kubernetes cluster for testing, you can simply follow the instructions laid out in the following sections to set up a small cluster on your laptop or workstation.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Introducing the master/worker model</h1>
+                </header>
+            
+            <article>
+                
+<p>The master/worker model is a commonly used pattern for building distributed systems that have been around for practically forever. When building a cluster using this model, nodes can be classified into two distinct groups, namely, masters and workers.</p>
+<p>The key responsibility of worker nodes is to perform compute-intensive tasks such as the following:</p>
+<ul>
+<li>Video transcoding</li>
+<li>Training large-scale neural networks with millions of parameters</li>
+<li>Calculating <strong>Online Analytical Processing</strong> (<strong>OLAP</strong>) queries</li>
+<li>Running a <strong>Continuous Integration</strong> (<strong>CI</strong>) pipeline</li>
+<li>Executing map-reduce operations on massive datasets</li>
+</ul>
+<p>On the other hand, master nodes are typically assigned the role of the coordinator. To this end, they are responsible for the following:</p>
+<ul>
+<li>Discovering and keeping track of available worker nodes</li>
+<li>Breaking down jobs into smaller tasks and distributing them to each connected worker</li>
+<li>Orchestrating the execution of a job and ensure that any errors are properly detected and handled</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Ensuring that masters are highly available</h1>
+                </header>
+            
+            <article>
+                
+<p><span>In a system built using the master/worker model, losing one or more worker nodes due to crashes or network partitions is not a big issue. The master can detect this and work around the problem by re-distributing the workload to the remaining workers.</span></p>
+<div class="packt_tip">A crucial piece of advice when designing distributed systems is to make sure that your system does not contain <strong>Single Points of Failure</strong> (<strong>SPoFs</strong>).</div>
+<p>On the other hand, the loss of the master node will most certainly take the entire system offline! Fortunately, there are a few different approaches at our disposal for making sure that master nodes are highly available, which we'll cover next.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The leader-follower configuration</h1>
+                </header>
+            
+            <article>
+                
+<p>The <strong>leader-follower</strong> configuration achieves high availability by introducing multiple master nodes to the cluster. The master nodes implement a leader-election algorithm and, after a few rounds of voting, they assign the role of the cluster leader to one of the master nodes.</p>
+<p>From that point onward, the leader is responsible for coordinating the execution of any future jobs and each worker node is instructed to connect to it.</p>
+<p>The non-leader master nodes (followers) utilize a heartbeat mechanism to continuously monitor the health status of the active leader. If the leader fails to acknowledge a specific number of sequential heartbeat requests, the other master nodes assume that the leader is dead and automatically hold a new election round for selecting a new leader for the cluster.</p>
+<p>Meanwhile, the workers attempt to reconnect to the master and eventually establish a connection to the newly elected cluster leader.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The multi-master configuration</h1>
+                </header>
+            
+            <article>
+                
+<p>In a <strong>multi-master</strong> configuration, we still spin up multiple master node instances. However, as the name implies, there isn't really a designated leader for the cluster. In a multi-master cluster, we don't need to provide a mechanism for workers to figure out which node is the leader; they can freely connect to any of the master nodes.</p>
+<p>While this type of configuration has much better throughput characteristics than the equivalent leader-follower configuration, it comes with an important caveat, that is, all master nodes must share the same view of the cluster's state <em>at all times</em>.</p>
+<p>Consequently, masters are required to implement some kind of distributed consensus algorithm such as Paxos <sup><span class="citation">[3]</span></sup> or Raft <sup><span class="citation">[5]</span></sup> to ensure that mutations to the cluster's state are processed by all masters in the same order.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Strategies for discovering nodes</h1>
+                </header>
+            
+            <article>
+                
+<p>For the workers to be able to connect to the master, they first need to be aware of its existence! Depending on our particular use case, the following discovery strategies can be used:</p>
+<ul>
+<li><strong>Connecting to a bootstrap node</strong>: This discovery strategy assumes that one of the master nodes (commonly referred to as the <strong>bootstrap</strong> node) is reachable at an IP address that is known beforehand. Both masters and workers attempt to establish an initial connection to the bootstrap node and obtain information about the other nodes of the cluster using a <strong>gossip</strong> protocol.</li>
+<li><strong>Using an external discovery service</strong>: This strategy relies on the presence of an external discovery service that we can query to obtain information about all services running inside our cluster. Consul <sup><span class="citation">[1]</span></sup> is a very popular solution for implementing this particular pattern.</li>
+<li><strong>Locating nodes using DNS records</strong>: If our system is deployed inside an environment that allows us to create and manipulate local DNS records (for example, Kubernetes), we can generate <strong>A records</strong> that point to the leader of the cluster. Workers can look up the leader via a simple DNS query.</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Recovering from errors</h1>
+                </header>
+            
+            <article>
+                
+<p>Distributed systems are inherently complex. While executing a job in a master/worker setup, numerous things can go wrong, for instance, processes can run out of memory and crash or simply become non-responsive, network packets might be dropped, or network devices might fail and hence lead to network splits. When building distributed systems, we must not only anticipate the presence of errors but we should also devise strategies for dealing with them once they occur.</p>
+<p>In this section, we will discuss the following approaches for recovering from errors in a master/worker system:</p>
+<ul>
+<li><strong>Restart on error</strong>: This kind of strategy is better suited for workloads whose calculations are idempotent. Once a fatal error is detected, the master asks all workers to abort the current job and restart the workload from scratch.</li>
+<li><strong>Re-distribute the workload to healthy workers</strong>: This strategy is quite effective for systems that can dynamically change the assigned workloads while a job is executing. If any of the workers goes offline, the master can re-distribute its assigned workload to the remaining workers.</li>
+<li><strong>Use a checkpoint mechanism</strong>: This strategy is best suited for long-running workloads that involve non-idempotent calculations. While the job is executing, the master periodically asks the workers to create a <em>checkpoint</em>, a snapshot of their current internal state. If an error occurs, instead of restarting the job from scratch, the master asks the workers to restore their state from a particular checkpoint and resume the execution of the job.</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Out-of-core distributed graph processing</h1>
+                </header>
+            
+            <article>
+                
+<p>Back in <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a><span>, </span><em>Graph-Based Data Processing</em><em>,</em> we designed and built our very own system for implementing graph-based algorithms based on the <strong>Bulk Synchronous Parallel</strong> (<strong>BSP</strong>) model. Admittedly, our final implementation was heavily influenced by the ideas from the Google paper describing Pregel <sup><span class="citation">[4]</span></sup>, a system that was originally built by Google engineers to tackle graph-based computation at scale.</p>
+<p>While the <kbd>bspgraph</kbd> package from <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a><span>, </span><em>Graph-Based Data Processing</em><em>,</em> can automatically distribute the graph computation load among a pool of workers, it is still limited to running on a single compute node. As our Links 'R' Us crawler augments our link index with more and more links, we will eventually reach a point where the PageRank computation will simply take too long. Updating the PageRank scores for the entire graphs might take a day or, worse, even days!</p>
+<p>We can try to buy ourselves some time by <strong>scaling up</strong>, in other words, running our PageRank calculator service on the most powerful (CPU-wise) machine we can get our hands on from our cloud provider. That would give us some breathing room until the graph becomes too large to fit in memory! Once we reach this point, our only viable alternative is to <strong>scale out</strong>, or launch multiple compute nodes and assign a section of the, now massive, graph to each node.</p>
+<p>In the following sections, we will be applying (quite literally!) everything that we have learned so far to build, from scratch, a distributed version of the <kbd>bspgraph</kbd> package, which will live in the <kbd><span>Chapter12</span>/dbspgraph</kbd> folder, which you can browse at this book's GitHub repository.</p>
+<p>As we did in the previous chapters, we will be once again applying the SOLID principles for our design to re-use as much code as possible. To this end, the new package will be nothing more than a sophisticated wrapper that transparently imbues any existing <kbd>bspgraph.Graph</kbd> instance with distributed computing superpowers!</p>
+<p>This practically means that we can design and test our algorithms on a single machine using the <kbd>bspgraph</kbd> framework from <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a><span>, </span><em>Graph-Based Data Processing</em>, and once satisfied with their output, switch to <kbd>dsbpgraph</kbd> for out-of-core processing.</p>
+<p>As we all are aware, building distributed systems is a difficult task. In an attempt to minimize the complexity of the system we will be creating and make the code easier to follow, we will be splitting the implementation into a bunch of smaller, independent components and dedicate a section to the implementation of each one. Don't worry though—by the end of this chapter, you will have a clear understanding of how all of the bits and bobs fit together!</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Describing the system architecture, requirements, and limitations</h1>
+                </header>
+            
+            <article>
+                
+<p>The title of this chapter alludes to the type of architecture that we will be using for our distributed graph-processing framework; unsurprisingly, it will be based on the <strong>master/worker</strong> pattern.</p>
+<p>To better understand the role of the master and the worker nodes in our design, we will first need to do a quick refresher on how the <kbd>bspgraph</kbd> package from <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a><span>, </span><em>Graph-Based Data Processing</em><span>,</span> works. If you haven't already read <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a><span>, </span><em>Graph-Based Data Processing</em>, I would recommend doing so before continuing.</p>
+<div class="packt_infobox">The <kbd>bspgraph</kbd> package executes graph algorithms using the <strong>Bulk Synchronous Model</strong> (<strong>BSP</strong>). To this end, the chosen algorithm is essentially executed in sequential steps (super-steps). During each super-step, the framework invokes, <strong>in parallel</strong>, a user-defined <strong>compute function</strong> for every vertex in the graph.<br/>
+<br/>
+The compute function can access both the <strong>local</strong> vertex state and <strong>global</strong> graph state (aggregator instances that model counters, min/max trackers, and so on). Vertices communicate with each other by exchanging messages. Any message published during a super-step is <strong>queued</strong> and delivered to the intended recipient in the <strong>following</strong> super-step. Finally, before commencing the execution of the next super-step, the framework waits for all compute functions to return and any in-flight messages to be queued for delivery. This reflects the <em>synchronous</em> behavior of the BSP model.</div>
+<p>So, what would it take to implement the same process in a distributed manner? Let's see:</p>
+<ul>
+<li>First of all, both the master and the workers need to run exactly the same compute functions. That's pretty easy to do since we will first develop our algorithm using the <kbd>bspgraph</kbd> package and then use the <kbd>dbspgraph</kbd> package to execute it either on a master or worker node.</li>
+<li>Secondly, to enforce the synchronous aspects of the BSP model, we must introduce some kind of concurrency primitive to ensure that all workers execute the <span>super-step</span><span>s in</span> <strong>lock-step</strong><span>. This primitive, which we will be referring to as a</span> <strong>step barrier</strong>,<span> will be implemented by the</span> <strong>master</strong> <span>node.</span></li>
+</ul>
+<p>As you probably guessed, the master will not really do any computation work; it will rather play the role of the coordinator for the execution of the graph algorithm. More specifically, the master will be responsible for the following:</p>
+<ul>
+<li>Provide an endpoint for workers to connect to and wait for job assignments.</li>
+<li>Calculate and broadcast the partition assignments for each worker.</li>
+<li>Coordinate the execution of each super-step with the help of a barrier primitive.</li>
+<li>Keep track of the <strong>global</strong> state of the graph algorithm currently executing. This includes not only the current super-step but also global aggregator values. The master must collect the partial aggregator values from each worker, update its state, and broadcast the new global state to all workers.</li>
+<li>Relay messages between workers. The master is aware of the partition assignments for each worker and can route messages by consulting the destination ID.</li>
+<li>Monitor the state of each worker and broadcast a job abort request if an error occurs or any worker crashes.</li>
+</ul>
+<p>On the other hand, the role of the worker is much simpler. Every worker connects to the master and waits for a job assignment. Once a new job is received, the worker initializes its local graph with the vertices and edges that correspond to the <strong><span>Universal Unique Identifier</span></strong> (<strong>UUID</strong>) range assigned to it. Then, in coordination with the master node (via the barrier), the worker executes the graph algorithm in lock-step with the other workers until the user-defined termination condition for the algorithm is met. Any outgoing message whose destination is not a local graph vertex will be automatically relayed via the master node.</p>
+<p>To be able to properly partition the graph and relay messages between workers, our only prerequisite is that vertex IDs are always valid UUIDs. If the underlying graph representation uses a different type of ID (for example, an integer value), the end user will need to manually re-map them to UUIDs during the graph initialization step.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Modeling a state machine for executing graph computations</h1>
+                </header>
+            
+            <article>
+                
+<p>To execute a graph algorithm, the <kbd>bspgraph</kbd> package provides the <kbd>Executor</kbd> type, a convenience helper that orchestrates the execution of the individual super-steps and allows the end user to define a set of optional callbacks that the executor invokes, if defined, at the various computation stages. The set of optional callbacks includes the following:</p>
+<ul>
+<li>The <kbd>PRE_STEP</kbd> callback: This is invoked <em>before</em> executing a super-step. This hook enables the end user to perform any required algorithm-specific initialization steps before the following super-step. For instance, some algorithms might require resetting the value stored in one or more aggregators before each super-step.</li>
+<li>The <kbd>POST_STEP</kbd> callback: This is invoked <em>after</em> executing a super-step. A typical use case for this hook is to perform additional calculations and update the global aggregator values. For example, to calculate an average value, we could set up two aggregators, a counter and a summer, which are updated by the compute function invocations during the super-step. Then, in the <kbd>POST_STEP</kbd> callback, we can simply fetch their values, calculate the average, and record it in another aggregator.</li>
+<li>The <kbd>POST_STEP_KEEP_RUNNING</kbd> callback: This is invoked after <kbd>POST_STEP</kbd> and its role is to decide whether the algorithm has completed its execution or additional super-steps are required. Some typical examples of stop conditions are given as follows:
+<ul>
+<li>A particular super-step number is reached.</li>
+<li>No more vertices are active (for example, the shortest path algorithm from <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a><span>, </span><em>Graph-Based Data Processing</em>).</li>
+<li>An aggregator value reaches a threshold (for example, the PageRank calculator).</li>
+</ul>
+</li>
+</ul>
+<p>If we treat these callbacks as states in a state machine model, its state diagram will look as follows:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/9b48463a-8269-4785-bfc8-1502019c003b.png" style="width:63.00em;height:9.50em;"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><span>Figure 1:</span> The state diagram for the bspgraph package</div>
+<p><span>While the preceding model works quite nicely when we are running on a single node, it is not quite enough when the graph is executing in a distributed fashion. Why is that? Well, remember that in the distributed version, each worker operates on a</span> <em>subset</em> <span>of the graph. Consequently, at the end of the algorithm's execution, each worker will have access to a subset of the solution. </span></p>
+<div class="packt_infobox">A state machine is a popular mathematical model of computation. The model defines a set of computation states, rules for transitioning from one state to another, and an abstract machine that performs a particular computation task.<br/>
+<br/>
+At any point in time, the machine can only reside in <strong>one</strong> of the allowed states. Whenever the machine executes a computation step, the transition rules are consulted to select the next stage to transition to.</div>
+<p><span>We can't really say that the algorithm has, in fact, completed</span> <em>unless</em> <span>the results from</span> <strong>all</strong> <span>workers have been successfully persisted! </span>Therefore, for the distributed case, we need to extend our state diagram so that it looks as follows:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/a7920933-c3ad-46aa-bd9d-509f22e9b696.png" style="width:61.17em;height:18.42em;"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><span>Figure 2:</span> The state diagram for the dbspgraph package</div>
+<p>Let's take a quick look at what happens while inside the three new states that we just introduced to the state machine:</p>
+<ul>
+<li>Once the <kbd>POST_STEP_KEEP_RUNNING</kbd> callback decides that the terminal condition for the graph algorithm execution has been met, we move to the <kbd>EXECUTED_GRAPH</kbd> step, where each worker attempts to persist its local calculation results.</li>
+<li>Workers reach the <kbd>PERSISTED_RESULTS</kbd> state once they have successfully persisted their local calculation results to the backing store.</li>
+<li>Finally, workers reach the <kbd>JOB_COMPLETED</kbd> state. When in this state, they are free to reset their internal state and wait for a new job.</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Establishing a communication protocol between workers and masters</h1>
+                </header>
+            
+            <article>
+                
+<p>A key prerequisite for implementing any kind of distributed system is to introduce a protocol that will allow the various system components to communicate with each other. The same requirement also applies to the distributed graph processing system that we are building in this chapter.</p>
+<p>As the workers and masters communicate with each other over network links, we will be applying the concepts learned in <a href="b3edd7bf-fd1d-4203-bd96-9113cdbb2422.xhtml">Chapter 9</a>, <em>Communicating with the Outside World</em>, and use gRPC as our transport layer.</p>
+<p>The message and RPC definitions from the following sections can be found in the <kbd><span>Chapter12</span>/dbspgraph/api</kbd> folder in this book's GitHub repository.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining a job queue RPC service</h1>
+                </header>
+            
+            <article>
+                
+<p>We will be taking a slightly unorthodox approach and start by defining our one and only RPC first. The reason for this is that the selection of the RPC type (unary versus stream) will greatly influence the way we define the various payloads.</p>
+<p>For example, if we opt to use a streaming RPC, we will need to define a kind of envelope message that can represent the different types of messages exchanged between the master and the workers. On the other hand, if we decide in favor of unary RPCs, we can presumably define multiple methods and avoid the need for envelope messages.</p>
+<p>Without further ado, let's take a look at the RPC definition for our job queue:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">service JobQueue {<br/>  rpc JobStream(stream WorkerPayload) returns (stream MasterPayload);<br/>}</pre></div>
+<p>As you can see, we will actually be using a <em>bi-directional streaming</em> RPC! This comes with a cost; we need to define two envelope messages, one for workers and one for the master. So, what was the deciding factor that drove us to the ostensibly more complicated solution of bi-directional streaming?</p>
+<p>The answer has to do with the way that gRPC schedules messages for delivery. If you carefully examine the gRPC specification, you will notice that <em>only</em> streaming RPCs guarantees that messages will be delivered in the order in which they were published.</p>
+<p>This fact is of paramount importance for our particular use case, that is, <span>if we are not able to enforce</span> <span>in-order message delivery, a worker waiting on a barrier could potentially handle a message before exiting the barrier. As a result, the worker would not only behave in a non-deterministic way (good luck debugging that!), but the algorithm would also produce the wrong results.</span></p>
+<p>Another benefit of the stream-based approach is that we can exploit the heartbeat mechanism that is inherently built into gRPC and efficiently detect whether a worker's connection to the master gets severed.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Establishing protocol buffer definitions for worker payloads</h1>
+                </header>
+            
+            <article>
+                
+<p>As we saw in the previous section, we need to define an envelope message for worker payloads:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message WorkerPayload {<br/> oneof payload {<br/> Step step = 1;<br/> RelayMessage relay_message = 2;<br/> }<br/>}</pre></div>
+<p>With the help of the <kbd>oneof</kbd> type, we can emulate a message union. A <kbd>WorkerPayload</kbd> can contain either a <kbd>Step</kbd> message or a <kbd>RelayMessage</kbd> <span>message.</span> The <kbd>Step</kbd> message is more interesting, so we will examine its definition first:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message Step {<br/>  Type type = 1;<br/>  map&lt;string, google.protobuf.Any&gt; aggregator_values = 2;<br/>  int64 activeInStep = 3;<br/><br/>  enum Type {<br/>    INVALID = 0;<br/>    PRE = 1;<br/>    POST = 2;<br/>    POST_KEEP_RUNNING = 3;<br/>    EXECUTED_GRAPH = 4;<br/>    PESISTED_RESULTS = 5;<br/>    COMPLETED_JOB = 6;<br/>  }<br/>}</pre></div>
+<p>The <kbd>Step</kbd> message will be sent by the worker to enter the master's barrier for a particular execution step. The barrier type is indicated by the <kbd>type</kbd> field, which can take any of the nested <kbd>Type</kbd> values. These values correspond to the steps from the state diagram we saw before. Depending on the step type, the worker will transmit its <strong>local</strong> state to the master under the following situations:</p>
+<ul>
+<li>When entering the barrier for the <kbd>POST</kbd> step, the worker will fetch the <strong>partial</strong> local aggregator (in <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a><span>, </span><em>Graph-Based Data Processing</em>, we referred to them as <strong>deltas</strong>) values, marshal them into an <kbd>Any</kbd> message, and add them into a map where the keys correspond to the aggregator names.</li>
+<li>When entering the barrier for the <kbd>POST_KEEP_RUNNING</kbd> step, the worker will populate the <kbd>activeInStep</kbd> field with the number of <strong>local</strong> vertices that were active in the step.</li>
+</ul>
+<p>The other type of message that a worker can send is <kbd>RelayMessage</kbd>. This message requests the master to relay a message to the worker that is responsible for handling its destination ID. The definition is quite simple and given as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message RelayMessage {<br/>  string destination = 1;<br/>  google.protobuf.Any message = 2;<br/>}</pre></div>
+<p>The <kbd>destination</kbd> field encodes the destination ID (a UUID) while the <kbd>message</kbd> field contains the actual message contents serialized as an <kbd>Any</kbd> value.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Establishing protocol buffer definitions for master payloads</h1>
+                </header>
+            
+            <article>
+                
+<p>Now, let's take a look at the protocol buffer definition for the payloads sent by the master to the individual workers:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message MasterPayload {<br/>  oneof payload {<br/>    JobDetails job_details = 1;<br/>    Step step = 2;<br/>    RelayMessage relay_message = 3;<br/>  }<br/>}</pre></div>
+<p>When a worker connects to the job queue, it blocks until the master assigns it a new job by sending out a <kbd>JobDetails</kbd> message:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message JobDetails {<br/>  string job_id = 1;<br/>  google.protobuf.Timestamp created_at = 2;<br/>  <br/>  // The [from, to) UUID range assigned to the worker. Note that from is <br/>  // inclusive and to is exclusive.<br/>  bytes partition_from_uuid = 3;<br/>  bytes partition_to_uuid = 4;<br/>}</pre></div>
+<p>The <kbd>job_id</kbd> field contains a unique ID for the job to be executed while <kbd>created_at</kbd> encodes the job creation timestamp. The <kbd>partition_from_uuid</kbd> and <kbd>partition_to_uuid</kbd> fields define the extents of the UUID range assigned to this worker by the master. Workers are expected to use this information to load the appropriate section of the graph in memory.</p>
+<p>To enter a barrier for a particular step, workers send a <kbd>Step</kbd> message to the master. Once all workers reach the same barrier, the master will broadcast a notification to exit the barrier by sending back a <kbd>Step</kbd> message with the same step type.</p>
+<p>However, when a <kbd>Step</kbd> message originates from the master node, the two state-related fields are used to push the new <strong>global</strong> state to each worker:</p>
+<ul>
+<li>
+<p>When exiting the barrier for the <kbd>POST</kbd> step, the master will send back the new <strong>global</strong> aggregator values, which have been calculated by applying the deltas sent in by each worker. Workers are expected to overwrite their local aggregator values with the values received by the master.</p>
+</li>
+<li>
+<p>When exiting the barrier for the <kbd>POST_KEEP_RUNNING</kbd> step, the master will send back the <strong>global</strong> number of vertices that were active during the last step. Workers are expected to use this global value to test the stop condition for the algorithm.</p>
+</li>
+</ul>
+<p>Finally, if the master receives a relay request, it examines its destination to select the worker responsible for dealing with it and simply forwards the message over the gRPC stream.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining abstractions for working with bi-directional gRPC streams</h1>
+                </header>
+            
+            <article>
+                
+<p>As we saw in <a href="b3edd7bf-fd1d-4203-bd96-9113cdbb2422.xhtml">Chapter 9</a>,<em> Communicating with the Outside World<span>,</span></em> bi-directional gRPC streams are full-duplex; the receive and send channels operate independently of each other. However, reading from a gRPC stream is a blocking operation. Therefore, to process both sides of the stream, we need to spin up some goroutines.</p>
+<p>Another important caveat of gRPC streams is that, while we can call <kbd>Recv</kbd> and <kbd>Send</kbd> from different goroutines, calling each of these methods concurrently from different goroutines is not safe and can lead to data loss! Therefore, we need a mechanism to <em>serialize</em> send and receive operations on the gRPC stream. The kind of obvious Go primitives for exactly this type of task are channels.</p>
+<p>To make our life a bit easier and isolate the rest of our code from having to deal with the underlying gRPC streams, we will go ahead and introduce a set of abstractions to wrap the gRPC streams and provide a clean, channel-based interface for reading and writing from/to the stream.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Remote worker stream</h1>
+                </header>
+            
+            <article>
+                
+<p><kbd>remoteWorkerStream</kbd><span>, the</span> definition of which is shown in the following listing, is used by the master to wrap an incoming worker connection:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">type remoteWorkerStream struct {<br/>    stream proto.JobQueue_JobStreamServer<br/>    recvMsgCh chan *proto.WorkerPayload<br/>    sendMsgCh chan *proto.MasterPayload<br/>    sendErrCh chan error<br/><br/>    mu sync.Mutex<br/>    onDisconnectFn func()<br/>    disconnected bool<br/>}</pre></div>
+<p>As you can see in the <span>preceding code</span>, <kbd>remoteWorkerStream</kbd> defines three channels for interacting with the stream:</p>
+<ul>
+<li><kbd>recvMsgCh</kbd> is used for receiving payloads sent in by the worker.</li>
+<li><kbd>sendMsgCh</kbd> is used for sending payloads from the master to the worker.</li>
+<li><kbd>sendErrCh</kbd> allows the master to disconnect the worker connection with or without an error code.</li>
+</ul>
+<p>The code that interacts with a remote worker stream can use the following methods to obtain the appropriate channel instance for reads and writes as well as for closing the stream:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (s *remoteWorkerStream) RecvFromWorkerChan() &lt;-chan *proto.WorkerPayload {<br/>    return s.recvMsgCh<br/>}<br/><br/>func (s *remoteWorkerStream) SendToWorkerChan() chan&lt;- *proto.MasterPayload {<br/>    return s.sendMsgCh<br/>}<br/><br/>func (s *remoteWorkerStream) Close(err error) {<br/>    if err != nil {<br/>        s.sendErrCh &lt;- err<br/>    }<br/>    close(s.sendErrCh)<br/>}</pre></div>
+<p>The <kbd>remoteWorkerStream</kbd> struct also includes two fields (protected by a mutex) for tracking the connection status for the remote worker. While the master is coordinating the execution of a job, it must monitor the health of each individual worker and abort the job if any of the workers suddenly disconnects. To do so, the master can register a disconnect callback via the following method:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (s *remoteWorkerStream) SetDisconnectCallback(cb func()) {<br/>    s.mu.Lock()<br/>    s.onDisconnectFn = cb<br/>    if s.disconnected {<br/>        s.onDisconnectFn()<br/>    }<br/>    s.mu.Unlock()<br/>}</pre></div>
+<p>Since <kbd>SetDisconnectCallback</kbd> may be invoked <em>after</em> the worker stream has already disconnected, the stream uses th<span>e Boolean</span> <kbd>disconnected</kbd> <span>field to keep track of this event and automatically</span> <span>invokes the provided callback if it is required.</span></p>
+<p>All we need to do to create a new <kbd>remoteWorkerStream</kbd> instance is to invoke its constructor and pass the gRPC stream as an argument. The constructor implementation (shown in the following) will initialize the various buffered channels required for working with the stream:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func newRemoteWorkerStream(stream proto.JobQueue_JobStreamServer) *remoteWorkerStream {<br/>    return &amp;remoteWorkerStream{<br/>        stream: stream,<br/>        recvMsgCh: make(chan *proto.WorkerPayload, 1),<br/>        sendMsgCh: make(chan *proto.MasterPayload, 1),<br/>        sendErrCh: make(chan error, 1),<br/>    }<br/>}</pre></div>
+<p>The <kbd>HandleSendRecv</kbd> method implements the required logic for working with the underlying stream. As you can see in the following snippet, it first creates a cancelable context, which is always canceled when the method returns. Then, it spins up a goroutine to asynchronously handle the receiving end of the stream. The method then enters an infinite <kbd>for</kbd> loop, where it processes the sending end of the stream until either the stream is gracefully closed or an error occurs:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (s *remoteWorkerStream) HandleSendRecv() error {<br/>    ctx, cancelFn := context.WithCancel(context.Background())<br/>    defer cancelFn()<br/>    go s.handleRecv(ctx, cancelFn)<br/>    for {<br/>        select {<br/>        case mPayload := &lt;-s.sendMsgCh:<br/>            if err := s.stream.Send(mPayload); err != nil {<br/>                return err<br/>            }<br/>        case err, ok := &lt;-s.sendErrCh:<br/>            if !ok { // signalled to close without an error<br/>                return nil<br/>            }<br/>            return status.Errorf(codes.Aborted, err.Error())<br/>        case &lt;-ctx.Done():<br/>            return status.Errorf(codes.Aborted, errJobAborted.Error())<br/>        }<br/>    }<br/>}</pre></div>
+<p>As far as the send implementation is concerned, the previous code uses a <kbd>select</kbd> block to wait for one of the following events:</p>
+<ul>
+<li>A payload is emitted via <kbd>sendMsgCh</kbd>. In this case, we attempt to send it through the stream and return any error to the caller.</li>
+<li>An error is emitted via <kbd>sendErrCh</kbd> or the channel is closed (see the <kbd>Close</kbd> method implementation a few lines up). If no error has occurred, the method returns with a <kbd>nil</kbd> error. Otherwise, we use the <kbd>grpc/status</kbd> package to tag the error with the gRPC specific <kbd>codes.Aborted</kbd> error code and return the error to the caller.</li>
+<li>Finally, if the context is canceled by the <kbd>handleRecv</kbd> goroutine, we exit with a typed <kbd>errJobAborted</kbd> error message.</li>
+</ul>
+<p>Let's now take a closer look at the implementation of the <kbd>handleRecv</kbd> method:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (s *remoteWorkerStream) handleRecv(ctx context.Context, cancelFn func()) {<br/>    for {<br/>        wPayload, err := s.stream.Recv()<br/>        if err != nil {<br/>            s.handleDisconnect()<br/>            cancelFn()<br/>            return<br/>        }<br/><br/>        select {<br/>        case s.recvMsgCh &lt;- wPayload:<br/>        case &lt;-ctx.Done():<br/>            return<br/>        }<br/>    }<br/>}</pre></div>
+<p>Calling the stream's <kbd>Recv</kbd> method blocks until either a message becomes available or the remote connection is severed. If we receive an incoming message from the worker, a <kbd>select</kbd> block is used to either enqueue the message to the <kbd>recvMsgCh</kbd> or to exit the goroutine if the context is canceled (for example, <kbd>HandleSendRecv</kbd> exits due to an error).</p>
+<p>On the other hand, if we do detect an error, we always assume that the client disconnected and invoke the <kbd>handleDisconnect</kbd> helper method before canceling the context and exiting the goroutine:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (s *remoteWorkerStream) handleDisconnect() {<br/>    s.mu.Lock()<br/>    if s.onDisconnectFn != nil {<br/>        s.onDisconnectFn()<br/>    }<br/>    s.disconnected = true<br/>    s.mu.Unlock()<br/>}</pre></div>
+<p>The <span>preceding </span>implementation is pretty straightforward. The <kbd>mu</kbd> lock is acquired and a check is performed to see whether a disconnect callback has been specified. If that's the case, then the callback is invoked and then the <kbd>disconnected</kbd> flag is set to <kbd>true</kbd> to keep track of the disconnect event.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Remote master stream</h1>
+                </header>
+            
+            <article>
+                
+<p>Next, we will move to the worker side and examine the equivalent stream helper for handling a connection to the master node. The definition of the <kbd>remoteMasterStream</kbd> type is pretty much the same as <kbd>remoteWorkerStream</kbd>, given as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">type remoteMasterStream struct {<br/>    stream proto.JobQueue_JobStreamClient<br/>    recvMsgCh chan *proto.MasterPayload<br/>    sendMsgCh chan *proto.WorkerPayload<br/><br/>    ctx context.Context<br/>    cancelFn func()<br/><br/>    mu sync.Mutex<br/>    onDisconnectFn func()<br/>    disconnected bool<br/>}</pre></div>
+<p>Once the worker connects to the master node and receives a job assignment, it will invoke the <kbd>newRemoteMasterStream</kbd> function to wrap the obtained stream connection with a <kbd>remoteMasterStream</kbd> instance:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func newRemoteMasterStream(stream proto.JobQueue_JobStreamClient) *remoteMasterStream {<br/>    ctx, cancelFn := context.WithCancel(context.Background())<br/><br/>    return &amp;remoteMasterStream{<br/>        ctx: ctx,<br/>        cancelFn: cancelFn,<br/>        stream: stream,<br/>        recvMsgCh: make(chan *proto.MasterPayload, 1),<br/>        sendMsgCh: make(chan *proto.WorkerPayload, 1),<br/>    }<br/>}</pre></div>
+<p>As you can see in the previous code snippet, the constructor creates a cancelable context and allocates a pair of channels to be used for interfacing with the stream.</p>
+<p>Just as we did for the <kbd>remoteWorkerStream</kbd> implementation, we will define a pair of convenience methods for accessing these channels, as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (s *remoteMasterStream) RecvFromMasterChan() &lt;-chan *proto.MasterPayload {<br/>    return s.recvMsgCh<br/>}<br/><br/>func (s *remoteMasterStream) SendToMasterChan() chan&lt;- *proto.WorkerPayload {<br/>    return s.sendMsgCh<br/>}</pre></div>
+<p>The <kbd>HandleSendRecv</kbd> method is responsible for receiving incoming messages from the master and for transmitting outgoing messages from the worker.</p>
+<p>As you can see in the following block of code, the implementation is more or less the same as the <kbd>remoteWorkerStream</kbd> implementation with two small differences. Can you spot them? Take a look:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (s *remoteMasterStream) HandleSendRecv() error {<br/>    defer func() {<br/>        s.cancelFn()<br/>        _ = s.stream.CloseSend()<br/>    }()<br/>    go s.handleRecv()<br/>    for {<br/>        select {<br/>        case wPayload := &lt;-s.sendMsgCh:<br/>            if err := s.stream.Send(wPayload); err != nil &amp;&amp; !xerrors.Is(err, io.EOF) {<br/>                return err<br/>            }<br/>        case &lt;-s.ctx.Done():<br/>            return nil<br/>        }<br/>    }<br/>}</pre></div>
+<p>The first difference has to do with the way we handle errors returned by the stream's <kbd>Send</kbd> method. If the worker closes the send stream while the <span>preceding </span>block of code is attempting to send a payload to the master, <kbd>Send</kbd> will return an <kbd>io.EOF</kbd> error to let us know that we cannot send any more messages through the stream. Since the worker is the one that controls the send stream, we treat <kbd>io.EOF</kbd> errors as <em>expected</em> and ignore them.</p>
+<p>Secondly, as the worker is the initiator of the RPC, it is not allowed to terminate the send stream with a specific error code as we did in the case of the master stream implementation. Consequently, for this implementation, there is no need to maintain (and poll) a dedicated error channel.</p>
+<p>On the other hand, the following receive side code is implemented in exactly the same way as <kbd>remoteMasterStream</kbd>:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (s *remoteMasterStream) handleRecv() {<br/>    for {<br/>        mPayload, err := s.stream.Recv()<br/>        if err != nil {<br/>            s.handleDisconnect()<br/>            s.cancelFn()<br/>            return<br/>        }<br/>        select {<br/>        case s.recvMsgCh &lt;- mPayload:<br/>        case &lt;-s.ctx.Done():<br/>            return<br/>        }<br/>    }<br/>}</pre></div>
+<p>To actually shut down the stream and cause the <kbd>HandleSendRecv</kbd> method to exit, the worker can invoke the <kbd>Close</kbd> method of <kbd>remoteMasterStream</kbd>:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (s *remoteMasterStream) Close() {<br/>    s.cancelFn()<br/>}</pre></div>
+<p>The <kbd>Close</kbd> method first cancels the context monitored by the <kbd>select</kbd> blocks in both the receive and send code. As we discussed a few lines <span>preceding</span>, the latter action will cause any pending <kbd>Send</kbd> calls to fail with an <kbd>io.EOF</kbd> error and allow the <kbd>HandleSendRecv</kbd> method to return. Furthermore, the cancelation of the context enables the <kbd>handleRecv</kbd> goroutine to also return, hence ensuring that our implementation is not leaking any goroutines.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a distributed barrier for the graph execution steps</h1>
+                </header>
+            
+            <article>
+                
+<p>A barrier can be thought of as a rendezvous point for a set of processes. Once a process enters the barrier, it is prevented from making any progress until all other expected processes also enter the barrier.</p>
+<p>In Go, we could model a barrier with the help of the <kbd>sync.WaitGroup</kbd> primitive, as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func barrier(numWorkers int) {<br/>    var wg sync.WaitGroup<br/>    wg.Add(numWorkers)<br/><br/>    for i := 0; i &lt; numWorkers; i++ {<br/>        go func() {<br/>            wg.Done()<br/>            fmt.Printf("Entered the barrier; waiting for other goroutines to join")<br/>            wg.Wait()<br/>            fmt.Printf("Exited the barrier")<br/>        }()<br/>    }<br/><br/>    wg.Wait()<br/>}</pre></div>
+<p>To guarantee that each worker executes the various stages of the graph state machine in lock-step with the other workers, we must implement a similar barrier primitive. However, as far as our particular application is concerned, the goroutines that we are interested in synchronizing execute on different hosts. This obviously complicates things as we now need to come up with a distributed barrier implementation!</p>
+<p>As we mentioned in the previous section, the master node will serve the role of the coordinator for the distributed barrier. <span>To make the code easier to follow, in the following subsections, we will split our distribute</span>d barrier implementations into a worker-side and master-side implementation and examine them separately of each othe<span>r.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing a step barrier for individual workers</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>workerStepBarrier</kbd> type encapsulates the required logic for enabling a worker to enter the barrier for a particular graph execution step and to wait until the master notifies the worker that it can now exit the barrier.</p>
+<p>The <kbd>workerStepBarrier</kbd> type is defined as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">type workerStepBarrier struct {<br/>    ctx context.Context<br/>    stream *remoteMasterStream<br/>    waitCh map[proto.Step_Type]chan *proto.Step<br/>}</pre></div>
+<p>To understand how these fields are initialized, let's take a look at the constructor for a new barrier instance:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func newWorkerStepBarrier(ctx context.Context, stream *remoteMasterStream) *workerStepBarrier {<br/>    waitCh := make(map[proto.Step_Type]chan *proto.Step)<br/>    for stepType := range proto.Step_Type_name {<br/>        if proto.Step_Type(stepType) == proto.Step_INVALID {<br/>            continue<br/>        }<br/>        waitCh[proto.Step_Type(stepType)] = make(chan *proto.Step)<br/>    }<br/><br/>    return &amp;workerStepBarrier{<br/>        ctx: ctx,<br/>        stream: stream,<br/>        waitCh: waitCh,<br/>    }<br/>}</pre></div>
+<p>As you can see, the constructor accepts a context and a <kbd>remoteMasterStream</kbd> instance as an argument. The context allows the barrier code to block until either a notification is received by the master or the context gets canceled (for example, because the worker is shutting down).</p>
+<p>To allow the worker to block until a notification is received from the master, the constructor will allocate a separate channel for each type of step that we want to create a barrier for. When the protoc compiles our protocol buffer definitions into Go code, it will also provide us with the handy <kbd>Step_Type</kbd> map that normally is used to obtain the string-based representation of a step type (protocol buffers model <kbd>enum</kbd> types as <kbd>int32</kbd> values). The constructor exploits the presence of this map to automatically generate the required number of channels using a plain <kbd>for</kbd> loop block.</p>
+<p>When the worker wants to enter the barrier for a particular step, it creates a new <kbd>Step</kbd> message with the local state that it wants to share with the master and invokes the blocking <kbd>Wait</kbd> method, which is show<span>n as follows:</span></p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (b *workerStepBarrier) Wait(step *proto.Step) (*proto.Step, error) {<br/>    ch, exists := b.waitCh[step.Type]<br/>    if !exists {<br/>        return nil, xerrors.Errorf("unsupported step type %q", proto.Step_Type_name[int32(step.Type)])<br/>    }<br/>    select {<br/>    case b.stream.SendToMasterChan() &lt;- &amp;proto.WorkerPayload{Payload: &amp;proto.WorkerPayload_Step{Step: step}}:<br/>    case &lt;-b.ctx.Done():<br/>        return nil, errJobAborted<br/>    }<br/><br/>    select {<br/>    case step = &lt;-ch:<br/>        return step, nil<br/>    case &lt;-b.ctx.Done():<br/>        return nil, errJobAborted<br/>    }<br/>}</pre></div>
+<p>The <kbd>Wait</kbd> method consists of two basic parts. After validating the step type, the implementation tries to push a new <kbd>WorkerPayload</kbd> into <kbd>remoteMasterStream</kbd> so it can be sent to the master via the gRPC stream.</p>
+<p>Once the payload is successfully enqueued, the worker then waits on the appropriate channel for the specified step type and the master broadcasts a <kbd>Step</kbd> message to all workers to let them know that they can exit the barrier. Once that message is received, it is returned to the caller, which is then free to perform the required chunk of work for implementing this particular graph computation step.</p>
+<p>By now, you are probably wondering who is responsible for publishing the master's broadcast step to the channel that the <kbd>Wait</kbd> method is trying to read from. To enforce a clear separation of concerns (and to make testing easier), the barrier implementation does not concern itself with the low-level details of reading the responses from the master. Instead, it provides a <kbd>Notify</kbd> method that another component (the job coordinator) will invoke once a step message is received by the master:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (b *workerStepBarrier) Notify(step *proto.Step) error {<br/>    ch, exists := b.waitCh[step.Type]<br/>    if !exists {<br/>        return xerrors.Errorf("unsupported step type %q", proto.Step_Type_name[int32(step.Type)])<br/>    }<br/><br/>    select {<br/>    case ch &lt;- step:<br/>        return nil<br/>    case &lt;-b.ctx.Done():<br/>        return errJobAborted<br/>    }<br/>}</pre></div>
+<p>The code in the <kbd>Notify</kbd> method's implementation examines the step type field and uses it to select the channel for publishing the <kbd>Step</kbd> response.</p>
+<p>Now, let's move on to examine the equivalent step barrier implementation for the master side.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing a step barrier for the master</h1>
+                </header>
+            
+            <article>
+                
+<p>Now, let's take a look at the other half of the barrier implementation logic that runs on the master node. The <kbd>masterStepBarrier</kbd> type, the definition of which is given as follows, is admittedly more interesting as it contains the actual barrier synchronization logic:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">type masterStepBarrier struct {<br/>    ctx context.Context<br/>    numWorkers int<br/>    waitCh map[proto.Step_Type]chan *proto.Step<br/>    notifyCh map[proto.Step_Type]chan *proto.Step<br/>}</pre></div>
+<p>One key difference is that the <kbd>masterStepBarrier</kbd> type defines two types of channels:</p>
+<ul>
+<li><strong>Wait channel</strong>: It is a channel for which the barrier monitors for incoming <kbd>Step</kbd> messages from workers.</li>
+<li><strong>Notify channel</strong>: It is a channel where remote worker streams will block waiting for a <kbd>Step</kbd> message to be broadcast by the master node.</li>
+</ul>
+<p>As you can see by skimming through the constructor logic for creating the master barrier, we automatically create the required set of channels by iterating the <kbd>Step_Type</kbd> variable that the protoc generated for use when the protocol buffer definitions were compiled.</p>
+<p>What's more, when creating a new barrier, the caller is expected to also provide the number of workers that are expected to join the barrier as an argument:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func newMasterStepBarrier(ctx context.Context, numWorkers int) *masterStepBarrier {<br/>    waitCh := make(map[proto.Step_Type]chan *proto.Step)<br/>    notifyCh := make(map[proto.Step_Type]chan *proto.Step)<br/>    for stepType := range proto.Step_Type_name {<br/>        if proto.Step_Type(stepType) == proto.Step_INVALID {<br/>            continue<br/>        }<br/>        waitCh[proto.Step_Type(stepType)] = make(chan *proto.Step)<br/>        notifyCh[proto.Step_Type(stepType)] = make(chan *proto.Step)<br/>    }<br/><br/>    return &amp;masterStepBarrier{<br/>        ctx: ctx,<br/>        numWorkers: numWorkers,<br/>        waitCh: waitCh,<br/>        notifyCh: notifyCh,<br/>    }<br/>}</pre></div>
+<p>In the previous section, we saw that, when the worker invokes the <kbd>Wait</kbd> method on <kbd>workerStepBarrier</kbd>, a <kbd>Step</kbd> message is published via <kbd>remoteMasterStream</kbd>. Now, we will examine what happens on the receiving end. Once the published <kbd>Step</kbd> message is received, the master invokes the <kbd>Wait</kbd> method on <kbd>masterStepBarrier</kbd>.</p>
+<p>In principle, this is nothing more than a good old unary RPC implemented over a gRPC stream! Here is what happens inside the master's <kbd>Wait</kbd> method:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (b *masterStepBarrier) Wait(step *proto.Step) (*proto.Step, error) {<br/>    waitCh, exists := b.waitCh[step.Type]<br/>    if !exists {<br/>        return nil, xerrors.Errorf("unsupported step type %q", proto.Step_Type_name[int32(step.Type)])<br/>    }<br/>    select {<br/>    case waitCh &lt;- step:<br/>    case &lt;-b.ctx.Done():<br/>        return nil, errJobAborted<br/>    }<br/>    select {<br/>    case step = &lt;-b.notifyCh[step.Type]:<br/>        return step, nil<br/>    case &lt;-b.ctx.Done():<br/>        return nil, errJobAborted<br/>    }<br/>}</pre></div>
+<p>The implementation first attempts to publish the incoming <kbd>Step</kbd> message to the <em>wait</em> channel responsible for handling the barrier for the step advertised by the <kbd>Step</kbd> message's <kbd>type</kbd> field. This bit of code will block until the master is ready to enter the same barrier (or the context expires due to the master shutting down).</p>
+<p>Following a successful write to the <em>wait</em> channel, the code will then block a second time waiting for a notification from the master to be published to the appropriate <em>notify</em> channel for the step type. Once the <kbd>Step</kbd> response from the master is dequeued, <kbd>Wait</kbd> unblocks and returns the <kbd>Step</kbd> to the caller. The caller is then responsible for transmitting the <kbd>Step</kbd> message back to the worker, where it will be provided as an argument to the worker barrier's <kbd>Notify</kbd> method.</p>
+<p>When the master node is ready to enter the barrier for a particular step, it invokes the blocking <kbd>WaitForWorkers</kbd> method providing the step type as an argument. This method, the implementation of which is shown as follows, is equivalent to the worker side's <kbd>Wait</kbd> method:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (b *masterStepBarrier) WaitForWorkers(stepType proto.Step_Type) ([]*proto.Step, error) {<br/>    waitCh, exists := b.waitCh[stepType]<br/>    if !exists {<br/>        return nil, xerrors.Errorf("unsupported step type %q", proto.Step_Type_name[int32(stepType)])<br/>    }<br/><br/>    collectedSteps := make([]*proto.Step, b.numWorkers)<br/>    for i := 0; i &lt; b.numWorkers; i++ {<br/>        select {<br/>        case step := &lt;-waitCh:<br/>            collectedSteps[i] = step<br/>        case &lt;-b.ctx.Done():<br/>            return nil, errJobAborted<br/>        }<br/>    }<br/>    return collectedSteps, nil<br/>}</pre></div>
+<p>The purpose of the <span>preceding </span>method is to wait until the expected number of workers join the barrier for the particular step type (via the <kbd>Wait</kbd> method) and to collect the individual <kbd>Step</kbd> messages published by each worker. To this end, the code first initializes a slice with enough capacity to hold the incoming messages and performs <kbd>numWorkers</kbd> reads from the appropriate <em>wait</em> channel for the step.</p>
+<p>Once all workers have joined the barrier, <kbd>WaitForWorkers</kbd> unblocks and returns the slice of <kbd>Step</kbd> messages to the caller. At this point, while all workers are still blocked, the master is now within what is referred to as a <em>critical section</em>, where it is free to implement any operation it requires in an <strong>atomic</strong> fashion. For instance, while inside the critical section for <kbd>POST_STEP</kbd>, the master will iterate the workers' step messages and apply the partial aggregator deltas from each worker into its own global aggregator state.</p>
+<p>Then, once the master is ready to exit its critical section, it invokes the <kbd>NotifyWorkers</kbd> method with a <kbd>Step</kbd> message to be broadcast to the workers currently blocked on the barrier:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (b *masterStepBarrier) NotifyWorkers(step *proto.Step) error {<br/>    notifyCh, exists := b.notifyCh[step.Type]<br/>    if !exists {<br/>        return xerrors.Errorf("unsupported step type %q", proto.Step_Type_name[int32(step.Type)])<br/>    }<br/><br/>    for i := 0; i &lt; b.numWorkers; i++ {<br/>        select {<br/>        case notifyCh &lt;- step:<br/>        case &lt;-b.ctx.Done():<br/>            return errJobAborted<br/>        }<br/>    }<br/>    return nil<br/>}</pre></div>
+<p>All <kbd>NotifyWorkers</kbd> needs to do is to push <kbd>numWorkers</kbd> copies of the master's <kbd>Step</kbd> message to the appropriate notification channel for the barrier step. Writing to the notification channel unblocks the callers of the <kbd>Wait</kbd> method and allows the step message to be propagated back to the worker.</p>
+<p>Does all of this seem confusing to you? The following diagram visualizes all the barrier-related interactions between the master and the server and will hopefully allow you to connect the dots:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/3ca08530-9b38-4b6b-8b4f-7a6fea7b2912.png" style="width:60.33em;height:34.25em;"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><span>Figure 3:</span> An end-to-end illustration of the barrier interactions between the master and the worker</div>
+<p>Here is a brief summary of what's going on in the preceding diagram:</p>
+<ol type="1">
+<li>The master calls <kbd>WaitForWorkers</kbd> for the <kbd>POST</kbd> step and blocks.</li>
+<li>The worker calls <kbd>Wait</kbd> for the <kbd>POST</kbd> step on its local barrier instance and blocks.</li>
+<li>A <kbd>Step</kbd> message is published by through <kbd>remoteMasterStream</kbd>.</li>
+<li>The piece of code on the master side that processes incoming worker messages receives the worker's <kbd>Step</kbd> message and invokes <kbd>Wait</kbd> on the master barrier and blocks.</li>
+<li>As the required number of workers (one in this example) has joined the barrier, the master's <kbd>WaitForWorkers</kbd> call unblocks allowing the master to enter a critical section where the master executes its step-specific logic.</li>
+<li>The master then invokes <kbd>NotifyWorkers</kbd> with a new <kbd>Step</kbd> message for the <kbd>POST</kbd> step.</li>
+<li>The <kbd>Wait</kbd> method on the master side now unblocks and the <kbd>Step</kbd> message that the master just broadcast is sent back through the stream to the worker.</li>
+<li>Upon receiving the <kbd>Step</kbd> response from the master, the worker's <kbd>Wait</kbd> method unblocks and the worker is now free to execute its own step-specific logic.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating custom executor factories for wrapping existing graph instances</h1>
+                </header>
+            
+            <article>
+                
+<p>In <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a><span>, </span><em>Graph-Based Data Processing</em>, we explored the use of the <kbd>bspgraph</kbd> package to implement a few popular graph-based algorithms such as Dijkstra's shortest path, graph coloring, and PageRank. To orchestrate the end-to-end execution of the aforementioned algorithms, we relied on the API provided by the package's <kbd>Executor</kbd> type. However, instead of having our algorithm implementations <em>directly</em> invoke the <kbd>Executor</kbd> types constructor, we allowed the end users to optionally specify a custom executor factory for obtaining an <kbd>Executor</kbd> instance.</p>
+<p>Any Go function that satisfies the following signature can be effectively used in place of the default constructor for a new <kbd>Executor</kbd> constructor:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">type ExecutorFactory func(*bspgraph.Graph, bspgraph.ExecutorCallbacks) *bspgraph.Executor</pre></div>
+<p>The key benefit of this approach is that the executor factory is given full access to the <em>algorithm-specific</em> callbacks for the various stages of the computation. In this chapter, we will be exploiting this mechanism to intercept and decorate the user-defined callbacks with the necessary glue logic for interfacing with the barrier primitive that we built in the previous section. The patched callbacks will then be passed to the original <kbd>Executor</kbd> constructor and the result will be returned to the caller.</p>
+<p>This little trick, while completely <em>transparent</em> to the original algorithm implementation, is all that we really need to ensure that all callbacks are executed in lock-step with all other workers.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The workers' executor factory</h1>
+                </header>
+            
+            <article>
+                
+<p>To create a suitable executor factory for workers, we can use the following helper function:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func newWorkerExecutorFactory(serializer Serializer, barrier *workerStepBarrier) bspgraph.ExecutorFactory {<br/>    f := &amp;workerExecutorFactory{ serializer: serializer, barrier: barrier }<br/>    return func(g *bspgraph.Graph, cb bspgraph.ExecutorCallbacks) *bspgraph.Executor {<br/>        f.origCallbacks = cb<br/>        patchedCb := bspgraph.ExecutorCallbacks{<br/>            PreStep: f.preStepCallback,<br/>            PostStep: f.postStepCallback,<br/>            PostStepKeepRunning: f.postStepKeepRunningCallback,<br/>        }<br/>        return bspgraph.NewExecutor(g, patchedCb)<br/>    }<br/>}</pre></div>
+<p>The <kbd>newWorkerExecutorFactory</kbd> function expects two arguments, namely a <kbd>Serializer</kbd> instance and an initialized <kbd>workerStepBarrier</kbd> object. The serializer instance is responsible for serializing and unserializing the aggregator values to and from the <kbd>any.Any</kbd> protocol buffer messages that workers exchange with the master when they enter or exit the various step barriers. In the following code, you can see the definition of the <kbd>Serializer</kbd> interface:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">type Serializer interface {<br/>    Serialize(interface{}) (*any.Any, error)<br/>    Unserialize(*any.Any) (interface{}, error)<br/>}</pre></div>
+<p>As you can see in the <span>preceding </span>code snippet, the <kbd>newWorkerExecutorFactory</kbd> function allocates a new <kbd>workerExecutorFactory</kbd> value and returns a closure that satisfies the <kbd>ExecutorFactory</kbd> signature. When the generated factory function is invoked, its implementation captures the original callbacks and invokes the real executor constructor with a set of patched callbacks.</p>
+<p>Let's take a look at what happens inside each one of the patched callbacks, starting with the one responsible for handling the <kbd>PRE</kbd> step:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (f *workerExecutorFactory) preStepCallback(ctx context.Context, g *bspgraph.Graph) error {<br/>    if _, err := f.barrier.Wait(&amp;proto.Step{Type: proto.Step_PRE}); err != nil {<br/>        return err<br/>    }<br/><br/>    if f.origCallbacks.PreStep != nil {<br/>        return f.origCallbacks.PreStep(ctx, g)<br/>    }<br/>    return nil<br/>}</pre></div>
+<p>As you can see, the callback immediately joins the barrier and, once instructed to exit, it invokes the original (if defined) <kbd>PRE</kbd> step callback. The following code shows the next callback on our list, invoked immediately after executing a graph super-step:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (f *workerExecutorFactory) postStepCallback(ctx context.Context, g *bspgraph.Graph, activeInStep int) error {<br/>    aggrDeltas, err := serializeAggregatorDeltas(g, f.serializer)<br/>    if err != nil {<br/>        return xerrors.Errorf("unable to serialize aggregator deltas")<br/>    }<br/>    stepUpdateMsg, err := f.barrier.Wait(&amp;proto.Step{<br/>        Type: proto.Step_POST,<br/>        AggregatorValues: aggrDeltas,<br/>    })<br/>    if err != nil {<br/>        return err<br/>    } else if err = setAggregatorValues(g, stepUpdateMsg.AggregatorValues, f.serializer); err != nil {<br/>        return err<br/>    } else if f.origCallbacks.PostStep != nil {<br/>        return f.origCallbacks.PostStep(ctx, g, activeInStep)<br/>    }<br/>    return nil<br/>}</pre></div>
+<p>We mentioned before that, during the <kbd>POST</kbd> step, workers must transmit their partial aggregator deltas to the master when they enter the <kbd>POST</kbd> step barrier. This is exactly what happens in the <span>preceding </span>previous snippet.</p>
+<p>The <kbd>serializeAggregatorDeltas</kbd> helper function iterates the list of aggregators that are defined on the graph and uses the provided <kbd>Serializer</kbd> instance to convert them into <kbd>map[string]*any.Any</kbd>. The map with the serialized deltas is then attached to a <kbd>Step</kbd> message and sent to the master via the barrier's <kbd>Wait</kbd> method.</p>
+<p>The master tallies the deltas from each worker and broadcasts back a new <kbd>Step</kbd> message that contains the updated set of global aggregator values. Once we receive the updated message, we invoke the <kbd>setAggregatorValues</kbd> helper, which unserializes the incoming <kbd>map[string]*any.Any</kbd> map entries and overwrites the aggregator values for the local graph instance. Before returning, the callback wrapper invokes the original user-defined <kbd>POST</kbd> step callback if one is actually defined.</p>
+<p>The last callback wrapper implementation that we will inspect is the one invoked for the <kbd>POST_KEEP_RUNNING</kbd> step, given as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (f *workerExecutorFactory) postStepKeepRunningCallback(ctx context.Context, g *bspgraph.Graph, activeInStep int) (bool, error) {<br/>    stepUpdateMsg, err := f.barrier.Wait(&amp;proto.Step{<br/>        Type: proto.Step_POST_KEEP_RUNNING,<br/>        ActiveInStep: int64(activeInStep),<br/>    })<br/>    if err != nil {<br/>        return false, err<br/>    }<br/><br/>    if f.origCallbacks.PostStepKeepRunning != nil {<br/>        return f.origCallbacks.PostStepKeepRunning(ctx, g, int(stepUpdateMsg.ActiveInStep))<br/>    }<br/>    return true, nil<br/>}</pre></div>
+<p>As with every other callback wrapper implementation, the first thing we do is to enter the barrier for the current step type. Note that the outgoing <kbd>Step</kbd> message includes the <strong>local</strong> number of active vertices in this step. The response we get back from the master includes the <strong>global</strong> number of active vertices, which is the actual value that must be passed to the user-defined callback for this step.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The master's executor factory</h1>
+                </header>
+            
+            <article>
+                
+<p>The code for generating an executor factory for the master is quite similar; to avoid repeating the same code blocks again, we will only list the implementations for each one of the individual callback wrappers, starting with <kbd>preStepCallback</kbd>:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (f *masterExecutorFactory) preStepCallback(ctx context.Context, g *bspgraph.Graph) error {<br/>    if _, err := f.barrier.WaitForWorkers(proto.Step_PRE); err != nil {<br/>        return err<br/>    } else if err := f.barrier.NotifyWorkers(&amp;proto.Step{Type: proto.Step_PRE}); err != nil {<br/>        return err<br/>    }<br/><br/>    if f.origCallbacks.PreStep != nil {<br/>        return f.origCallbacks.PreStep(ctx, g)<br/>    }<br/>    return nil<br/>}</pre></div>
+<p>Compared to the worker-side implementation, the master behaves a bit differently. To begin with, the master waits until all workers enter the barrier. Then, with the help of the <kbd>masterStepBarrier</kbd> primitive, it broadcasts a notification message that unblocks the workers and allows both the master and the workers to execute the same user-defined callback for the step.</p>
+<p>Let's now see what happens inside the callback override for the <kbd>POST</kbd> step:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (f *masterExecutorFactory) postStepCallback(ctx context.Context, g *bspgraph.Graph, activeInStep int) error {<br/>    workerSteps, err := f.barrier.WaitForWorkers(proto.Step_POST)<br/>    if err != nil {<br/>        return err<br/>    }<br/>    for _, workerStep := range workerSteps {<br/>        if err = mergeWorkerAggregatorDeltas(g, workerStep.AggregatorValues, f.serializer); err != nil {<br/>            return xerrors.Errorf("unable to merge aggregator deltas into global state: %w", err)<br/>        }<br/>    }<br/>    globalAggrValues, err := serializeAggregatorValues(g, f.serializer, false)<br/>    if err != nil {<br/>        return xerrors.Errorf("unable to serialize global aggregator values: %w", err)<br/>    } else if err := f.barrier.NotifyWorkers(&amp;proto.Step{ Type: proto.Step_POST, AggregatorValues: globalAggrValues }); err != nil {<br/>        return err<br/>    } else if f.origCallbacks.PostStep != nil {<br/>        return f.origCallbacks.PostStep(ctx, g, activeInStep)<br/>    }<br/>    return nil<br/>}</pre></div>
+<p>Once again, the master waits for all workers to enter the barrier but this time, it collects the <kbd>Step</kbd> messages sent in by each individual worker. Then, the master begins its critical section where it iterates the list of collected <kbd>Step</kbd> messages and applies the partial deltas to its own aggregator. Finally, the new global aggregator values are serialized via a call to the <kbd>serializeAggregatorValues</kbd> helper and broadcast back to each worker.</p>
+<p>As expected, the callback wrapper for the <kbd>POST_STEP_KEEP_RUNNING</kbd> step follows exactly the same pattern:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (f *masterExecutorFactory) postStepKeepRunningCallback(ctx context.Context, g *bspgraph.Graph, activeInStep int) (bool, error) {<br/>    workerSteps, err := f.barrier.WaitForWorkers(proto.Step_POST_KEEP_RUNNING)<br/>    if err != nil {<br/>        return false, err<br/>    }<br/>    for _, workerStep := range workerSteps {<br/>        activeInStep += int(workerStep.ActiveInStep)<br/>    }<br/>    if err := f.barrier.NotifyWorkers(&amp;proto.Step{ Type: proto.Step_POST_KEEP_RUNNING, ActiveInStep: int64(activeInStep) }); err != nil {<br/>        return false, err<br/>    } else if f.origCallbacks.PostStepKeepRunning != nil {<br/>        return f.origCallbacks.PostStepKeepRunning(ctx, g, activeInStep)<br/>    }<br/>    return true, nil<br/>}</pre></div>
+<p>Inside the master's critical section, the individual <kbd>ActiveInStep</kbd> counts reported by each worker are aggregated and the result is broadcast back to each worker. After exiting the barrier, the master invokes the user-defined callback for the step.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Coordinating the execution of a graph job</h1>
+                </header>
+            
+            <article>
+                
+<p>So far, we have created the necessary abstractions for reading from and writing to the bi-directional stream established between the workers and the master. What's more, we have implemented a distributed barrier primitive that serves as a rendezvous point for the various graph compute steps that are asynchronously executed by the worker and the master nodes.</p>
+<p>Finally, we have defined a set of custom executor factories that enable us to wrap any existing algorithm built with the help of the <kbd>bspgraph</kbd> package and transparently allow it to use the barrier primitive to ensure that the graph computations are executed in lock-step across all workers.</p>
+<p>One thing that we should keep in mind is that running the graph compute algorithm to completion is not a sufficient condition to treat a distributed <em>compute job</em> as being complete! We still have to ensure that the results of the computation are persisted to stable storage without an error. The latter task is far from trivial; many things can go wrong while the workers attempt to save their progress as the workers might crash, the store might not be reachable, or a various host of random, network-related failures might occur.</p>
+<p>As the old saying goes<span>—</span>building distributed systems is hard! To this end, we need to introduce an <strong>orchestration layer</strong>—in other words, a mechanism that will combine all of the components that we have built so far and include all of the required logic to coordinate the end-to-end execution of a distributed computation job. Should any error occur (at a worker, the master, or both), the coordinator should detect it and signal all workers to abort the job.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Simplifying end user interactions with the dbspgraph package</h1>
+                </header>
+            
+            <article>
+                
+<p>This chapter explores the various components of the distributed job runner implementation in detail. Nevertheless, we would rather want to keep all of the internal details hidden from the intended user of the <kbd>dbspgraph</kbd> package.</p>
+<p>Essentially, we need to come up with a simplified API that the end users will use to interact with our package. As it turns out, this is quite easy to do. Assuming that the end users have already created (and tested) their graph algorithm with the help of the <kbd>bspgraph</kbd> package, they only need to provide a simple adaptor for interacting with the algorithm implementation. The set of required methods is encapsulated in the <kbd>Runner</kbd> interface definition, which is outlined as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">type Runner interface {<br/>    StartJob(Details, bspgraph.ExecutorFactory) (*bspgraph.Executor, error)<br/>    CompleteJob(Details) error<br/>    AbortJob(Details)<br/>}</pre></div>
+<p>The first argument to each one of the <kbd>Runner</kbd> methods is a structure that contains metadata about the currently executing job. The <kbd>Details</kbd> type mirrors the fields of the <kbd>JobDetails</kbd> protocol buffer message that the master broadcasts to each worker and is defined as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">type Details struct {<br/>    JobID string<br/>    CreatedAt time.Time<br/>    PartitionFromID uuid.UUID<br/>    PartitionToID uuid.UUID<br/>}</pre></div>
+<p>The <kbd>StartJob</kbd> method provides a hook for allowing the end users to initialize a <kbd>bspgraph.Graph</kbd> instance, load the appropriate set of data (vertices and edges), and use the provided <kbd>ExecutorFactory</kbd> argument to create a new <kbd>Executor</kbd> instance, which <kbd>StartJob</kbd> returns to the caller. As you probably guessed, our code will invoke <kbd>StartJob</kbd> with the appropriate custom execution factory depending on whether the code is executing on a worker or master node.</p>
+<p>Once both the master and workers have completed the execution of the graph, we will arrange things so that the <kbd>CompleteJob</kbd> method is invoked. This is where the end user is expected to extract the computed application-specific results from the graph and persist them to the stable store.</p>
+<p>On the other hand, should an error occur either while running the algorithm or while attempting to persist the results, our job coordinator will invoke the <kbd>AbortJob</kbd> method to notify the end user and let them properly clean up or take any required action for rolling back any changes already persisted to disk.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The worker job coordinator</h1>
+                </header>
+            
+            <article>
+                
+<p>We will start by examining the coordinator logic that the worker side executes. Let's take a quick look at the constructor for the <kbd>workerJobCoordinator</kbd> type:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">type workerJobCoordinatorConfig struct {<br/>    jobDetails job.Details<br/>    masterStream *remoteMasterStream<br/>    jobRunner job.Runner<br/>    serializer Serializer<br/>}<br/><br/>func newWorkerJobCoordinator(ctx context.Context, cfg workerJobCoordinatorConfig) *workerJobCoordinator {<br/>    jobCtx, cancelJobCtx := context.WithCancel(ctx)<br/>    return &amp;workerJobCoordinator{<br/>        jobCtx: jobCtx, cancelJobCtx: cancelJobCtx,<br/>        barrier: newWorkerStepBarrier(jobCtx, cfg.masterStream),<br/>        cfg: cfg,<br/>    }<br/>}</pre></div>
+<p>The constructor expects an external context as an argument as well as a configuration object, which includes the following:</p>
+<ul>
+<li>The job metadata</li>
+<li>A <kbd>remoteMasterStream</kbd> instance, which we will use to interact with the master</li>
+<li>A user-provided job <kbd>Runner</kbd> implementation</li>
+<li>A user-provided <kbd>Serializer</kbd> instance to be used by both the executor factory (marshaling aggregator values) and for marshaling outgoing graph messages that need to be relayed through the master node</li>
+</ul>
+<p>Before proceeding, the constructor creates a new <em>cancelable</em> context (<kbd>jobCtx</kbd>), which wraps the caller-provided context. The <kbd>jobCtx</kbd> instance is then used as an argument for creating a <kbd>workerStepBarrier</kbd> instance. This approach allows the coordinator to fully control the life cycle of the barrier.</p>
+<p>If an error occurs, the coordinator can simply invoke the <kbd>cancelJobCtx</kbd> function and automatically have the barrier shut down. Of course, the same tear-down semantics also apply if the external context happens to expire.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Running a new job</h1>
+                </header>
+            
+            <article>
+                
+<p>Once the worker receives a new job assignment from the master, it calls the coordinator's constructor and then invokes its <kbd>RunJob</kbd> method, which blocks until the job either completes or an error occurs:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (c *workerJobCoordinator) RunJob() error {<br/>    // ...<br/>}</pre></div>
+<p>Let's break down the <kbd>RunJob</kbd> implementation into smaller chunks and go through each one:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">execFactory := newWorkerExecutorFactory(c.cfg.serializer, c.barrier)<br/>executor, err := c.cfg.jobRunner.StartJob(c.cfg.jobDetails, execFactory)<br/>if err != nil {<br/>    c.cancelJobCtx()<br/>    return xerrors.Errorf("unable to start job on worker: %w", err)<br/>}<br/><br/>graph := executor.Graph()<br/>graph.RegisterRelayer(bspgraph.RelayerFunc(c.relayNonLocalMessage))</pre></div>
+<p>The very first thing that <kbd>RunJob</kbd> does is to create a <kbd>workerExecutor</kbd> factory using the configured serializer and the barrier instance that the constructor already set up. Then, the <kbd>StartJob</kbd> method of the user-provided <kbd>job.Runner</kbd> is invoked to initialize the graph and return an <kbd>Executor</kbd><span> value </span>that we can use. Note that, up to this point, <em>our code</em> is totally oblivious to how the user-defined algorithm works!</p>
+<p>The next step entails the extraction of the <kbd>bspgraph.Graph</kbd> instance from the returned <kbd>Executor</kbd> instance and the registration of a <kbd>bspgraph.Relayer</kbd> helper, which the graph will automatically invoke when a vertex attempts to send a message with an ID that is not recognized by the local graph instance. We will take a closer look at the <kbd>relayNonLocalMessage</kbd> method implementation in one of the following sections where we will be discussing the concept of message relaying in more detail. This completes all of the required initialization steps. We are now ready to commence the execution of the graph compute job!</p>
+<p>To not only monitor the health of the connection to the master but also asynchronously process any incoming payloads, we will spin up a goroutine:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">var</span> wg sync.WaitGroup</a>
+<a>wg.Add(<span class="dv">1</span>)</a>
+<a><span class="kw">go</span> <span class="kw">func</span>() {</a>
+<a>    <span class="kw">defer</span> wg.Done()</a>
+<a>    c.cfg.masterStream.SetDisconnectCallback(c.handleMasterDisconnect)</a>
+<a>    c.handleMasterPayloads(graph)</a>
+<a>}()</a></pre></div>
+<p>While our goroutine is busy processing incoming payloads, <kbd>RunJob</kbd> invokes the <kbd>runJobToCompletion</kbd> helper method that advances through the various stages of the graph execution's state machine. If an error occurs, we invoke the user's <kbd>AbortJob</kbd> method and then proceed to check the cause of the error.</p>
+<p>If the job execution failed due to a context cancelation, we replace the error with the more meaningful, typed <kbd>errJobAborted</kbd> <span>error</span><span>.</span> On the other hand, if the <kbd>handleMasterPayloads</kbd> method reported a more interesting error, we overwrite the returned error value with the reported error:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">if</span> err = c.runJobToCompletion(executor); err != <span class="ot">nil</span> {</a>
+<a>    c.cfg.jobRunner.AbortJob(c.cfg.jobDetails)</a>
+<a>    <span class="kw">if</span> xerrors.Is(err, context.Canceled) {</a>
+<a>        err = errJobAborted</a>
+<a>    }</a>
+<a>    <span class="kw">if</span> c.asyncWorkerErr != <span class="ot">nil</span> {</a>
+<a>        err = c.asyncWorkerErr</a>
+<a>    }</a>
+<a>}</a>
+
+<a>c.cancelJobCtx()</a>
+<a>wg.Wait() <span class="co">// wait for any spawned goroutines to exit before returning.</span></a>
+<a><span class="kw">return</span> err</a></pre></div>
+<p>Before returning, we cancel the job context to trigger a teardown of not only the barrier but also the spawned payload-handling goroutine and <kbd>Wait</kbd> on the wait group until the goroutine exits.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Transitioning through the stages of the graph's state machine</h1>
+                </header>
+            
+            <article>
+                
+<p>The role of the <kbd>runJobToCompletion</kbd> method is to execute all stages of the graph's state machine until either the job completes or an error occurs.</p>
+<p>As you can see in the following code snippet, we request from the executor instance to run the graph algorithm until its termination condition is met. Then, the worker reports its success to the master by joining the barrier for the <kbd>EXECUTED_GRAPH</kbd> step.</p>
+<p>Once all other workers reach the barrier, the master unblocks us and we proceed to invoke the <kbd>CompleteJob</kbd> method on the user-provided <kbd>job.Runner</kbd> instance. Then, we notify the master that the calculations have been stored by joining the barrier for the <kbd>PERSISTED_RESULTS</kbd> step.</p>
+<p>After the master unblocks us for the last time, we notify the master that we have reached the final stage of the state machine by joining the barrier for the <kbd>COMPLETED_JOB</kbd> step:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (c *workerJobCoordinator) runJobToCompletion(executor *bspgraph.Executor) <span class="dt">error</span> {</a>
+<a>    <span class="kw">if</span> err := executor.RunToCompletion(c.jobCtx); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> err</a>
+<a>    } <span class="kw">else</span> <span class="kw">if</span> _, err := c.barrier.Wait(&amp;proto.Step{Type: proto.Step_EXECUTED_GRAPH}); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> errJobAborted</a>
+<a>    } <span class="kw">else</span> <span class="kw">if</span> err := c.cfg.jobRunner.CompleteJob(c.cfg.jobDetails); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> err</a>
+<a>    } <span class="kw">else</span> <span class="kw">if</span> _, err = c.barrier.Wait(&amp;proto.Step{Type: proto.Step_PESISTED_RESULTS}); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> errJobAborted</a>
+<a>    }</a>
+
+<a>    _, _ = c.barrier.Wait(&amp;proto.Step{Type: proto.Step_COMPLETED_JOB})</a>
+<a>    <span class="kw">return</span> <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>When all workers reach the <kbd>COMPLETED_JOB</kbd> step, the master will <strong>terminate the connected job stream</strong> with a <kbd>grpc.OK</kbd> code. Due to the way that gRPC schedules message transmissions, there is no guarantee that the code will be received by the worker before the stream is actually torn down (in the latter case, we might get back an <kbd>io.EOF</kbd> error).</p>
+<p>Keep in mind, however, that the master will only disconnect us once all workers reach the last barrier and report that they have successfully persisted their local results. This is the reason why we can safely omit the error check in the last <kbd>barrier.Wait</kbd> call.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Handling incoming payloads from the master</h1>
+                </header>
+            
+            <article>
+                
+<p>As we saw in the previous section, the body of the payload-handling goroutine first registers a disconnect callback with the master stream and then delegates the payload processing to the auxiliary <kbd>handleMasterPayloads</kbd> method.</p>
+<p>This way, if we suddenly lose the connection to the master, we can simply cancel the job context and cause the job to abort with an error. The following disconnect callback implementation is quite simple:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (c *workerJobCoordinator) handleMasterDisconnect() {</a>
+<a>    <span class="kw">select</span> {</a>
+<a>    <span class="kw">case</span> &lt;-c.jobCtx.Done(): <span class="co">// job already aborted or completed</span></a>
+<a>    <span class="kw">default</span>:</a>
+<a>        c.cancelJobCtx()</a>
+<a>    }</a>
+<a>}</a></pre></div>
+<p>The <kbd>handleMasterPayloads</kbd> method implements a long-running event processing loop. A <kbd>select</kbd> block watches for either an incoming payload or the cancelation of the job context.</p>
+<p>If the context gets canceled or the <kbd>masterStream</kbd> closes the channel that we currently read from, the method returns:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (c *workerJobCoordinator) handleMasterPayloads(graph *bspgraph.Graph) {</a>
+<a>    <span class="kw">defer</span> c.cancelJobCtx()</a>
+<a>    <span class="kw">var</span> mPayload *proto.MasterPayload</a>
+<a>    <span class="kw">for</span> {</a>
+<a>        <span class="kw">select</span> {</a>
+<a>        <span class="kw">case</span> mPayload = &lt;-c.cfg.masterStream.RecvFromMasterChan():</a>
+<a>        <span class="kw">case</span> &lt;-c.jobCtx.Done():</a>
+<a>            <span class="kw">return</span></a>
+<a>        }</a>
+<a>        <span class="kw">if</span> mPayload == <span class="ot">nil</span> {</a>
+<a>            <span class="kw">return</span></a>
+<a>        } </a>
+
+<a>        <span class="co">// omitted: process payload depending on its type</span></a>
+<a>    }</a>
+<a>}</a></pre></div>
+<p>Once a valid payload is received from the master, we examine its content and execute the appropriate action depending on the payload type:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">if</span> relayMsg := mPayload.GetRelayMessage(); relayMsg != <span class="ot">nil</span> {</a>
+<a>    <span class="kw">if</span> err := c.deliverGraphMessage(graph, relayMsg); err != <span class="ot">nil</span> {</a>
+<a>        c.mu.Lock()</a>
+<a>        c.asyncWorkerErr = err</a>
+<a>        c.mu.Unlock()</a>
+<a>        c.cancelJobCtx()</a>
+<a>        <span class="kw">return</span></a>
+<a>    }</a>
+<a>} <span class="kw">else</span> <span class="kw">if</span> stepMsg := mPayload.GetStep(); stepMsg != <span class="ot">nil</span> {</a>
+<a>    <span class="kw">if</span> err := c.barrier.Notify(stepMsg); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span></a>
+<a>    }</a>
+<a>}</a></pre></div>
+<p>If the master relayed a message to us, the handler invokes the <kbd>deliverGraphMessage</kbd> method (see the next section), which attempts to deliver the message to the intended recipient. If the message delivery attempt fails, the error is recorded in the <kbd>asyncWorkerErr</kbd> variable and the job context is canceled before returning.</p>
+<p>The other type of payload that we can receive from the master is a <kbd>Step</kbd> message, which the master broadcasts to notify workers that they can exit a barrier they are currently waiting on. All we need to do is to invoke the barrier's <kbd>Notify</kbd> method with the obtained <kbd>Step</kbd> message as an argument.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using the master as an outgoing message relay</h1>
+                </header>
+            
+            <article>
+                
+<p>As we saw in the <kbd>RunJob</kbd> method's initialization block, once we gain access to an executor instance for the graph, we register a <kbd>bspgraph.Replayer</kbd> instance which serves as an escape hatch for relaying messages destined for vertices, which are managed by a different graph instance.</p>
+<p>This is how the <kbd>relayNonLocalMessage</kbd> helper method is implemented:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (c *workerJobCoordinator) relayNonLocalMessage(dst <span class="dt">string</span>, msg message.Message) <span class="dt">error</span> {</a>
+<a>    serializedMsg, err := c.cfg.serializer.Serialize(msg)</a>
+<a>    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> xerrors.Errorf(<span class="st">"unable to serialize message: %w"</span>, err)</a>
+<a>    }</a>
+<a>    wMsg := &amp;proto.WorkerPayload{Payload: &amp;proto.WorkerPayload_RelayMessage{</a>
+<a>        RelayMessage: &amp;proto.RelayMessage{</a>
+<a>            Destination: dst,</a>
+<a>            Message:     serializedMsg,</a>
+<a>        },</a>
+<a>    }}</a>
+<a>    <span class="kw">select</span> {</a>
+<a>    <span class="kw">case</span> c.cfg.masterStream.SendToMasterChan() &lt;- wMsg:</a>
+<a>        <span class="kw">return</span> <span class="ot">nil</span></a>
+<a>    <span class="kw">case</span> &lt;-c.jobCtx.Done():</a>
+<a>        <span class="kw">return</span> errJobAborted</a>
+<a>    }</a>
+<a>}</a></pre></div>
+<p>We invoke the user-defined serializer to marshal the application-specific graph message into an <kbd>any.Any</kbd> protocol buffer message and attach it to a new <kbd>WorkerPayload</kbd> instance as <kbd>RelayMessage</kbd>. The implementation then blocks until the message is successfully enqueued to the <kbd>masterStream</kbd> outgoing payload channel or the job context gets canceled.</p>
+<p>On the other hand, when the master relays an incoming graph message to this worker, the coordinator's <kbd>handleMasterPayloads</kbd> method will invoke the <kbd>deliverGraphMessage</kbd> method, the listing of which follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (c *workerJobCoordinator) deliverGraphMessage(graph *bspgraph.Graph, relayMsg *proto.RelayMessage) <span class="dt">error</span> {</a>
+<a>    payload, err := c.cfg.serializer.Unserialize(relayMsg.Message)</a>
+<a>    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> xerrors.Errorf(<span class="st">"unable to decode relayed message: %w"</span>, err)</a>
+<a>    }</a>
+
+<a>    graphMsg, ok := payload.(message.Message)</a>
+<a>    <span class="kw">if</span> !ok {</a>
+<a>        <span class="kw">return</span> xerrors.Errorf(<span class="st">"unable to relay message payloads that do not implement message.Message"</span>)</a>
+<a>    }</a>
+
+<a>    <span class="kw">return</span> graph.SendMessage(relayMsg.Destination, graphMsg)</a>
+<a>}</a></pre></div>
+<p>This time, the serializer is used to unpack the incoming <kbd>any.Any</kbd> message back to a type that is compatible with the <kbd>message.Message</kbd> interface, which is expected by the graph's <kbd>SendMessage</kbd> method. As the intended recipient is a local vertex, all we need to do is to pretend we are a local graph vertex and simply invoke the graph's <kbd>SendMessage</kbd> method with the appropriate destination ID and message payload.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The master job coordinator</h1>
+                </header>
+            
+            <article>
+                
+<p>In this section, we will explore the implementation of the job coordinator component that is responsible for orchestrating the execution of a distributed graph computation job on the master node.</p>
+<p>In a similar fashion to how the worker job coordinator was implemented, we will start by defining a configuration struct to hold the necessary details for creating a new coordinator instance and then proceed to define the <kbd>masterJobCoordinator</kbd> type:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">type</span> masterJobCoordinatorConfig <span class="kw">struct</span> {</a>
+<a>    jobDetails job.Details</a>
+<a>    workers    []*remoteWorkerStream</a>
+<a>    jobRunner  job.Runner</a>
+<a>    serializer Serializer</a>
+<a>    logger     *logrus.Entry</a>
+<a>}</a>
+
+<a><span class="kw">type</span> masterJobCoordinator <span class="kw">struct</span> {</a>
+<a>    jobCtx       context.Context</a>
+<a>    cancelJobCtx <span class="kw">func</span>()</a>
+
+<a>    barrier   *masterStepBarrier</a>
+<a>    partRange *partition.Range</a>
+<a>    cfg       masterJobCoordinatorConfig</a>
+<a>}</a></pre></div>
+<p>As you can see, the configuration options for the master coordinator are pretty much the same as the worker variant with the only exception being that the master coordinator is additionally provided with a slice of <kbd>remoteWorkerStream</kbd> instances. It corresponds to the workers that the master has assigned to this particular job. The same symmetry pattern between the two job coordinators types is also quite evident in the set of fields in the <kbd>masterJobCoordinator</kbd> definition.</p>
+<p>Once the master node has gathered enough workers for running a new job, it will call the <kbd>newMasterJobCoordinator</kbd> constructor, the implementation of which is shown as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> newMasterJobCoordinator(ctx context.Context, cfg masterJobCoordinatorConfig) (*masterJobCoordinator, <span class="dt">error</span>) {</a>
+<a>    partRange, err := partition.NewRange(cfg.jobDetails.PartitionFromID, cfg.jobDetails.PartitionToID, <span class="bu">len</span>(cfg.workers))</a>
+<a>    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> <span class="ot">nil</span>, err</a>
+<a>    }</a>
+
+<a>    jobCtx, cancelJobCtx := context.WithCancel(ctx)</a>
+<a>    <span class="kw">return</span> &amp;masterJobCoordinator{</a>
+<a>        jobCtx:       jobCtx,</a>
+<a>        cancelJobCtx: cancelJobCtx,</a>
+<a>        barrier:      newMasterStepBarrier(jobCtx, <span class="bu">len</span>(cfg.workers)),</a>
+<a>        partRange:    partRange,</a>
+<a>        cfg:          cfg,</a>
+<a>    }, <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>One of the key responsibilities of the master coordinator is to evenly split the UUID space into chunks and assign each chunk to one of the workers. To this end, before allocating a new coordinator instance, the constructor will first create a new partition range (see <a href="bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml">Chapter 10</a>, <em>Building, Packaging, and Deploying Software</em>, for details on the <kbd>Range</kbd> type) using the extents provided by the caller via the <kbd>job.Details</kbd> parameter.</p>
+<p>Given that our proposed cluster configuration uses a single master and multiple workers, the extents from the job details parameter will always cover the <strong>entire</strong> UUID space.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Running a new job</h1>
+                </header>
+            
+            <article>
+                
+<p>Once the master node creates a new <kbd>masterJobCoordinator</kbd> instance, it invokes its <kbd>RunJob</kbd> method to kick off the execution of the job. Since the method is a bit lengthy, we will break it down into a set of smaller blocks:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>execFactory := newMasterExecutorFactory(c.cfg.serializer, c.barrier)</a>
+<a>executor, err := c.cfg.jobRunner.StartJob(c.cfg.jobDetails, execFactory)</a>
+<a><span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>    c.cancelJobCtx()</a>
+<a>    <span class="kw">return</span> xerrors.Errorf(<span class="st">"unable to start job on master: %w"</span>, err)</a>
+<a>}</a>
+
+<a><span class="kw">for</span> assignedPartition, w := <span class="kw">range</span> c.cfg.workers {</a>
+<a>    w.SetDisconnectCallback(c.handleWorkerDisconnect)</a>
+<a>    <span class="kw">if</span> err := c.publishJobDetails(w, assignedPartition); err != <span class="ot">nil</span> {</a>
+<a>        c.cfg.jobRunner.AbortJob(c.cfg.jobDetails)</a>
+<a>        c.cancelJobCtx()</a>
+<a>        <span class="kw">return</span> err</a>
+<a>    }</a>
+<a>}</a></pre></div>
+<p>The first two lines in the previous block should look a bit familiar. We are following exactly the same initialization pattern as we did with the worker coordinator's implementation, which is we first create our custom executor factory and invoke the user-provided <kbd>StartJob</kbd> method to obtain an executor for the graph algorithm. Then, we iterate the list of worker streams and invoke the <kbd>publishJobDetails</kbd> helper to construct and send a <kbd>JobDetails</kbd> payload to each connected worker.</p>
+<p>But how does the <kbd>publishJobDetails</kbd> method actually figure what UUID range to include in each outgoing <kbd>JobDetails</kbd> message? If you recall from <a href="bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml">Chapter 10</a>, <em>Building, Packaging, and Deploying Software,</em> the <kbd>Range</kbd> type provides the <kbd>PartitionExtents</kbd> convenience method, which gives a partition number in the <kbd>[0, numPartitions)</kbd> range. It returns the UUID values that correspond to the beginning and end of the requested partition. So, all we need to do here is to treat the worker's index in the worker list as the partition number assigned to the worker!</p>
+<p>Once the <kbd>JobDetails</kbd> payloads are broadcast by the master and received by the workers, each worker will create its own local job coordinator and begin executing the job just as we saw in the previous section.</p>
+<p>As the master is dealing with multiple worker streams, we need to spin up a goroutine for handling incoming payloads from each worker. To ensure that all goroutines properly exit before <kbd>RunJob</kbd> returns, we will make use of <kbd>sync.WaitGroup</kbd>:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">var</span> wg sync.WaitGroup</a>
+<a>wg.Add(<span class="bu">len</span>(c.cfg.workers))</a>
+<a>graph := executor.Graph()</a>
+<a><span class="kw">for</span> workerIndex, worker := <span class="kw">range</span> c.cfg.workers {</a>
+<a>    <span class="kw">go</span> <span class="kw">func</span>(workerIndex <span class="dt">int</span>, worker *remoteWorkerStream) {</a>
+<a>        <span class="kw">defer</span> wg.Done()</a>
+<a>        c.handleWorkerPayloads(workerIndex, worker, graph)</a>
+<a>    }(workerIndex, worker)</a>
+<a>}</a></pre></div>
+<p>While our goroutines are busy handling incoming payloads, the master executes the various stages of the graph's state machine:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">if</span> err = c.runJobToCompletion(executor); err != <span class="ot">nil</span> {</a>
+<a>    c.cfg.jobRunner.AbortJob(c.cfg.jobDetails)</a>
+<a>    <span class="kw">if</span> xerrors.Is(err, context.Canceled) {</a>
+<a>        err = errJobAborted</a>
+<a>    }</a>
+<a>}</a>
+
+<a>c.cancelJobCtx()</a>
+<a>wg.Wait() <span class="co">// wait for any spawned goroutines to exit before returning.</span></a>
+<a><span class="kw">return</span> err</a>
+<a>}</a></pre></div>
+<p>Once the job execution completes (with or without an error), the job context is canceled to send a stop signal to any still-running payload processing goroutines. The <kbd>RunJob</kbd> method then blocks until all goroutines exit and then returns.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Transitioning through the stages for the graph's state machine</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>runJobToCompletion</kbd> implementation for the master job coordinator is nearly identical to the one used by the worker:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (c *masterJobCoordinator) runJobToCompletion(executor *bspgraph.Executor) <span class="dt">error</span> {</a>
+<a>    <span class="kw">if</span> err := executor.RunToCompletion(c.jobCtx); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> err</a>
+<a>    } <span class="kw">else</span> <span class="kw">if</span> _, err := c.barrier.WaitForWorkers(proto.Step_EXECUTED_GRAPH); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> err</a>
+<a>    } <span class="kw">else</span> <span class="kw">if</span> err := c.barrier.NotifyWorkers(&amp;proto.Step{Type: proto.Step_EXECUTED_GRAPH}); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> err</a>
+<a>    } <span class="kw">else</span> <span class="kw">if</span> err := c.cfg.jobRunner.CompleteJob(c.cfg.jobDetails); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> err</a>
+<a>    } <span class="kw">else</span> <span class="kw">if</span> _, err := c.barrier.WaitForWorkers(proto.Step_PESISTED_RESULTS); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> err</a>
+<a>    } <span class="kw">else</span> <span class="kw">if</span> err := c.barrier.NotifyWorkers(&amp;proto.Step{Type: proto.Step_PESISTED_RESULTS}); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> err</a>
+<a>    } <span class="kw">else</span> <span class="kw">if</span> _, err := c.barrier.WaitForWorkers(proto.Step_COMPLETED_JOB); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> err</a>
+<a>    }</a>
+<a>    <span class="kw">return</span> <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>Again, the user-defined algorithm is executed until the terminating condition is met. Assuming that no error occurred, the master simply waits for all workers to transition through the remaining steps of the graph execution state machine (<kbd>EXECUTED_GRAPH</kbd>, <kbd>PERSISTED_RESULTS</kbd>, and <kbd>COMPLETED_JOB</kbd>).</p>
+<p>Note that, in the <span>preceding </span>implementation, the master does not invoke <kbd>NotifyWorkers</kbd> on the barrier for the <kbd>COMPLETED_JOB</kbd> step. This is intentional; once all workers reach this stage, there is no further operation that needs to be performed. We can simply go ahead and close each workers' job stream.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Handling incoming worker payloads</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>handleWorkerPayloads</kbd> method is responsible for handling incoming payloads from a particular worker. The method blocks waiting for either a new incoming payload to appear or the job context to be canceled:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (c *masterJobCoordinator) handleWorkerPayloads(workerIndex int, worker *remoteWorkerStream, graph *bspgraph.Graph) {<br/>    var wPayload *proto.WorkerPayload<br/>    for {<br/>        select {<br/>        case wPayload = &lt;-worker.RecvFromWorkerChan():<br/>        case &lt;-c.jobCtx.Done():<br/>            return<br/>        }<br/><br/>        if relayMsg := wPayload.GetRelayMessage(); relayMsg != nil {<br/>            c.relayMessageToWorker(workerIndex, relayMsg)<br/>        } else if stepMsg := wPayload.GetStep(); stepMsg != nil {<br/>            updatedStep, err := c.barrier.Wait(stepMsg)<br/>            if err != nil {<br/>                c.cancelJobCtx()<br/>                return<br/>            }<br/><br/>            c.sendToWorker(worker, &amp;proto.MasterPayload{<br/>                Payload: &amp;proto.MasterPayload_Step{Step: updatedStep},<br/>            })<br/>        }<br/>    }<br/>}</pre></div>
+<p>Incoming payloads contain either a message relay request or a <kbd>Step</kbd> message, which the worker sends to request admission to the barrier for a particular type of step.</p>
+<p>In the latter case, the <kbd>Step</kbd> message from the worker is passed as an argument to the master barrier's <kbd>Wait</kbd> method. As we explained in a previous section, the <kbd>Wait</kbd> method blocks until the master invokes the <kbd>NotifyWorkers</kbd> method with its own <kbd>Step</kbd> message.</p>
+<p>Once that occurs, the new step message is wrapped in <kbd>MasterPayload</kbd> and transmitted to the worker via the stream.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Relaying messages between workers</h1>
+                </header>
+            
+            <article>
+                
+<p>For the master to be able to relay messages between workers, it needs to be able to <em>efficiently</em> answer the following question: "<em>given a destination ID, which partition does it belong to?"</em></p>
+<p>This certainly sounds like a query that the <kbd>Range</kbd> type should be able to answer! To jog your memory, this is what the <kbd>Range</kbd> type definition from <a href="bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml">Chapter 10</a>, <em>Building, Packaging, and Deploying Software,</em> looks like:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">type</span> Range <span class="kw">struct</span> {</a>
+<a>    start       uuid.UUID</a>
+<a>    rangeSplits []uuid.UUID</a>
+<a>}</a></pre></div>
+<p>The <kbd>start</kbd> field keeps track of the range's start UUID while <kbd>rangeSplits[p]</kbd> tracks the <strong>end</strong> UUID value for the <em>p<sub>th</sub></em> partition. Therefore, the UUID range for a partition <em>p</em> can be calculated as follows:</p>
+<p class="CDPAlignCenter CDPAlign"><img class="fm-editor-equation" src="assets/5d0221d8-5929-4223-be6f-2b5b8d013afd.png" style="width:30.67em;height:2.83em;"/></p>
+<p>Before we examine how the UUID-to-partition number query is actually implemented, try as a simple thought exercise to think of an algorithm for answering this type of query (no peeking!).</p>
+<p>One way to achieve this is to iterate the <kbd>rangeSplits</kbd> slice and locate a range that includes the specified ID. While this naive approach would yield the correct answer, it will unfortunately not scale in a scenario where you might have hundreds of workers exchanging messages with each other.</p>
+<p>Can we do any better? The answer is yes. We can exploit the observation that the values in the <kbd>rangeSplits</kbd> field are stored in sorted order and use the handy <kbd>Search</kbd> function from the Go <kbd>sort</kbd> package to perform a binary search.</p>
+<p>Here is a much more efficient implementation of this type of query:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (r *Range) PartitionForID(id uuid.UUID) (<span class="dt">int</span>, <span class="dt">error</span>) {</a>
+<a>    partIndex := sort.Search(<span class="bu">len</span>(r.rangeSplits), <span class="kw">func</span>(n <span class="dt">int</span>) <span class="dt">bool</span> {</a>
+<a>        <span class="kw">return</span> bytes.Compare(id[:], r.rangeSplits[n][:]) &lt; <span class="dv">0</span></a>
+<a>    })</a>
+
+<a>    <span class="kw">if</span> bytes.Compare(id[:], r.start[:]) &lt; <span class="dv">0</span> || partIndex &gt;= <span class="bu">len</span>(r.rangeSplits) {</a>
+<a>        <span class="kw">return</span> <span class="dv">-1</span>, xerrors.Errorf(<span class="st">"unable to detect partition for ID %q"</span>, id)</a>
+<a>    }</a>
+<a>    <span class="kw">return</span> partIndex, <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>The <kbd>sort.Search</kbd> function executes a binary search on a slice and returns the <em>smallest</em> index for which a user-defined predicate function returns <strong>true</strong>. Our predicate function checks that the provided ID value is <em>strictly less</em> than the end UUID of the partition currently being scanned.</p>
+<p>Now that we have the means to efficiently answer UUID-to-partition queries, let's take a look at the implementation of the <kbd>relayMessageToWorker</kbd> method, which is invoked by the worker payload handler for message relay requests:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (c *masterJobCoordinator) relayMessageToWorker(srcWorkerIndex <span class="dt">int</span>, relayMsg *proto.RelayMessage) {</a>
+<a>    dstUUID, err := uuid.Parse(relayMsg.Destination)</a>
+<a>    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>        c.cancelJobCtx()</a>
+<a>        <span class="kw">return</span></a>
+<a>    }</a>
+
+<a>    partIndex, err := c.partRange.PartitionForID(dstUUID)</a>
+<a>    <span class="kw">if</span> err != <span class="ot">nil</span> || partIndex == srcWorkerIndex {</a>
+<a>        c.cancelJobCtx()</a>
+<a>        <span class="kw">return</span></a>
+<a>    }</a>
+
+<a>    c.sendToWorker(c.cfg.workers[partIndex], &amp;proto.MasterPayload{</a>
+<a>        Payload: &amp;proto.MasterPayload_RelayMessage{RelayMessage: relayMsg},</a>
+<a>    })</a>
+<a>}</a></pre></div>
+<p>The first thing we need to do is to parse the destination ID and make sure that it actually contains a valid UUID value.</p>
+<p>Then, we call the <kbd>PartitionForID</kbd> helper to look up the index of the partition that the destination ID belongs to and forward the message to the worker assigned to it.</p>
+<p>What if it turns out that the worker that asked us to relay the message in the first place is <em>also</em> the one we need to relay the message to? In such a scenario, we will treat the destination ID as being invalid and abort the job with an error. The justification for this decision is that if the local graph was aware of that particular destination, it would simply locally enqueue the message for delivery instead of attempting to relay it through the master node.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining package-level APIs for working with master and worker nodes</h1>
+                </header>
+            
+            <article>
+                
+<p>At this point, we have implemented all required internal components for running both the master and the server nodes. All we need to do now is to define the necessary APIs for allowing the end users to create and operate new workers and master instances.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Instantiating and operating worker nodes</h1>
+                </header>
+            
+            <article>
+                
+<p>To create a new worker, the user of the package invokes the <kbd>NewWorker</kbd> constructor, which returns a new <kbd>Worker</kbd> instance. The definition of the <kbd>Worker</kbd> type looks as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">type</span> Worker <span class="kw">struct</span> {</a>
+<a>    masterConn *grpc.ClientConn</a>
+<a>    masterCli  proto.JobQueueClient</a>
+<a>    cfg WorkerConfig</a>
+<a>}</a></pre></div>
+<p>The <kbd>Worker</kbd> type stores the following:</p>
+<ul>
+<li>The client gRPC connection to the master</li>
+<li>An instance of the <kbd>JobQueueClient</kbd> that the protoc compiler has automatically generated for us from the RPC definition for the job queue</li>
+<li>The required components for interfacing with the user's <strong>bspgraph</strong><span>-</span>based algorithm implementation (that is, a job <kbd>Runner</kbd> and <kbd>Serializer</kbd> for graph messages and aggregator values)</li>
+</ul>
+<p>After obtaining a new <kbd>Worker</kbd> instance, the user has to connect to the master by invoking the worker's <kbd>Dial</kbd> method:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (w *Worker) Dial(masterEndpoint <span class="dt">string</span>, dialTimeout time.Duration) <span class="dt">error</span> {</a>
+<a>    <span class="kw">var</span> dialCtx context.Context</a>
+<a>    <span class="kw">if</span> dialTimeout != <span class="dv">0</span> {</a>
+<a>        <span class="kw">var</span> cancelFn <span class="kw">func</span>()</a>
+<a>        dialCtx, cancelFn = context.WithTimeout(context.Background(), dialTimeout)</a>
+<a>        <span class="kw">defer</span> cancelFn()</a>
+<a>    }</a>
+<a>    conn, err := grpc.DialContext(dialCtx, masterEndpoint, grpc.WithInsecure(), grpc.WithBlock())</a>
+<a>    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> xerrors.Errorf(<span class="st">"unable to dial master: %w"</span>, err)</a>
+<a>    }</a>
+
+<a>    w.masterConn = conn</a>
+<a>    w.masterCli = proto.NewJobQueueClient(conn)</a>
+<a>    <span class="kw">return</span> <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>Once a connection to the master has been successfully established, the user can ask the worker to fetch and execute the next job from the master by invoking the worker's <kbd>RunJob</kbd> method. Let's see what happens within that method:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>stream, err := w.masterCli.JobStream(ctx)</a>
+<a><span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>    <span class="kw">return</span> err</a>
+<a>}</a>
+
+<a>w.cfg.Logger.Info(<span class="st">"waiting for next job"</span>)</a>
+<a>jobDetails, err := w.waitForJob(stream)</a>
+<a><span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>    <span class="kw">return</span> err</a>
+<a>}</a></pre></div>
+<p>First of all, the worker makes an RPC call to the job queue and obtains a gRPC stream. Then, the worker invokes the <kbd>waitForJob</kbd> helper, which performs a blocking <kbd>Recv</kbd> operation on the stream and waits for the master to publish a job details payload. After the payload is obtained, its contents are validated and unpacked into a <kbd>job.Details</kbd> instance, which is returned to the <kbd>RunJob</kbd> method:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>masterStream := newRemoteMasterStream(stream)</a>
+<a>jobLogger := w.cfg.Logger.WithField(<span class="st">"job_id"</span>, jobDetails.JobID)</a>
+<a>coordinator := newWorkerJobCoordinator(ctx, workerJobCoordinatorConfig{</a>
+<a>    jobDetails:   jobDetails,</a>
+<a>    masterStream: masterStream,</a>
+<a>    jobRunner:    w.cfg.JobRunner,</a>
+<a>    serializer:   w.cfg.Serializer,</a>
+<a>    logger:       jobLogger,</a>
+<a>})</a></pre></div>
+<p>Next, the worker initializes the required components for executing the job. As you can see in the previous code, we create a wrapper for the stream and pass it as an argument to the job coordinator constructor.</p>
+<p>We are now ready to delegate the job execution to the coordinator! However, before we do that, there is one last thing we need to do, that is, we need to fire up a dedicated goroutine for handling the send and receive ends of the wrapped stream:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">var</span> wg sync.WaitGroup</a>
+<a>wg.Add(<span class="dv">1</span>)</a>
+<a><span class="kw">go</span> <span class="kw">func</span>() {</a>
+<a>    <span class="kw">defer</span> wg.Done()</a>
+<a>    <span class="kw">if</span> err := masterStream.HandleSendRecv(); err != <span class="ot">nil</span> {</a>
+<a>        coordinator.cancelJobCtx()</a>
+<a>    }</a>
+<a>}()</a></pre></div>
+<p>Finally, we invoke the coordinator's <kbd>RunJob</kbd> method and emit a logline depending on whether the job succeeded or failed:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">if</span> err = coordinator.RunJob(); err != <span class="ot">nil</span> {</a>
+<a>    jobLogger.WithField(<span class="st">"err"</span>, err).Error(<span class="st">"job execution failed"</span>)</a>
+<a>} <span class="kw">else</span> {</a>
+<a>    jobLogger.Info(<span class="st">"job completed successfully"</span>)</a>
+<a>}</a>
+<a>masterStream.Close()</a>
+<a>wg.Wait()</a>
+<a><span class="kw">return</span> err</a></pre></div>
+<p>Just as we did so far with all other blocks of code that spin up goroutines, before returning from the <kbd>RunJob</kbd> method, we terminate the RPC stream (but leave the client connection intact for the next RPC call) and wait until the stream-handling goroutines cleanly exits.</p>
+<p>Let's move on to defining the necessary APIs for creating new master instances.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Instantiating and operating master nodes</h1>
+                </header>
+            
+            <article>
+                
+<p>As you probably guessed, the <kbd>Master</kbd> type would encapsulate the implementation details for creating and operating a master node. Let's take a quick look into its constructor:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> NewMaster(cfg MasterConfig) (*Master, <span class="dt">error</span>) {</a>
+<a>    <span class="kw">if</span> err := cfg.Validate(); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> <span class="ot">nil</span>, xerrors.Errorf(<span class="st">"master config validation failed: %w"</span>, err)</a>
+<a>    }</a>
+<a>    <span class="kw">return</span> &amp;Master{</a>
+<a>        cfg:        cfg,</a>
+<a>        workerPool: newWorkerPool(),</a>
+<a>    }, <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>The constructor expects a <kbd>MasterConfig</kbd> object as an argument that defines the following:</p>
+<ul>
+<li>It defines the address where the master node will be listening for incoming connections.</li>
+<li>It defines the <kbd>job.Runner</kbd> instance for interfacing with the user-defined graph algorithm.</li>
+<li>It defines <kbd>Serializer</kbd> for marshaling and unmarshaling aggregator values. Note that, in contrast to the worker implementation, the master only relays messages between the workers and never needs to peek into the actual message contents. Therefore, masters require a much simpler serializer implementation.</li>
+</ul>
+<p>Besides allocating a new <kbd>Master</kbd> object, the constructor also creates and attaches to it a <em>worker pool</em>. We haven't really mentioned the concept of a <strong>worker pool</strong> in this chapter, so right about now, you are probably wondering about its purpose.</p>
+<p>A worker pool serves as a waiting area for connected workers until the master is asked by the end user to begin the execution of a new job. New workers may connect to (or disconnect from) the master at any point in time. By design, workers are not allowed to join a job that is <em>already being executed</em>. Instead, they will always be added to the pool where they will wait for the next job run.</p>
+<p>When the end user requests a new job execution from the master, the required number of workers for the job is extracted from the pool and the job details are broadcast to them.</p>
+<p>The implementation of the worker pool contains quite a bit of boilerplate code, which has been omitted in the interest of brevity. However, if you're interested in delving deeper, you can explore its source code by examining the contents of<span> the</span> <span><kbd>worker_pool.go</kbd> file, which can be found in the </span><kbd><span>Chapter12</span>/dbspgraph</kbd><span> package </span>in this book's GitHub repository.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Handling incoming gRPC connections</h1>
+                </header>
+            
+            <article>
+                
+<p>While the constructor returns a new and configured <kbd>Master</kbd> instance, it does not automatically start the master's gRPC server. Instead, this task is left to the end user, who must manually invoke the master's <kbd>Start</kbd> method:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (m *Master) Start() <span class="dt">error</span> {</a>
+<a>    <span class="kw">var</span> err <span class="dt">error</span></a>
+<a>    <span class="kw">if</span> m.srvListener, err = net.Listen(<span class="st">"tcp"</span>, m.cfg.ListenAddress); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> xerrors.Errorf(<span class="st">"cannot start server: %w"</span>, err)</a>
+<a>    }</a>
+
+<a>    gSrv := grpc.NewServer()</a>
+<a>    proto.RegisterJobQueueServer(gSrv, &amp;masterRPCHandler{</a>
+<a>        workerPool: m.workerPool,</a>
+<a>        logger:     m.cfg.Logger,</a>
+<a>    })</a>
+<a>    m.cfg.Logger.WithField(<span class="st">"addr"</span>, m.srvListener.Addr().String()).Info(<span class="st">"listening for worker connections"</span>)</a>
+<a>    <span class="kw">go</span> <span class="kw">func</span>(l net.Listener) { _ = gSrv.Serve(l) }(m.srvListener)</a>
+
+<a>    <span class="kw">return</span> <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>As is customary when launching gRPC servers in Go, we first need to create a new <kbd>net.Listener</kbd> instance, then create the gRPC server instance and serve it on the listener we just created. Of course, before invoking the <kbd>Serve</kbd> method on the server, we need to register a handler for incoming RPCs that adheres to the interface that protoc generated for us.</p>
+<p>To avoid polluting the public API of the <kbd>Master</kbd> type with the RPC method signatures, we employ a small trick<span>—</span>we define an <em>un-exported</em> shim that implements the required interface and registers it with our gRPC server.</p>
+<p>The implementation of the handler for the <kbd>JobStream</kbd> RPC is just a handful of lines:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (h *masterRPCHandler) JobStream(stream proto.JobQueue_JobStreamServer) <span class="dt">error</span> {</a>
+<a>    extraFields := <span class="bu">make</span>(logrus.Fields)</a>
+<a>    <span class="kw">if</span> peerDetails, ok := peer.FromContext(stream.Context()); ok {</a>
+<a>        extraFields[<span class="st">"peer_addr"</span>] = peerDetails.Addr.String()</a>
+<a>    }</a>
+
+<a>    h.logger.WithFields(extraFields).Info(<span class="st">"worker connected"</span>)</a>
+
+<a>    workerStream := newRemoteWorkerStream(stream)</a>
+<a>    h.workerPool.AddWorker(workerStream)</a>
+<a>    <span class="kw">return</span> workerStream.HandleSendRecv()</a>
+<a>}</a></pre></div>
+<p>In the interest of making debugging easier, the RPC handler will check whether it can access any peer-related information for the connected worker and include them in a log message. Next, the incoming stream is wrapped in <kbd>remoteWorkerStream</kbd> and added to the pool, where it will wait until a new job is ready to run.</p>
+<p>The gRPC semantics for handling streaming RPCs dictate that the stream will be automatically closed once the RPC handler returns. Therefore, we want our RPC handler to block until either a job completes or an error occurs. An easy way to achieve this is to make a synchronous call to the wrapped stream's <kbd>HandleSendRecv</kbd> method.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Running a new job</h1>
+                </header>
+            
+            <article>
+                
+<p>After the end user starts the master's gRPC server, they can request a new job execution by invoking the master's <kbd>RunJob</kbd> method, the signature of which is as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (m *Master) RunJob(ctx context.Context, minWorkers <span class="dt">int</span>, workerAcquireTimeout time.Duration) <span class="dt">error</span> {</a>
+<a>    <span class="co">// implementation omitted</span></a>
+<a>}</a></pre></div>
+<p>Because the worker requirements generally vary depending on the algorithm to be executed, the end user must specify, in advance, the minimum number of workers required for the job as well as a timeout for acquiring the required workers.</p>
+<p>If the number of workers is not important from the user's perspective, they can specify a zero value for the <kbd>minWorkers</kbd> argument. Doing so serves as a hint to the master to either select all workers currently available in the pool or to block until at least one of the following conditions is satisfied:</p>
+<ul>
+<li>At least one worker joins the pool.</li>
+<li>The specified acquire timeout (if non-zero) expires.</li>
+</ul>
+<p>Let's break down the <kbd>RunJob</kbd> methods into chunks, starting from the code that acquires the required workers from the pool:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">var</span> acquireCtx = ctx</a>
+<a><span class="kw">if</span> workerAcquireTimeout != <span class="dv">0</span> {</a>
+<a>    <span class="kw">var</span> cancelFn <span class="kw">func</span>()</a>
+<a>    acquireCtx, cancelFn = context.WithTimeout(ctx, workerAcquireTimeout)</a>
+<a>    <span class="kw">defer</span> cancelFn()</a>
+<a>}</a>
+<a>workers, err := m.workerPool.ReserveWorkers(acquireCtx, minWorkers)</a>
+<a><span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>    <span class="kw">return</span> ErrUnableToReserveWorkers</a>
+<a>}</a></pre></div>
+<p>If <kbd>workerAcquireTimeout</kbd> is specified, the <span>preceding </span>code snippet will automatically wrap the externally provided context with a context that expires after the specified timeout and pass it to the pool's <kbd>ReserveWorkers</kbd> method.</p>
+<p>With the required number of workers streams in hand, the next step entails the allocation of a UUID for the job and the creation of a new <kbd>job.Details</kbd> instance with a partition assignment that covers the entire UUID space:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>jobID := uuid.New().String()</a>
+<a>createdAt := time.Now().UTC().Truncate(time.Millisecond)</a>
+<a>jobDetails := job.Details{</a>
+<a>    JobID:           jobID,</a>
+<a>    CreatedAt:       createdAt,</a>
+<a>    PartitionFromID: minUUID, <span class="co">// 00000000-00000000-00000000-00000000</span></a>
+<a>    PartitionToID:   maxUUID, <span class="co">// ffffffff-ffffffff-ffffffff-ffffffff</span></a>
+<a>}</a></pre></div>
+<p>Before commencing execution of the job, we need to create a new job coordinator instance:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>coordinator, err := newMasterJobCoordinator(ctx, masterJobCoordinatorConfig{</a>
+<a>    jobDetails: jobDetails,</a>
+<a>    workers:    workers,</a>
+<a>    jobRunner:  m.cfg.JobRunner,</a>
+<a>    serializer: m.cfg.Serializer,</a>
+<a>    logger:     logger,</a>
+<a>})</a>
+<a><span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>    err = xerrors.Errorf(<span class="st">"unable to create job coordinator: %w"</span>, err)</a>
+<a>    <span class="kw">for</span> _, w := <span class="kw">range</span> workers {</a>
+<a>        w.Close(err)</a>
+<a>    }</a>
+<a>    <span class="kw">return</span> err</a>
+<a>}</a></pre></div>
+<p>After this initialization step, we can invoke the <kbd>RunJob</kbd> method and run the job to completion:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">if</span> err = coordinator.RunJob(); err != <span class="ot">nil</span> {</a>
+<a>    <span class="kw">for</span> _, w := <span class="kw">range</span> workers {</a>
+<a>        w.Close(err)</a>
+<a>    }</a>
+<a>    <span class="kw">return</span> err</a>
+<a>}</a>
+
+<a><span class="kw">for</span> _, w := <span class="kw">range</span> workers {</a>
+<a>    w.Close(<span class="ot">nil</span>)</a>
+<a>}</a>
+<a><span class="kw">return</span> <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>If the job execution fails, we invoke the <kbd>Close</kbd> method on each worker stream passing along the error returned by the coordinator's <kbd>RunJob</kbd> method. Calling <kbd>Close</kbd> on <kbd>remoteWorkerStream</kbd> allows the <kbd>HandleSendRecv</kbd> call from the RPC handler to return with an error that gRPC will automatically propagate back to the worker.</p>
+<p>On the other hand, if the work completes without any error, we invoke <kbd>Close</kbd> with a <kbd>nil</kbd> error value. This action has exactly the same effect (that is, it terminates the RPC) but in the latter case, no error is returned to the worker.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deploying a distributed version of the Links 'R' Us PageRank calculator</h1>
+                </header>
+            
+            <article>
+                
+<p>The PageRank calculator is the only component of the Links 'R' Us project that we haven't yet been able to horizontally scale on Kubernetes. Back in <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a><span>, </span><em>Graph-Based Data Processing</em><em>,</em> where we used the <kbd>bspgraph</kbd> package to implement the PageRank algorithm, I promised you that a few chapters down the road, we would take the PageRank calculator code, and <strong>without any code modifications</strong>, enable it to run in distributed mode.</p>
+<div class="packt_tip"><span>After completing this chapter, I strongly recommend, as a fun learning exercise, taking a look at using the</span> <kbd>dbspgraph</kbd> <span>package to build a distributed version of either the graph coloring or the shortest path algorithms from <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a>, <em>Graph-Based Data Processing</em></span><span>.</span></div>
+<p>In this section, we will leverage all of the work we have done so far in this chapter to achieve this goal! I would like to point out that while this section will exclusively focus on the PageRank calculator service, everything we discuss here can also be applied to any of the other graph algorithms that we implemented in <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a><span>, </span><em>Graph-Based Data Processing</em>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Retrofitting master and worker capabilities to the PageRank calculator service</h1>
+                </header>
+            
+            <article>
+                
+<p>Logically, we don't want to implement a new PageRank service from scratch, especially given the fact that we already created a standalone (albeit not distributed) version of this service in the previous chapter.</p>
+<p>What we will actually be doing is making a copy of the standalone PageRank calculator service from <a href="dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml">Chapter 11</a>, <em>Splitting Monoliths into Microservices,</em> and adapt it to use the APIs exposed by the <kbd>dbspgraph</kbd> package from this chapter. Since our copy will share most of the code with the original service, we will omit all of the shared implementation details and only highlight the bits that need to be changed. As always, the full source for the service is available in the <kbd><span>Chapter12</span>/linksrus/pagerank</kbd> package in this book's GitHub repository if you want to take a closer look.</p>
+<p>Before we proceed, we need to decide whether we will create a separate binary for the master and the worker. Taking into account that a fairly large chunk of the code is shared between the master and the workers, we are probably better off producing a single binary and introducing a command-line flag (we will call it <kbd>mode</kbd>) to select between master or worker mode.</p>
+<p>Depending on the selected mode, the service will do the following:</p>
+<ul>
+<li>When in <em>worker</em> mode: It creates a <kbd>dbspgraph.Worker</kbd> object, calls its <kbd>Dial</kbd> method, and finally calls the <kbd>RunJob</kbd> method to wait until the master publishes a new job.</li>
+<li>When in <em>master</em> mode: It creates a <kbd>dbspgraph.Master</kbd> object, calls its <kbd>Start</kbd> method, and periodically invokes the <kbd>RunJob</kbd> method to trigger a PageRank score refresh job.</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Serializing PageRank messages and aggregator values</h1>
+                </header>
+            
+            <article>
+                
+<p>A prerequisite for creating a new <kbd>dbspgraph.Master</kbd><span> instance </span>or a <kbd>dbspgraph.Worker</kbd> instance is to provide a suitable, <strong>application-specific</strong> serializer for both aggregator values and any message that can potentially be exchanged between the graph nodes. For this particular application, graph vertices distribute their accumulated PageRank scores to their neighbors by exchanging <kbd>IncomingScore</kbd> messages:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">type</span> IncomingScoreMessage <span class="kw">struct</span> {</a>
+<a>    Score <span class="dt">float64</span></a>
+<a>}</a></pre></div>
+<p>In addition, as you can see from the following snippet, which was taken from the PageRank calculator implementation, our serializer implementation also needs to be able to properly handle <kbd>int</kbd> and <kbd>float64</kbd> used by the calculator's aggregator instances:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="co">// need to run the PageRank calculation algorithm.</span></a>
+<a><span class="kw">func</span> (c *Calculator) registerAggregators() {</a>
+<a>    c.g.RegisterAggregator(<span class="st">"page_count"</span>, <span class="bu">new</span>(aggregator.IntAccumulator))</a>
+<a>    c.g.RegisterAggregator(<span class="st">"residual_0"</span>, <span class="bu">new</span>(aggregator.Float64Accumulator))</a>
+<a>    c.g.RegisterAggregator(<span class="st">"residual_1"</span>, <span class="bu">new</span>(aggregator.Float64Accumulator))</a>
+<a>    c.g.RegisterAggregator(<span class="st">"SAD"</span>, <span class="bu">new</span>(aggregator.Float64Accumulator))</a>
+<a>}</a></pre></div>
+<p>The main benefit of having full control over the serializer used by both the master and the workers is that we get to choose the appropriate serialization format for our particular use case. Under normal circumstances, protocol buffers would be the most logical candidate.</p>
+<p>However, given that we only really need to support serialization of <kbd>int</kbd> and <kbd>float64</kbd> values, using protocol buffers would probably be overkill. Instead, we will implement a much simpler serialization protocol.</p>
+<p>First, let's take a look at how the <kbd>Serialize</kbd> method is implemented:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (serializer) Serialize(v <span class="kw">interface</span>{}) (*any.Any, <span class="dt">error</span>) {</a>
+<a>    scratchBuf := <span class="bu">make</span>([]<span class="dt">byte</span>, binary.MaxVarintLen64)</a>
+<a>    <span class="kw">switch</span> val := v.(<span class="kw">type</span>) {</a>
+<a>    <span class="kw">case</span> <span class="dt">int</span>:</a>
+<a>        nBytes := binary.PutVarint(scratchBuf, <span class="dt">int64</span>(val))</a>
+<a>        <span class="kw">return</span> &amp;any.Any{TypeUrl: <span class="st">"i"</span>, Value: scratchBuf[:nBytes]}, <span class="ot">nil</span></a>
+<a>    <span class="kw">case</span> <span class="dt">float64</span>:</a>
+<a>        nBytes := binary.PutUvarint(scratchBuf, math.Float64bits(val))</a>
+<a>        <span class="kw">return</span> &amp;any.Any{TypeUrl: <span class="st">"f"</span>, Value: scratchBuf[:nBytes]}, <span class="ot">nil</span></a>
+<a>    <span class="kw">case</span> pr.IncomingScoreMessage:</a>
+<a>        nBytes := binary.PutUvarint(scratchBuf, math.Float64bits(val.Score))</a>
+<a>        <span class="kw">return</span> &amp;any.Any{TypeUrl: <span class="st">"m"</span>, Value: scratchBuf[:nBytes]}, <span class="ot">nil</span></a>
+<a>    <span class="kw">default</span>:</a>
+<a>        <span class="kw">return</span> <span class="ot">nil</span>, xerrors.Errorf(<span class="st">"serialize: unknown type %#+T"</span>, val)</a>
+<a>    }</a>
+<a>}</a></pre></div>
+<p>The <span>preceding </span>implementation uses a type switch to detect the type of value that was passed as an argument to <kbd>Serialize</kbd>. The method sets the <kbd>TypeUrl</kbd> field to a single-character value, which corresponds to the type of the encoded value:</p>
+<ul>
+<li><kbd>"i"</kbd><span>: This </span>specifies an integer value</li>
+<li><kbd>"f"</kbd><span>: This</span> specifies a float64 value</li>
+<li><kbd>"m"</kbd><span>: This</span> specifies a float64 value from <kbd>IncomingScoreMessage</kbd></li>
+</ul>
+<p>Values are encoded as variable-length integers with the help of the <kbd>PutVarint</kbd> and <kbd>PutUvarint</kbd> functions provided by the <kbd>binary</kbd> package that ships with the Go standard library.</p>
+<p>Note that floating-point values cannot be encoded directly to a <kbd>Varint</kbd>; we must first convert them into their equivalent <kbd>uint64</kbd> representation via <kbd>math.Float64bits</kbd>. The encoded values are stored in a byte buffer and attached as a payload to the <kbd>any.Any</kbd> message, which is returned to the caller.</p>
+<p>The <kbd>Unserialize</kbd> method, the implementation of which is shown as follows, simply reverses the encoding steps:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (serializer) Unserialize(v *any.Any) (<span class="kw">interface</span>{}, <span class="dt">error</span>) {</a>
+<a>    <span class="kw">switch</span> v.TypeUrl {</a>
+<a>    <span class="kw">case</span> <span class="st">"i"</span>:</a>
+<a>        val, _ := binary.Varint(v.Value)</a>
+<a>        <span class="kw">return</span> <span class="dt">int</span>(val), <span class="ot">nil</span></a>
+<a>    <span class="kw">case</span> <span class="st">"f"</span>:</a>
+<a>        val, _ := binary.Uvarint(v.Value)</a>
+<a>        <span class="kw">return</span> math.Float64frombits(val), <span class="ot">nil</span></a>
+<a>    <span class="kw">case</span> <span class="st">"m"</span>:</a>
+<a>        val, _ := binary.Uvarint(v.Value)</a>
+<a>        <span class="kw">return</span> pr.IncomingScoreMessage{</a>
+<a>            Score: math.Float64frombits(val),</a>
+<a>        }, <span class="ot">nil</span></a>
+<a>    <span class="kw">default</span>:</a>
+<a>        <span class="kw">return</span> <span class="ot">nil</span>, xerrors.Errorf(<span class="st">"unserialize: unknown type %q"</span>, v.TypeUrl)</a>
+<a>    }</a>
+<a>}</a></pre></div>
+<p>To unserialize a value contained within an <kbd>any.Any</kbd> message, we check the contents of the <kbd>TypeUrl</kbd> field and, depending on the type of encoded data, decode its variable-length integer representation using either the <kbd>Varint</kbd> or <kbd>Uvarint</kbd> method.</p>
+<p>For floating-point values, we use the <kbd>math.Float64frombits</kbd> helper to convert the decoded unsigned <kbd>Varint</kbd> representation of the float back into a <kbd>float64</kbd> value. Finally, if the <kbd>any.Any</kbd> value encodes <kbd>IncomingScoreMessage</kbd>, we create and return a new message instance that embeds the floating-point score value that we just decoded.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining job runners for the master and the worker</h1>
+                </header>
+            
+            <article>
+                
+<p>The step for completing the distributed version of the Links 'R' Us PageRank calculation service is to provide a <kbd>job.Runner</kbd> implementation that will allow the <kbd>dbspgraph</kbd> package to interface with the PageRank calculator component that includes the graph-based algorithm that we want to execute.</p>
+<p>As a reminder, this is the interface that we need to implement:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">type</span> Runner <span class="kw">interface</span> {</a>
+<a>    StartJob(Details, bspgraph.ExecutorFactory) (*bspgraph.Executor, <span class="dt">error</span>)</a>
+<a>    CompleteJob(Details) <span class="dt">error</span></a>
+<a>    AbortJob(Details)</a>
+<a>}</a></pre></div>
+<p>The glue logic for masters and workers has a different set of requirements. For example, the master will not perform any graph-related computations apart from processing the aggregator deltas sent in by the workers.</p>
+<p>Therefore, the master does not need to load any graph data into memory. On the other hand, workers not only need to load a subset of the graph data, but they also need to persist the computation results once the job execution completes.</p>
+<p>Consequently, we need to provide not one but two <kbd>job.Runner</kbd> implementations<span>—</span>one for the master and one for workers.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing the job runner for master nodes</h1>
+                </header>
+            
+            <article>
+                
+<p>Let's begin by examining the rather trivial <kbd>StartJob</kbd> method implementation for the master node:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (n *MasterNode) StartJob(_ job.Details, execFactory bspgraph.ExecutorFactory) (*bspgraph.Executor, <span class="dt">error</span>) {</a>
+<a>    <span class="kw">if</span> err := n.calculator.Graph().Reset(); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> <span class="ot">nil</span>, err</a>
+<a>    }</a>
+
+<a>    n.jobStartedAt = n.cfg.Clock.Now()</a>
+<a>    n.calculator.SetExecutorFactory(execFactory)</a>
+<a>    <span class="kw">return</span> n.calculator.Executor(), <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>The <kbd>StartJob</kbd> method records the time when the job was started and performs the following three tasks:</p>
+<ol type="1">
+<li>It resets the graph's internal state. This is important as the calculator component instance is re-used between subsequent job runs.</li>
+<li>It overrides the calculator component's executor factory with the version provided by the <kbd>dbspgraph</kbd> package.</li>
+<li>It invokes the calculator's <kbd>Executor</kbd> method, which uses the installed factory to create and return a new <kbd>bspgraph.Executor</kbd> instance.</li>
+</ol>
+<p>Next, we will examine the implementation of the <kbd>AbortJob</kbd> and <kbd>CompleteJob</kbd> methods:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (n *MasterNode) AbortJob(_ job.Details) {}</a>
+
+<a><span class="kw">func</span> (n *MasterNode) CompleteJob(_ job.Details) <span class="dt">error</span> {</a>
+<a>    n.cfg.Logger.WithFields(logrus.Fields{</a>
+<a>        <span class="st">"total_link_count"</span>: n.calculator.Graph().Aggregator(<span class="st">"page_count"</span>).Get(),</a>
+<a>        <span class="st">"total_pass_time"</span>:  n.cfg.Clock.Now().Sub(n.jobStartedAt).String(),</a>
+<a>    }).Info(<span class="st">"completed PageRank update pass"</span>)</a>
+<a>    <span class="kw">return</span> <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>As far as the <kbd>AbortJob</kbd> method is concerned, there isn't really anything special that we need to do when a job fails. Therefore, we just provide an empty stub for it.</p>
+<p>The <kbd>CompleteJob</kbd> method does nothing more than log the run time for the job and the <em>total</em> number of processed page links. As you probably noticed, the latter value is obtained by directly querying the value of the global <kbd>page_count</kbd> aggregator, which is registered by the calculator component when it sets up its internal state.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The worker job runner</h1>
+                </header>
+            
+            <article>
+                
+<p>The worker's <kbd>StartJob</kbd> implementation is slightly more complicated as we need to load the vertices and edges that correspond to the UUID range assigned to us by the master node. Fortunately, we have already written all of the required bits of code in <a href="dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml">Chapter 11</a>,<em> Splitting Monoliths into Microservices,</em> so we can just go ahead and invoke the loading functions with the appropriate arguments:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (n *WorkerNode) StartJob(jobDetails job.Details, execFactory bspgraph.ExecutorFactory) (*bspgraph.Executor, <span class="dt">error</span>) {</a>
+<a>    n.jobStartedAt = time.Now()</a>
+<a>    <span class="kw">if</span> err := n.calculator.Graph().Reset(); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> <span class="ot">nil</span>, err</a>
+<a>    } <span class="kw">else</span> <span class="kw">if</span> err := n.loadLinks(jobDetails.PartitionFromID, jobDetails.PartitionToID, jobDetails.CreatedAt); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> <span class="ot">nil</span>, err</a>
+<a>    } <span class="kw">else</span> <span class="kw">if</span> err := n.loadEdges(jobDetails.PartitionFromID, jobDetails.PartitionToID, jobDetails.CreatedAt); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> <span class="ot">nil</span>, err</a>
+<a>    }</a>
+<a>    n.graphPopulateTime = time.Since(n.jobStartedAt)</a>
+
+<a>    n.scoreCalculationStartedAt = time.Now()</a>
+<a>    n.calculator.SetExecutorFactory(execFactory)</a>
+<a>    <span class="kw">return</span> n.calculator.Executor(), <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>The <kbd>CompleteJob</kbd> method contains the necessary logic for updating the Links 'R' Us document index with the fresh PageRank scores that we just calculated. Let's take a look at its implementation:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (n *WorkerNode) CompleteJob(_ job.Details) <span class="dt">error</span> {</a>
+<a>    scoreCalculationTime := time.Since(n.scoreCalculationStartedAt)</a>
+<a>    tick := time.Now()</a>
+<a>    <span class="kw">if</span> err := n.calculator.Scores(n.persistScore); err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> err</a>
+<a>    }</a>
+<a>    scorePersistTime := time.Since(tick)</a>
+<a>    n.cfg.Logger.WithFields(logrus.Fields{</a>
+<a>        <span class="st">"local_link_count"</span>:       <span class="bu">len</span>(n.calculator.Graph().Vertices()),</a>
+<a>        <span class="st">"total_link_count"</span>:       n.calculator.Graph().Aggregator(<span class="st">"page_count"</span>).Get(),</a>
+<a>        <span class="st">"graph_populate_time"</span>:    n.graphPopulateTime.String(),</a>
+<a>        <span class="st">"score_calculation_time"</span>: scoreCalculationTime.String(),</a>
+<a>        <span class="st">"score_persist_time"</span>:     scorePersistTime.String(),</a>
+<a>        <span class="st">"total_pass_time"</span>:        time.Since(n.jobStartedAt).String(),</a>
+<a>    }).Info(<span class="st">"completed PageRank update pass"</span>)</a>
+<a>    <span class="kw">return</span> <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>The preceding block of code for persisting the calculation results should seem familiar to you as it has been copied verbatim from <a href="dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml">Chapter 11</a>, <em>Splitting Monoliths into Microservices</em>. The <kbd>Scores</kbd> convenience method iterates the graph vertices and invokes the <kbd>persistScore</kbd> callback with the vertex ID and PageRank score as arguments.</p>
+<p>The <kbd>persistScore</kbd> callback (shown as follows) is a simple wrapper for mapping the vertex ID into a UUID value and calling the <kbd>UpdateScore</kbd> method of the Links 'R' Us document index component:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (n *WorkerNode) persistScore(vertexID <span class="dt">string</span>, score <span class="dt">float64</span>) <span class="dt">error</span> {</a>
+<a>    linkID, err := uuid.Parse(vertexID)</a>
+<a>    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> err</a>
+<a>    }</a>
+<a>    <span class="kw">return</span> n.cfg.IndexAPI.UpdateScore(linkID, score)</a>
+<a>}</a></pre></div>
+<p>Similar to the master job runner implementation, the worker's <kbd>AbortJob</kbd> method is also an empty stub. To keep our implementation as lean as possible, we won't bother rolling back any already persisted score changes if any of the other workers fails after the local worker has already completed the job. Since the PageRank scores are periodically re-calculated, we expect them to be <em>eventually consistent</em>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deploying the final Links 'R' Us version to Kubernetes</h1>
+                </header>
+            
+            <article>
+                
+<p>We have finally reached and conquered the end-goal for the Links 'R' Us project<span>—</span>we have built a feature-complete, microservice-based system where <strong>all</strong> components can be deployed to Kubernetes and individually scaled up or down.</p>
+<p>The last thing we need to do is to update our Kubernetes manifests so we can deploy the distributed version of the PageRank calculator instead of the single-pod version from <a href="dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml">Chapter 11</a>, <em>Splitting Monoliths into Microservices</em>.</p>
+<p>For this purpose, we will create two separate Kubernetes <kbd>Deployment</kbd> resources. The first deployment provision a <strong>single</strong> pod, which executes the PageRank service in the master node, while the second deployment will provision <strong>multiple</strong> pods that execute the service in worker mode. To facilitate the discovery of the master node by the workers, we will place the master node behind a Kubernetes service and point the workers at the DNS entry for the service.</p>
+<p>After applying the proposed changes, our Kubernetes cluster will look as follows:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/ecb9a98f-856b-454c-bb05-05bb41bd94fb.png" style="width:70.83em;height:25.42em;"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><span>Figure 4:</span> The components of the fully distributed Links 'R' Us version</div>
+<p>You can have a look at the full set of Kubernetes manifests for the final version of Links 'R' Us by checking out this book's GitHub repository and examining the contents of the <kbd><span>Chapter12</span>/k8s</kbd> folder.</p>
+<p>If you haven't already set up a <strong>Minikube cluster</strong> and white-listed its private registry, you can either take a quick break and manually follow the step-by-step instructions from <a href="bd9d530b-f50e-4b81-a6c1-95b31e79b8c6.xhtml">Chapter 10</a>, <em>Building, Packaging, and Deploying Software,</em> or simply run <kbd>make bootstrap-minikube</kbd><span>, </span>which will take care of everything for you.</p>
+<p>On the other hand, if you have already deployed any of the Links 'R' Us versions from the previous chapters (either the monolithic or microservice variant), make sure to run <kbd>kubectl delete namespace linksrus</kbd> before proceeding. By deleting the <kbd>linksrus</kbd> namespace, Kubernetes will get rid of all pods, services, and ingresses for Links 'R' Us but leave the data stores (which live in the <kbd>linksrus-data</kbd> namespace) intact.</p>
+<div class="packt_tip">To deploy all required components for Links 'R' Us, you will need to build and push a handful of Docker images. To save you some time, the Makefile in the <kbd><span>Chapter12</span>/k8s</kbd> folder provides two handy build targets to get you up and running as quickly as possible:
+<ul>
+<li><kbd>make dockerize-and-push</kbd><span>: This </span>will build all required Docker images and push them to Minikube's private registry.</li>
+<li><kbd>make deploy</kbd><span>: This</span> will ensure that all required data stores have been provisioned and apply all manifests for deploying the final, microservice-based version of Links 'R' Us in one go.</li>
+</ul>
+</div>
+<p>It's time to give yourself a pat on the back! We have just completed the development of the final version of our Links 'R' Us project. After taking a few minutes to contemplate what we have achieved so far, point your browser to the index page of the frontend and have some fun!    </p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this rather long chapter, we perfo<span>rmed a deep dive in</span><span>to all of the aspects involved in the creation of a distributed graph-processing system that allows us to take any graph-based algorithm created with the</span> <kbd>bspgraph</kbd> <span>package from <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a>,<em> Graph-Based Data Processing,</em> and automatically distribute it to a cluster of worker nodes.</span></p>
+<p><span>What's more, as a practical application of what we learned in this chapter, we modified the Links 'R' Us PageRank calculator service from the previous chapter so that it can now run in distributed mode. By doing so, we achieved the primary goal for this book<span>—</span>to build and deploy a complex Go project where every component can be independently scaled horizontally.</span></p>
+<p><span>The next and final chapter focuses on the reliability aspects of the system we just built. We will be exploring approaches for collecting, aggregating, and visualizing metrics that will help us monitor the health and performance of the Links 'R' Us project.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol type="1">
+<li>Describe the differences between a leader-follower and a multi-master cluster configuration.</li>
+<li>Explain how the checkpoint strategy can be used to recover from errors.</li>
+<li>What is the purpose of the distributed barrier in the out-of-core graph processing system that we built in this chapter?</li>
+<li>Assume that we are provided with a graph-based algorithm that we want to run in a distributed fashion. Would you consider a computation job as completed once the algorithm terminates?</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li><strong>Consul</strong><em>: Secure service networking.</em> <a href="https://consul.io">https://consul.io</a></li>
+<li><strong>Docker</strong><em>: Enterprise container platform.</em> <a href="https://www.docker.com">https://www.docker.com</a></li>
+<li><span class="smallcaps">Lamport, Leslie</span>: Paxos Made Simple. In <em>ACM SIGACT News (Distributed Computing Column) 32, 4 (Whole Number 121, December 2001)</em> (2001), S. 51–58</li>
+<li><span class="smallcaps">Malewicz, Grzegorz</span>; <span class="smallcaps">Austern, Matthew H.</span>; <span class="smallcaps">Bik, Aart J. C</span>; <span class="smallcaps">Dehnert, James C.</span>; <span class="smallcaps">Horn, Ilan</span>; <span class="smallcaps">Leiser, Naty</span>; <span class="smallcaps">Czajkowski, Grzegorz</span>: Pregel: <em>A System for Large-scale Graph Processing</em>. In <em>Proceedings of the 2010 ACM SIGMOD International Conference on Management of Data</em>, <em>SIGMOD '10</em>. New York, NY, USA : ACM, 2010 — ISBN <a href="https://worldcat.org/isbn/978-1-4503-0032-2">978-1-4503-0032-2</a>, S. 135–146</li>
+<li><span class="smallcaps">Ongaro, Diego</span>; <span class="smallcaps">Ousterhout, John</span>: <em>In Search of an Understandable Consensus Algorithm</em>. In <em>Proceedings of the 2014 USENIX Conference on USENIX Annual Technical Conference</em>, <em>USENIX ATC'14</em>. Berkeley, CA, USA : USENIX Association, 2014 — ISBN <a href="https://worldcat.org/isbn/978-1-931971-10-2">978-1-931971-10-2</a>, S. 305–320</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

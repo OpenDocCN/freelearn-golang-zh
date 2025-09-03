@@ -1,0 +1,36 @@
+<html><head></head><body>
+<div class="book" title="Writing concurrent programs">
+<div class="book" title="Selecting from multiple channels"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_5"><a id="ch09lvl2sec160" class="calibre1"/>Selecting from multiple channels</h2></div></div></div><p class="calibre10">Sometimes it is necessary for concurrent programs to handle send and receive operations for multiple channels at the same time. To facilitate such endeavor, the Go language supports the <code class="email">select</code> statement that multiplexes selection among multiple send and receive operations:</p><p class="calibre10"><span class="strong"><em class="calibre11">select {</em></span></p><p class="calibre10"><span class="strong"><em class="calibre11">case &lt;send_ or_receive_expression&gt;:</em></span></p><p class="calibre10"><span class="strong"><em class="calibre11">default:</em></span></p><p class="calibre10"><span class="strong"><em class="calibre11">}</em></span></p><p class="calibre10">The <code class="email">case</code> statement operates similarly to a <code class="email">switch</code> statement with <code class="email">case</code> clauses. The <code class="email">select</code> statement, however, selects one of the send or receive cases which succeeded. If two or more communication cases happen to be ready at the same time, one will be selected at random. The default case is always selected when no other cases succeed.</p><p class="calibre10">The following snippet updates the histogram code to illustrate the use of the <code class="email">select</code> statement. The generator function <code class="email">words</code> select between two channels, <code class="email">out</code> to send data as before and a new channel <code class="email">stopCh</code>, passed as a parameter, which is used to detect an interruption signal to stop sending data:</p><pre class="programlisting">func main() { 
+... 
+   histogram := make(map[string]int) 
+   stopCh := make(chan struct{}) // used to signal stop 
+ 
+   words := words(stopCh, data) // returns handle to channel 
+   for word := range words { 
+         if histogram["the"] == 3 { 
+               close(stopCh) 
+         } 
+         histogram[word]++ 
+   } 
+... 
+} 
+ 
+func words(stopCh chan struct{}, data []string) &lt;-chan string { 
+   out := make(chan string) 
+   go func() { 
+         defer close(out) // closes channel upon fn return 
+         for _, line := range data { 
+               words := strings.Split(line, " ") 
+               for _, word := range words { 
+                     word = strings.ToLower(word) 
+                     select { 
+                     case out &lt;- word: 
+                     case &lt;-stopCh: // succeeds first when close 
+                         return 
+                     } 
+               } 
+         } 
+   }() 
+   return out 
+} 
+</pre><p class="calibre10">golang.fyi/ch09/pattern5.go</p><p class="calibre10">In the previous code snippet, the <code class="email">words</code> generator function will select the first communication operation that succeeds: <code class="email">out &lt;- word</code> or <code class="email">&lt;-stopCh</code>. As long as the consumer code in <code class="email">main()</code> continues to receive from the <code class="email">out</code> channel, the send operation will succeed first. Notice, however, the code in <code class="email">main()</code> closes the <code class="email">stopCh</code> channel when it encounters the third instance of <code class="email">"the"</code>. When that happens, it will cause the receive case, in the select statement, to proceed first causing the goroutine to return.</p></div></div></body></html>

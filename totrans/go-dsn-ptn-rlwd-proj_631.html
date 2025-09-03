@@ -1,0 +1,21 @@
+<html><head></head><body>
+<div class="book" title="Modeling a chat room and clients on the server">
+<div class="book" title="Concurrency programming using idiomatic Go"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_3"><a id="ch01lvl2sec0011" class="calibre1"/>Concurrency programming using idiomatic Go</h2></div></div></div><p class="calibre10">Now we get to use an extremely powerful feature of Go's concurrency offerings the <code class="email">select</code> statement. We can use <code class="email">select</code> statements whenever we need to synchronize or modify shared memory, or take different actions depending on the various activities within our channels.</p><p class="calibre10">Beneath the <code class="email">room</code> structure, add the following <code class="email">run</code> method that contains three <code class="email">select</code> cases:</p><pre class="programlisting">func (r *room) run() { 
+  for { 
+    select { 
+    case client := &lt;-r.join: 
+      // joining 
+      r.clients[client] = true 
+    case client := &lt;-r.leave: 
+      // leaving 
+      delete(r.clients, client) 
+      close(client.send) 
+    case msg := &lt;-r.forward: 
+      // forward message to all clients 
+      for client := range r.clients { 
+        client.send &lt;- msg 
+      } 
+    } 
+  } 
+} 
+</pre><p class="calibre10">Although this might seem like a lot of code to digest, once we break it down a little, we will see that it is fairly simple, although extremely powerful. The top <code class="email">for</code> loop indicates that this method will run forever, until the program is terminated. This might seem like a mistake, but remember, if we run this code as a goroutine, it will run in the background, which won't block the rest of our application. The preceding code will keep watching the three channels inside our room: <code class="email">join</code>, <code class="email">leave</code>, and <code class="email">forward</code>. If a message is received on any of those channels, the <code class="email">select</code> statement will run the code for that particular case.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="note0014" class="calibre1"/>Note</h3><p class="calibre10">It is important to remember that it will only run one block of case code at a time. This is how we are able to synchronize to ensure that our <code class="email">r.clients</code> map is only ever modified by one thing at a time.</p></div><p class="calibre10">If we receive a message on the <code class="email">join</code> channel, we simply update the <code class="email">r.clients</code> map to keep a reference of the client that has joined the room. Notice that we are setting the value to <code class="email">true</code>. We are using the map more like a slice, but do not have to worry about shrinking the slice as clients come and go through time setting the value to <code class="email">true</code> is just a handy, low-memory way of storing the reference.</p><p class="calibre10">If we receive a message on the <code class="email">leave</code> channel, we simply delete the <code class="email">client</code> type from the map, and close its <code class="email">send</code> channel. If we receive a message on the <code class="email">forward</code> channel, we iterate over all the clients and add the message to each client's <code class="email">send</code> channel. Then, the <code class="email">write</code> method of our client type will pick it up and send it down the socket to the browser.</p></div></div></body></html>

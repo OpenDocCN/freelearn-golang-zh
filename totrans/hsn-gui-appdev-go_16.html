@@ -1,0 +1,735 @@
+<html><head></head><body><div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Concurrency, Networking, and Cloud Services</h1>
+                </header>
+            
+            <article>
+                
+<p>So far, we've been focusing on designing and building the graphical elements of applications. Most modern software isn't complete without a solid connection to internet services and networking features. Adding dependencies to remote services could affect the stability of an application if it isn't correctly managed. Concurrency is also a key part of managing an interaction with remote services; we'll need to add more advanced task handling to manage these various communication channels.</p>
+<p>In this chapter, we'll explore the following topics:</p>
+<ul>
+<li>Thread handling and managing the user interface</li>
+<li><span>Including remote resources in your application</span></li>
+<li>Connecting to cloud services and handling error cases</li>
+<li>Maintaining user experience when the network disconnects</li>
+</ul>
+<p>By the end of this chapter, you should be able to integrate remote resources and cloud services into your application. You'll also see how to maintain a responsive user interface despite this new functionality relying on network connections that may be unreliable or unavailable. The addition of long-running background processes and the communication challenges they can cause will be completely solved as your application is updated to manage data from a multitude of sources.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Concurrency, threads, and GUI updates</h1>
+                </header>
+            
+            <article>
+                
+<p>Goroutines are a very powerful tool for running concurrent operations and background tasks, especially if they're short-running. As we move more application logic and data handling to background processes, we need to add appropriate safeguards to ensure that errors are handled and that the user interface is kept up to date.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Managing long-running processes</h1>
+                </header>
+            
+            <article>
+                
+<p>A goroutine is typically created so that code flow continues while another task completes in the background. <span>If these tasks start to be used for application-critical tasks or to handle important data, especially if these tasks could take a long time, we need to manage them more carefully. The main consideration is how to shut down background tasks gracefully if the application exits. This may not seem essential, and for some tasks it may not be, but if the process is involved in data integrity, we want to be certain that early termination doesn't cause problems.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Signaling shutdown</h1>
+                </header>
+            
+            <article>
+                
+<p>To demonstrate the problem, let's start with a simple goroutine demo; we'll launch three threads that print progress. For each thread, we'll print <kbd>Started</kbd> followed by <kbd>.</kbd> until the thread stops, at which point <kbd>Ended</kbd> will be printed:</p>
+<pre><span>package </span>main<br/><br/><span>import </span>(<br/>   <span>"fmt"<br/></span><span>   "time"<br/></span>)<br/><br/><span>func </span>tick() {<br/>   fmt.Println(<span>"Started"</span>)<br/><br/>   <span>for </span>_ = <span>range </span>time.NewTicker(time.<span>Second</span>).C {<br/>      fmt.Print(<span>"."</span>)<br/>   }<br/><br/>   fmt.Println(<span>"Ended"</span>)<br/>}<br/><br/><span>func </span>main() {<br/>   <span>go </span>tick()<br/>   <span>go </span>tick()<br/>   <span>go </span>tick()<br/><br/>   time.Sleep(<span>5 </span>* time.<span>Second</span>)<br/>}</pre>
+<p>If you run this code, you'll see the following output. The threads start and tick as expected and, after a <kbd>5</kbd> second timeout, the program exits. No <kbd>Ended</kbd> messages are seen:</p>
+<div class="CDPAlignCenter CDPAlign packt_figref"><img src="Images/ac958baf-0554-4a72-910b-2c719f22641c.png" style="width:26.83em;height:8.67em;" width="716" height="232"/></div>
+<div class="CDPAlignCenter CDPAlign packt_figref">The output of unterminated goroutines</div>
+<p>As you can see from this simple demo, the goroutines aren't gracefully terminated; they simply stop running. If we're writing complex data, sending a message to a remote server, or waiting for an important response, this would probably result in data corruption or other unexpected results. Let's look at how to signal goroutines to stop when our application terminates.</p>
+<p>We start by creating a simple channel called <kbd>stop</kbd> that's passed into each goroutine. When the application is ready to exit, we'll signal each thread so it can finish its work by closing this channel. We update the tick function to check whether this new channel is closed and if so, it'll exit. To allow the code to complete before the application exits, we must add a new pause at the end of <kbd>main()</kbd> for the cleanup. The updated code looks like this:</p>
+<pre><span>package </span>main<br/><br/><span>import </span>(<br/>   <span>"fmt"<br/></span><span>   "time"<br/></span>)<br/><br/><span>func </span>tickUntil(stop <span>chan</span>(<span>struct</span>{})) {<br/>   fmt.Println(<span>"Started"</span>)<br/><br/>   ticker := time.NewTicker(time.<span>Second</span>).C<br/>   <span>for </span>{<br/>      <span>select </span>{<br/>      <span>case </span>&lt;-ticker:<br/>         fmt.Print(<span>"."</span>)<br/>      <span>case </span>&lt;-stop:<br/>         fmt.Println(<span>"Ended"</span>)<br/>         <span>return<br/></span><span>      </span>}<br/>   }<br/>}<br/><br/><span>func </span>main() {<br/>   stop := make(<span>chan</span>(<span>struct</span>{}))<br/><br/>   <span>go </span>tickUntil(stop)<br/>   <span>go </span>tickUntil(stop)<br/>   <span>go </span>tickUntil(stop)<br/><br/>   time.Sleep(<span>5 </span>* time.<span>Second</span>)<br/>   close(stop)<br/><br/>   time.Sleep(<span>10 </span>* time.<span>Millisecond</span>)<br/>}</pre>
+<p>Running this should display the following output, which is what we were looking for in the first place:</p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/bfd5e764-bd47-4678-8427-e92fbb82982b.png" style="width:22.67em;height:10.25em;" width="698" height="316"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">With a signal channel, our threads can end just before the program exits</div>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Checking completion</h1>
+                </header>
+            
+            <article>
+                
+<p>The preceding example technically works, but depending on a timer to wait for threads to complete isn't reliable. If the threads need to wait for a response or are part way through a long calculation, we'll still have potential corruption if the timer elapses. The solution is to have the goroutine signal once the cleanup is complete. This can be done with <kbd>sync.WaitGroup</kbd> or by using another channel.</p>
+<p>For our completed thread example, we create <kbd>sync.WaitGroup</kbd>, which is passed to each of the tick threads. Before we start the goroutine, we increment the number of threads to wait on using <kbd>wg.Add(1)</kbd>. Once each thread is complete, they mark that using <kbd>wg.Done()</kbd>. Our application is then free to call <kbd>wg.Wait()</kbd> immediately before exiting, safe in the knowledge that it won't prematurely terminate any of the grouped background processes.</p>
+<p>The following code demonstrates signaling and waiting for multiple goroutines:</p>
+<pre><span>package </span>main<br/><br/><span>import </span>(<br/>   <span>"fmt"<br/></span><span>   "sync"<br/></span><span>   "time"<br/></span>)<br/><br/><span>func </span>tickAndEnd(stop <span>chan </span>(<span>struct</span>{}), wg *sync.WaitGroup) {<br/>   wg.Add(<span>1</span>)<br/>   <span>go func</span>() {<br/>      fmt.Println(<span>"Started"</span>)<br/><br/>      ticker := time.NewTicker(time.<span>Second</span>).C<br/>      <span>for </span>{<br/>         <span>select </span>{<br/>         <span>case </span>&lt;-ticker:<br/>            fmt.Print(<span>"."</span>)<br/>         <span>case </span>&lt;-stop:<br/>            fmt.Println(<span>"Ended"</span>)<br/>            wg.Done()<br/>            <span>return<br/></span><span>         </span>}<br/>      }<br/>   }()<br/>}<br/><br/><span>func </span>main() {<br/>   stop := make(<span>chan </span>(<span>struct</span>{}))<br/>   wg := &amp;sync.WaitGroup{}<br/><br/>   tickAndEnd(stop, wg)<br/>   tickAndEnd(stop, wg)<br/>   tickAndEnd(stop, wg)<br/><br/>   time.Sleep(<span>5 </span>* time.<span>Second</span>)<br/>   close(stop)<br/><br/>   wg.Wait()<br/>}</pre>
+<p>The output of this is almost exactly the same as the previous version, but the specific timing of the threads ending is slightly different:</p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/e175e59c-936b-44f5-81bb-b10881ddff2c.png" style="width:26.17em;height:11.58em;" width="718" height="319"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">Waiting for our goroutines to complete instead of waiting a set time</div>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Communicating through channels</h1>
+                </header>
+            
+            <article>
+                
+<p>As we've seen in earlier chapters, goroutines offer powerful but simple concurrent operation. Most of these examples have been generating output or responding to user requests, but long running processes are often generating data that needs to be utilized by the application. In this example, we see how a channel can be used to effectively gather data from multiple threads to aggregate and report.</p>
+<p>Our example is a simple tool that'll get the disk usage of a directory. For each element within this directory, we'll start a goroutine (<kbd>dirSize()</kbd>) that'll calculate the space used by the directory and the files it contains. <span>This function returns the result through a channel so the application can use the information once it's available:</span></p>
+<pre><span>package </span>main<br/><br/><span>import </span>(<br/>   <span>"fmt"<br/></span><span>   "os"<br/></span><span>   "path/filepath"<br/></span>)<br/><br/><span>type </span>sizeInfo <span>struct </span>{<br/>   name string<br/>   size int64<br/>}<br/><br/><span>func </span>dirSize(path string, result <span>chan </span>sizeInfo) {<br/>   <span>var </span>size int64<br/><br/>   filepath.Walk(path, <span>func</span>(_ string, file os.FileInfo, err error) error {<br/>      <span>if </span>err == nil {<br/>         size += file.Size()<br/>      }<br/><br/>      <span>return </span>nil<br/>   })<br/><br/>   result &lt;- sizeInfo{filepath.Base(path), size}<br/>}</pre>
+<p>Within the <kbd>reportUsage()</kbd> function, we start as many goroutines as there are files reported in the specified directory. The code then prints the usage result from each goroutine when it completes using <kbd>for info := range result</kbd>, and then terminates when every result is returned (<kbd>if results == len(files) {break}</kbd>), adding a simple total before we exit:</p>
+<pre><span>func </span>reportUsage(path string) {<br/>   f, _ := os.Open(path)<br/>   files, _ := f.Readdir(-<span>1</span>)<br/>   f.Close()<br/><br/>   result := make(<span>chan </span>sizeInfo)<br/>   <span>for </span>_, file := <span>range </span>files {<br/>      <span>go </span>dirSize(filepath.Join(path, file.Name()), result)<br/>   }<br/><br/>   <span>var </span>total int64<br/>   results := <span>0<br/></span><span>   </span><span>for </span>info := <span>range </span>result {<br/>      total += info.size<br/>      fmt.Printf(<span>"%s:\t%d\n"</span>, info.name, info.size)<br/><br/>      results++<br/>      <span>if </span>results == len(files) {<br/>         <span>break<br/></span><span>      </span>}<br/>   }<br/>   fmt.Printf(<span>"\nTotal:\t\t%d\n"</span>, total)<br/>}</pre>
+<p><span>Lastly, we add a </span><kbd>main()</kbd><span> function that simply parses arguments to initialize the </span><kbd>reportUsage()</kbd><span> function. If no argument is specified, we'll report for the current directory reported by <kbd>os.Getwd()</kbd>:</span></p>
+<pre><span>func </span>main() {<br/>   path, _ := os.Getwd()<br/><br/>   <span>if </span>len(os.Args) == <span>2 </span>{<br/>      path = os.Args[<span>1</span>]<br/>   }<br/><br/>   fmt.Println(<span>"Scanning"</span>, path)<br/>   reportUsage(path)<br/>}</pre>
+<p>Running this example may return immediately, but if you invoke it on a large directory, it may take some time to complete. By doing this, you can see that each printed appears as soon as the related goroutine completes, and the total is always last to appear. The preceding listing doesn't include some boilerplate number formatting seen in the resulting screenshot (that can be found in this book's code repository):</p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/12a868a5-a3bd-4202-8373-f3bc1ad82f47.png" style="width:25.92em;height:10.75em;" width="819" height="341"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">Reporting the usage of a directory; typically smaller items appear first as they're faster to calculate</div>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Graphical updates from goroutines</h1>
+                </header>
+            
+            <article>
+                
+<p>Communicating with the graphical interface (in most frameworks) means managing threads correctly. In the preceding example, we could have updated a GUI within the <kbd>dirSize()</kbd> method, adding a row to a table, for instance. In theory, that would have avoided the need for a channel and the struct that we passed back to the <kbd>reportUsage()</kbd> function. However, changing threads is a (relatively) slow process depending on other application activities, and moreover we should try to separate our logic and processing from the user interface code. Doing so will make it easier to reuse code later and possibly to change toolkit if our requirements change.</p>
+<p>Our design to handle most of the user interaction in a single function means that our actual directory usage code is completely separate from our user interface. Let's update the preceding example to generate a graphical output instead. We'll use Go-GTK this time, as its thread handling is quite explicit:</p>
+<pre><span>func </span>gtkReportUsage(path string, list *gtk.ListStore, totalLabel *gtk.Label) {<br/>   f, _ := os.Open(path)<br/>   files, _ := f.Readdir(-<span>1</span>)<br/>   f.Close()<br/><br/>   result := make(<span>chan </span>sizeInfo)<br/>   <span>for </span>_, file := <span>range </span>files {<br/>      <span>go </span>dirSize(filepath.Join(path, file.Name()), result)<br/>   }<br/><br/>   <span>var </span>total int64<br/>   results := <span>0<br/></span><span>   </span><span>for </span>info := <span>range </span>result {<br/>      <span>var </span>listIter gtk.TreeIter<br/>      total += info.size<br/><br/>      gdk.ThreadsEnter()<br/>      list.Append(&amp;listIter)<br/>      list.SetValue(&amp;listIter, <span>0</span>, info.name)<br/>      list.SetValue(&amp;listIter, <span>1</span>, formatSize(info.size))<br/>      gdk.ThreadsLeave()<br/><br/>      results++<br/>      <span>if </span>results == len(files) {<br/>         <span>break<br/></span><span>      </span>}<br/>   }<br/><br/>   gdk.ThreadsEnter()<br/>   totalLabel.SetText(fmt.Sprintf(<span>"Total: %s"</span>, formatSize(total)))<br/>   gdk.ThreadsLeave()<br/>}</pre>
+<p>Notice that our replacement usage reporting method has two instances of <kbd>gdk.ThreadsEnter()</kbd> and <kbd>gdk.ThreadsLeave()</kbd>; each time we update the user interface, we must switch to the <kbd>gdk</kbd> main thread. As in previous Go-GTK examples, we need to also update the main method to correctly initialize thread handling:</p>
+<pre>func main() {<br/>   glib.ThreadInit(nil)<br/>   gdk.ThreadsInit()<br/>   gdk.ThreadsEnter()<br/>   gtk.Init(nil)<br/><br/>   window := gtk.NewWindow(gtk.WINDOW_TOPLEVEL)<br/><br/>...<br/><br/>   gtk.Main()<br/>}<br/><br/></pre>
+<p>The full user interface creation is omitted from this chapter for brevity, but can be found in this book's source code (in <kbd><span>chapter12/goroutines/gtkdiskusage.go</span></kbd>). It's a requirement of most graphical toolkits that background processes switch to the main or graphics thread when updating the user interface. Some, such as Fyne, don't have this requirement, which you can see in an alternative version of the example (also available in this book's code repository at <kbd>chapter12/goroutines/fynediskusage.go</kbd>). Instead of wrapping GUI calls in thread handling code, we simply call <kbd>list.Append()</kbd> or <kbd>label.SetText()</kbd> from the background code and the interface will update accordingly:</p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/ef0f0cb4-f2c7-4110-ae17-c9b403eda9ea.png" style="width:14.33em;height:8.00em;" width="511" height="283"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">A GTK interface for the disk usage example</div>
+<div>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/e66deffd-88fc-40a2-b83f-26083d0e1f1a.png" style="width:8.33em;height:8.58em;" width="302" height="310"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">The same disk usage example using Fyne</div>
+</div>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Network resources and caching</h1>
+                </header>
+            
+            <article>
+                
+<p>Accessing remote resources, on a local network or from a server across the internet, is likely to play a part in most applications. Unfortunately, it's also the source of a significant number of potential issues: slow responses, unexpected data, or no data at all. Let's look at some ways we can work to create a robust application even when we need to use the network and integrate cloud services.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Loading remote resources</h1>
+                </header>
+            
+            <article>
+                
+<p>Accessing resources in Go is normally through a byte stream, either locally (for embedded resources or file system access) or remotely (for HTTP requests and data from a remote server). As the method for reading local and remote data is similar, we can load remote resources in most of the places where local or embedded assets have been used.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Images</h1>
+                </header>
+            
+            <article>
+                
+<p>Following the stream-based design, the Go <kbd>image</kbd> package decodes images from a stream. By connecting to a remote stream and reading the bytes from the request, we can easily render an image from a web server. The following code uses the Fyne <kbd>canvas.NewImageFromImage()</kbd> function to render a Go decoded image, which we've loaded from the <a href="https://golang.org/doc/gopher/frontpage.png">https://golang.org/doc/gopher/frontpage.png</a> URL using <kbd>image.Decode()</kbd>:</p>
+<pre><span>package </span>main<br/><br/><span>import </span>(<br/>   <span>"image"<br/></span><span>   </span>_ <span>"image/png"<br/></span><span>   "io"<br/></span><span>   "log"<br/></span><span>   "net/http"<br/></span><span><br/></span><span>   "fyne.io/fyne"<br/></span><span>   "fyne.io/fyne/app"<br/></span><span>   "fyne.io/fyne/canvas"<br/></span>)<br/><br/><span>func </span>readStream(url string) io.ReadCloser {<br/>   res, err := http.Get(url)<br/>   <span>if </span>err != nil || res.StatusCode != <span>200 </span>{<br/>      log.Fatal(<span>"Error reading URL"</span>, err)<br/>   }<br/><br/>   <span>return </span>res.Body<br/>}<br/><br/><span>func </span>remoteImage(url string) image.Image {<br/>   stream := readStream(url)<br/>   <span>defer </span>stream.Close()<br/><br/>   m, _, err := image.Decode(stream)<br/>   <span>if </span>err != nil {<br/>      log.Fatal(<span>"Error reading image"</span>, err)<br/>   }<br/><br/>   <span>return </span>m<br/>}<br/><br/><span>func </span>main() {<br/>   app := app.New()<br/>   w := app.NewWindow(<span>"Remote Image"</span>)<br/><br/>   img := canvas.NewImageFromImage(remoteImage("https://golang.org/doc/gopher/frontpage.png"))<br/>   img.SetMinSize(fyne.Size{<span>180</span>, <span>250</span>})<br/>   w.SetContent(img)<br/>   w.ShowAndRun()<br/>}</pre>
+<p>As you would expect, this application opens a single window with the image loaded as its content:</p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/71afb2b1-5e52-4d3a-a18d-96c1d4b2ddaa.png" style="width:8.33em;height:13.17em;" width="254" height="404"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">Loading a file from the internet</div>
+<p>But this only works appropriately when the internet connection is behaving correctly and, even then, may take longer than the user expects to load. Before we look at strategies to improve this, let's see how to do the same for data downloaded from a web service.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">JSON</h1>
+                </header>
+            
+            <article>
+                
+<p>To explore how to work with remote data from a web service, we shall start by adapting our web service example from <a href="62fca679-0393-4bcf-a94d-dbfd9b862f9d.xhtml">Chapter 3</a>, <em>Go to the Rescue!</em>. The code is slimmed down and updated to use the same <kbd>readStream()</kbd> function as created for the preceding image example. The resulting code is very basic but demonstrates how easily we can decode JSON data into a struct using built-in Go features:</p>
+<pre><span>type Person struct {<br/>   Title     string `json:"title,omitempty"`<br/>   Firstname string `json:"firstname"`<br/>   Surname   string `json:"surname"`<br/><br/>   Username string `json:"username"`<br/>   Password string `json:"-"`<br/>}<br/><br/>func </span>main() {<br/>   fmt.Println(<span>"Downloading..."</span>)<br/>   stream := remote.ReadStream(<span>"http://echo.jsontest.com/title/Sir/" </span>+<br/>      <span>"firstname/Tom/surname/Jones/username/singer1/"</span>)<br/>   <span>defer </span>stream.Close()<br/><br/>   person := &amp;Person{}<br/>   json.NewDecoder(stream).Decode(person)<br/>   fmt.Println(<span>"Decoded:"</span>, person)<br/>}</pre>
+<p>Using a single method for our resource loading enables us to put more robust error handling in a central place. Until we've made those improvements, our application will crash if the request fails (no internet or server error, for example):</p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/cfaf7f47-d26d-4367-a7f4-e1006dcd73ee.png" style="width:34.00em;height:7.25em;" width="1124" height="240"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">Image failure when there's no network connection</div>
+<div>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/3492757b-c8aa-40d4-a532-694465b75930.png" style="width:32.58em;height:8.67em;" width="1124" height="299"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">JSON can't be accessed when offline either</div>
+</div>
+<p>While these errors could be handled better, we would still have downloaded no content. An image not loading may not matter, situations when the connection but missing JSON data would probably reduce the functionality of our application. What we should aim for is to better handle situations where the connection isn't present or isn't responding correctly.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Caching resource data</h1>
+                </header>
+            
+            <article>
+                
+<p>Our first approach to providing a better experience when an internet connection is slow or unreliable is to implement a caching mechanism for our remote resources. With this in place, a single online run of the application would be sufficient to defend against connectivity problems as it'll populate the cache data. The bonus is that, on repeated runs of the application, it'll be much faster to load these resources.</p>
+<p>Building on the previous image example, we implement a new function, <kbd>cacheStream()</kbd>, which we'll call instead of <kbd>readStream()</kbd>. A helper function called <kbd>cacheFileName()</kbd> establishes a file location to use for the cache based on a <kbd>url</kbd> parameter. Every time we request a URL using this function, it'll attempt to load a cached copy from that location; if it's present, then <kbd>io.ReadCloser</kbd> to this location will be returned directly. If the cache file isn't present, then we use the original <kbd>readStream()</kbd> function to download the content into the cache file and then return a stream to the cache file as before:</p>
+<pre><span>func c</span>acheFileName(u string) string {<br/>   id, _ := url.Parse(u)<br/>   file := filepath.Base(id.Path)<br/>   <span>return </span>path.Join(<span>"/tmp/"</span>, fmt.Sprintf(<span>"%s:%s"</span>, id.Hostname(), file))<br/>}<br/><br/><span>func c</span>acheStream(url string) io.ReadCloser {<br/>   cacheFile := cacheFileName(url)<br/>   <span>if </span>_, err := os.Stat(cacheFile); !os.IsNotExist(err) {<br/>      fmt.Println(<span>"Found cached file at"</span>, cacheFile)<br/>      file, _ := os.Open(cacheFile)<br/>      <span>return </span>file<br/>   }<br/><br/>   fmt.Println(<span>"No cache found, downloading"</span>)<br/>   stream := readStream(url)<br/>   writer, _ := os.Create(cacheFile)<br/>   io.Copy(writer, stream)<br/>   stream.Close()<br/>   writer.Close()<br/><br/>   fmt.Println(<span>"Saved to"</span>, cacheFile)<br/>   stream, _ = os.Open(cacheFile)<br/>   <span>return </span>stream<br/>}</pre>
+<p>This implementation is just an illustration of how this can be done; if it were to be used in a production application, you would need to use a better cache location and handle potential thread issues.</p>
+<div class="packt_infobox">In the 1.11 release of Go, there's a new <kbd>os.UserCacheDir()</kbd> function. However, it's often wise to wait for a while before relying on new functionality as not everyone will have upgraded yet.</div>
+<p>The benefit of the stream-based approach is that we can use it for assets other than images. Just like the image example, we can update our JSON code to use <kbd>cacheStream()</kbd> instead of <kbd>readStream()</kbd>, and our data will be downloaded once and then read from the local file by the cache code:</p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/fa2ff163-efdf-4517-86fe-0d3f225667ec.png" style="width:27.08em;height:10.67em;" width="780" height="306"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">Caching our remote image means better resilience of the application</div>
+<div>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/47120207-bee3-4bde-b4f4-105e0f218f53.png" style="width:27.25em;height:14.67em;" width="791" height="424"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">By caching the JSON, our application can function if the network fails</div>
+</div>
+<p>These examples should help to work with remote resources in your application, but are relatively simple examples. How do we work with more complicated cloud services?</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Connecting to cloud services</h1>
+                </header>
+            
+            <article>
+                
+<p>There are many frameworks and libraries available that aim to help <span>you </span>to work with cloud services in Go. However, if you ask the Go community which is best, they'll probably suggest that you stick with the built-in packages. Doing so may seem strange for anyone coming from C or Java (or many other languages created before internet connected applications became commonplace), but the standard library for Go is very capable. We'll explore here how to work with the provided tools and add cloud service-based functionality to our code without additional dependencies.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Encoding</h1>
+                </header>
+            
+            <article>
+                
+<p>To start looking at this, we'll return to the <kbd>EmailMessage</kbd> model defined in the <kbd>client</kbd> package at <a href="https://github.com/PacktPublishing/Hands-On-GUI-Application-Development-in-Go/tree/master/client">https://github.com/PacktPublishing/Hands-On-GUI-Application-Development-in-Go/tree/master/client</a>, which was imported in previous chapters. By adding simple hints to this object, we can correctly serialize and deserialize in both JSON and XML formats with ease.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">JSON</h1>
+                </header>
+            
+            <article>
+                
+<p>As the convention in JSON is for map keys to be in lowercase, we add hints to our struct of the <kbd>`json:"subject"`</kbd> form that tell the <kbd>json</kbd> package how to handle the field names within the struct. The updated definition should look like the following code:</p>
+<pre><span>type </span>EmailMessage <span>struct </span>{<br/>   Subject string    <span>`json:"subject"`<br/></span><span>   </span>Content string    <span>`json:"content"`<br/></span><span>   </span>To      Email     <span>`json:"to"`<br/></span><span>   </span>From    Email     <span>`json:"from"`<br/></span><span>   </span>Date    time.Time <span>`json:"sent"`<br/></span>}</pre>
+<p>To aid in testing, let's also add a <kbd>String()</kbd> function to the definition for easier debugging later:</p>
+<pre><span>func </span>(e *EmailMessage) String() string {<br/>   format := <span>"EmailMessage{\n  To:%s\n  From:%s\n  Subject:%s\n  Date:%s\n}"<br/></span><span>   </span><span>return </span>fmt.Sprintf(format, e.To, e.From, e.Subject, e.Date.String())<br/>}</pre>
+<p>Once this is in place, we can add some code that demonstrates the usage. Firstly, let's construct a new <kbd>EmailMessage</kbd> object and encode it to JSON. The encoding is very simple, and is illustrated as follows. We just create a new <kbd>json.Encoder</kbd> instance (that will output to the standard output), set the indent values (for improved readability), and ask it to encode our struct:</p>
+<pre>fmt.Println(<span>"To JSON:"</span>)<br/>encoder := json.NewEncoder(os.Stdout)<br/>encoder.SetIndent(<span>""</span>, <span>"  "</span>)<br/>encoder.Encode(email)</pre>
+<p>Decoding a struct from JSON is also simple. We connect to a URL, open a stream using code from earlier in this chapter (the URL is omitted here for brevity), and defer the closing of the stream. Then, a new <kbd>json.Decoder</kbd> instance is created from this stream and we ask it to decode into the email struct. We'll then output the data (using the preceding helpful <kbd>String()</kbd> function) to see the result:</p>
+<pre>stream := readStream(urlOmitted)<br/><span>defer </span>stream.Close()<br/><br/>email := &amp;EmailMessage{}<br/>json.NewDecoder(stream).Decode(email)<br/>fmt.Println(<span>"Downloaded:"</span>, email)</pre>
+<p>Running all of that'll result in some pretty easy-to-read output that shows we've successfully created, encoded, and then decoded JSON data for our struct:</p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/7554c724-fbfc-4a81-a2d7-c51f49da445a.png" style="width:28.75em;height:23.25em;" width="462" height="372"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">JSON data from a struct and from a WebService</div>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">XML</h1>
+                </header>
+            
+            <article>
+                
+<p>Working with XML is very similar to JSON. In fact, as XML and Go share the semantics of capitalizing their public variable names, there's less mapping annotation required, so the struct only requires a single mapping tag:</p>
+<pre><span>type </span>EmailMessage <span>struct </span>{<br/>   Subject string<br/>   Content string<br/>   To      Email<br/>   From    Email<br/>   Date    time.Time <span>`xml:"Sent"`<br/></span>}</pre>
+<p>Encoding and decoding are almost identical; obviously, we need to create <kbd>xml.Encoder</kbd> and <kbd>xml.Decoder</kbd> rather than the JSON counterparts. The only other difference is the method call to set the indenting (only required for pretty printing):</p>
+<pre>fmt.Println(<span>"To XML:"</span>)<br/>encoder := xml.NewEncoder(os.Stdout)<br/>encoder.Indent(<span>""</span>, <span>"  "</span>)<br/>encoder.Encode(email)</pre>
+<p>And, we can use a web service to provide us with XML to decode (the URL is omitted here for brevity but can be found in this book's source code repository):</p>
+<pre>stream := readStream(urlOmitted)<br/><span>defer </span>stream.Close()<br/><br/>email := &amp;EmailMessage{}<br/>xml.NewDecoder(stream).Decode(email)<br/>fmt.Println(<span>"Downloaded:"</span>, email)</pre>
+<p>Executing all of the preceding code will give a similar output to the JSON example but with a different format when encoded. Note also that the variable names start with uppercase letters, which is common in XML:</p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/a851fd81-508d-4ea3-85a5-8bfa32054e5d.png" style="width:28.75em;height:23.50em;" width="477" height="390"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">XML data can just as easily be used when communicating with WebServices</div>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Authentication – OAuth 2.0</h1>
+                </header>
+            
+            <article>
+                
+<p>Authentication is often a requirement for accessing a service over the web—not always for the entire API, but certainly to access privileged user data. Most web-based authentication currently utilizes OAuth 2.0, a framework that allows applications to gain partial access to user data after permission is granted by the user. The authentication will need to show a web page the first time a resource is accessed to explain the request. As a GUI-based application, this workflow is often presented using an embedded browser window to hide the complexity of going to a web page for the permission request. Unfortunately, such functionality isn't built into many of the toolkits we've covered and so we'll instead simply open an external web browser for illustrating the workflow. This should only be required for first usage and, after that, the access <span>granted </span>should be remembered across application runs.</p>
+<p>To demonstrate authentication, we'll further progress the client code used in each GoMail example. We'll extend it to read from the Gmail APIs to download messages. For this, you'll need to have a Gmail account and to have created a project in the Google Developer Console and enabled API access, which will generate <kbd>CLIENT_ID</kbd> and <kbd>CLIENT_SECRET</kbd>. First of all, we'll create a new function called <kbd>authStream()</kbd> that'll take a URL <kbd>string</kbd> parameter and return an <kbd>io.ReadCloser</kbd> stream like the previous <kbd>readStream()</kbd> and <kbd>cacheStream()</kbd> functions.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">First request</h1>
+                </header>
+            
+            <article>
+                
+<p>To return an authenticated stream, we need to check whether authentication is required (a status code of 401 on an HTTP request means just that). If we've already authenticated, then the request will complete as normal and we can just return the request body. If authentication is required, then we must initiate the process by loading a web browser at the correct URL to ask the user for permission; this is completed by a helper function, <kbd>openBrowser()</kbd>, which can be found in this book's source code repository.</p>
+<p>When the browser window opens, the user will be told about the permission being requested and, assuming they accept, the page will redirect to a callback URL. We need to set up a simple web server locally to handle this redirect. To do so, we register a handler at the <kbd>/oauth/callback</kbd> path and wait for a connection on port 19999.</p>
+<p>The server is started, which will cause the function to block until we shut it down later:</p>
+<pre><span>func </span>authStream(url string) io.ReadCloser {<br/>   ret, err := client.Get(url)<br/><br/>   <span>if </span>err == nil &amp;&amp; ret.StatusCode != <span>401 </span>{<br/>      <span>return </span>ret.Body<br/>   }<br/><br/>   fmt.Println("Requesting authorization")<br/>   openbrowser(conf.AuthCodeURL(<span>"state"</span>, oauth2.AccessTypeOffline))<br/><br/>   http.HandleFunc(<span>"/oauth/callback"</span>, callbackHandler)<br/>   server = &amp;http.Server{Addr: <span>":19999"</span>, Handler: nil}<br/>   server.ListenAndServe()<br/><br/>   <span>return </span>retReader<br/>}</pre>
+<p>The callback handler is relatively simple. It's responsible for extracting the authorization code from the redirection and, using this code, requesting a reusable token from the server that sent the single-use code (this is handled by <kbd>conf.Exchange()</kbd>). Upon the exchange completing, we try once again to connect to the URL originally specified; if we, succeed, then the return stream is set and if not, we fail with the appropriate error. Whatever the outcome, we prompt the user to close the browser window (as web page security dictates this can't be done automatically). After we've returned this content to the user, we'll shut down the server. This returns control to the original <kbd>authStream()</kbd> function, which will return the newly authenticated request stream:</p>
+<pre><span>func </span>callbackHandler(w http.ResponseWriter, r *http.Request) {<br/>   queryParts, _ := url.ParseQuery(r.URL.RawQuery)<br/><br/>   authCode := queryParts["code"][0]<br/>   tok, err := conf.Exchange(ctx, authCode)<br/>   <span>if </span>err != nil {<br/>      log.Fatal(err)<br/>   }<br/>   client = conf.Client(ctx, tok)<br/><br/>   ret, err := client.Get(<span>"https://www.googleapis.com/gmail/v1/users/me/messages"</span>)<br/>   <span>if </span>err != nil {<br/>      fmt.Fprint(w, <span>"&lt;p&gt;&lt;strong&gt;Authentication Failed&lt;/strong&gt;&lt;/p&gt;"</span>)<br/>      fmt.Fprintf(w, <span>"&lt;p style=\"color: red\"&gt;%s&lt;/p&gt;"</span>, err.Error())<br/>      fmt.Fprint(w, <span>"&lt;p&gt;Please close this window and try again.&lt;/p&gt;"</span>)<br/>      log.Fatal(err)<br/>   } <span>else </span>{<br/>      fmt.Fprint(w, <span>"&lt;p&gt;&lt;strong&gt;Authentication Completed&lt;/strong&gt;&lt;/p&gt;"</span>)<br/>      fmt.Fprint(w, <span>"&lt;p&gt;Please close this window.&lt;/p&gt;"</span>)<br/><br/>      retReader = ret.Body<br/>   }<br/><br/>   server.Shutdown(context.Background())<br/>}</pre>
+<p>The last piece of this puzzle is to set up the OAuth2 configuration and context. We'll be requesting <kbd>read-only</kbd> authentication scope from the Gmail API and specifying our local server for the callback URL. You'll need to provide values for <kbd>CLIENT_ID</kbd> and <kbd>CLIENT_SECRET</kbd> for this to operate correctly. Much of the configuration is helpfully provided by the <kbd>google.Endpoint</kbd> definition from the <kbd>golang.org/x/oauth2/google</kbd> package:</p>
+<pre><span>func </span>setupOAuth() {<br/>   <span>// Your credentials should be obtained from the Google Developer Console<br/></span><span>   // (https://console.developers.google.com).<br/></span><span>   </span>conf = &amp;oauth2.Config{<br/>      ClientID:     <span>"CLIENT_ID"</span>,<br/>      ClientSecret: <span>"CLIENT_SECRET"</span>,<br/>      Scopes:       []string{<span>"https://www.googleapis.com/auth/gmail.readonly"</span>},<br/>      Endpoint:     google.Endpoint,<br/>      RedirectURL:  <span>"http://127.0.0.1:19999/oauth/callback"</span>,<br/>   }<br/>   ctx = context.WithValue(context.Background(), oauth2.HTTPClient, client)<br/>}</pre>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Storing tokens</h1>
+                </header>
+            
+            <article>
+                
+<p>For a repeat request, we can avoid having the user go through a permission workflow again by reusing the token we've been issued. The token that's returned by <kbd>conf.Exchange()</kbd> can be persisted and used in subsequent requests. This token contains a reference to refresh the token, which means that, even if the token has expired, the application can probably request a new token automatically.</p>
+<p>To store and retrieve the token, we shall use a JSON serialization that's already set up on the <kbd>oauth2.Token</kbd> type. When the token is originally issued, we'll save it to a file (this could be a database or any other persistence your application has access to). As the <kbd>client</kbd> object we're using to issue <kbd>Get()</kbd> requests is shared; we don't need to reload the token for each request. Instead, we can simply load it the next time the application starts. This should mean that, upon a second launch of an example, you'll immediately see the results rather than having to go through the permission request a second time.</p>
+<p>And so we update the <kbd>callbackHandler()</kbd> function to store the token, if it was successfully returned:</p>
+<pre>   <span>if </span>err != nil {<br/>      log.Fatal(err)<br/>   }<br/>   saveToken(tok)<br/>   client = conf.Client(ctx, tok)</pre>
+<p>And in our application's <kbd>main()</kbd> function, we add the token load line immediately after setting up the OAuth configuration:</p>
+<pre><span>func </span>main() {<br/>   setupOAuth()<br/>   token = loadToken()<br/><br/>...<br/>}</pre>
+<p><span>This loads the stored token (if one exists) into a global variable to be accessed later by the <kbd>authStream()</kbd> function, which should be updated to check for the token to see whether it has been loaded:</span></p>
+<pre><span>func </span>authStream(url string) io.ReadCloser {<br/>   <span>if </span>token != nil {<br/>      fmt.Println("Reusing stored token")<br/>      client = conf.Client(ctx, token)<br/>   }<br/>   ret, err := client.Get(url)<br/><br/>...<br/>}</pre>
+<p>Simple implementations of <kbd>saveToken()</kbd> and <kbd>loadToken()</kbd> are available in the source code repository. For testing purposes, it's sufficient to print the content to the system output and then copy and paste it into the <kbd>loadToken()</kbd> function before the next run. With all of this together, we can implement a simple request that'll count the messages in a user's inbox. This function requests a Gmail API that requires authentication and counts the number of items in the resulting JSON message list:</p>
+<pre><span>func </span>countMessages() {<br/>   in := authStream(<span>"https://www.googleapis.com/gmail/v1/users/me/messages"</span>)<br/>   <span>defer </span>in.Close()<br/><br/>   <span>var </span>content <span>interface</span>{}<br/>   decoder := json.NewDecoder(in)<br/>   decoder.Decode(&amp;content)<br/><br/>   <span>if body</span>, ok := content.(<span>map</span>[string]<span>interface</span>{}); ok {<br/>      list := body[<span>"messages"</span>].([]<span>interface</span>{})<br/>      fmt.Println(len(list), <span>"messages found"</span>)<br/>   }<br/>}</pre>
+<p>When we run this twice, we see that the first request required the browser to open and confirm the authorization. On the second run, that token is reused and the same content is returned without interrupting the user:</p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/f613915a-66d4-4845-92e8-a9f9049a3a02.png" style="width:23.92em;height:9.83em;" width="351" height="144"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">Requesting OAuth2 authorization the first time opens a browser window; repeat calls use the token we saved</div>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Posting data</h1>
+                </header>
+            
+            <article>
+                
+<p>Posting data to a web service should be just as easy as changing a <kbd>Get()</kbd> function call to a <kbd>Post()</kbd> but there are often complications. Consider our email example and the task of connecting to Gmail. The API is straightforward and we can easily make the request, but the data must be appropriately formatted. Emails have complex encodings when sent to mail servers and we need to implement that to work with the API. The Gmail service requires an RFC 2822 encoded email (which the Go standard library doesn't provide), which is then base64url encoded (the standard library can handle this). Before we can post any email messages, we need to add an encoder to our <kbd>EmailMessage</kbd> type, as follows:</p>
+<pre><span>func </span>(e *EmailMessage) ToGMailEncoding() string {<br/>   m := mime.NewMultipartMessage(<span>"alternative"</span>, <span>""</span>)<br/>   m.SetHeader(<span>"Subject"</span>, mime.EncodeWord(e.Subject))<br/>   m.SetHeader("From", mime.EncodeWord("Demo") + " &lt;" + string(e.From) + "&gt;")<br/>   m.SetHeader("To", mime.EncodeWord("Demo") + " &lt;" + string(e.To) + "&gt;")<br/>   plain := mime.NewTextMessage(qprintable.UnixTextEncoding, bytes.NewBufferString(e.Content))<br/>   plain.SetHeader(<span>"Content-Type"</span>, <span>"text/plain"</span>)<br/>   m.AddPart(plain)<br/><br/>   <span>var </span>buf bytes.Buffer<br/>   io.Copy(&amp;buf, m)<br/>   <span>return </span>base64.URLEncoding.EncodeToString(buf.Bytes())<br/>}</pre>
+<p>This code makes use of an external library, <kbd>github.com/sloonz/go-mime-message</kbd>, and it has been imported as <kbd>mime</kbd> for convenience. We're using the name <kbd>Demo</kbd> as we haven't recorded people's names in these examples; you could omit that part if you prefer. To implement the sending of emails, we can check the Google documentation at <a href="https://developers.google.com/gmail/api/v1/reference/users/messages/send">https://developers.google.com/gmail/api/v1/reference/users/messages/send</a> to find out that we need to pass a JSON payload with the encoded data as a value associated with the <kbd>raw</kbd> key. A simple method should be able to package that and send it to the API:</p>
+<pre><span>func </span>postMessage(msg *EmailMessage) {<br/>   raw := msg.ToGMailEncoding()<br/>   body := fmt.Sprintf(<span>"{\"raw\": \"%s\"}"</span>, raw)<br/><br/>   ret := authPost(<span>"https://www.googleapis.com/gmail/v1/users/me/messages/send"</span>,<br/>      <span>"application/json"</span>, strings.NewReader(body))<br/>   io.Copy(os.Stdout, ret)<br/>   ret.Close()<br/>}</pre>
+<p>For this code, we need just one more function, <kbd>authPost()</kbd>. This function will make an authenticated post to our URL passing the content type and request body as the second and third parameters. This method could save the URL, content type, and payload to re-submit if the authorization workflow is required, but often this is unwise or impossible for an HTTP post request and so we simply re-use the token that was generated in the previous <kbd>authStream()</kbd> function. If you do reuse this token, then you'll need to remember to update the code to request additional permissions; the updated scope should be as follows:</p>
+<pre>   Scopes: []string{<span>"https://www.googleapis.com/auth/gmail.readonly"</span>,<br/>      <span>"https://www.googleapis.com/auth/gmail.compose"</span>},</pre>
+<p>With this changed, a new token is issued and, with the preceding code in place, we can execute a simple method to send an email using the <kbd>postMessage()</kbd> function listed previously:</p>
+<pre><span>func </span>main() {<br/>   setupOAuth()<br/>   token = loadToken()<br/><br/>   msg := &amp;EmailMessage{<br/>      <span>"GoMail Test Email"</span>,<br/>      <span>"This is a test email sent from a Go example"</span>,<br/>      <span>"test@example.com"</span>,<br/>      <span>"me@example.com"</span>,<br/>      time.Now()}<br/>   postMessage(msg)<br/>}</pre>
+<p class="mce-root">The preceding <kbd>postMessage()</kbd> function outputs useful debug information, but that can clearly be switched off and the email can send handle failures in a more appropriate manner:</p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><img src="Images/72e90d90-fe54-4347-9251-59f40952a9a9.png" style="width:22.25em;height:14.42em;" width="346" height="223"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">The debug from our email post example; Gmail returns the message and thread ID along with label information</div>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">GUI integration</h1>
+                </header>
+            
+            <article>
+                
+<p>In the previous <em>Concurrency, threads, and GUI updates</em> section, we looked at thread management and how to update the user interface from background tasks. Now that we're working with real cloud services, let's look at additional complications that we may need to deal with.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Incoming messages</h1>
+                </header>
+            
+            <article>
+                
+<p>The client API that has been used to simulate a connection to an email server included the <kbd>Incoming()</kbd> function, which returned a channel of <kbd>EmailMessage</kbd> objects. A new message would be sent to this channel each time a new email arrived, and we can use this same model for a real email server connection as well. The email message abstraction works to communicate a standard structure and so all a new email connection (such as the preceding Gmail examples) needs to do is package the incoming data into an <kbd>EmailMessage</kbd> struct and add it to the channel.</p>
+<p>This means the only additional work that we need to do is update the code in the server connection package to monitor for new messages and add some JSON decoding when a new message is detected. All of this can be done without changing a single line of our GoMail example application GUIs. In fact, to activate a real Gmail account instead of our test server "we need to change the <kbd>client.NewTestServer()</kbd> function call to <kbd>client.NewGmailServer()</kbd> (a full description of this Gmail provider is available in the final <a href="e0ad4219-5c9a-4d4b-87ce-5bc4b7baa67c.xhtml">Appendix</a>, <em>Connecting GoMail to a Real Email Server</em>).</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Activity notifications</h1>
+                </header>
+            
+            <article>
+                
+<p>It can be helpful for users to know when an application is executing code in the background. If, for example, you wanted to include a <span class="packt_screen">Check Email</span> button in your application, then it may be helpful to indicate when email is being checked so the user knows that pressing the button won't do anything. As a developer, this is most commonly seen in an IDE status bar, indicating that a build is in progress or a packaging task is running. If working on a laptop and fans start to spin, it's useful to know what's executing in the background so that any potential concerns can be put to one side for a while.</p>
+<p>To support this type of interface update, we need to track when tasks start and stop. Depending on the type of visual design, there are two strategies we could use: a simple counter of background tasks or a list of running tasks. The former is far easier to implement but the latter is able to report more information to the application user. If you'll just use a spinner or an infinite progress bar, then the first strategy will work well. If, however, you want to add a status bar that shows the current running task, you'll need to go with the second.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Spinner</h1>
+                </header>
+            
+            <article>
+                
+<p>A spinner (or other simple activity indicator) can be a helpful visualization of whether or not there's background activity. It'll be visible if the number of background tasks is non-zero. To track this, we can implement a simple counter in the application and update it using the <kbd>StartTask()</kbd> and <kbd>StopTask()</kbd> functions. A listener or channel would then tell the user interface element that the number of running tasks had changed so it can update the GUI by showing or hiding the visual element.</p>
+<p>In a cloud-based application where a background task is using network connections, there's an added benefit: we can insert these task tracking function calls into the network request code. For example, we could update <kbd>readStream()</kbd> to call <kbd>StartTask()</kbd> and all of the background tasks will increment the counter. To signal that the task had ended, we would return a wrapper to the stream so that, when <kbd>Close()</kbd> is called, it can correctly call <kbd>StopTask()</kbd>.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Status panel</h1>
+                </header>
+            
+            <article>
+                
+<p>A status panel, which displays the current (or most recent) task, will need us to track the name of a task when it starts. To accurately display which task is still running, we'll also need to track which task ends (otherwise a quick task that starts after a long running one and then stops won't correctly update the status display).</p>
+<p>An example implementation would be for the appropriate start function to return a task reference, which is then stopped directly, for example, <kbd>task := StartTask("My task name")</kbd>, which is then stopped later using <kbd>task.Stop()</kbd>. A similar listener or channel would be needed, but this time the data would be a task reference instead of the count of background tasks.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Consistent user experience when offline</h1>
+                </header>
+            
+            <article>
+                
+<p>In modern graphical applications, a good user experience is clearly dependent upon great design and a high level of quality, but it's also important to handle network and service failures. In the <em>Network resources and caching</em> section of this chapter, we covered, caching of server responses to be more fault tolerant and to speed up application loading, but that's a small portion of a larger strategy for great offline support.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Caching responses</h1>
+                </header>
+            
+            <article>
+                
+<p>The response caching code introduced earlier in this chapter can be applied to almost all HTTP requests, but we only used it for HTTP GET. Of the many different types of HTTP requests, only three are deemed to be cacheable (GET, HEAD, and POST), and the HEAD request doesn't return a body and so isn't useful in our application. The POST method is indicative of an action being performed, so in our context (and most others), it's more important to know that it completed, rather than to save the response it caused (see the <em>Queuing actions</em> section next). To learn more about the types of HTTP requests, see <a href="https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol">https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol</a>.</p>
+<p>In addition to this, it may not be suitable to cache the response to every GET request. While HTTP is a stateless protocol, the server that you're communicating with may be tracking state that could affect the response to your request. If your application knows that the response to a request will be time sensitive, you could make sure that it skips the cache or set a timeout on that cache entry. Unfortunately, it may not always be possible to know this in advance; this is where HTTP headers (and the HEAD method) can be helpful. By examining the headers of a response, you may see <span class="packt_screen">Last-Modified</span> or <span class="packt_screen">ETag</span> metadata (by issuing a HEAD request, you can access this information without the full response data being sent). If the <span class="packt_screen">Last-Modified</span> header contains a time that's earlier than the creation of your cache entry, then your cache can still be used, otherwise you should remove the cached item and replace it with a fresh request. Using <span class="packt_screen">ETag</span> is usually more efficient as it doesn't require any date parsing, but you'll need to store the appropriate tag for each cached response. This metadata is used as a unique identity for the response content and, if the data were to be changed in any way, the <span class="packt_screen">ETag</span> would change as well (at which point you would reset the cache, as mentioned earlier).</p>
+<p>If implementing a complete HTTP cache, there are other headers to be aware of as well, most notably <kbd>Cache-Control</kbd>. If this value is set to <kbd>no-cache</kbd> or <kbd>no-store</kbd> (or a combination including those values), the server is indicating that the response must never be cached. This is probably an indication that the content is specific to that request and the time of request, or that there's another reason that issuing the same request again would return a different response body.</p>
+<p>With all of these considerations properly addressed, the code to manage a response cache is a lot more complicated than illustrated earlier in this chapter, which is why various Go packages exist to manage the details. Searching in your favorite search engine for <em>golang http cache</em> will probably return the most popular results.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Queuing actions</h1>
+                </header>
+            
+            <article>
+                
+<p>Other HTTP methods, such as POST, PUT, or DELETE, are typically indicative of a user action whereby confirmation that it has been communicated is the main requirement. In these situations, a cache isn't helpful; if requested a second time, the cache could stop our action from reaching the server at all. For this reason, it's uncommon to cache these requests. Moreover, if we're to build a resilient application, we need to plan for unsuccessful requests. In these situations, the server may or may not have received our request and the action may or may not have been processed.</p>
+<p>The usual approach to this challenge is to build a queue of outgoing responses. Adding a request to such a queue could be done using  <em>fire and forget</em>, whereby the user doesn't care when the request is completed, or to add a callback so that appropriate notifications (such as <em>Email sent</em>) can be communicated upon completion. Building queues like this with Go is well documented; support for multi-threading, channels, and wait groups makes it a relatively simple task so we'll not go into the details of how this could be executed. What's important, however, is determining whether a request succeeded or failed.</p>
+<p>If an HTTP POST (for example) times out or returns with an error of 500 (or above), we must assume it failed. Re-issuing the same request is safe as re-issuing an identical POST shouldn't cause any additional state change if it was successfully completed the first time. A response code from 400 to 499 means that there was a fault with the request and re-trying won't fix the issue. In these cases, it's likely that the user needs to be informed of the failure (and the code should probably log the error to your team somehow).</p>
+<p>Be careful not to blindly accept a status code of 200 (OK) as success; many protocols communicate certain failure conditions within the body of a successful HTTP response. Be sure to read the documentation for the API you're using to see how to check for additional errors. For example, a typical <kbd>graphql</kbd> response may return an HTTP status code 200 but have failed internally; knowing whether to retry in the background or to communicate the error to the application user will be specific to the service and the error encountered. In the following example, the server response helpfully indicated that a retry may help to resolve the issue:</p>
+<pre>{<br/>  "errors" =&gt; [<br/>    {<br/>      "message" =&gt; "Temporary storage failure",<br/>      "retry" =&gt; true,<br/>      "path" =&gt; ["user", "add"],<br/>    }<br/>  ]<br/>}</pre>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Starting offline</h1>
+                </header>
+            
+            <article>
+                
+<p>The preceding strategies help to deal with intermittent internet connections, or continuing to work with an application in offline mode after some time online. But what if your application is designed to work offline right from the first usage? If a login isn't required immediately, then you may be able to support an initial offline state; probably not ideal for an email client but it may be expected for a collaborative documentation platform or entertainment system. How can we make use of the techniques we've explored already to provide a great first-use experience if there's no network available?</p>
+<p>The simplest approach to this problem is probably to package data with the application so that it can be used as a cache if no recently cached data is available. In this manner, the application could attempt to use a local cache if one exists, then fall back to the application data otherwise, and if neither is available, then attempt to make the remote connection, like the following prototypical function:</p>
+<pre><span>func </span>cacheFallbackStream(url string) io.ReadCloser {<br/>   stream := cacheStream(url)<br/>   <span>if </span>stream != nil {<br/>      <span>return </span>stream<br/>   }<br/>   <br/>   stream = resourceStream(url)<br/>   <span>if </span>stream != nil {<br/>      <span>return </span>stream<br/>   }<br/>   <br/>   <span>return </span>readStream(url)<br/>}</pre>
+<p>In this example, we re-use the <kbd>cacheStream()</kbd> and <kbd>readStream()</kbd> functions before and  use a new (hypothetical) function named <kbd>resourceStream()</kbd>, which would encode the URL, look up some bundled resources in the application, and return a stream to one if it's found. An alternative approach is for the first run of an application to extract all of the cached resources it has packaged and set up a local cache, then later code could simply use <kbd>cacheStream()</kbd> as before. For more information about bundling resources for distribution, see <a href="8a8d3a29-3634-46de-90cf-ad3e6129e487.xhtml">Chapter 14</a>, <em>Distributing your Application</em>.</p>
+<p>Of course, whichever strategy you use, be sure to consider how important it is for the data to be up to date; is falling back to an old cache that's bundled in the application a good strategy for your data? Do you want to update the local copy of this information on a regular basis? If it's important that the data be as fresh as possible, then the preceding function should probably be changed so that <kbd>readStream()</kbd> is attempted before <kbd>resourceStream()</kbd> or even <kbd>cacheStream()</kbd> and a <em>live</em> request is attempted if possible. If you take this approach, be sure to consider timeouts and other failure conditions, and handle user expectations appropriately.</p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  
+<div id="sbo-rt-content"><section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we explored some of the more complex aspects of developing a rich application with long-running background threads and a reliance on remote resources or web services. We first looked at multi-threading and the management of long-running processes, building on the basics of goroutines and thread handling from earlier chapters. We looked at how background processes can be designed to minimize the impact of the code overhead required by some graphical toolkits.</p>
+<p>Most of the complexity discussed in this chapter covered working with remote resources and web services. We saw how to implement caching strategies and how they can work to create a more resilient application when network conditions aren't optimal. We also explored authentication of requests (using the common OAuth2 workflow) and connected the GoMail examples to a live Gmail account to read and send emails.</p>
+<p>All of these topics help to build robustness into an application and maintain a high quality user experience even when required resources aren't available. I<span>n the next chapter, <a href="fae83854-5529-4783-a6a4-b019dc45f831.xhtml">Chapter 13</a>, <em>Best Practices in Go GUI Development</em>, we'll m</span>ove our focus from user experience to great source code and look into best practices for GUI development with Go. We'll also cover how to set up your code for ease of development and collaboration, as well as the tools and processes that'll help along the way. </p>
+
+
+            </article>
+
+            
+        </section>
+    </div>
+
+
+
+  </body></html>

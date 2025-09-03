@@ -1,0 +1,312 @@
+<html><head></head><body>
+<div id="sbo-rt-content"><div id="_idContainer043">
+<h1 class="chapter-number" id="_idParaDest-61"><a id="_idTextAnchor070"/>5</h1>
+<h1 id="_idParaDest-62"><a id="_idTextAnchor071"/>Securing the Backend and Middleware</h1>
+<p>In previous chapters, we learned how to build our database, run our web application as a server, and serve dynamic content. In this chapter, we will discuss security – in particular, we will look at securing the web app. Security is a vast topic so for this chapter, we will just look at the security aspects that are relevant to our application. Another topic that we will look at is middleware and using it as part of <span class="No-Break">our application.</span></p>
+<p>Middleware<a id="_idIndexMarker173"/> is software that is introduced into an application to provide generic functionality that is used for incoming and outgoing traffic in our application. Middleware makes it easy to centralize features that are used across different parts of our applications, and this will be discussed more in upcoming sections of <span class="No-Break">this chapter.</span></p>
+<p>In this chapter, we’ll be covering the <span class="No-Break">following topics:</span></p>
+<ul>
+<li>Adding authentication </li>
+<li><span class="No-Break">Adding middleware</span></li>
+<li>Adding cookies and sessions <span class="No-Break">with Redis</span></li>
+</ul>
+<p>Upon completing this chapter, you will have learned how to set up a user database and add authentication to the app. We will also learn about middleware and how to add it to an existing app. Lastly, you will learn about cookies, storing information in sessions, and using Redis as persistence storage for <span class="No-Break">these sessions.</span><a id="_idTextAnchor072"/></p>
+<h1 id="_idParaDest-63">Technical requirements<a id="_idTextAnchor073"/></h1>
+<p>All the source code explained in this chapter can be checked out at <a href="https://github.com/PacktPublishing/Becoming-a-Full-Stack-Go-Developer/tree/main/Chapter05">https://github.com/PacktPublishing/Becoming-a-Full-Stack-Go-Developer/tree/main/Chapter05</a>. </p>
+<h1 id="_idParaDest-64"><a id="_idTextAnchor074"/>Adding authentication</h1>
+<p>Building the application requires some consideration in terms of designing the application, and one of the key pieces that needs to be thought of ahead of time is security. There are many facets of security but in this section of our application, we will look <span class="No-Break">at authentication.</span></p>
+<p class="callout-heading">Note</p>
+<p class="callout">Authentication<a id="_idIndexMarker174"/> is the process of validating that a user is who they claim <span class="No-Break">to be.</span></p>
+<p>To add <a id="_idIndexMarker175"/>authentication to our app, we will need to store the user <a id="_idIndexMarker176"/>information in the database first. The user information will be used to authenticate the user before using the application. The database user table can be found inside the <span class="No-Break"><strong class="source-inline">db/schema.sql</strong></span><span class="No-Break"> file:</span></p>
+<pre class="source-code">
+CREATE TABLE gowebapp.users (
+User_ID        BIGSERIAL PRIMARY KEY,
+User_Name      text NOT NULL,
+Password_Hash text NOT NULL,
+Name           text NOT NULL,
+Config         JSONB DEFAULT '{}'::JSONB NOT NULL,
+Created_At     TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+Is_Enabled     BOOLEAN DEFAULT TRUE NOT NULL</pre>
+<p>The following table outlines the data types that are used for the <span class="No-Break">user table:</span></p>
+<table class="No-Table-Style" id="table001-4">
+<colgroup>
+<col/>
+<col/>
+</colgroup>
+<tbody>
+<tr class="No-Table-Style">
+<td class="No-Table-Style">
+<p><span class="No-Break"><strong class="source-inline">BIGSERIAL</strong></span></p>
+</td>
+<td class="No-Table-Style">
+<p>An auto-incrementing data type that is normally used as a primary key. </p>
+</td>
+</tr>
+<tr class="No-Table-Style">
+<td class="No-Table-Style">
+<p><span class="No-Break"><strong class="source-inline">TEXT</strong></span></p>
+</td>
+<td class="No-Table-Style">
+<p>A variable-length <span class="No-Break">character string.</span></p>
+</td>
+</tr>
+<tr class="No-Table-Style">
+<td class="No-Table-Style">
+<p><span class="No-Break"><strong class="source-inline">JSONB</strong></span></p>
+</td>
+<td class="No-Table-Style">
+<p>The JSON binary data type is suitable for JSON data. The database provides this data type to make it easier to index, parse, and query JSON <span class="No-Break">data directly.</span></p>
+</td>
+</tr>
+<tr class="No-Table-Style">
+<td class="No-Table-Style">
+<p><span class="No-Break"><strong class="source-inline">TIMESTAMP</strong></span></p>
+</td>
+<td class="No-Table-Style">
+<p>A date and time <span class="No-Break">data type.</span></p>
+</td>
+</tr>
+<tr class="No-Table-Style">
+<td class="No-Table-Style">
+<p><span class="No-Break"><strong class="source-inline">BOOLEAN</strong></span></p>
+</td>
+<td class="No-Table-Style">
+<p>A logical data type that contains true <span class="No-Break">or false.</span></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p>The <a id="_idIndexMarker177"/>authentication will be performed by checking the <strong class="source-inline">User_Name</strong> and <strong class="source-inline">Pass_Word_Hash</strong> fields. One thing to note – the <strong class="source-inline">Pass_Word_Hash</strong> field<a id="_idIndexMarker178"/> contains an encrypted password, and we will look further into encrypting the password a <span class="No-Break">bit later.</span></p>
+<p>As discussed in <a href="B18295_01.xhtml#_idTextAnchor016"><span class="No-Break"><em class="italic">Chapter 1</em></span></a>, <em class="italic">Building the Database and Model</em>, we are using sqlc to generate the Go code that will talk to the database. To generate the Go code, execute the <span class="No-Break">following command:</span></p>
+<pre class="console">
+make generate</pre>
+<p>The code that will read the user information will be stored under the <strong class="source-inline">gen/query.sql_gen.go</strong> file as shown here: </p>
+<pre class="source-code">
+...
+func (q *Queries) GetUserByName(ctx context.Context, userName string) (GowebappUser, error) {
+  row := q.db.QueryRowContext(ctx, getUserByName, userName)
+  var i GowebappUser
+  err := row.Scan(
+     &amp;i.UserID,
+     &amp;i.UserName,
+     &amp;i.PasswordHash,
+     &amp;i.Name,
+     &amp;i.Config,
+     &amp;i.CreatedAt,
+     &amp;i.IsEnabled,
+  )
+  return i, err
+}
+...</pre>
+<p>The <strong class="source-inline">GetUserByName</strong> function queries the database by calling the <strong class="source-inline">QueryRowContext()</strong> function, passing in the query that we want to use, which is defined as <span class="No-Break">shown here:</span></p>
+<pre class="source-code">
+const getUserByName = `-- name: GetUserByName :one
+SELECT user_id, user_name, pass_word_hash, name, config, created_at, is_enabled
+FROM gowebapp.users
+WHERE user_name = $1
+`</pre>
+<p>The query uses the <strong class="source-inline">WHERE</strong> clause and <a id="_idIndexMarker179"/>expects one parameter, which<a id="_idIndexMarker180"/> is the <strong class="source-inline">user_name</strong> field. This is populated by passing the <strong class="source-inline">userName</strong> parameter into the <span class="No-Break"><strong class="source-inline">QueryRowContext()</strong></span><span class="No-Break"> function.</span></p>
+<p>We will look at how to create a dummy user when we start the application in the next section. A dummy user is<a id="_idIndexMarker181"/> a user that is normally used for testing purposes – in our case, we want to create a dummy user to test the <span class="No-Break">authentication proc<a id="_idTextAnchor075"/>ess.</span></p>
+<h2 id="_idParaDest-65"><a id="_idTextAnchor076"/>Creating our dummy user</h2>
+<p>Our database <a id="_idIndexMarker182"/>is empty so we will need to populate it with a dummy user and in this section, we will look at how to create one. We will add code to create a dummy user when the application starts up. The following function inside <strong class="source-inline">main.go</strong> creates the dummy user, and this user will be used to log in to <span class="No-Break">the application:</span></p>
+<pre class="source-code">
+func createUserDb(ctx context.Context) {
+  //has the user been created
+  u, _ := dbQuery.GetUserByName(ctx, "user@user")
+  if u.UserName == "user@user" {
+     log.Println("user@user exist...")
+     return
+  }
+  log.Println("Creating user@user...")
+  hashPwd, _ := pkg.HashPassword("password")
+  _, err := dbQuery.CreateUsers(ctx,
+                                chapter5.CreateUsersParams{
+     UserName:     "user@user",
+     PassWordHash: hashPwd,
+     Name:         "Dummy user",
+  })
+...
+}</pre>
+<p>When the <a id="_idIndexMarker183"/>application starts up it will first check whether an existing test user exists and if none exists, it will automatically create one. This is put inside the application to make it easier for us to test the application. The <strong class="source-inline">createUserDb()</strong> function uses the <strong class="source-inline">CreateUsers()</strong> generated sqlc function to create the user. </p>
+<p>One of the things you will notice is the password is created by the following <span class="No-Break">code snippet:</span></p>
+<pre class="source-code">
+hashPwd, _ := pkg.HashPassword("password")</pre>
+<p>The password is passed to a <strong class="source-inline">HashPassword</strong> function that will return a hashed version of the clear text password. </p>
+<p>The <strong class="source-inline">HashPassword</strong> function uses the Go <strong class="source-inline">crypto</strong> or <strong class="source-inline">bcrypt</strong> standard libraries that provide a function to return a hash of a plain string as <span class="No-Break">shown here:</span></p>
+<pre class="source-code">
+func HashPassword(password string) (string, error) {
+  bytes, err := 
+    bcrypt.GenerateFromPassword([]byte(password), 14)
+  return string(bytes), err
+}</pre>
+<p>The hash generated from the string password will be different whenever the <strong class="source-inline">bcrypt.GenerateFromPassword</strong> function is called. The <strong class="source-inline">GenerateFromPassword()</strong> function <a id="_idIndexMarker184"/>uses the standard cryptography library to generate the hash value of <span class="No-Break">the password.</span></p>
+<p>Cryptography is the <a id="_idIndexMarker185"/>practice of ensuring text messages are converted into a form that is not easy to read or deconstruct. This provides data security to make it hard to deconstruct what the data is all about. Go provides a standard library that provides cryptography functions, which is available in the <strong class="source-inline">golang.org/x/crypto</strong> package. The <strong class="source-inline">crypto</strong> library provides a number of cryptography functions that you can choose from – it all depends on what you need for your application. In our example, we use <strong class="source-inline">bcrypt</strong>, which is a <span class="No-Break">password-hashing function.</span></p>
+<p>Now that we have added a function to create a dummy user in the database, in the next section, we will look at how to authenticate with <span class="No-Break">the d<a id="_idTextAnchor077"/>atabase.</span></p>
+<h2 id="_idParaDest-66"><a id="_idTextAnchor078"/>Authenticating a user</h2>
+<p>User authentication<a id="_idIndexMarker186"/> is simple, as the application will use the function <a id="_idIndexMarker187"/>generated by sqlc, as <span class="No-Break">shown here:</span></p>
+<pre class="source-code">
+func validateUser(username string, password string) bool {
+  ...
+  u, _ := dbQuery.GetUserByName(ctx, username)
+  ...
+  return pkg.CheckPasswordHash(password, u.PassWordHash)
+}</pre>
+<p>The <strong class="source-inline">GetUserByName</strong> function is used, with the username passed as a parameter to obtain the user information. Once that has been retrieved successfully, it will check whether the password is correct by <span class="No-Break">calling </span><span class="No-Break"><strong class="source-inline">CheckPasswordHash</strong></span><span class="No-Break">.</span></p>
+<p>The <strong class="source-inline">CheckPasswordHash</strong> function uses the same <strong class="source-inline">crypto</strong> or <strong class="source-inline">bcrypt</strong> package and it calls the <strong class="source-inline">CompareHashAndPassword</strong> function, which will compare the hashed password with the password sent by the client. The function returns <strong class="source-inline">true</strong> if the <span class="No-Break">password matches.</span></p>
+<pre class="source-code">
+func CheckPasswordHash(password, hash string) bool {
+  err := bcrypt.CompareHashAndPassword([]byte(hash), 
+                                       []byte(password))
+return err == nil
+}</pre>
+<p>The <strong class="source-inline">validateUser</strong> function will return <strong class="source-inline">true</strong> if the username and password combination exists in the database and is correct. </p>
+<p>Start your <a id="_idIndexMarker188"/>application and navigate your web browser to <strong class="source-inline">http://127.0.0.1:3333/</strong> and you should see a login prompt. Try logging in with incorrect credentials before <a id="_idIndexMarker189"/>entering <strong class="source-inline">user@user / password</strong> – you should now be sent to the successful login screen! Congratulations – you <span class="No-Break">successfully authenticated!</span></p>
+<p>In the next section, we will look at middleware, what it is, and how to add it to <span class="No-Break">our <a id="_idTextAnchor079"/>application.</span></p>
+<h1 id="_idParaDest-67"><a id="_idTextAnchor080"/>Adding middleware</h1>
+<p>Middleware is a<a id="_idIndexMarker190"/> piece of code that is configured as an HTTP handler. The middleware will pre-process and post-process the request, and it sits between the main Go server and the actual HTTP handlers that have <span class="No-Break">been declared.</span></p>
+<p>Adding middleware as part of our application helps take care of tasks that are outside of the main application features. Middleware can take care of authentication, logging, and rate limiting, among other things. In the next section, we will look at adding a simple <span class="No-Break">loggin<a id="_idTextAnchor081"/>g middleware.</span></p>
+<h2 id="_idParaDest-68"><a id="_idTextAnchor082"/>Basic middleware</h2>
+<p>In this section, we are going to add a simple basic middleware<a id="_idIndexMarker191"/> to our <a id="_idIndexMarker192"/>application. The basic middleware is <a id="_idIndexMarker193"/>shown in the following <span class="No-Break">code snippet:</span></p>
+<pre class="source-code">
+func basicMiddleware(h http.Handler) http.Handler {
+   return http.HandlerFunc(func(wr http.ResponseWriter,
+                                   req *http.Request) {
+       log.Println("Middleware called on", req.URL.Path)
+       // do stuff
+       h.ServeHTTP(wr, req)
+   })
+}</pre>
+<p>Gorilla Mux makes it incredibly easy to use our middleware. This is done by exposing a function on the router called <strong class="source-inline">Use()</strong>, which is implemented with a variadic number of parameters that can be used to stack multiple pieces of middleware to be executed <span class="No-Break">in order:</span></p>
+<pre class="source-code">
+func (*mux.Router).Use(mwf ...mux.MiddlewareFunc)</pre>
+<p>The following code snippet shows how we implement the <strong class="source-inline">Use()</strong> function to register <span class="No-Break">the middleware:</span></p>
+<pre class="source-code">
+func main() {
+    ...
+    // Use our basicMiddleware
+    router.Use(basicMiddleware)
+    ...
+}</pre>
+<p><strong class="source-inline">mux.MiddwareFunc</strong> is simply a type alias for <strong class="source-inline">func(http.Handler) http.Handler</strong> so that anything that meets that interface can work. </p>
+<p>To see our function in action, we simply call <strong class="source-inline">router.Use()</strong>, pass in our middleware, navigate to our web app, and there we can see that it <span class="No-Break">is called:</span></p>
+<pre class="source-code">
+go build &amp;&amp; ./chapter5 
+2022/01/24 19:51:56 Server Version : 0.0.2
+2022/01/24 19:51:56 user@user exists...
+2022/01/24 19:52:02 Middleware called on /app
+2022/01/24 19:52:02 Middleware called on /css/minified.css
+…</pre>
+<p>You may be<a id="_idIndexMarker194"/> wondering why you can see it being called<a id="_idIndexMarker195"/> multiple times with different paths – the reason is that when requesting our app, it’s performing a number of <strong class="source-inline">GET</strong> requests for the numerous hosted resources. Each of these is passing through our middleware as shown in <span class="No-Break"><em class="italic">Figure 5</em></span><span class="No-Break"><em class="italic">.1</em></span><span class="No-Break">:</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer040">
+<img alt="Figure 5.1 – Request passing through middleware" height="36" src="image/Figure_5.01_B18295.jpg" width="580"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 5.1 – Request passing through middleware</p>
+<p>The <strong class="source-inline">handlers</strong> library – available at <a href="https://github.com/gorilla/handlers">https://github.com/gorilla/handlers</a> – contains many other useful middleware methods and we’ll be using some of them later, including the <strong class="source-inline">handlers.CORS()</strong> middleware to allow us to <a id="_idIndexMarker196"/>handle <strong class="bold">Cross-Origin Resource Sharing</strong> (<strong class="bold">CORS</strong>). We will look at CORS and using this middleware in more detail in <a href="B18295_09.xhtml#_idTextAnchor184"><span class="No-Break"><em class="italic">Chapter 9</em></span></a>,<em class="italic"> Tailwind, Middleware, </em><span class="No-Break"><em class="italic">and CORS.</em></span></p>
+<p>In this section, we learned about middleware, the different functionality that it can provide, and how to add it to an app. In the next section, we will look at session handling and using cookies to track user information as they us<a id="_idTextAnchor083"/>e <span class="No-Break">the application.</span></p>
+<h1 id="_idParaDest-69"><a id="_idTextAnchor084"/>Adding cookies and sessions</h1>
+<p>In this section, we are going to take a look at how we are going to keep track of the users when using our application. We are going to take a look at session management and how it can help our application understand whether a user is allowed to access our application. We are also going to take a look<a id="_idIndexMarker197"/> at cookies, which are a session management tool that we are going <span class="No-Break">to use.</span></p>
+<p>The session management discussed in this chapter is part of the Gorilla project, which can be found <span class="No-Break">at </span><a href="https://github.com/gorilla/sessions"><span class="No-Break">https://github.com/gorilla/sessions</span></a><span class="No-Break"><span id="_idTextAnchor085"/>.</span></p>
+<h2 id="_idParaDest-70"><a id="_idTextAnchor086"/>Cookies and session handling</h2>
+<p>In this section, we are going to look at session handling<a id="_idIndexMarker198"/> and how to use it to store information relevant to a particular user. The web as we know is stateless in nature, which means that requests are not actually tied to any other previous requests. This makes it hard to know which requests belong to which user. Hence, the need arises to keep track of this and store information about <span class="No-Break">the user.</span></p>
+<p class="callout-heading">Note</p>
+<p class="callout">A web session<a id="_idIndexMarker199"/> is used to facilitate interaction between users and the different services that are used in the sequence of requests and responses. The session is unique to a <span class="No-Break">particular user.</span></p>
+<p>Sessions are <a id="_idIndexMarker200"/>stored in memory, with each session belonging to a particular user. Session information will be lost if the application stops running or when the application decides to remove the session information. There are different ways to store session information permanently in storage to be used at a <span class="No-Break">future time.</span></p>
+<p><span class="No-Break"><em class="italic">Figure 5</em></span><em class="italic">.2</em> shows the high-level flow of how a session is created and used for each incoming request. New sessions are created when one does not exist and once one is made available, the<a id="_idIndexMarker201"/> application can use it to store relevant <span class="No-Break">user information.</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer041">
+<img alt="Figure 5.2 – Session check flow" height="445" src="image/Figure_5.02_B18295.jpg" width="602"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 5.2 – Session check flow</p>
+<p>We know that a session is used to<a id="_idIndexMarker202"/> store user-specific information – the question is how the application knows which session to use for which user. The answer is a key that is sent back and forth between the application and the browser. This key is called a <a id="_idIndexMarker203"/>session key, which is added to the cookie header as shown in <span class="No-Break"><em class="italic">Figure 5</em></span><span class="No-Break"><em class="italic">.3</em></span><span class="No-Break">.</span></p>
+<div>
+<div class="IMG---Figure" id="_idContainer042">
+<img alt="Figure 5.3 – Cookie containing a session token" height="204" src="image/Figure_5.03_B18295.jpg" width="580"/>
+</div>
+</div>
+<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 5.3 – Cookie containing a session token</p>
+<p>As seen in <span class="No-Break"><em class="italic">Figure 5</em></span><em class="italic">.3</em>, the <a id="_idIndexMarker204"/>cookie with the <strong class="source-inline">session_token</strong> label contains the key that<a id="_idIndexMarker205"/> will be sent back to the server to identify the user stored in the session. <span class="No-Break"><em class="italic">Figure 5</em></span><em class="italic">.3</em> shows the developer console of the browser. For Firefox, you can open it using the <strong class="bold">Tools</strong> &gt; <strong class="bold">Web Developer</strong> &gt; <strong class="bold">Web Developer Tool</strong> menu, and if you are using Chrome, you can access it using <em class="italic">Ctrl</em> + <em class="italic">Shift</em> + <span class="No-Break"><em class="italic">J</em></span><span class="No-Break">.</span></p>
+<p>The following snippet shows the <strong class="source-inline">sessionValid</strong> function, which checks whether the incoming request contains a valid <strong class="source-inline">session_token</strong> key. The <strong class="source-inline">store.Get</strong> function will automatically create a new one if an existing session is not available for the <span class="No-Break">current user:</span></p>
+<pre class="source-code">
+//sessionValid check whether the session is a valid session
+func sessionValid(w http.ResponseWriter, r *http.Request) bool {
+  session, _ := store.Get(r, "session_token")
+  return !session.IsNew
+}</pre>
+<p>Once the application finds a session for the user, it will check the authentication status of the user as shown here. The session information is stored as a map, and the map type stores information as key and value, so in our case, we are checking whether the session contains the <span class="No-Break"><strong class="source-inline">authenticated</strong></span><span class="No-Break"> key:</span></p>
+<pre class="source-code">
+func hasBeenAuthenticated(w http.ResponseWriter, r *http.Request) bool {
+  session, _ := store.Get(r, "session_token")
+  a, _ := session.Values["authenticated"]
+  ...
+}</pre>
+<p>If there is a failure to<a id="_idIndexMarker206"/> obtain the <strong class="source-inline">authenticated</strong> key, the application will automatically redirect the request to display the login page as <span class="No-Break">shown here:</span></p>
+<pre class="source-code">
+//if it does have a valid session make sure it has been //authenticated
+if hasBeenAuthenticated(w, r) {
+  ...
+}
+//otherwise it will need to be redirected to /login
+...
+http.Redirect(w, r, "/login", 307)</pre>
+<p>We have learned about sessions and how we can use them to check whether a user has been authenticated. We will explore <span class="No-Break">this furthe<a id="_idTextAnchor087"/>r.</span></p>
+<h2 id="_idParaDest-71"><a id="_idTextAnchor088"/>Storing session information</h2>
+<p>In the previous <a id="_idIndexMarker207"/>section, we learned about sessions and cookie handling. In this section, we will look at how to store session information pertaining to the user. The information stored inside the session is stored in the server memory, which means that this data will be temporarily available as long as the server is still running. Once the server stops running, all the data stored in memory will not available anymore. This is why we will look at persisting the data in a separate storage system in the <span class="No-Break">next section.</span></p>
+<p>In our sample application, we are storing information on whether the user has been authenticated successfully. Users are allowed to access other parts of the application only when they have been <span class="No-Break">successfully authenticated.</span></p>
+<p>Run the sample<a id="_idIndexMarker208"/> application and open your browser in private mode (Firefox) or incognito mode (Chrome) and type <strong class="source-inline">http://localhost:3333/dashboard.xhtml</strong> as the address. The application will redirect you to the login page because the session does not exist. The operation to check for the existence of the <strong class="source-inline">authenticated</strong> key is performed inside the <strong class="source-inline">storeAuthenticated</strong> function <span class="No-Break">shown here:</span></p>
+<pre class="source-code">
+func storeAuthenticated(w http.ResponseWriter, r *http.Request, v bool) {
+  session, _ := store.Get(r, "session_token")
+  session.Values["authenticated"] = v
+  err := session.Save(r, w)
+  ...
+}</pre>
+<p>The <strong class="source-inline">session.Save</strong> function saves the session into memory after creating the <strong class="source-inline">authenticated</strong> key with a new value pass as part of the <span class="No-Break">function c<a id="_idTextAnchor089"/>all.</span></p>
+<h2 id="_idParaDest-72"><a id="_idTextAnchor090"/>Using Redis for a session </h2>
+<p>As discussed in the <a id="_idIndexMarker209"/>previous section, the sessions are stored in memory. In this <a id="_idIndexMarker210"/>section, we will look at storing the session information permanently using Redis. The code samples for this section can be found <span class="No-Break">at </span><a href="https://github.com/PacktPublishing/Full-Stack-Web-Development-with-Go/tree/main/Chapter05-redis"><span class="No-Break">https://github.com/PacktPublishing/Full-Stack-Web-Development-with-Go/tree/main/Chapter05-redis</span></a><span class="No-Break">.</span></p>
+<p>The reason why we want to use Redis is because of its simplicity in terms of data storage, only containing key values. It also can be configured for both in-memory and permanent external storage. For our application, we will need to configure <strong class="source-inline">redis</strong> to store information on the disk to make it permanent. Execute the following <strong class="source-inline">make</strong> command to <span class="No-Break">run </span><span class="No-Break"><strong class="source-inline">redis</strong></span><span class="No-Break">:</span></p>
+<pre class="console">
+make redis</pre>
+<p>The following is the full Docker command used to <span class="No-Break">run </span><span class="No-Break"><strong class="source-inline">redis</strong></span><span class="No-Break">:</span></p>
+<pre class="console">
+docker run -v $(PWD)/redisdata:/data --name local-redis -p 6379:6379 -d redis --loglevel verbose</pre>
+<p>The command runs <strong class="source-inline">redis</strong> using Docker and specifies the <strong class="source-inline">redisdata</strong> local directory as the location of the permanent file storage for the data. To run the sample application, make sure you also run <strong class="source-inline">postgres</strong> using <span class="No-Break">this command:</span></p>
+<pre class="console">
+make teardown_recreate</pre>
+<p>Once both <strong class="source-inline">redis</strong> and <strong class="source-inline">postgres</strong> are up and running, you can now run the sample app and use the web application. The following code snippet shows the <strong class="source-inline">initRedis()</strong> function, which takes<a id="_idIndexMarker211"/> care of initializing Redis. The function uses two different <a id="_idIndexMarker212"/>packages, which you can find at <a href="https://github.com/redis/go-redis">https://github.com/redis/go-redis</a> and <a href="https://github.com/rbcervilla/redisstore">https://github.com/rbcervilla/redisstore</a>. The <strong class="source-inline">go-redis/redis</strong> package contains the driver and API to communicate with Redis while <strong class="source-inline">rbcervilla/redisstore</strong> contains a simple API to read, write, and delete data <span class="No-Break">from Redis:</span></p>
+<pre class="source-code">
+func initRedis() {
+  var err error
+  client = redis.NewClient(&amp;redis.Options{
+     Addr: "localhost:6379",
+  })
+  store, err = rstore.NewRedisStore(context.Background(), 
+                                    client)
+  if err != nil {
+     log.Fatal("failed to create redis store: ", err)
+  }
+  store.KeyPrefix("session_token")
+}</pre>
+<p>Once the initialization has been completed, the <strong class="source-inline">store</strong> variable will be used to write data to and read it from Redis. Inside the <strong class="source-inline">gorilla</strong> library, the <strong class="source-inline">sessions</strong> package automatically uses the configured <strong class="source-inline">client</strong> object to handle all writing and reading of information to and <span class="No-Break">from </span><span class="No-Break"><strong class="source-inline">redis</strong></span><span class="No-Break">.</span></p>
+<p>A new <a id="_idIndexMarker213"/>additional handler is added to allow the user to log out from the application<a id="_idIndexMarker214"/> as shown in the handler <span class="No-Break">snippet here:</span></p>
+<pre class="source-code">
+func logoutHandler(w http.ResponseWriter, r *http.Request) {
+  if hasBeenAuthenticated(w, r) {
+     session, _ := store.Get(r, "session_token")
+     session.Options.MaxAge = -1
+     err := session.Save(r, w)
+     if err != nil {
+        log.Println("failed to delete session", err)
+}
+  }
+  http.Redirect(w, r, "/login", 307)
+}</pre>
+<p>The logout <a id="_idIndexMarker215"/>operation is done by setting the <strong class="source-inline">Options.MaxAge</strong> field for a session. This <a id="_idIndexMarker216"/>indicates to the library that the next time the same <strong class="source-inline">session_token</strong> is passed to the server, it is considered an invalid/expired session and it will redirect to the<a id="_idTextAnchor091"/> <span class="No-Break">login page.</span></p>
+<h1 id="_idParaDest-73"><a id="_idTextAnchor092"/>Summary</h1>
+<p>In this chapter, we learned about a few new things that can help our application better. We learned how to add an authentication layer to our application to secure it, which helps protect our application from being accessed anonymously. We also looked at adding middleware to our application and showed how easy it was to add different middleware to our application without changing <span class="No-Break">much code.</span></p>
+<p>Lastly, we looked at session handling and learned how to use it to track user information and a user’s journey with our application. Since session handling is not stored permanently, we looked at using the <strong class="source-inline">redis</strong> data store to store the user session information, which allows the application to remember user information anytime the application <span class="No-Break">is restarted.</span></p>
+<p>In the next chapter, we will look at writing code that will process information back and forth between the browser and our application. We will look at building a REST API that will be used to perform different operations on <span class="No-Break">our data.</span></p>
+</div>
+</div></body></html>

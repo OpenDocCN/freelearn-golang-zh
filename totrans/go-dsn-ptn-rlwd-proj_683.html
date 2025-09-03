@@ -1,0 +1,115 @@
+<html><head></head><body>
+<div class="book" title="Five simple programs">
+<div class="book" title="Synonyms"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_4"><a id="ch04lvl2sec0043" class="calibre1"/>Synonyms</h2></div></div></div><p class="calibre10">So far, our programs have only modified words, but to really bring our solution to life, we need to be able to integrate a third-party API that provides word synonyms. This allows us to suggest different domain names while retaining the original meaning. Unlike Sprinkle and Domainify, Synonyms will write out more than one response for each word given to it. Our architecture of piping programs together means this won't be much of a problem; in fact, we do not even have to worry about it since each of the three programs is capable of reading multiple lines from the input source.</p><p class="calibre10">Big Huge Thesaurus, <a class="calibre1" href="http://bighugelabs.com/">http://bighugelabs.com/</a>, has a very clean and simple API that allows us to make a single HTTP <code class="email">GET</code> request to look up synonyms.</p><div class="informaltable" title="Tip"><h3 class="title2"><a id="tip65" class="calibre1"/>Tip</h3><p class="calibre10">In future, if the API we are using changes or disappears (after all, we're dealing with the Internet), you will find some options at <a class="calibre1" href="https://github.com/matryer/goblueprints">https://github.com/matryer/goblueprints</a>.</p></div><p class="calibre10">Before you can use Big Huge Thesaurus, you'll need an API key, which you can get by signing up to the service at <a class="calibre1" href="http://words.bighugelabs.com/">http://words.bighugelabs.com/</a>.</p><div class="book" title="Using environment variables for configuration"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch04lvl3sec0014" class="calibre1"/>Using environment variables for configuration</h3></div></div></div><p class="calibre10">Your API key is a sensitive piece of configuration information that you don't want to share with others. We could store it as <code class="email">const</code> in our code. However, this would mean we will not be able to share our code without sharing our key (not good, especially if you love open source projects). Additionally, perhaps more importantly, you will have to recompile your entire project if the key expires or if you want to use a different one (you don't want to get into such a situation).</p><p class="calibre10">A better solution is using an environment variable to store the key, as this will allow you to easily change it if you need to. You could also have different keys for different deployments; perhaps you could have one key for development or testing and another for production. This way, you can set a specific key for a particular execution of code so you can easily switch between keys without having to change your system-level settings. Also, different operating systems deal with environment variables in similar ways, so they are a perfect choice if you are writing cross-platform code.</p><p class="calibre10">Create a new environment variable called <code class="email">BHT_APIKEY</code> and set your API key as its value.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="note0066" class="calibre1"/>Note</h3><p class="calibre10">For machines running a bash shell, you can modify your <code class="email">~/.bashrc</code> file or similar to include <code class="email">export</code> commands, such as the following:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">
+<code class="email">export BHT_APIKEY=abc123def456ghi789jkl</code>
+</strong></span>
+</pre><p class="calibre10">On Windows machines, you can navigate to the properties of your computer and look for <span class="strong"><strong class="calibre2">Environment Variables</strong></span> in the <span class="strong"><strong class="calibre2">Advanced</strong></span> section.</p></div></div><div class="book" title="Consuming a web API"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch04lvl3sec0015" class="calibre1"/>Consuming a web API</h3></div></div></div><p class="calibre10">Making a request for in a web browser shows us what the structure of JSON response data looks like when finding synonyms for the word <code class="email">love</code>:</p><pre class="programlisting">{ 
+  "noun":{ 
+    "syn":[ 
+      "passion", 
+      "beloved", 
+      "dear" 
+    ] 
+  }, 
+  "verb":{ 
+    "syn":[ 
+      "love", 
+      "roll in the hay", 
+      "make out" 
+    ], 
+    "ant":[ 
+      "hate" 
+    ] 
+  } 
+} 
+</pre><p class="calibre10">A real API will return a lot more actual words than what is printed here, but the structure is the important thing. It represents an object, where the keys describe the types of word (verbs, nouns, and so on). Also, values are objects that contain arrays of strings keyed on <code class="email">syn</code> or <code class="email">ant</code> (for the synonym and antonym, respectively); it is the synonyms we are interested in.</p><p class="calibre10">To turn this JSON string data into something we can use in our code, we must decode it into structures of our own using the capabilities found in the <code class="email">encoding/json</code> package. Because we're writing something that could be useful outside the scope of our project, we will consume the API in a reusable package rather than directly in our program code. Create a new folder called <code class="email">thesaurus</code> alongside your other program folders (in <code class="email">$GOPATH/src</code>) and insert the following code into a new <code class="email">bighuge.go</code> file:</p><pre class="programlisting">package thesaurus 
+import ( 
+  "encoding/json" 
+  "errors" 
+  "net/http" 
+) 
+type BigHuge struct { 
+  APIKey string 
+} 
+type synonyms struct { 
+  Noun *words `json:"noun"` 
+  Verb *words `json:"verb"` 
+} 
+type words struct { 
+  Syn []string `json:"syn"` 
+} 
+func (b *BigHuge) Synonyms(term string) ([]string, error) { 
+  var syns []string 
+  response, err := http.Get("http://words.bighugelabs.com/api/2/"  + 
+   b.APIKey + "/" + term + "/json") 
+  if err != nil { 
+    return syns, errors.New("bighuge: Failed when looking for  synonyms    
+     for "" + term + """ + err.Error()) 
+  } 
+  var data synonyms 
+  defer response.Body.Close() 
+  if err := json.NewDecoder(response.Body).Decode(&amp;data); err !=  nil { 
+    return syns, err 
+  } 
+  if data.Noun != nil { 
+    syns = append(syns, data.Noun.Syn...) 
+  } 
+  if data.Verb != nil { 
+    syns = append(syns, data.Verb.Syn...) 
+  } 
+  return syns, nil 
+} 
+</pre><p class="calibre10">In the preceding code, the <code class="email">BigHuge</code> type we define houses the necessary API key and provides the <code class="email">Synonyms</code> method that will be responsible for doing the work of accessing the endpoint, parsing the response, and returning the results. The most interesting parts of this code are the <code class="email">synonyms</code> and <code class="email">words</code> structures. They describe the JSON response format in Go terms, namely an object containing noun and verb objects, which in turn contain a slice of strings in a variable called <code class="email">Syn</code>. The tags (strings in backticks following each field definition) tell the <code class="email">encoding/json</code> package which fields to map to which variables; this is required since we have given them different names.</p><div class="informaltable" title="Tip"><h3 class="title2"><a id="tip67" class="calibre1"/>Tip</h3><p class="calibre10">Typically in JSON, keys have lowercase names, but we have to use capitalized names in our structures so that the <code class="email">encoding/json</code> package would also know that the fields exist. If we don't, the package would simply ignore the fields. However, the types themselves (<code class="email">synonyms</code> and <code class="email">words</code>) do not need to be exported.</p></div><p class="calibre10">The <code class="email">Synonyms</code> method takes a <code class="email">term</code> argument and uses <code class="email">http.Get</code> to make a web request to the API endpoint in which the URL contains not only the API key value, but also the <code class="email">term</code> value itself. If the web request fails for some reason, we will make a call to <code class="email">log.Fatalln</code>, which will write the error to the standard error stream and exit the program with a non-zero exit code (actually an exit code of <code class="email">1</code>). This indicates that an error has occurred.</p><p class="calibre10">If the web request is successful, we pass the response body (another <code class="email">io.Reader</code>) to the <code class="email">json.NewDecoder</code> method and ask it to decode the bytes into the <code class="email">data</code> variable that is of our <code class="email">synonyms</code> type. We defer the closing of the response body in order to keep the memory clean before using Go's built-in <code class="email">append</code> function to concatenate both <code class="email">noun</code> and <code class="email">verb</code> synonyms to the <code class="email">syns</code> slice that we then return.</p><p class="calibre10">Although we have implemented the <code class="email">BigHuge</code> thesaurus, it isn't the only option out there, and we can express this by adding a <code class="email">Thesaurus</code> interface to our package. In the <code class="email">thesaurus</code> folder, create a new file called <code class="email">thesaurus.go</code> and add the following interface definition to the file:</p><pre class="programlisting">package thesaurus 
+type Thesaurus interface { 
+  Synonyms(term string) ([]string, error) 
+} 
+</pre><p class="calibre10">This simple interface just describes a method that takes a <code class="email">term</code> string and returns either a slice of strings containing the synonyms or an error (if something goes wrong). Our <code class="email">BigHuge</code> structure already implements this interface, but now, other users could add interchangeable implementations for other services, such as <a class="calibre1" href="http://www.dictionary.com/">http://www.dictionary.com/</a> or the Merriam-Webster online service.</p><p class="calibre10">Next, we are going to use this new package in a program. Change the directory in the terminal back up a level to <code class="email">$GOPATH/src</code>, create a new folder called <code class="email">synonyms</code>, and insert the following code into a new <code class="email">main.go</code> file you will place in this folder:</p><pre class="programlisting">func main() { 
+  apiKey := os.Getenv("BHT_APIKEY") 
+  thesaurus := &amp;thesaurus.BigHuge{APIKey: apiKey} 
+  s := bufio.NewScanner(os.Stdin) 
+  for s.Scan() { 
+    word := s.Text() 
+    syns, err := thesaurus.Synonyms(word) 
+    if err != nil { 
+      log.Fatalln("Failed when looking for synonyms for  "+word+", err) 
+    } 
+    if len(syns) == 0 { 
+      log.Fatalln("Couldn't find any synonyms for " + word +  ") 
+    } 
+    for _, syn := range syns { 
+      fmt.Println(syn) 
+    } 
+  } 
+} 
+</pre><p class="calibre10">Now when you manage your imports again, you will have written a complete program that is capable of looking up synonyms of words by integrating the Big Huge Thesaurus API.</p><p class="calibre10">In the preceding code, the first thing our <code class="email">main</code> function does is that it gets the <code class="email">BHT_APIKEY</code> environment variable value via the <code class="email">os.Getenv</code> call. To protect your code, you might consider double-checking it to ensure the value is properly set; if not, report the error. For now, we will assume that everything is configured properly.</p><p class="calibre10">Next, the preceding code starts to look a little familiar since it scans each line of input again from <code class="email">os.Stdin</code> and calls the <code class="email">Synonyms</code> method to get a list of the replacement words.</p><p class="calibre10">Let's build a program and see what kind of synonyms the API comes back with when we input the word <code class="email">chat</code>:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go build -o synonyms</strong></span>
+<span class="strong"><strong class="calibre2">./synonyms</strong></span>
+<span class="strong"><strong class="calibre2">chat</strong></span>
+<span class="strong"><strong class="calibre2">confab</strong></span>
+<span class="strong"><strong class="calibre2">confabulation</strong></span>
+<span class="strong"><strong class="calibre2">schmooze</strong></span>
+<span class="strong"><strong class="calibre2">New World chat</strong></span>
+<span class="strong"><strong class="calibre2">Old World chat</strong></span>
+<span class="strong"><strong class="calibre2">conversation</strong></span>
+<span class="strong"><strong class="calibre2">thrush</strong></span>
+<span class="strong"><strong class="calibre2">wood warbler</strong></span>
+<span class="strong"><strong class="calibre2">chew the fat</strong></span>
+<span class="strong"><strong class="calibre2">shoot the breeze</strong></span>
+<span class="strong"><strong class="calibre2">chitchat</strong></span>
+<span class="strong"><strong class="calibre2">chatter</strong></span>
+</pre><p class="calibre10">The results you get will most likely differ from what we have listed here since we're hitting a live API. However, the important thing is that when we provide a word or term as an input to the program, it returns a list of synonyms as the output, one per line.</p></div><div class="book" title="Getting domain suggestions"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch04lvl3sec0016" class="calibre1"/>Getting domain suggestions</h3></div></div></div><p class="calibre10">By composing the four programs we have built so far in this chapter, we already have a useful tool for suggesting domain names. All we have to do now is to run the programs while piping the output to the input in an appropriate way. In a terminal, navigate to the parent folder and run the following single line:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">./synonyms/synonyms | ./sprinkle/sprinkle | ./coolify/coolify |  ./domainify/domainify</strong></span>
+</pre><p class="calibre10">Because the <code class="email">synonyms</code> program is first in our list, it will receive the input from the terminal (whatever the user decides to type in). Similarly, because <code class="email">domainify</code> is last in the chain, it will print its output to the terminal for the user to see. Along the way, the lines of words will be piped through other programs, giving each of them a chance to do their magic.</p><p class="calibre10">Type in a few words to see some domain suggestions; for example, when you type <code class="email">chat</code> and hit return, you may see the following:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">getcnfab.com</strong></span>
+<span class="strong"><strong class="calibre2">confabulationtim.com</strong></span>
+<span class="strong"><strong class="calibre2">getschmoozee.net</strong></span>
+<span class="strong"><strong class="calibre2">schmosee.com</strong></span>
+<span class="strong"><strong class="calibre2">neew-world-chatsite.net</strong></span>
+<span class="strong"><strong class="calibre2">oold-world-chatsite.com</strong></span>
+<span class="strong"><strong class="calibre2">conversatin.net</strong></span>
+<span class="strong"><strong class="calibre2">new-world-warblersit.com</strong></span>
+<span class="strong"><strong class="calibre2">gothrush.net</strong></span>
+<span class="strong"><strong class="calibre2">lets-wood-wrbler.com</strong></span>
+<span class="strong"><strong class="calibre2">chw-the-fat.com</strong></span>
+</pre><p class="calibre10">The number of suggestions you get will actually depend on the number of synonyms. This is because it is the only program that generates more lines of output than what we input.</p><p class="calibre10">We still haven't solved our biggest problem: the fact that we have no idea whether the suggested domain names are actually available or not. So we still have to sit and type each one of them into a website. In the next section, we will address this issue.</p></div></div></div></body></html>

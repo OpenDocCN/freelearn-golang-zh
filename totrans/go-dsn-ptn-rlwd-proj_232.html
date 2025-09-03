@@ -1,0 +1,51 @@
+<html><head></head><body>
+<div class="book" title="The sync package" id="1T1401-9c484ed022e64a0fb0e1aebf8e05d4fd">
+<div class="book" title="Synchronizing with mutex locks"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_1"><a id="ch09lvl2sec162" class="calibre1"/>Synchronizing with mutex locks</h2></div></div></div><p class="calibre10">Mutex locks allow serial access of shared resources by causing goroutines to block and wait until locks are released. The following sample illustrates a typical code scenario with the <code class="email">Service</code> type, which must be started before it is ready to be used. After the service has started, the code updates an internal bool variable, <code class="email">started</code>, to store its current state:</p><pre class="programlisting">type Service struct { 
+   started bool 
+   stpCh   chan struct{} 
+   mutex   sync.Mutex 
+} 
+func (s *Service) Start() { 
+   s.stpCh = make(chan struct{}) 
+   go func() { 
+         s.mutex.Lock() 
+         s.started = true 
+         s.mutex.Unlock() 
+         &lt;-s.stpCh // wait to be closed. 
+   }() 
+} 
+func (s *Service) Stop() { 
+   s.mutex.Lock() 
+   defer s.mutex.Unlock() 
+   if s.started { 
+         s.started = false 
+         close(s.stpCh) 
+   } 
+} 
+func main() { 
+   s := &amp;Service{} 
+   s.Start() 
+   time.Sleep(time.Second) // do some work 
+   s.Stop() 
+} 
+</pre><p class="calibre10">golang.fyi/ch09/sync2.go</p><p class="calibre10">The previous code snippet uses variable <code class="email">mutex</code>, of type <code class="email">sync.Mutex</code>, to synchronize access to the shared variable <code class="email">started</code>. For this to work effectively, all contentious areas where the <code class="email">started</code> variable is updated must use the same lock with successive calls to <code class="email">mutex.Lock()</code> and <code class="email">mutex.Unlock()</code>, as shown in the code.</p><p class="calibre10">One idiom you will often encounter is to embed the <code class="email">sync.Mutex</code> type directly inside a struct, as shown in the next code snippet. This has the effect of promoting the <code class="email">Lock()</code> and <code class="email">Unlock()</code>methods as part of the struct itself:</p><pre class="programlisting">type Service struct { 
+   ... 
+   sync.Mutex 
+} 
+ 
+func (s *Service) Start() { 
+   s.stpCh = make(chan struct{}) 
+   go func() { 
+         s.Lock() 
+         s.started = true 
+         s.Unlock() 
+         &lt;-s.stpCh // wait to be closed. 
+   }() 
+} 
+ 
+func (s *Service) Stop() { 
+   s.Lock() 
+   defer s.Unlock() 
+   ... 
+} 
+</pre><p class="calibre10">golang.fyi/ch09/sync3.go</p><p class="calibre10">The <code class="email">sync</code> package also offers the RWMutex (read-write mutex), which can be used in cases where there is one writer that updates the shared resource, while there may be multiple readers. The writer would update the resource using a full lock, as before. However, readers use the <code class="email">RLock()</code>/<code class="email">RUnlock()</code> method pair (for read-lock/read-unlock respectively) to apply a read-only lock when reading the shared resource. The RWMutex type is used in the next section, <span class="strong"><em class="calibre11">Synchronizing Access to Composite Values</em></span>.</p></div></div></body></html>

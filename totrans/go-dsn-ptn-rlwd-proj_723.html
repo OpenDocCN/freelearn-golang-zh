@@ -1,0 +1,115 @@
+<html><head></head><body>
+<div class="book" title="Handling endpoints">
+<div class="book" title="Many operations with a single handler"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_2"><a id="ch06lvl2sec0065" class="calibre1"/>Many operations with a single handler</h2></div></div></div><p class="calibre10">Because our simple path-parsing solution cares only about the path, we have to do some extra work when looking at the kind of RESTful operation the client is making. Specifically, we need to consider the HTTP method so that we know how to handle the request. For example, a <code class="email">GET</code> call to our <code class="email">/polls/</code> path should read polls, where a <code class="email">POST</code> call would create a new one. Some frameworks solve this problem for you by allowing you to map handlers based on more than the path, such as the HTTP method or the presence of specific headers in the request. Since our case is ultra simple, we are going to use a simple <code class="email">switch</code> case. In <code class="email">polls.go</code>, add the <code class="email">handlePolls</code> function:</p><pre class="programlisting">func (s *Server) handlePolls(w http.ResponseWriter,
+ r *http.Request) { 
+  switch r.Method { 
+    case "GET": 
+    s.handlePollsGet(w, r) 
+    return 
+    case "POST": 
+    s.handlePollsPost(w, r) 
+    return 
+    case "DELETE": 
+    s.handlePollsDelete(w, r) 
+    return 
+  } 
+  // not found 
+  respondHTTPErr(w, r, http.StatusNotFound) 
+} 
+</pre><p class="calibre10">We switch on the HTTP method and branch our code depending on whether it is <code class="email">GET</code>, <code class="email">POST</code>, or <code class="email">DELETE</code>. If the HTTP method is something else, we just respond with a <code class="email">404 http.StatusNotFound</code> error. To make this code compile, you can add the following function stubs underneath the <code class="email">handlePolls</code> handler:</p><pre class="programlisting">func (s *Server) handlePollsGet(w http.ResponseWriter,
+ r *http.Request) { 
+  respondErr(w, r, http.StatusInternalServerError,
+   errors.New("not    
+  implemented")) 
+} 
+func (s *Server) handlePollsPost(w http.ResponseWriter,
+ r *http.Request) { 
+  respondErr(w, r, http.StatusInternalServerError,
+   errors.New("not   
+   implemented")) 
+} 
+func (s *Server) handlePollsDelete(w http.ResponseWriter,
+  r *http.Request) { 
+  respondErr(w, r, http.StatusInternalServerError,
+   errors.New("not  
+   implemented")) 
+} 
+</pre><div class="informaltable" title="Tip"><h3 class="title2"><a id="tip100" class="calibre1"/>Tip</h3><p class="calibre10">In this section, we learned how to manually parse elements of the requests (the HTTP method) and make decisions in code. This is great for simple cases, but it's worth looking at packages such as Gorilla's <code class="email">mux</code> package for some more powerful ways of solving these problems. Nevertheless, keeping external dependencies to a minimum is a core philosophy of writing good and contained Go code.</p></div><div class="book" title="Reading polls"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch06lvl3sec0022" class="calibre1"/>Reading polls</h3></div></div></div><p class="calibre10">Now it's time to implement the functionality of our web service. Add the following code:</p><pre class="programlisting">func (s *Server) handlePollsGet(w http.ResponseWriter,
+ r *http.Request) { 
+  session := s.db.Copy() 
+  defer session.Close() 
+  c := session.DB("ballots").C("polls") 
+  var q *mgo.Query 
+  p := NewPath(r.URL.Path) 
+  if p.HasID() { 
+    // get specific poll 
+    q = c.FindId(bson.ObjectIdHex(p.ID)) 
+  } else { 
+    // get all polls 
+    q = c.Find(nil) 
+  } 
+  var result []*poll 
+  if err := q.All(&amp;result); err != nil { 
+    respondErr(w, r, http.StatusInternalServerError, err) 
+    return 
+  } 
+  respond(w, r, http.StatusOK, &amp;result) 
+} 
+</pre><p class="calibre10">The very first thing we do in each of our sub handler functions is create a copy of the database session that will allow us to interact with MongoDB. We then use <code class="email">mgo</code> to create an object referring to the <code class="email">polls</code> collection in the database – if you remember, this is where our polls live.</p><p class="calibre10">We then build up an <code class="email">mgo.Query</code> object by parsing the path. If an ID is present, we use the <code class="email">FindId</code> method on the <code class="email">polls</code> collection; otherwise, we pass <code class="email">nil</code> to the <code class="email">Find</code> method, which indicates that we want to select all the polls. We are converting the ID from a string to a <code class="email">bson.ObjectId</code> type with the <code class="email">ObjectIdHex</code> method so that we can refer to the polls with their numerical (hex) identifiers.</p><p class="calibre10">Since the <code class="email">All</code> method expects to generate a collection of  <code class="email">poll</code> objects, we define the result as <code class="email">[]*poll</code> or a slice of pointers to poll types. Calling the <code class="email">All</code> method on the query will cause <code class="email">mgo</code> to use its connection to MongoDB to read all the polls and populate the <code class="email">result</code> object.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="note00101" class="calibre1"/>Note</h3><p class="calibre10">For small scale, such as a small number of polls, this approach is fine, but as the polls grow, we will need to consider a more sophisticated approach. We can page the results by iterating over them using the <code class="email">Iter</code> method on the query and using the <code class="email">Limit</code> and <code class="email">Skip</code> methods, so we do not try to load too much data into the memory or present too much information to users in one go.</p></div><p class="calibre10">Now that we have added some functionality, let's try out our API for the first time. If you are using the same MongoDB instance that we set up in the previous chapter, you should already have some data in the <code class="email">polls</code> collection; to see our API working properly, you should ensure there are at least two polls in the database.</p><p class="calibre10">If you need to add other polls to the database, in a terminal, run the <code class="email">mongo</code> command to open a database shell that will allow you to interact with MongoDB. Then, enter the following commands to add some test polls:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">&gt; use ballots</strong></span>
+<span class="strong"><strong class="calibre2">switched to db ballots</strong></span>
+<span class="strong"><strong class="calibre2">&gt; db.polls.insert({"title":"Test  poll","options":
+     ["one","two","three"]})</strong></span>
+<span class="strong"><strong class="calibre2">&gt; db.polls.insert({"title":"Test poll  two","options":
+     ["four","five","six"]})</strong></span>
+</pre><p class="calibre10">In a terminal, navigate to your <code class="email">api</code> folder and build and run the project:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go build -o api</strong></span>
+<span class="strong"><strong class="calibre2">./api</strong></span>
+</pre><p class="calibre10">Now make a <code class="email">GET</code> request to the <code class="email">/polls/</code> endpoint by navigating to <code class="email">http://localhost:8080/polls/?key=abc123</code> in your browser; remember to include the trailing slash. The result will be an array of polls in the JSON format.</p><p class="calibre10">Copy and paste one of the IDs from the polls list and insert it before the <code class="email">?</code> character in the browser to access the data for a specific poll, for example, <code class="email">http://localhost:8080/polls/5415b060a02cd4adb487c3ae?key=abc123</code>. Note that instead of returning all the polls, it only returns one.</p><div class="informaltable" title="Tip"><h3 class="title2"><a id="tip102" class="calibre1"/>Tip</h3><p class="calibre10">Test the API key functionality by removing or changing the key parameter to see what the error looks like.</p></div><p class="calibre10">You might have also noticed that although we are only returning a single poll, this poll value is still nested inside an array. This is a deliberate design decision made for two reasons: the first and most important reason is that nesting makes it easier for users of the API to write code to consume the data. If users are always expecting a JSON array, they can write strong types that describe that expectation rather than having one type for single polls and another for collections of polls. As an API designer, this is your decision to make. The second reason we left the object nested in an array is that it makes the API code simpler, allowing us to just change the <code class="email">mgo.Query</code> object and leave the rest of the code the same.</p></div><div class="book" title="Creating a poll"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch06lvl3sec0023" class="calibre1"/>Creating a poll</h3></div></div></div><p class="calibre10">Clients should be able to make a <code class="email">POST</code> request to <code class="email">/polls/</code> in order to create a poll. Let's add the following code inside the <code class="email">POST</code> case:</p><pre class="programlisting">func (s *Server) handlePollsPost(w http.ResponseWriter, 
+ r *http.Request) { 
+  session := s.db.Copy() 
+  defer session.Close() 
+  c := session.DB("ballots").C("polls") 
+  var p poll 
+  if err := decodeBody(r, &amp;p); err != nil { 
+    respondErr(w, r, http.StatusBadRequest, "failed to
+     read poll from request", err) 
+    return 
+  } 
+  apikey, ok := APIKey(r.Context()) 
+  if ok { 
+    p.APIKey = apikey 
+  } 
+  p.ID = bson.NewObjectId() 
+  if err := c.Insert(p); err != nil { 
+    respondErr(w, r, http.StatusInternalServerError,
+     "failed to insert 
+    poll", err) 
+    return 
+  } 
+  w.Header().Set("Location", "polls/"+p.ID.Hex()) 
+  respond(w, r, http.StatusCreated, nil) 
+} 
+</pre><p class="calibre10">After we get a copy of the database session like earlier, we attempt to decode the body of the request that, according to RESTful principles, should contain a representation of the poll object the client wants to create. If an error occurs, we use the <code class="email">respondErr</code> helper to write the error to the user and immediately exit from the function. We then generate a new unique ID for the poll and use the <code class="email">mgo</code> package's <code class="email">Insert</code> method to send it into the database. We then set the <code class="email">Location</code> header of the response and respond with a <code class="email">201 http.StatusCreated</code> message, pointing to the URL from which the newly created poll may be accessed. Some APIs return the object instead of providing a link to it; there is no concrete standard so it's up to you as the designer.</p></div><div class="book" title="Deleting a poll"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch06lvl3sec0024" class="calibre1"/>Deleting a poll</h3></div></div></div><p class="calibre10">The final piece of functionality we are going to include in our API is the ability to delete polls. By making a request with the <code class="email">DELETE</code> HTTP method to the URL of a poll (such as<code class="email">/polls/5415b060a02cd4adb487c3ae</code>), we want to be able to remove the poll from the database and return a <code class="email">200 Success</code> response:</p><pre class="programlisting">func (s *Server) handlePollsDelete(w http.ResponseWriter, 
+  r *http.Request) { 
+  session := s.db.Copy() 
+  defer session.Close() 
+  c := session.DB("ballots").C("polls") 
+  p := NewPath(r.URL.Path) 
+  if !p.HasID() { 
+    respondErr(w, r, http.StatusMethodNotAllowed,
+      "Cannot delete all polls.") 
+    return 
+  } 
+  if err := c.RemoveId(bson.ObjectIdHex(p.ID)); err != nil { 
+    respondErr(w, r, http.StatusInternalServerError,
+     "failed to delete poll", err) 
+    return 
+  } 
+  respond(w, r, http.StatusOK, nil) // ok 
+} 
+</pre><p class="calibre10">Similar to the <code class="email">GET</code> case, we parse the path, but this time, we respond with an error if the path does not contain an ID. For now, we don't want people to be able to delete all polls with one request, and so we use the suitable <code class="email">StatusMethodNotAllowed</code> code. Then, using the same collection we used in the previous cases, we call <code class="email">RemoveId</code>, passing the ID in the path after converting it into a <code class="email">bson.ObjectId</code> type. Assuming things go well, we respond with an <code class="email">http.StatusOK</code> message with no body.</p></div><div class="book" title="CORS support"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch06lvl3sec0025" class="calibre1"/>CORS support</h3></div></div></div><p class="calibre10">In order for our <code class="email">DELETE</code> capability to work over CORS, we must do a little extra work to support the way CORS browsers handle some HTTP methods such as <code class="email">DELETE</code>. A CORS browser will actually send a preflight request (with an HTTP method of <code class="email">OPTIONS</code>), asking for permission to make a <code class="email">DELETE</code> request (listed in the <code class="email">Access-Control-Request-Method</code> request header), and the API must respond appropriately in order for the request to work. Add another case in the <code class="email">switch</code> statement for <code class="email">OPTIONS</code>:</p><pre class="programlisting">case "OPTIONS": 
+  w.Header().Add("Access-Control-Allow-Methods", "DELETE") 
+  respond(w, r, http.StatusOK, nil) 
+  return 
+</pre><p class="calibre10">If the browser asks for permission to send a <code class="email">DELETE</code> request, the API will respond by setting the <code class="email">Access-Control-Allow-Methods</code> header to <code class="email">DELETE</code>, thus overriding the default <code class="email">*</code> value that we set in our <code class="email">withCORS</code> wrapper handler. In the real world, the value for the <code class="email">Access-Control-Allow-Methods</code> header will change in response to the request made, but since <code class="email">DELETE</code> is the only case we are supporting, we can hardcode it for now.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="note00103" class="calibre1"/>Note</h3><p class="calibre10">The details of CORS are out of the scope of this book, but it is recommended that you research the particulars online if you intend to build truly accessible web services and APIs. Head over to <a class="calibre1" href="http://enable-cors.org/">http://enable-cors.org/</a> to get started.</p></div></div></div></div></body></html>

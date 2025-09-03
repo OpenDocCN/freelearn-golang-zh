@@ -1,0 +1,829 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Parallelism and Concurrency</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, the following recipes will be covered:</p>
+<ul>
+<li>Using channels and the select statement</li>
+<li>Performing async operations with sync.WaitGroup</li>
+<li>Using atomic operations and mutex</li>
+<li>Using the context package</li>
+<li>Executing state management for channels</li>
+<li>Using the worker pool design pattern</li>
+<li>Using workers to create pipelines</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Introduction</h1>
+                </header>
+            
+            <article>
+                
+<p>This chapter covers worker pools, wait groups for async operations, and the use of the <kbd>context</kbd> package. Parallelism and concurrency are some of the most advertised and promoted features of the Go language. This chapter will offer a number of useful patterns to get you started and help you understand these features.</p>
+<p>Go provides primitives that make parallel applications possible. Goroutines allow any function to become asynchronous and concurrent. Channels allow an application to set up communication with goroutines. One of the famous sayings in Go is <em>Do not communicate by sharing memory; instead, share memory by communicating</em> from <a href="https://blog.golang.org/share-memory-by-communicating">https://blog.golang.org/share-memory-by-communicating</a>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using channels and the select statement</h1>
+                </header>
+            
+            <article>
+                
+<p>Go channels, in combination with goroutines, are first-class citizens for asynchronous communication. Channels become especially powerful when using select statements. These statements allow a goroutine to intelligently handle requests from multiple channels at once.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Download and install Go on your operating system from <a href="https://golang.org/doc/install">https://golang.org/doc/install</a> and configure your <kbd>GOPATH</kbd> environment variable.</li>
+<li>Open a terminal/console application.</li>
+<li>Navigate to <kbd>GOPATH/src</kbd> and create a project directory, such as <kbd>$GOPATH/src/github.com/yourusername/customrepo</kbd>.</li>
+</ol>
+<p style="padding-left: 60px">All code will be run and modified from this directory.</p>
+<ol start="4">
+<li>Optionally, install the latest tested version of the code using the <kbd>go get github.com/agtorre/go-cookbook/</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter9/channels</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter9/channels">https://github.com/agtorre/go-cookbook/tree/master/chapter9/channels</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>sender.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package channels<br/><br/>        import "time"<br/><br/>        // Sender sends "tick"" on ch until done is<br/>        // written to, then it sends "sender done."<br/>        // and exits<br/>        func Sender(ch chan string, done chan bool) {<br/>            t := time.Tick(100 * time.Millisecond)<br/>            for {<br/>                select {<br/>                    case &lt;-done:<br/>                        ch &lt;- "sender done."<br/>                        return<br/>                    case &lt;-t:<br/>                        ch &lt;- "tick"<br/>                }<br/>            }<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>printer.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package channels<br/><br/>        import (<br/>            "context"<br/>            "fmt"<br/>            "time"<br/>        )<br/><br/>        // Printer will print anything sent on the ch chan<br/>        // and will print tock every 200 milliseconds<br/>        // this will repeat forever until a context is<br/>        // Done, i.e. timed out or cancelled<br/>        func Printer(ctx context.Context, ch chan string) {<br/>            t := time.Tick(200 * time.Millisecond)<br/>            for {<br/>                select {<br/>                  case &lt;-ctx.Done():<br/>                      fmt.Println("printer done.")<br/>                      return<br/>                  case res := &lt;-ch:<br/>                      fmt.Println(res)<br/>                  case &lt;-t:<br/>                      fmt.Println("tock")<br/>                }<br/>            }<br/>        }
+</pre>
+<ol start="5">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file named <kbd>main.go</kbd> with the following content and ensure that you modify the <kbd>channels</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "context"<br/>            "time"<br/><br/>            "github.com/agtorre/go-cookbook/chapter9/channels"<br/>        )<br/><br/>        func main() {<br/>            ch := make(chan string)<br/>            done := make(chan bool)<br/><br/>            ctx := context.Background()<br/>            ctx, cancel := context.WithCancel(ctx)<br/>            defer cancel()<br/>   <br/>            go channels.Printer(ctx, ch)<br/>            go channels.Sender(ch, done)<br/><br/>            time.Sleep(2 * time.Second)<br/>            done &lt;- true<br/>            cancel()<br/>            //sleep a bit extra so channels can clean up<br/>            time.Sleep(1 * time.Second)<br/>        }
+</pre>
+<ol start="7">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You may also run the following commands:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should now see the following output:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      tick</strong><br/><strong>      tock</strong><br/><strong>      tick</strong><br/><strong>      tick</strong><br/><strong>      tock</strong><br/><strong>      tick</strong><br/><strong>      tick</strong><br/><strong>      tock</strong><br/><strong>      tick</strong><br/><strong>      .</strong><br/><strong>      .</strong><br/><strong>      .</strong><br/><strong>      sender done.</strong><br/><strong>      printer done.</strong>
+</pre>
+<ol start="9">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>This recipe demonstrates two ways to launch a worker process that either reads or writes to a channel, and may potentially do both. The terminate conditions are a <kbd>done</kbd> channel, or by using a <kbd>context</kbd> package. The <em>Using the context package</em> recipe will cover the context in more detail.<br/>
+The <kbd>main</kbd> package is used to wire together the separate functions; thanks to this, it is possible to set up multiple pairs as long as the channels are not shared. In addition, it's possible to have multiple goroutines listening on the same channel, as we'll explore in the <em>Using the worker pool design pattern</em> recipe.<br/>
+Lastly, due to the asynchronous nature of goroutines, it can be tricky to establish cleanup and terminate conditions; for example, a common mistake is to do the following:</p>
+<pre>
+select{<br/>    case &lt;-time.Tick(200 * time.Millisecond):<br/>    //this resets whenever any other 'lane' is chosen<br/>}
+</pre>
+<p>By putting the tick in the <kbd>select</kbd> statement, it's possible to prevent this case from ever occurring. There's also no simple way to prioritize traffic in a <kbd>select</kbd> statement.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Performing async operations with sync.WaitGroup</h1>
+                </header>
+            
+            <article>
+                
+<p>Sometimes, it is useful to perform a number of operations asynchronously, then wait till they complete before moving on. For example, if an operation requires pulling information from multiple APIs and aggregate that information, it can be helpful to make those client requests asynchronously. This chapter will explore using <kbd>sync.WaitGroup</kbd> to orchestrate non-dependent tasks in parallel.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Refer to the <em>Getting ready</em> section of the <em>Using channels and the select statement</em> recipe in this chapter.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the<br/>
+<kbd>chapter9/waitgroup</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter9/waitgroup">https://github.com/agtorre/go-cookbook/tree/master/chapter9/waitgroup</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>tasks.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package waitgroup<br/><br/>        import (<br/>            "fmt"<br/>            "log"<br/>            "net/http"<br/>            "strings"<br/>            "time"<br/>        )<br/><br/>        // GetURL gets a url, and logs the time it took<br/>        func GetURL(url string) (*http.Response, error) {<br/>            start := time.Now()<br/>            log.Printf("getting %s", url)<br/>            resp, err := http.Get(url)<br/>            log.Printf("completed getting %s in %s", url, <br/>            time.Since(start))<br/>            return resp, err<br/>        }<br/><br/>        // CrawlError is our custom error type<br/>        // for aggregating errors<br/>        type CrawlError struct {<br/>            Errors []string<br/>        }<br/><br/>        // Add adds another error<br/>        func (c *CrawlError) Add(err error) {<br/>            c.Errors = append(c.Errors, err.Error())<br/>        }<br/><br/>        // Error implements the error interface<br/>        func (c *CrawlError) Error() string {<br/>            return fmt.Sprintf("All Errors: %s", strings.Join(c.Errors, <br/>            ","))<br/>        }<br/><br/>        // Valid can be used to determine if<br/>        // we should return this<br/>        func (c *CrawlError) Valid() bool {<br/>            return len(c.Errors) != 0<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>process.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package waitgroup<br/><br/>        import (<br/>            "log"<br/>            "sync"<br/>            "time"<br/>        )<br/><br/>        // Crawl collects responses from a list of urls<br/>        // that are passed in. It waits for all requests<br/>        // to complete before returning.<br/>        func Crawl(sites []string) ([]int, error) {<br/>            start := time.Now()<br/>            log.Printf("starting crawling")<br/>            wg := &amp;sync.WaitGroup{}<br/><br/>            var resps []int<br/>            cerr := &amp;CrawlError{}<br/>            for _, v := range sites {<br/>                wg.Add(1)<br/>                go func(v string) {<br/>                    defer wg.Done()<br/>                    resp, err := GetURL(v)<br/>                    if err != nil {<br/>                        cerr.Add(err)<br/>                        return<br/>                    }<br/>                    resps = append(resps, resp.StatusCode)<br/>                }(v)<br/>            }<br/>            wg.Wait()<br/>            if cerr.Valid() {<br/>                return resps, cerr<br/>            }<br/>            log.Printf("completed crawling in %s", time.Since(start))<br/>            return resps, nil<br/>        }
+</pre>
+<ol start="5">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file named <kbd>main.go</kbd> with the following content. Ensure that you modify the <kbd>waitgroup</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/><br/>            "github.com/agtorre/go-cookbook/chapter9/waitgroup"<br/>        )<br/><br/>        func main() {<br/>            sites := []string{<br/>                "https://golang.org",<br/>                "https://godoc.org",<br/>                "https://www.google.com/search?q=golang",<br/>            }<br/><br/>            resps, err := waitgroup.Crawl(sites)<br/>            if err != nil {<br/>                panic(err)<br/>            }<br/>            fmt.Println("Resps received:", resps)<br/>        }
+</pre>
+<ol start="7">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You may also run the following commands:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You shou</span>ld see the fo<span>llowing:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      2017/04/05 19:45:07 starting crawling</strong><br/><strong>      2017/04/05 19:45:07 getting https://www.google.com/search?<br/>      q=golang</strong><br/><strong>      2017/04/05 19:45:07 getting https://golang.org</strong><br/><strong>      2017/04/05 19:45:07 getting https://godoc.org</strong><br/><strong>      2017/04/05 19:45:07 completed getting https://golang.org in <br/>      178.22407ms</strong><br/><strong>      2017/04/05 19:45:07 completed getting https://godoc.org in <br/>      181.400873ms</strong><br/><strong>      2017/04/05 19:45:07 completed getting <br/>      https://www.google.com/search?q=golang in 238.019327ms</strong><br/><strong>      2017/04/05 19:45:07 completed crawling in 238.191791ms</strong><br/><strong>      Resps received: [200 200 200]</strong><br/><br/>
+</pre>
+<ol start="9">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>This recipe shows how to use <kbd>waitgroups</kbd> as a synchronization mechanism when waiting for work. In essence, <kbd>waitgroup.Wait()</kbd> will wait until its internal counter has reached <kbd>0</kbd>. The <kbd>waitgroup.Add(int)</kbd> method will increment the counter by the amount entered, and <kbd>waitgroup.Done()</kbd> will decrement the counter by <kbd>1</kbd>. Because of this, it is necessary to asynchronously <kbd>Wait()</kbd> while the various goroutines mark the <kbd>waitgroup</kbd> as <kbd>Done()</kbd>.</p>
+<p>In this recipe, we increment before dispatching each HTTP request and then call a defer <kbd>wg.Done()</kbd> method, so that we can decrement whenever the goroutine terminates. We then wait for all goroutines to finish before returning our aggregated results.</p>
+<p>In practice, it's better to use channels for passing the error and responses around.</p>
+<p>When performing operations asynchronously like this, you should consider thread safety for things such as modifying a shared map. If you keep this in mind, <kbd>waitgroups</kbd> are a useful feature for waiting on any kind of asynchronous operation.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using atomic operations and mutex</h1>
+                </header>
+            
+            <article>
+                
+<p>In a language like Go, where you have build in asynchronous operations and parallelism, it becomes important to consider things such as thread safety. For example, it is dangerous to access a map from multiple goroutines simultaneously. Go provides a number of helpers in the <kbd>sync</kbd> and <kbd>sync/atomic</kbd> packages to make sure that certain events occur only once or that goroutines can serialize on an operation.<br/>
+This recipe will demonstrate the use of these packages to safely modify a map with various goroutines and to keep a global ordinal value that can be safely accessed by numerous goroutines. It will also showcase the <kbd>Once.Do</kbd> method, which can be used to ensure that something is only done by a Go application once, such as reading a config or initializing a variable.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Refer to the <em>Getting ready</em> section of the <em>Using channels and the select statement</em> recipe in this chapter.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter9/atomic</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter9/atomic">https://github.com/agtorre/go-cookbook/tree/master/chapter9/atomic</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>map.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package atomic<br/><br/>        import (<br/>            "errors"<br/>            "sync"<br/>        )<br/><br/>        // SafeMap uses a mutex to allow<br/>        // getting and setting in a thread-safe way<br/>        type SafeMap struct {<br/>            m map[string]string<br/>            mu *sync.RWMutex<br/>        }<br/><br/>        // NewSafeMap creates a SafeMap<br/>        func NewSafeMap() SafeMap {<br/>            return SafeMap{m: make(map[string]string), mu: <br/>            &amp;sync.RWMutex{}}<br/>        }<br/><br/>        // Set uses a write lock and sets the value given<br/>        // a key<br/>        func (t *SafeMap) Set(key, value string) {<br/>            t.mu.Lock()<br/>            defer t.mu.Unlock()<br/><br/>            t.m[key] = value<br/>        }<br/><br/>        // Get uses a RW lock and gets the value if it exists,<br/>        // otherwise an error is returned<br/>        func (t *SafeMap) Get(key string) (string, error) {<br/>            t.mu.RLock()<br/>            defer t.mu.RUnlock()<br/><br/>            if v, ok := t.m[key]; ok {<br/>                return v, nil<br/>            }<br/><br/>            return "", errors.New("key not found")<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>ordinal.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package atomic<br/><br/>        import (<br/>            "sync"<br/>            "sync/atomic"<br/>        )<br/><br/>        // Ordinal holds a global a value<br/>        // and can only be initialized once<br/>        type Ordinal struct {<br/>            ordinal uint64<br/>            once *sync.Once<br/>        }<br/><br/>        // NewOrdinal returns ordinal with once<br/>        // setup<br/>        func NewOrdinal() *Ordinal {<br/>            return &amp;Ordinal{once: &amp;sync.Once{}}<br/>        }<br/><br/>        // Init sets the ordinal value<br/>        // can only be done once<br/>        func (o *Ordinal) Init(val uint64) {<br/>            o.once.Do(func() {<br/>                atomic.StoreUint64(&amp;o.ordinal, val)<br/>            })<br/>        }<br/><br/>        // GetOrdinal will return the current<br/>        // ordinal<br/>        func (o *Ordinal) GetOrdinal() uint64 {<br/>            return atomic.LoadUint64(&amp;o.ordinal)<br/>        }<br/><br/>        // Increment will increment the current<br/>        // ordinal<br/>        func (o *Ordinal) Increment() {<br/>            atomic.AddUint64(&amp;o.ordinal, 1)<br/>        }
+</pre>
+<ol start="5">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file named <kbd>main.go</kbd> with the following content and ensure that you modify the <kbd>atomic</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/>            "sync"<br/><br/>            "github.com/agtorre/go-cookbook/chapter9/atomic"<br/>        )<br/><br/>        func main() {<br/>            o := atomic.NewOrdinal()<br/>            m := atomic.NewSafeMap()<br/>            o.Init(1123)<br/>            fmt.Println("initial ordinal is:", o.GetOrdinal())<br/>            wg := sync.WaitGroup{}<br/>            for i := 0; i &lt; 10; i++ {<br/>                wg.Add(1)<br/>                go func(i int) {<br/>                    defer wg.Done()<br/>                    m.Set(fmt.Sprint(i), "success")<br/>                    o.Increment()<br/>                }(i)<br/>            }<br/><br/>            wg.Wait()<br/>            for i := 0; i &lt; 10; i++ {<br/>                v, err := m.Get(fmt.Sprint(i))<br/>                if err != nil || v != "success" {<br/>                    panic(err)<br/>                }<br/>            }<br/>            fmt.Println("final ordinal is:", o.GetOrdinal())<br/>            fmt.Println("all keys found and marked as: 'success'")<br/>        }
+</pre>
+<ol start="7">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You may also run the following commands:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"/>
+<p style="padding-left: 60px"><span>You should now see the following:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><br/><strong>      initial ordinal is: 1123</strong><br/><strong>      final ordinal is: 1133</strong><br/><strong>      all keys found and marked as: 'success'</strong>
+</pre>
+<ol start="9">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>For our map recipe, we used a <kbd>ReadWrite</kbd> mutex. The idea behind this mutex is that any number of readers can acquire a read lock, but only one writer can acquire a write lock. Additionally, a writer cannot acquire a lock when anyone else (reader or writer) has one. This is useful because reads are very fast and non-blocking when compared to a standard mutex. Whenever we want to set data, we use <kbd>Lock()</kbd> object and whenever we want to read data we use <kbd>RLock()</kbd>. It is critical that you use <kbd>Unlock()</kbd> or <kbd>RUnlock()</kbd> eventually so that you don't deadlock your application. A defer <kbd>Unlock()</kbd> object can be useful, but may be slower than calling <kbd>Unlock()</kbd> manually.<br/>
+This pattern may not be flexible enough when you want to group additional actions with the locked value. For example, in some cases, you may want to lock, do some additional processing, and only after you've completed this will you unlock. It's important to consider this for your designs.<br/>
+The <kbd>sync/atmoic</kbd> package is used by <kbd>Ordinal</kbd> to get and set values. There are also atomic comparison operations such as <kbd>atomic.CompareAndSwapUInt64()</kbd>, which are extremely valuable. This recipe allows Init to be called on an <kbd>Ordinal</kbd> object only once; otherwise, it can only be incremented and does so atomically.<br/>
+We loop and create 10 goroutines (synchronizing with <kbd>sync.Waitgroup</kbd>) and show that the ordinal correctly incremented 10 times and that every key in our map was appropriately set.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using the context package</h1>
+                </header>
+            
+            <article>
+                
+<p>Several recipes throughout this book make use of the <kbd>context</kbd> package. This recipe will explore the basics of creating and managing contexts. A good reference for understanding context is <a href="https://blog.golang.org/context">https://blog.golang.org/context</a>. Since this blog post was written, context moved from <kbd>net/context</kbd> to a package called <kbd>context</kbd>. This still occasionally causes problems when interacting with third-party libraries such as GRPC.<br/>
+This recipe will explore setting and getting values for contexts, cancelation, and timeouts.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Refer to the <em>Getting ready</em> section of the <em>Using channels and the select statement</em> recipe in this chapter.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter9/context</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter9/context">https://github.com/agtorre/go-cookbook/tree/master/chapter9/context</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>values.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package context<br/><br/>        import "context"<br/><br/>        type key string<br/><br/>        const (<br/>            timeoutKey key = "TimeoutKey"<br/>            deadlineKey key = "DeadlineKey"<br/>        )<br/><br/>        // Setup sets some values<br/>        func Setup(ctx context.Context) context.Context {<br/><br/>            ctx = context.WithValue(ctx, timeoutKey,<br/>            "timeout exceeded")<br/>            ctx = context.WithValue(ctx, deadlineKey,<br/>            "deadline exceeded")<br/><br/>            return ctx<br/>        }<br/><br/>        // GetValue grabs a value given a key and<br/>        // returns a string representation of the<br/>        // value<br/>        func GetValue(ctx context.Context, k key) string {<br/><br/>            if val, ok := ctx.Value(k).(string); ok {<br/>                return val<br/>            }<br/>            return ""<br/><br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>exec.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package context<br/><br/>        import (<br/>            "context"<br/>            "fmt"<br/>            "math/rand"<br/>            "time"<br/>        )<br/><br/>        // Exec sets two random timers and prints<br/>        // a different context value for whichever<br/>        // fires first<br/>        func Exec() {<br/>            // a base context<br/>            ctx := context.Background()<br/>            ctx = Setup(ctx)<br/><br/>            rand.Seed(time.Now().UnixNano())<br/><br/>            timeoutCtx, cancel := context.WithTimeout(ctx, <br/>            (time.Duration(rand.Intn(2)) * time.Millisecond))<br/>            defer cancel()<br/><br/>            deadlineCtx, cancel := context.WithDeadline(ctx, <br/>            time.Now().Add(time.Duration(rand.Intn(2))<br/>            *time.Millisecond))<br/>            defer cancel()<br/><br/>            for {<br/>                select {<br/>                    case &lt;-timeoutCtx.Done():<br/>                    fmt.Println(GetValue(ctx, timeoutKey))<br/>                    return<br/>                    case &lt;-deadlineCtx.Done():<br/>                        fmt.Println(GetValue(ctx, deadlineKey))<br/>                        return<br/>                }<br/>            }<br/>        }
+</pre>
+<ol start="5">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file named <kbd>main.go</kbd> with the following content. Ensure that you modify the <kbd>context</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>            import "github.com/agtorre/go-cookbook/chapter9/context"<br/><br/>        func main() {<br/>            context.Exec()<br/>        }
+</pre>
+<ol start="7">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You may also run the following commands:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should now see the following output:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      timeout exceeded</strong><br/><br/><strong>      OR</strong><br/><br/><strong>      $ go run main.go</strong><br/><strong>      deadline exceeded</strong>
+</pre>
+<ol start="9">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>When working with context values, it's good to create a new type to represent the key. In this case, we created a <kbd>key</kbd> type, then declared some corresponding <kbd>const</kbd> values to represent all of our possible keys.</p>
+<p>In this case, we initialize all our key/value pairs at the same time using the <kbd>Setup()</kbd> function. When modifying contexts, functions generally take a <kbd>context</kbd> argument and return a <kbd>context</kbd> value. So the signature often looks like this:</p>
+<pre>
+func ModifyContext(ctx context.Context) context.Context
+</pre>
+<p>Sometimes, these methods also return an error or <kbd>cancel()</kbd> function, such as in the cases of <kbd>context.WithCancel</kbd>, <kbd>context.WithTimeout</kbd>, and <kbd>context.WithDeadline</kbd>. All child contexts inherit the attributes of the parent.<br/>
+In this recipe, we create two child contexts, one with a deadline and one with a timeout. We set these to timeout to be random ranges, then terminate when either is received. Lastly, we extract a value given a set key and print it.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Executing state management for channels</h1>
+                </header>
+            
+            <article>
+                
+<p>Channels can be any type in Go. A channel of structs allows you to <span>pass a lot of state</span> with a single message. This recipe will explore using of channels to pass around complex request structs and return their results in complex response structs.<br/>
+In the next recipe, <em>Using the worker pool design pattern</em>, the value of this becomes even more apparent as you can create general purpose workers capable of performing a variety of tasks.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Refer to the <em>Getting ready</em> section of the <em>Using channels and the select statement</em> recipe in this chapter.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create and navigate to the <kbd>chapter9/state</kbd> directory.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter9/state">https://github.com/agtorre/go-cookbook/tree/master/chapter9/state</a> or <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter9/state">use this as an exercise to write some of your own code.</a></li>
+<li>Create a file called <kbd>state.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package state<br/><br/>        type op string<br/><br/>        const (<br/>            // Add values<br/>            Add op = "add"<br/>            // Subtract values<br/>            Subtract = "sub"<br/>            // Multiply values<br/>            Multiply = "mult"<br/>            // Divide values<br/>            Divide = "div"<br/>        )<br/><br/>        // WorkRequest perform an op<br/>        // on two values<br/>        type WorkRequest struct {<br/>            Operation op<br/>            Value1 int64<br/>            Value2 int64<br/>        }<br/><br/>        // WorkResponse returns the result<br/>        // and any errors<br/>        type WorkResponse struct {<br/>            Wr *WorkRequest<br/>            Result int64<br/>            Err error<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>processor.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package state<br/><br/>        import "context"<br/><br/>        // Processor routes work to Process<br/>        func Processor(ctx context.Context, in chan *WorkRequest, out <br/>        chan *WorkResponse) {<br/>            for {<br/>                select {<br/>                    case &lt;-ctx.Done():<br/>                        return<br/>                    case wr := &lt;-in:<br/>                        out &lt;- Process(wr)<br/>                }<br/>            }<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>process.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package state<br/><br/>        import "errors"<br/><br/>        // Process switches on operation type<br/>        // Then does work<br/>        func Process(wr *WorkRequest) *WorkResponse {<br/>            resp := WorkResponse{Wr: wr}<br/><br/>            switch wr.Operation {<br/>                case Add:<br/>                    resp.Result = wr.Value1 + wr.Value2<br/>                case Subtract:<br/>                    resp.Result = wr.Value1 - wr.Value2<br/>                case Multiply:<br/>                    resp.Result = wr.Value1 * wr.Value2<br/>                case Divide:<br/>                    if wr.Value2 == 0 {<br/>                        resp.Err = errors.New("divide by 0")<br/>                        break<br/>                    }<br/>                    resp.Result = wr.Value1 / wr.Value2<br/>                    default:<br/>                        resp.Err = errors.New("unsupported operation")<br/>            }<br/>            return &amp;resp<br/>        }
+</pre>
+<ol start="6">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file named <kbd>main.go</kbd> with the following content. Ensure that you modify the <kbd>state</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "context"<br/>            "fmt"<br/><br/>            "github.com/agtorre/go-cookbook/chapter9/state"<br/>        )<br/><br/>        func main() {<br/>            in := make(chan *state.WorkRequest, 10)<br/>            out := make(chan *state.WorkResponse, 10)<br/>            ctx := context.Background()<br/>            ctx, cancel := context.WithCancel(ctx)<br/>            defer cancel()<br/><br/>            go state.Processor(ctx, in, out)<br/>   <br/>            req := state.WorkRequest{state.Add, 3, 4}<br/>            in &lt;- &amp;req<br/><br/>            req2 := state.WorkRequest{state.Subtract, 5, 2}<br/>            in &lt;- &amp;req2<br/><br/>            req3 := state.WorkRequest{state.Multiply, 9, 9}<br/>            in &lt;- &amp;req3<br/><br/>            req4 := state.WorkRequest{state.Divide, 8, 2}<br/>            in &lt;- &amp;req4<br/><br/>            req5 := state.WorkRequest{state.Divide, 8, 0}<br/>            in &lt;- &amp;req5<br/><br/>            for i := 0; i &lt; 5; i++ {<br/>                resp := &lt;-out<br/>                fmt.Printf("Request: %v; Result: %v, Error: %vn",<br/>                resp.Wr, resp.Result, resp.Err)<br/>            }<br/>        }
+</pre>
+<ol start="8">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You may also run the following commands:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should now see the following output:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      Request: &amp;{add 3 4}; Result: 7, Error: &lt;nil&gt;</strong><br/><strong>      Request: &amp;{sub 5 2}; Result: 3, Error: &lt;nil&gt;</strong><br/><strong>      Request: &amp;{mult 9 9}; Result: 81, Error: &lt;nil&gt;</strong><br/><strong>      Request: &amp;{div 8 2}; Result: 4, Error: &lt;nil&gt;</strong><br/><strong>      Request: &amp;{div 8 0}; Result: 0, Error: divide by 0</strong>
+</pre>
+<ol start="10">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>Processor()</kbd> function in this recipe is a function that loops forever until its context is canceled, either through explicit calls to cancel or via timeout. It dispatches all work to <kbd>Process()</kbd>, which can handle different functions given various operations. It would also be possible to have each of these cases dispatch another function for even more modular code.</p>
+<p>Ultimately, the response is returned to a response channel, and we loop over and print all the results at the very end. We also demonstrate an error case in the divide by <kbd>0</kbd> example.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using the worker pool design pattern</h1>
+                </header>
+            
+            <article>
+                
+<p>The worker pool design pattern is one where you dispatch long-running goroutines as workers. These workers can process a variety of work either using multiple channels or by using a stateful request struct that specifies the type as described in the preceding recipe.<br/>
+This recipe will create stateful workers and demonstrate how to coordinate and spin up multiple workers all handling requests concurrently on the same channel. These workers will be crypto workers like in a web authentication app. Their purpose will be to hash plain text strings using <kbd>bcrypt</kbd> package and compare a text password against a hash.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Refer to the <em>Getting ready</em> section of the <em>Using channels and the select statement</em> recipe in this chapter.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter9/pool</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter9/pool">https://github.com/agtorre/go-cookbook/tree/master/chapter9/pool</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>worker.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package pool<br/><br/>        import (<br/>            "context"<br/>            "fmt"<br/>        )<br/><br/>        // Dispatch creates numWorker workers, returns a cancel <br/>        // function channels for adding work and responses, <br/>        // cancel must be called<br/>        func Dispatch(numWorker int) (context.CancelFunc, chan <br/>        WorkRequest, chan WorkResponse) {<br/>            ctx := context.Background()<br/>            ctx, cancel := context.WithCancel(ctx)<br/>            in := make(chan WorkRequest, 10)<br/>            out := make(chan WorkResponse, 10)<br/><br/>            for i := 0; i &lt; numWorker; i++ {<br/>                go Worker(ctx, i, in, out)<br/>            }<br/>            return cancel, in, out<br/>        }<br/><br/>        // Worker loops forever and is part of the worker pool<br/>        func Worker(ctx context.Context, id int, in chan WorkRequest, <br/>        out chan WorkResponse) {<br/>            for {<br/>                select {<br/>                    case &lt;-ctx.Done():<br/>                        return<br/>                    case wr := &lt;-in:<br/>                        fmt.Printf("worker id: %d, performing %s<br/>                        workn", id, wr.Op)<br/>                        out &lt;- Process(wr)<br/>                }<br/>            }<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>work.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package pool<br/><br/>        import "errors"<br/><br/>        type op string<br/><br/>        const (<br/>            // Hash is the bcrypt work type<br/>            Hash op = "encrypt"<br/>            // Compare is bcrypt compare work<br/>            Compare = "decrypt"<br/>        )<br/><br/>        // WorkRequest is a worker req<br/>        type WorkRequest struct {<br/>            Op op<br/>            Text []byte<br/>            Compare []byte // optional<br/>        }<br/><br/>        // WorkResponse is a worker resp<br/>        type WorkResponse struct {<br/>            Wr WorkRequest<br/>            Result []byte<br/>            Matched bool<br/>            Err error<br/>        }<br/><br/>        // Process dispatches work to the worker pool channel<br/>        func Process(wr WorkRequest) WorkResponse {<br/>            switch wr.Op {<br/>            case Hash:<br/>                return hashWork(wr)<br/>            case Compare:<br/>                return compareWork(wr)<br/>            default:<br/>                return WorkResponse{Err: errors.New("unsupported <br/>                operation")}<br/>            }<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>crypto.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package pool<br/><br/>        import "golang.org/x/crypto/bcrypt"<br/><br/>        func hashWork(wr WorkRequest) WorkResponse {<br/>            val, err := bcrypt.GenerateFromPassword(wr.Text, <br/>            bcrypt.DefaultCost)<br/>            return WorkResponse{<br/>                Result: val,<br/>                Err: err,<br/>                Wr: wr,<br/>            }<br/>        }<br/><br/>        func compareWork(wr WorkRequest) WorkResponse {<br/>            var matched bool<br/>            err := bcrypt.CompareHashAndPassword(wr.Compare, wr.Text)<br/>            if err == nil {<br/>                matched = true<br/>            }<br/>            return WorkResponse{<br/>                Matched: matched,<br/>                Err: err,<br/>                Wr: wr,<br/>            }<br/>        }
+</pre>
+<ol start="6">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file named <kbd>main.go</kbd> with the following content. Ensure that you modify the <kbd>state</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/><br/>            "github.com/agtorre/go-cookbook/chapter9/pool"<br/>        )<br/><br/>        func main() {<br/>            cancel, in, out := pool.Dispatch(10)<br/>            defer cancel()<br/><br/>            for i := 0; i &lt; 10; i++ {<br/>                in &lt;- pool.WorkRequest{Op: pool.Hash, Text: <br/>                []byte(fmt.Sprintf("messages %d", i))}<br/>            }<br/><br/>            for i := 0; i &lt; 10; i++ {<br/>                res := &lt;-out<br/>                if res.Err != nil {<br/>                    panic(res.Err)<br/>                }<br/>                in &lt;- pool.WorkRequest{Op: pool.Compare, Text: <br/>                res.Wr.Text, Compare: res.Result}<br/>            }<br/><br/>            for i := 0; i &lt; 10; i++ {<br/>                res := &lt;-out<br/>                if res.Err != nil {<br/>                    panic(res.Err)<br/>                }<br/>                fmt.Printf("string: "%s"; matched: %vn", <br/>                string(res.Wr.Text), res.Matched)<br/>            }<br/>        }
+</pre>
+<ol start="8">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You may also run the following commands:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should now see the following:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      worker id: 9, performing encrypt work</strong><br/><strong>      worker id: 5, performing encrypt work</strong><br/><strong>      worker id: 2, performing encrypt work</strong><br/><strong>      worker id: 8, performing encrypt work</strong><br/><strong>      worker id: 6, performing encrypt work</strong><br/><strong>      worker id: 1, performing encrypt work</strong><br/><strong>      worker id: 0, performing encrypt work</strong><br/><strong>      worker id: 4, performing encrypt work</strong><br/><strong>      worker id: 3, performing encrypt work</strong><br/><strong>      worker id: 7, performing encrypt work</strong><br/><strong>      worker id: 2, performing decrypt work</strong><br/><strong>      worker id: 6, performing decrypt work</strong><br/><strong>      worker id: 8, performing decrypt work</strong><br/><strong>      worker id: 1, performing decrypt work</strong><br/><strong>      worker id: 0, performing decrypt work</strong><br/><strong>      worker id: 9, performing decrypt work</strong><br/><strong>      worker id: 3, performing decrypt work</strong><br/><strong>      worker id: 4, performing decrypt work</strong><br/><strong>      worker id: 7, performing decrypt work</strong><br/><strong>      worker id: 5, performing decrypt work</strong><br/><strong>      string: "messages 9"; matched: true</strong><br/><strong>      string: "messages 3"; matched: true</strong><br/><strong>      string: "messages 4"; matched: true</strong><br/><strong>      string: "messages 0"; matched: true</strong><br/><strong>      string: "messages 1"; matched: true</strong><br/><strong>      string: "messages 8"; matched: true</strong><br/><strong>      string: "messages 5"; matched: true</strong><br/><strong>      string: "messages 7"; matched: true</strong><br/><strong>      string: "messages 2"; matched: true</strong><br/><strong>      string: "messages 6"; matched: true</strong>
+</pre>
+<ol start="10">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>This recipe uses the <kbd>Dispatch()</kbd> method to create a number of workers on a single input channel, output channel, and those attached to a single <kbd>cancel()</kbd> function. This can be used if you want to make different pools for different purposes. For example, you can create 10 crypto and 20 compare workers by using separate pools. For this recipe, we use a single pool, send hash requests to the workers, retrieve the responses, and then send compare requests to the same pool. Because of this, the worker performing the work will be different each time, but they're all capable of performing either type of work.</p>
+<p>The advantage to this approach is that both allow for parallelism and can also control the maximum concurrency. Bounding the maximum number of goroutines can also be important for limiting memory. I chose crypto for this recipe because crypto is a good example of code that can overwhelm your CPU or memory if you spin up a new goroutine for every new request, for example in a web service.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using workers to create pipelines</h1>
+                </header>
+            
+            <article>
+                
+<p>This recipe demonstrates creating groups of worker pools and connecting them together to form a pipeline. For this recipe, we link together two pools, but the pattern can be used for much more complex operations similar to middleware.<br/>
+Worker pools can be useful to keep workers relatively simple and to also further control concurrency. For example, it may be useful to serialize logging while parallelizing other operations. This may also be useful to have a smaller pool for more expensive operations, so you don't overload machine resources.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Refer to the <em>Getting ready</em> section of the <em>Using channels and the select statement</em> recipe in this chapter.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter9/pipeline</kbd> directory and navigate to it.</li>
+</ol>
+<ol start="2">
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter9/pipeline">https://github.com/agtorre/go-cookbook/tree/master/chapter9/pipeline</a> or <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter9/pipeline">use this as an exercise to write some of your own code.</a></li>
+<li>Create a file called <kbd>worker.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package pipeline<br/><br/>        import "context"<br/><br/>        // Worker have one role<br/>        // that is determined when<br/>        // Work is called<br/>        type Worker struct {<br/>            in chan string<br/>            out chan string<br/>        }<br/><br/>        // Job is a job a worker can do<br/>        type Job string<br/><br/>        const (<br/>            // Print echo's all input to<br/>            // stdout<br/>            Print Job = "print"<br/>            // Encode base64 encodes input<br/>            Encode Job = "encode"<br/>        )<br/><br/>        // Work is how to dispatch a worker, they are assigned<br/>        // a job here<br/>        func (w *Worker) Work(ctx context.Context, j Job) {<br/>            switch j {<br/>                case Print:<br/>                    w.Print(ctx)<br/>                case Encode:<br/>                    w.Encode(ctx)<br/>                default:<br/>                    return<br/>            }<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>print.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package pipeline<br/><br/>        import (<br/>            "context"<br/>            "fmt"<br/>        )<br/><br/>        // Print prints w.in and repalys it<br/>        // on w.out<br/>        func (w *Worker) Print(ctx context.Context) {<br/>            for {<br/>                select {<br/>                    case &lt;-ctx.Done():<br/>                        return<br/>                    case val := &lt;-w.in:<br/>                        fmt.Println(val)<br/>                        w.out &lt;- val<br/>                }<br/>            }<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>encode.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package pipeline<br/><br/>        import (<br/>            "context"<br/>            "encoding/base64"<br/>            "fmt"<br/>        )<br/><br/>        // Encode takes plain text as int<br/>        // and returns "string =&gt; &lt;base64 string encoding&gt;<br/>        // as out<br/>        func (w *Worker) Encode(ctx context.Context) {<br/>            for {<br/>                select {<br/>                    case &lt;-ctx.Done():<br/>                        return<br/>                    case val := &lt;-w.in:<br/>                        w.out &lt;- fmt.Sprintf("%s =&gt; %s", val, <br/>                        base64.StdEncoding.EncodeToString([]byte(val)))<br/>                }<br/>            }<br/>        }
+</pre>
+<ol start="6">
+<li>Create a file called <kbd>pipeline.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package pipeline<br/><br/>        import "context"<br/><br/>        // NewPipeline initializes the workers and<br/>        // connects them, it returns the input of the pipeline<br/>        // and the final output<br/>        func NewPipeline(ctx context.Context, numEncoders, numPrinters <br/>        int) (chan string, chan string) {<br/>            inEncode := make(chan string, numEncoders)<br/>            inPrint := make(chan string, numPrinters)<br/>            outPrint := make(chan string, numPrinters)<br/>            for i := 0; i &lt; numEncoders; i++ {<br/>                w := Worker{<br/>                    in: inEncode,<br/>                    out: inPrint,<br/>                }<br/>                go w.Work(ctx, Encode)<br/>            }<br/><br/>            for i := 0; i &lt; numPrinters; i++ {<br/>                w := Worker{<br/>                    in: inPrint,<br/>                   out: outPrint,<br/>                }<br/>                go w.Work(ctx, Print)<br/>            }<br/>            return inEncode, outPrint<br/>        }
+</pre>
+<ol start="7">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file named <kbd>main.go</kbd> with the following content and ensure that you modify the <kbd>state</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "context"<br/>            "fmt"<br/><br/>            "github.com/agtorre/go-cookbook/chapter9/pipeline"<br/>        )<br/><br/>        func main() {<br/>            ctx := context.Background()<br/>            ctx, cancel := context.WithCancel(ctx)<br/>            defer cancel()<br/><br/>            in, out := pipeline.NewPipeline(ctx, 10, 2)<br/><br/>            go func() {<br/>                for i := 0; i &lt; 20; i++ {<br/>                    in &lt;- fmt.Sprint("Message", i)<br/>                }<br/>            }()<br/><br/>            for i := 0; i &lt; 20; i++ {<br/>                &lt;-out<br/>            }<br/>        }
+</pre>
+<ol start="9">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You may also run the following commands:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should now see the following:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      Message3 =&gt; TWVzc2FnZTM=</strong><br/><strong>      Message7 =&gt; TWVzc2FnZTc=</strong><br/><strong>      Message8 =&gt; TWVzc2FnZTg=</strong><br/><strong>      Message9 =&gt; TWVzc2FnZTk=</strong><br/><strong>      Message5 =&gt; TWVzc2FnZTU=</strong><br/><strong>      Message11 =&gt; TWVzc2FnZTEx</strong><br/><strong>      Message10 =&gt; TWVzc2FnZTEw</strong><br/><strong>      Message4 =&gt; TWVzc2FnZTQ=</strong><br/><strong>      Message12 =&gt; TWVzc2FnZTEy</strong><br/><strong>      Message6 =&gt; TWVzc2FnZTY=</strong><br/><strong>      Message14 =&gt; TWVzc2FnZTE0</strong><br/><strong>      Message13 =&gt; TWVzc2FnZTEz</strong><br/><strong>      Message0 =&gt; TWVzc2FnZTA=</strong><br/><strong>      Message15 =&gt; TWVzc2FnZTE1</strong><br/><strong>      Message1 =&gt; TWVzc2FnZTE=</strong><br/><strong>      Message17 =&gt; TWVzc2FnZTE3</strong><br/><strong>      Message16 =&gt; TWVzc2FnZTE2</strong><br/><strong>      Message19 =&gt; TWVzc2FnZTE5</strong><br/><strong>      Message18 =&gt; TWVzc2FnZTE4</strong><br/><strong>      Message2 =&gt; TWVzc2FnZTI=</strong>
+</pre>
+<ol start="11">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>main</kbd> package creates a pipeline consisting of 10 encoders and two printers. It enqueues 20 strings on the in channel and waits for 20 responses on the out channel. If messages reach the out channel, it indicates that they've gone through the entire pipeline successfully.</p>
+<p>The <kbd>NewPipeline</kbd> function is used to wire up the pools. It ensures that the channels are created with the proper buffered sizes and that the output channels of some pools are connected to the appropriate input channels of other pools. It's also possible to fan out the pipeline by using an array of in channels and an array of out channels on each worker, multiple named channels, or maps of channels. This would allow for things such as sending messages to a logger at each step.</p>
+<p> </p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

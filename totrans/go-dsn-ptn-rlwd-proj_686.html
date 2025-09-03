@@ -1,0 +1,103 @@
+<html><head></head><body>
+<div class="book" title="Composing all five programs">
+<div class="book" title="One program to rule them all"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_1"><a id="ch04lvl2sec0045" class="calibre1"/>One program to rule them all</h2></div></div></div><p class="calibre10">Running our solution by piping programs together is an elegant form of architecture, but it doesn't have a very elegant interface. Specifically, whenever we want to run our solution, we have to type the long, messy line where each program is listed and separated by pipe characters. In this section, we are going to write a Go program that uses the <code class="email">os/exec</code> package to run each subprogram while piping the output from one to the input of the next, as per our design.</p><p class="calibre10">Create a new folder called <code class="email">domainfinder</code> alongside the other five programs and create another new folder called <code class="email">lib</code> inside this folder. The <code class="email">lib</code> folder is where we will keep builds of our subprograms, but we don't want to copy and paste them every time we make a change. Instead, we will write a script that builds the subprograms and copies the binaries to the <code class="email">lib</code> folder for us.</p><p class="calibre10">Create a new file called <code class="email">build.sh</code> on Unix machines or <code class="email">build.bat</code> for Windows and insert into it the following code:</p><pre class="programlisting">#!/bin/bash 
+echo Building domainfinder... 
+go build -o domainfinder 
+echo Building synonyms... 
+cd ../synonyms 
+go build -o ../domainfinder/lib/synonyms 
+echo Building available... 
+cd ../available 
+go build -o ../domainfinder/lib/available 
+cd ../build 
+echo Building sprinkle... 
+cd ../sprinkle 
+go build -o ../domainfinder/lib/sprinkle 
+cd ../build 
+echo Building coolify... 
+cd ../coolify 
+go build -o ../domainfinder/lib/coolify 
+cd ../build 
+echo Building domainify... 
+cd ../domainify 
+go build -o ../domainfinder/lib/domainify 
+cd ../build 
+echo Done.</pre><p class="calibre10">The preceding script simply builds all our subprograms (including <code class="email">domainfinder</code>, which we are yet to write), telling <code class="email">go build</code> to place them in our <code class="email">lib</code> folder. Be sure to give execution rights to the new script by doing <code class="email">chmod +x build.sh</code> or something similar. Run this script from a terminal and look inside the <code class="email">lib</code> folder to ensure that it has indeed placed the binaries for our subprograms.</p><div class="informaltable" title="Tip"><h3 class="title2"><a id="tip71" class="calibre1"/>Tip</h3><p class="calibre10">Don't worry about the <code class="email">no buildable Go source files</code> error for now; it's just Go telling us that the <code class="email">domainfinder</code> program doesn't have any <code class="email">.go</code> files to build.</p></div><p class="calibre10">Create a new file called <code class="email">main.go</code> inside <code class="email">domainfinder</code> and insert the following code into the file:</p><pre class="programlisting">package main 
+var cmdChain = []*exec.Cmd{ 
+  exec.Command("lib/synonyms"), 
+  exec.Command("lib/sprinkle"), 
+  exec.Command("lib/coolify"), 
+  exec.Command("lib/domainify"), 
+  exec.Command("lib/available"), 
+} 
+func main() { 
+  cmdChain[0].Stdin = os.Stdin 
+  cmdChain[len(cmdChain)-1].Stdout = os.Stdout 
+  for i := 0; i &lt; len(cmdChain)-1; i++ { 
+    thisCmd := cmdChain[i] 
+    nextCmd := cmdChain[i+1] 
+    stdout, err := thisCmd.StdoutPipe() 
+    if err != nil { 
+      log.Fatalln(err) 
+    } 
+    nextCmd.Stdin = stdout 
+  } 
+  for _, cmd := range cmdChain { 
+    if err := cmd.Start(); err != nil { 
+      log.Fatalln(err) 
+    } else { 
+      defer cmd.Process.Kill() 
+    } 
+  } 
+  for _, cmd := range cmdChain { 
+    if err := cmd.Wait(); err != nil { 
+      log.Fatalln(err) 
+    } 
+  } 
+}</pre><p class="calibre10">The <code class="email">os/exec</code> package gives us everything we need to work with to run external programs or commands from within Go programs. First, our <code class="email">cmdChain</code> slice contains <code class="email">*exec.Cmd</code> commands in the order in which we want to join them together.</p><p class="calibre10">At the top of the <code class="email">main</code> function, we tie the <code class="email">Stdin</code> (standard in stream) of the first program with the <code class="email">os.Stdin</code> stream of this program and the <code class="email">Stdout</code> (standard out stream) of the last program with the <code class="email">os.Stdout</code> stream of this program. This means that, like before, we will be taking input through the standard input stream and writing output to the standard output stream.</p><p class="calibre10">Our next block of code is where we join the subprograms together by iterating over each item and setting its <code class="email">Stdin</code> to the <code class="email">Stdout</code> stream of the program before it.</p><p class="calibre10">The following table shows each program with a description of where it gets its input from and where its output goes:</p><div class="informaltable"><table border="1" class="calibre17"><colgroup class="calibre18"><col class="calibre19"/><col class="calibre19"/><col class="calibre19"/></colgroup><tbody class="calibre20"><tr class="calibre21"><td class="calibre22">
+<p class="calibre23">
+<span><strong class="calibre24">Program</strong></span>
+</p>
+</td><td class="calibre22">
+<p class="calibre23">
+<span><strong class="calibre24">Input (Stdin)</strong></span>
+</p>
+</td><td class="calibre22">
+<p class="calibre23">
+<span><strong class="calibre24">Output (Stdout)</strong></span>
+</p>
+</td></tr><tr class="calibre21"><td class="calibre22">
+<p class="calibre23">synonyms</p>
+</td><td class="calibre22">
+<p class="calibre23">The same <code class="literal">Stdin</code> as <code class="literal">domainfinder</code>
+</p>
+</td><td class="calibre22">
+<p class="calibre23">sprinkle</p>
+</td></tr><tr class="calibre21"><td class="calibre22">
+<p class="calibre23">sprinkle</p>
+</td><td class="calibre22">
+<p class="calibre23">synonyms</p>
+</td><td class="calibre22">
+<p class="calibre23">coolify</p>
+</td></tr><tr class="calibre21"><td class="calibre22">
+<p class="calibre23">coolify</p>
+</td><td class="calibre22">
+<p class="calibre23">sprinkle</p>
+</td><td class="calibre22">
+<p class="calibre23">domainify</p>
+</td></tr><tr class="calibre21"><td class="calibre22">
+<p class="calibre23">domainify</p>
+</td><td class="calibre22">
+<p class="calibre23">coolify</p>
+</td><td class="calibre22">
+<p class="calibre23">available</p>
+</td></tr><tr class="calibre21"><td class="calibre22">
+<p class="calibre23">available</p>
+</td><td class="calibre22">
+<p class="calibre23">domainify</p>
+</td><td class="calibre22">
+<p class="calibre23">The same <code class="literal">Stdout</code> as <code class="literal">domainfinder</code>
+</p>
+</td></tr></tbody></table></div><p class="calibre10">We then iterate over each command calling the <code class="email">Start</code> method, which runs the program in the background (as opposed to the <code class="email">Run</code> method, which will block our code until the subprogram exists which would be no good since we will have to run five programs at the same time). If anything goes wrong, we bail with <code class="email">log.Fatalln</code>; however, if the program starts successfully, we defer a call to kill the process. This helps us ensure the subprograms exit when our <code class="email">main</code> function exits, which will be when the <code class="email">domainfinder</code> program ends.</p><p class="calibre10">Once all the programs start running, we iterate over every command again and wait for it to finish. This is to ensure that <code class="email">domainfinder</code> doesn't exit early and kill off all the subprograms too soon.</p><p class="calibre10">Run the <code class="email">build.sh</code> or <code class="email">build.bat</code> script again and notice that the <code class="email">domainfinder</code> program has the same behavior as we have seen before, with a much more elegant interface.</p><p class="calibre10">The following screenshot shows the output from our programs when we type <code class="email">clouds</code>; we have found quite a few available domain name options:</p><p class="calibre10">
+</p><div class="mediaobject"><img src="../images/00059.jpeg" alt="One program to rule them all" class="calibre14"/></div><p class="calibre15"> </p><p class="calibre10">
+</p></div></div></body></html>

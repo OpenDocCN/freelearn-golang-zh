@@ -1,0 +1,377 @@
+<html><head></head><body>
+		<div id="_idContainer013">
+			<h1 id="_idParaDest-85" class="chapter-number"><a id="_idTextAnchor085"/>5</h1>
+			<h1 id="_idParaDest-86"><a id="_idTextAnchor086"/>Immutability</h1>
+			<p>In this chapter, we will look at immutability. We are going to cover what exactly it means to be immutable, and how the Go language helps preserve immutability at the struct-level. To understand how this works, we will take a look at how Go handles pointers and references to objects, what the performance implications are, and how to decide between the pointer-reference trade-offs. We will also dive into the implications of garbage collection, unit testing, and <em class="italic">pure</em> <span class="No-Break">functional programming.</span></p>
+			<p>These are the main topics that we will cover in <span class="No-Break">this chapter:</span></p>
+			<ul>
+				<li>What <span class="No-Break">is immutability?</span></li>
+				<li>How to write <span class="No-Break">immutable code</span></li>
+				<li>How do pointers and references work <span class="No-Break">in Go?</span></li>
+				<li>Analyzing the performance of mutable and <span class="No-Break">immutable code</span></li>
+				<li>Examples of concurrency and testing with <span class="No-Break">immutable code</span></li>
+			</ul>
+			<h1 id="_idParaDest-87"><a id="_idTextAnchor087"/>Technical requirements</h1>
+			<p>For this chapter, you can use any Go version at or above Go 1.18 as we will be using generics in some of the later examples. You can find all the code on GitHub <span class="No-Break">at </span><a href="https://github.com/PacktPublishing/Functional-Programming-in-Go./tree/main/Chapter5"><span class="No-Break">https://github.com/PacktPublishing/Functional-Programming-in-Go./tree/main/Chapter5</span></a><span class="No-Break">.</span></p>
+			<h1 id="_idParaDest-88"><a id="_idTextAnchor088"/>What is immutability?</h1>
+			<p>When we talk <a id="_idIndexMarker178"/>about immutability in this chapter, we are talking about structs that have a state that does not change over time. In other words, when a struct is created, that is how that specific struct will be represented during its lifetime. We can still create new structs and delete old ones. So, the state at the system level will effectively change by new structs being created and old structs being deleted. This has <span class="No-Break">several </span><span class="No-Break"><a id="_idIndexMarker179"/></span><span class="No-Break">advantages:</span></p>
+			<ul>
+				<li>First, because our structs are not changing, we can safely pass data to a function and know that, whatever happens, the copy that we passed to the function will <span class="No-Break">remain intact.</span></li>
+				<li>Secondly, immutable structs make it easier to write correct, concurrent code. As the state of the struct cannot be changed by any function calling it, we can safely parallelize execution and call multiple functions using the same struct as <span class="No-Break">input data.</span></li>
+				<li>And third, this makes our code easier to reason about. At each step of the way, the state of our struct is <span class="No-Break">more predictable.</span></li>
+			</ul>
+			<p>Immutability is not <a id="_idIndexMarker180"/>just something that we strive for when writing functional code. In many object-oriented programming languages, it is preferred to write immutable code. The reason it deserves mention in this book is that it ties in nicely with pure functions, which we saw in the previous chapter. If you want to write true <em class="italic">pure</em> functional code, you need immutable structs. If you make a change to a struct in a function, that would count as having a side effect. Recall from the previous chapter that we will try to eliminate side effects as much as possible. That said, almost everything in this chapter can still be applied to traditional object-oriented languages <span class="No-Break">as well.</span></p>
+			<h2 id="_idParaDest-89"><a id="_idTextAnchor089"/>Immutability at the data layer</h2>
+			<p>Immutability is a powerful concept that we can apply to the programs we write. But it also appears <a id="_idIndexMarker181"/>as a concept for the data that we store. If we are writing software that deals with extremely sensitive data, such as an <strong class="bold">Electronic Health Record</strong> (<strong class="bold">EHR</strong>), we likely <a id="_idIndexMarker182"/>want the data to be immutable. That is to say, whenever some information in our EHR changes, we want this change to be completely traceable. That way, the entire history of your EHR is visible at <span class="No-Break">any time.</span></p>
+			<p>By having the medical data immutable, you can always look at what the file looked like in the past. For example, you can look at any blood test the patient has done or any notes that were previously taken. It also helps to serve as an auditable log – each change to the record is traceable. Imagine that a doctor accidentally deletes the result of a blood test. If your data storage is immutable, the blood test will not be deleted at the data layer (but rather marked as “deleted” so that the application layer can choose not to display it to a user). It also protects against ill intent – if a bad actor gained access to the application and decided to start changing the text of the doctors’ notes, this would show up as <em class="italic">new</em> notes. The original notes would still be there, at least in the <span class="No-Break">data layer.</span></p>
+			<p>Imagine what would happen if we did not have immutability, and the actual information updated each time new data became available. This would be less than ideal. Imagine that each blood <a id="_idIndexMarker183"/>test overrides the past results – this would obfuscate any trends in your medical history, erasing valuable information to medical practitioners. Or worse, once a medical image is deleted, it would stay deleted, and the patient would have to undergo the same series of tests. Not only is this bad for the patient’s experience, but in some countries it is <span class="No-Break">also costly.</span></p>
+			<p>This idea of traceability and immutability at the data layer, in some ways, culminated in what is now <a id="_idIndexMarker184"/>called <strong class="bold">the blockchain</strong>. While I don’t know of any mainstream EHR systems implemented on top of blockchain databases, there are at least some efforts being made by companies around the world to make this a reality. And it would make some sense to <span class="No-Break">do so.</span></p>
+			<p>Blockchain databases are immutable by default. Apart from being suitable for the EHR examples mentioned previously, it is currently being used for trading currency. In a blockchain database, the entire history of the block is visible. When an update is made to a block, a new block is added to the chain with the updated information, rather than it overriding the existing block. This is how cryptocurrencies can model financial transactions. There is more depth to it than what I’ve explained here, as I’ve omitted a concrete explanation of how a blockchain can guarantee immutability and provide <span class="No-Break">tamper mechanisms.</span></p>
+			<p>A deep dive into immutability at the data layer is beyond the scope of this book, but hopefully, this short overview served as a good starting point to explore these <span class="No-Break">ideas further.</span></p>
+			<h1 id="_idParaDest-90"><a id="_idTextAnchor090"/>How to write immutable code in Go</h1>
+			<p>When we talk <a id="_idIndexMarker185"/>about immutability in Go, we are specifically <a id="_idIndexMarker186"/>focusing on how to have immutable structs in our code. At the core of this, we have to take a look at how Go uses pointers and the difference between pass-by-value and pass-by-reference. This is something that trips up new Go programmers, and there is a sufficient amount of edge cases where even more seasoned Go programmers will occasionally shoot themselves in <span class="No-Break">the foot.</span></p>
+			<p>In essence, it comes down to whether or not we are using pointers in our code when passing <a id="_idIndexMarker187"/>around structs to functions. If our code is entirely <a id="_idIndexMarker188"/>free of pointers, then we would also be writing <span class="No-Break">immutable code.</span></p>
+			<p>To demonstrate this, take a look at the following piece of code. We have a struct to define a person, and a function to change the name of <span class="No-Break">this person:</span></p>
+			<pre class="source-code">
+type Person struct {
+    name string
+    age  int
+}
+func main() {
+    p := Person{
+        name: "Benny",
+        age:  55,
+    }
+    setName(p, "Bjorn")
+    fmt.Println(p.name)
+}
+func setName(p Person, name string) {
+    p.name = name
+}</pre>
+			<p>The outcome of this function, perhaps contrary to expectation, is <strong class="source-inline">Benny</strong>. The <strong class="source-inline">setName</strong> function has not changed the name of the <strong class="source-inline">Person</strong> object. Eventually, we all get used to the idea that to update structs in a function, we need to use a <span class="No-Break">pointer instead:</span></p>
+			<pre class="source-code">
+func main() {
+    p := Person{
+        name: "Benny",
+        age:  55,
+    }
+    setName(&amp;p, "Bjorn")
+    fmt.Println(p.name)
+}
+func setName(p *Person, name string) {
+    p.name = name
+}</pre>
+			<p>Now, when we run this code, the output is <strong class="source-inline">Bjorn</strong>, as we expected. The difference between these two examples is that in the first example, we are using pass-by-value, while in the second, we are <span class="No-Break">using pass-by-reference.</span></p>
+			<p>If we look <a id="_idIndexMarker189"/>at what is happening in the first function, we will see that our <strong class="source-inline">Person</strong> object is being copied and that this copy is then passed to the <strong class="source-inline">setName</strong> function. Thus, every operation that we do on this struct is happening <a id="_idIndexMarker190"/>on the copy itself, and not on the actual object. However, in the second example, by using a pointer, we have access to the actual <strong class="source-inline">Person</strong> object and not just a copy. Under the hood, the second example passes an address (pointer) to the struct. The syntax of Go obfuscates some of the pointer referencing and dereferencing for us, which makes it seem like a rather <span class="No-Break">small change.</span></p>
+			<p>In general, we want to keep our code immutable. Hence, we want to avoid using pointers in our code. How, then, do we update our structs? The <strong class="source-inline">setName</strong> function provides useful functionality to our system. Recall that although we cannot change the state of the objects we are using, we are still free to create and destroy them. The solution is to create a new object that has all the properties of our original object, with some changes applied. To continue our previous example, let’s refactor the <strong class="source-inline">setName</strong> function to achieve the <span class="No-Break">desired functionality:</span></p>
+			<pre class="source-code">
+func main() {
+    p := Person{
+        name: "Benny",
+        age:  55,
+    }
+    p = setName(p, "Bjorn")
+    fmt.Println(p.name)
+}
+func setName(p Person, name string) Person {
+    p.name = name
+    return p
+}</pre>
+			<p>In the <a id="_idIndexMarker191"/>preceding example, you can see the core change in <a id="_idIndexMarker192"/>which we need to update structs without breaking our immutability concern. We achieve this by having functions accept copies (pass-by-value) as input and return a new struct with the changes applied. In our calling function, we now have the choice of whether or not to keep both objects or discard the original and keep only the newly <span class="No-Break">returned object.</span></p>
+			<p>This syntax should be quite familiar to Go programmers, as this is similar to what we do when working with slices. For example, if we wanted to add a value to a slice, we would write code like <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+func main() {
+    names := []string{"Miranda", "Paula"}
+    names = append(names, "Yvonne")
+    fmt.Printf("%v\n", names)
+}</pre>
+			<p>This code would return <strong class="source-inline">[Miranda Paula Yvonne]</strong>. When working with immutable structs, our syntax will look similar <span class="No-Break">to this.</span></p>
+			<h2 id="_idParaDest-91"><a id="_idTextAnchor091"/>Writing immutable code for collection data types</h2>
+			<p>Earlier, we saw how easy it is to change functions from immutable to mutable. We simply <a id="_idIndexMarker193"/>replace a function that takes a pointer <a id="_idIndexMarker194"/>with a function that accepts a value and returns a new value. The story changes a bit when working with the collection <strong class="source-inline">Map</strong> data type, as becomes apparent in the <span class="No-Break">following example:</span></p>
+			<pre class="source-code">
+func main() {
+    m := map[string]int{}
+    addValue(m, "red", 10)
+    fmt.Printf("%v\n", m)
+}
+func addValue(m map[string]int, colour string, value int) {
+    m[colour] = value
+}</pre>
+			<p>The output of this code is <strong class="source-inline">[red 10]</strong>. Although we are not using a pointer in the <strong class="source-inline">addValue</strong> function, the function is not operating on a copy of the map but is operating on the map itself. <strong class="bold">Maps always act like pass-by-reference </strong><span class="No-Break"><strong class="bold">in Go</strong></span><span class="No-Break">.</span></p>
+			<p>If we try a similar setup with slices, another collection data type, it works <span class="No-Break">as expected:</span></p>
+			<pre class="source-code">
+func main() {
+    names := []string{"Miranda"}
+    addValue(names, "Yvonne")
+    fmt.Printf("%v\n", names)
+}
+func addValue(s []string, name string) {
+    s = append(s, name)
+}</pre>
+			<p>The output here is <strong class="source-inline">Miranda</strong>. Using pointers, we can once again make the <span class="No-Break">function mutable:</span></p>
+			<pre class="source-code">
+func main() {
+    names := []string{"Miranda"}
+    addValue(&amp;names, "Yvonne")
+    fmt.Printf("%v\n", names)
+}
+func addValue(s *[]string, name string) {
+    *s = append(*s, name)
+}</pre>
+			<p>If we <a id="_idIndexMarker195"/>run the preceding code, the output <a id="_idIndexMarker196"/>will be <strong class="source-inline">[Miranda Yvonne]</strong>. It is common enough in Go that seasoned programmers are used to this, but it can trip up the more novice <span class="No-Break">Go programmer.</span></p>
+			<h1 id="_idParaDest-92"><a id="_idTextAnchor092"/>Measuring performance in mutable and immutable code</h1>
+			<p>A common complaint about immutable code is that it is less performant than its mutable counterpart. Even without doing a deep dive into the performance characteristics <a id="_idIndexMarker197"/>of the Go runtime, this seems like <a id="_idIndexMarker198"/>a reasonable statement. After all, in the immutable variant, a new copy of an object is spawned for each function call. In practice, however, these differences in performance are <span class="No-Break">often negligible.</span></p>
+			<p>Still, even if there would be a significant performance impact, you need to question if the performance sacrifices make sense in your context. In return for some performance, you are getting thread-safe, easy-to-maintain, understand, and test code. As engineers, it is often extremely tempting to go for the most optimal solution, using as little memory and CPU time as possible. However, for many real-world applications, the performance impact is small enough that this is not something the end user would notice. And for other engineers maintaining your code, they’d often want something more understandable rather than <span class="No-Break">something faster.</span></p>
+			<p>Unlike other languages, Go will take somewhat of a performance hit due to being garbage collected. If you want to squeeze every ounce of performance out of your system, perhaps <a id="_idIndexMarker199"/>Go is not the right tool for <a id="_idIndexMarker200"/>the job either. With this out of the way, we should take a look at actual benchmarks and dive a bit deeper into the performance implications of <span class="No-Break">immutable code.</span></p>
+			<h2 id="_idParaDest-93"><a id="_idTextAnchor093"/>Benchmarking functions</h2>
+			<p>While we can reason about the performance of a function in abstract terms, such as space-time <a id="_idIndexMarker201"/>complexity, to get a real sense of performance, we should do performance testing. After all, the runtime complexity of <a id="_idIndexMarker202"/>mutable and immutable functions can be quasi-identical. Caring about the implementation of pointers is too low-level to be considered. So, for that reason, we will set up a test to determine which performance is worse. As a reminder, the assumption here is that the mutable code, using pointers, will be faster than our immutable variant. The underlying reason for that assumption is that copying structs is a more costly operation than passing pointers to <span class="No-Break">a function.</span></p>
+			<p>Let’s set up two constructor-like functions, one for an immutable version and the other for a mutable version. The first function creates a <strong class="source-inline">Person</strong> object, and then passes that function to a function to set a name for the person, and subsequently to another function that sets an age for <span class="No-Break">the person:</span></p>
+			<pre class="source-code">
+func immutableCreatePerson() Person {
+    p := Person{}
+    p = immutableSetName(p, "Sean")
+    p = immutableSetAge(p, 29)
+    return p
+}
+func immutableSetName(p Person, name string) Person {
+    p.name = name
+    return p
+}
+func immutableSetAge(p Person, age int) Person {
+    p.age = age
+    return p
+}</pre>
+			<p>Here, we can see that the <strong class="source-inline">Person</strong> object first gets copied to <strong class="source-inline">immutableSetName</strong> and afterward <a id="_idIndexMarker203"/>is copied again to <strong class="source-inline">immutableSetAge</strong>. Finally, we return this <strong class="source-inline">Person</strong> to the <span class="No-Break">calling function.</span></p>
+			<p>Now, let’s also <a id="_idIndexMarker204"/>set up a mutable version of this code. In the mutable version, we are creating a <strong class="source-inline">Person</strong> object. But, when passing it to the mutable functions to set a name and an age, we are going to pass a pointer to our <span class="No-Break">object instead:</span></p>
+			<pre class="source-code">
+func mutableCreatePerson() *Person {
+    p := &amp;Person{}
+    mutableSetName(p, "Tom")
+    mutableSetAge(p, 31)
+    return p
+}
+func mutableSetName(p *Person, name string) {
+    p.name = name
+}
+func mutableSetAge(p *Person, age int) {
+    p.age = age
+}</pre>
+			<p>Here, we can see that pointers are used to avoid copying the <strong class="source-inline">Person</strong> object between functions. One thing to point out in these examples is that these two functions are identical <span class="No-Break">in Go:</span></p>
+			<pre class="source-code">
+func mutableSetName(p *Person, name string)</pre>
+			<p>And with the function bound to an <span class="No-Break">object instead:</span></p>
+			<pre class="source-code">
+func (p *Person) mutableSetName(name string)</pre>
+			<p>There are some practical differences in how we call these functions and implications for function name collisions. That said, their performance characteristics are identical for both the mutable and <span class="No-Break">immutable examples.</span></p>
+			<p>With that <a id="_idIndexMarker205"/>out of the way, let’s write our benchmark. Go has <a id="_idIndexMarker206"/>built-in benchmarking support, just like it has built-in testing support. That makes our job of writing benchmarks rather easy since the entire code to benchmark fits on a <span class="No-Break">single page:</span></p>
+			<pre class="source-code">
+package pkg
+import "testing"
+func BenchmarkImmutablePerson(b *testing.B) {
+    for n := 0; n &lt; b.N; n++ {
+        immutableCreatePerson()
+    }
+}
+func BenchmarkMutablePerson(b *testing.B) {
+    for n := 0; n &lt; b.N; n++ {
+        mutableCreatePerson()
+    }
+}</pre>
+			<p>With this built-in benchmarking support, we can run our benchmark with the <span class="No-Break">following command:</span></p>
+			<pre class="console">
+go test -bench=.</pre>
+			<p>Averaged out over <a id="_idIndexMarker207"/>a couple of runs, on my <strong class="bold">Amazon Web Service</strong> (<strong class="bold">AWS</strong>) EC2 instance, I get the <span class="No-Break">following result:</span></p>
+			<pre class="console">
+BenchmarkImmutablePerson        0.3758 ns/op
+BenchmarkMutablePerson          0.3775 ns/op</pre>
+			<p>The concrete values for these <strong class="source-inline">ns/op</strong> properties are going to be different on your machine, so don’t focus too much on the concrete values. What should be surprising here is that <a id="_idIndexMarker208"/>our immutable code outperforms <a id="_idIndexMarker209"/>our <span class="No-Break">mutable code.</span></p>
+			<p>To understand what’s going on, we need to take a look at garbage collection, and stack versus <span class="No-Break">heap allocation.</span></p>
+			<h2 id="_idParaDest-94"><a id="_idTextAnchor094"/>Understanding stacks, heaps, and garbage collection</h2>
+			<p>Garbage <a id="_idIndexMarker210"/>collection is a topic that is complex enough that it probably <a id="_idIndexMarker211"/>deserves a full chapter in its entirety. We will take some shortcuts here <a id="_idIndexMarker212"/>and look at a sufficiently deep understanding of this process but will simplify some steps. Go itself is open source and has <span class="No-Break">good documentation.</span></p>
+			<h3>Reclaiming memory through garbage collection</h3>
+			<p>Go is a garbage-collected language, which means that memory management is taken care of by the Go runtime. This reduces the effort required on the programmer’s side as it takes away from the need to manually manage memory. This can eliminate or reduce the odds of having certain types of bugs in your code, such as <span class="No-Break">memory leaks.</span></p>
+			<p>With automatic <a id="_idIndexMarker213"/>garbage collection, we, the programmers, don’t have to think about managing the memory of our application. Memory will be reserved for us, and later given back to the system, without our intervention. To make this work, the Go runtime needs to do some behind-the-scenes work. Essentially, the runtime will trigger a “garbage collection” process to free up memory. It does so by temporarily freezing our application, checking which objects are no longer required, and removing them from the working memory of our application. There are different ways of figuring out which objects are no longer required, and some mechanisms to delete them throughout our program’s lifetime. Typically, a garbage collector will try to figure out if there are still any references to a piece of data. If there’s a reference to the data, it is still accessible by your program and thus should not <span class="No-Break">be deleted.</span></p>
+			<p>To understand how this process impacts performance, it helps to think of garbage collection as a <em class="italic">stop-the-world</em> process. This means it completely stops all execution, identifies garbage, and removes it to free up memory. In practice, Go uses multiple threads to identify the garbage objects. This approach is called the <em class="italic">concurrent mark-and-sweep garbage collector</em>. Regardless of this being concurrent, there is still performance overhead. When people are deciding on which language to use for their application, the garbage collection overhead pops up surprisingly often in conversation. This is most apparent when the decision has to be made between Go, C/C++, <span class="No-Break">or Rust.</span></p>
+			<p>While the <a id="_idIndexMarker214"/>performance impact of garbage collection has been reduced in the more recent Go version, the impact cannot be completely erased. There are ways of tweaking the garbage collector’s behavior in Go, but in general, that would not be a recommended approach. Often, a suboptimal implementation of an algorithm would outweigh the negative impact felt by <span class="No-Break">garbage collection.</span></p>
+			<h3>Stacks and heaps</h3>
+			<p>Our next topics <a id="_idIndexMarker215"/>to discuss are stacks and heaps. There are two types of memory available at runtime, namely a stack and a heap. A stack is a <strong class="bold">Last-In, First-Out</strong> (<strong class="bold">LIFO</strong>) data <a id="_idIndexMarker216"/>structure. This means that when data is removed from the stack, the last item to have been inserted will be deleted. Go uses a stack to store data in a chain of function calls, this includes local variables, the function’s input parameters, <span class="No-Break">and more.</span></p>
+			<p>When a function is called, the data of this function is pushed to the top of the stack. When the function is done executing, this data is removed from the stack. Thus, the stack is continuously growing and shrinking while functions are being called in your application. There is a limited amount of space available for the stack; exceeding this leads to an error well <a id="_idIndexMarker217"/>known as a <em class="italic">stack overflow</em>. The elements on the stack can be thought of as having a limited lifetime as they are removed from memory quickly (at the end of <span class="No-Break">a function).</span></p>
+			<p>The heap, on the <a id="_idIndexMarker218"/>other hand, is shared memory for the lifetime of your application. The data that is stored here is not limited to the lifetime of a function. This means that this data can be referenced (pointed to) from multiple places in your application. To avoid the heap from continuously expanding, the heap memory is managed by the garbage collector. The garbage collector will scan the memory in the heap to figure out if it’s still needed or not. If the data is no longer needed, it <span class="No-Break">is deleted.</span></p>
+			<p>In the stack and heap implementation, it is cheaper to reclaim memory from a stack than it is from a heap. The stack does not need a garbage collector that “stops the world” to scan for objects to delete. Thus, if we could allocate as much as possible on the stack instead <a id="_idIndexMarker219"/>of the heap, our programs would run faster. This is not always possible as there is data that we want to keep alive outside of the context of a single function. In addition <a id="_idIndexMarker220"/>to this, heap allocations tend to be slower than stack allocations, as the memory required for a heap allocation needs to be reclaimed from a memory pool – a set of memory that Go has claimed from the operating system. This is a potentially slow operation as your program waits for the memory to <span class="No-Break">become available.</span></p>
+			<p>To understand how this impacts the performance of the immutable and mutable example we looked at previously, we need to understand how Go chooses where to store a variable. In theory, this sounds simple – if data is needed only in a single function it is a stack variable; otherwise, we have to store it on the heap. In practice, though, there are a few more things <span class="No-Break">to consider.</span></p>
+			<p>First, the compiler will try to prove that a variable is local to a single function. The compiler does this through a <a id="_idIndexMarker221"/>process called <em class="italic">escape analysis</em>, where it looks for variables that escape the context of a single function. If a variable is not local to a single function, it stores it on the heap. Another piece of information the Go runtime will look at is the size of the data. It makes more sense to store large data on the heap rather than on the stack, as the stack is typically more limited in space. Stack space is a real issue that we will explore in some more depth when we discuss recursion in the <span class="No-Break">next chapter.</span></p>
+			<p>How does this tie into our conversations of mutability with pointers? In the example code, which we used to benchmark the two functions, the immutable code can allocate all memory on the stack. The mutable example is not so lucky and will allocate data on the heap since we are using pointers, which is the context that escapes a single function. Thus, the impact we are seeing in performance is caused by the garbage collector <span class="No-Break">reclaiming memory.</span></p>
+			<p>It’s important to note that the concrete implementation of the garbage collector, and even the algorithms for escape analysis, can and do change over time. To understand how garbage collection works in the latest version of Go, it’s best to read the documentation of <span class="No-Break">that version.</span></p>
+			<h3>Seeing escape analysis in action</h3>
+			<p>Let’s explore the behavior of escape analysis in Go to show that our reasoning makes sense. First, we will <a id="_idIndexMarker222"/>change our code slightly by adding a pragma to avoid the compiler from in-lining our function. A pragma is a special comment in Go that gives some instructions to the compiler. We will add this to each function so that they will all have the comment present, as <span class="No-Break">shown here:</span></p>
+			<pre class="source-code">
+//go:noinline
+func immutableCreatePerson() Person {
+    p := Person{}
+    p = immutableSetName(p, "Sean")
+    p = immutableSetAge(p, 29)
+    return p
+}</pre>
+			<p>This means the functions are not erased by the compiler. Function inlining is a compiler optimization process that occurs behind the scenes to speed up the execution of our programs. Once again, this deserves a chapter on its own but is outside the scope of <span class="No-Break">this book.</span></p>
+			<p>Once we have added the pragma to each function, we can build our application with the <span class="No-Break">following command:</span></p>
+			<pre class="console">
+go build -gcflags '-m -l'</pre>
+			<p>This tells the Go compiler to explain to us where escape analysis decisions are being made, and what the outcome of these decisions is. When we look at the output, we <span class="No-Break">get this:</span></p>
+			<pre class="source-code">
+# github.com/PacktPublishing/Chapter5/Benchmark/pkg
+./person.go:17:23: leaking param: p to result ~r0 level=0
+./person.go:17:33: leaking param: name to result ~r0
+  level=0
+./person.go:23:22: leaking param: p to result ~r0 level=0
+./person.go:37:21: p does not escape
+./person.go:37:32: leaking param: name
+./person.go:42:20: p does not escape
+./person.go:30:7: &amp;Person{} escapes to heap</pre>
+			<p>What this shows us is that, on line 30, our <strong class="source-inline">Person</strong> is escaping to the heap. And when an object escapes to the heap, this eventually has to be picked up by the garbage collector so that our memory space can <span class="No-Break">be reclaimed.</span></p>
+			<p>Many things are <a id="_idIndexMarker223"/>happening behind the scenes, and we simplified some of how garbage collection works in Go. But overall, this should serve as an example of why the assumption that pointers and mutable code are faster than immutable code without pointers <span class="No-Break">is invalid.</span></p>
+			<h1 id="_idParaDest-95"><a id="_idTextAnchor095"/>When to write mutable functions</h1>
+			<p>So far, this chapter has indexed heavily on why we prefer to write immutable functions. But there are some instances in which it makes sense to write mutable functions either way. The only real <a id="_idIndexMarker224"/>reason is performance. As we saw earlier, the performance implications can often be ignored, but not always. If you are using structs that contain a lot of data, copying that over to each function can negatively impact the performance sufficiently to cripple your application. The only real way of knowing whether this is the case is by adding performance metrics to your application. Even so, a trade-off must be made between more performant code and more maintainable code. Oftentimes, trying to squeeze more performance out of your application hinders <span class="No-Break">long-term maintainability.</span></p>
+			<p>Another possible reason to write mutable code using pointers is for resources that need to be singularly unique within your application. If you’re implementing traditional object-oriented patterns in your code, you might have implemented the singleton pattern. If you want to have a true singleton, you should be using a pointer rather than copying over the singleton. Otherwise, you will have multiple copies of your singleton available in different functions, potentially each with a different state. Whether or not having singletons in your code is a good idea is a discussion for a <span class="No-Break">different book.</span></p>
+			<h1 id="_idParaDest-96"><a id="_idTextAnchor096"/>What are functors and monads?</h1>
+			<p>In the previous chapter, we discussed the concept of function purity. A function should not produce any side effects and should be idempotent. In this chapter, we have seen how structs can be made immutable, and how this ties into function purity. As mentioned earlier, even in a purely functional language, in which side effects are eliminated as much as possible, you still have desirable side effect behavior. For example, getting input from a user, or writing data to a database, are both side effects that add value to <span class="No-Break">a program.</span></p>
+			<p>In this section, we will try to build an understanding of how pure functional languages can achieve this. We’ll also look at an implementation in Go to achieve the same results, building on top of our knowledge about immutable structs and <span class="No-Break">pure functions.</span></p>
+			<p>To preface this section, it is commonly <a id="_idIndexMarker225"/>said that there are too many monad explanations already and all of them are wrong or lacking in some manner. There are many books about functional programming, or blog posts and videos, that try to offer a good explanation. The fact that new explanations are being offered so frequently should give you an idea as to the complexity of the topic. I don’t have the lofty goal of offering the “final monad explanation that is ever needed.” Rather, I will try to cut it down to the core idea and keep it as close to what’s practical as possible. As such, we will stay away from the deeper theoretical layers of category theory. What follows is, hopefully, a <em class="italic">good enough</em> explanation of the idea rather than a perfectly <span class="No-Break">holistic explanation.</span></p>
+			<h2 id="_idParaDest-97"><a id="_idTextAnchor097"/>What’s a functor?</h2>
+			<p>Before we can <a id="_idIndexMarker226"/>demonstrate what a monad is, we need to understand what a functor is. A functor, simply put, is a function that can apply an operation to each element contained in a data structure. In Haskell, the implementation of this function is called <strong class="source-inline">fmap</strong>. In Go, this function might look something <span class="No-Break">like this:</span></p>
+			<pre class="source-code">
+func fmap[A, B any](mapFunc func(A) B, sliceA []A) []B</pre>
+			<p>In the preceding type signature, we are using slices. A slice is a data type that contains other data elements. The <strong class="source-inline">fmap</strong> implementation does not have to operate on slices – any data structure that holds data elements will do, such as pointers (they optionally hold a data element), functions themselves, trees, or as we will see in the next few pages, <span class="No-Break">a monad.</span></p>
+			<p>If we were to write an implementation of <strong class="source-inline">fmap</strong> in Go to operate on slices, as shown in the function signature previously, we would simply call the provided <strong class="source-inline">mapFunc</strong> for each element in <strong class="source-inline">sliceA</strong>. The result of this would be stored in the new <span class="No-Break">slice, </span><span class="No-Break"><strong class="source-inline">sliceB</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+func fmap[A, B any](mapFunc func(A) B, sliceA []A) []B {
+    sliceB := make([]B, len(sliceA))
+    for i, a := range sliceA {
+        sliceB[i] = mapFunc(a)
+    }
+    return sliceB
+}</pre>
+			<p>Notice the use of <a id="_idIndexMarker227"/>generics in the preceding example, which we can use to map between two <strong class="source-inline">any</strong> types. But the input is <strong class="source-inline">A</strong> and the output is <strong class="source-inline">B</strong>. The map function thus <strong class="bold">changes the type</strong> of <span class="No-Break">our data.</span></p>
+			<p>Let’s take a look at how we would use this function. Imagine that we have a slice of integers, and we want to transform this into a slice of strings. We could use our <strong class="source-inline">fmap</strong> function to do exactly this. All we need to do is provide <strong class="source-inline">fmap</strong> with a function that takes an integer and returns <span class="No-Break">a string:</span></p>
+			<pre class="source-code">
+import (
+    "fmt"
+    "strconv"
+)
+func main() {
+    integers := []int{1, 2, 3}
+    strings := fmap(strconv.Itoa, integers)
+    fmt.Printf("%T transformed to %T - %v\n", integers,
+      strings, strings)
+}</pre>
+			<p>When we run the preceding function, we get the following output (recall that <strong class="source-inline">%T</strong> prints the type of <span class="No-Break">the variable):</span></p>
+			<pre class="source-code">
+[]int transformed to []string - [1 2 3]</pre>
+			<p>This tells us that our int, <strong class="source-inline">slice</strong>, was transformed into a string slice, and the values contained are, to no surprise, <strong class="source-inline">[1, </strong><span class="No-Break"><strong class="source-inline">2, 3]</strong></span><span class="No-Break">.</span></p>
+			<p>This is pretty <a id="_idIndexMarker228"/>much what a functor is. It’s a function that transforms all data in a given data structure into data of a different type. The <strong class="source-inline">fmap</strong> implementation is a pure, <span class="No-Break">higher-order function.</span></p>
+			<h2 id="_idParaDest-98"><a id="_idTextAnchor098"/>From functor to monad</h2>
+			<p>The next step is getting from a functor to a monad. So, what exactly is a monad? When we aim for <a id="_idIndexMarker229"/>a somewhat theoretical description of the monad, we might get something such as <span class="No-Break">the following.</span></p>
+			<p>A monad is a software design pattern. It is a data type that can combine functions of similar types and wrap the results of a non-monad type into a new monadic type offering additional functions. For a type to be a monad, it needs to have two <span class="No-Break">functions defined:</span></p>
+			<ol>
+				<li><strong class="bold">A function to wrap a value of the T type </strong><span class="No-Break"><strong class="bold">into Monad[T]</strong></span></li>
+				<li><strong class="bold">A function to combine the function of the </strong><span class="No-Break"><strong class="bold">Monad[T] type</strong></span></li>
+			</ol>
+			<p>We will demonstrate <a id="_idIndexMarker230"/>the monad with a practical example. A <strong class="bold">monad</strong> type is a <em class="italic">container</em> that has an underlying concrete type (for example, <strong class="source-inline">String</strong>). A popular monad is the <strong class="source-inline">Maybe</strong> monad, also known as <strong class="source-inline">Optional</strong> in some programming languages. The <strong class="source-inline">Maybe</strong> monad is a type that <em class="italic">potentially</em> contains a concrete value, but also might <span class="No-Break">be empty.</span></p>
+			<p>To model the <strong class="source-inline">Maybe</strong> monad in Go, we will use an interface that defines the operations on our struct. Next, we will also create two implementations, one for when a value is present, and one for when the value <span class="No-Break">is absent:</span></p>
+			<pre class="source-code">
+type Maybe[A any] interface {
+    Get() (A)
+    GetOrElse(def A) A
+}</pre>
+			<p>In the preceding interface implementation, we have defined two functions: <strong class="source-inline">Get</strong> and <strong class="source-inline">GetOrElse</strong>. More can be defined; the concrete functions don’t matter as much. What’s important is that we have a way to model values that might or might not <span class="No-Break">be present.</span></p>
+			<p>Notice that we <a id="_idIndexMarker231"/>are not using pointers here, we’re only using concrete types. The <strong class="source-inline">Maybe</strong> monad is often introduced to avoid pointers. By avoiding pointers, we can eliminate a class of errors that happen at runtime when functions are called on <em class="italic">null pointers</em>. The <strong class="source-inline">null</strong>, or <strong class="source-inline">nil</strong> in Go, also <a id="_idIndexMarker232"/>does not make real sense from a type taxonomy perspective. The <strong class="source-inline">nil</strong> pointer belongs to every type, meaning there’s no real useful information in there, and we want our type system to be as declarative as possible. (Go does have a <strong class="source-inline">typed nil</strong>, on which functions can be called safely. Still, exercise caution whenever using this. It’s not common behavior in programming languages and can trip up even seasoned <span class="No-Break">Go programmers.)</span></p>
+			<p>George Hoar, who first introduced the null pointer concept, called this his “<span class="No-Break"><em class="italic">billion-dollar mistake</em></span><span class="No-Break">.”</span></p>
+			<p>The two implementations that we will use for modeling the presence and absence of a value are <strong class="source-inline">Just</strong> and <strong class="source-inline">Nothing</strong>, respectively. These names have been borrowed from Haskell; you’ll find different names for these values in different programming languages. <strong class="source-inline">Just</strong> signals a concrete value is present, while <strong class="source-inline">Nothing</strong> signals the absence thereof. We will start by implementing the value present use case, with the <span class="No-Break"><strong class="source-inline">JustMaybe</strong></span><span class="No-Break"> type:</span></p>
+			<pre class="source-code">
+type JustMaybe[A any] struct {
+    value A
+}
+func (j JustMaybe[A]) Get() (A) {
+    return j.value
+}
+func (j JustMaybe[A]) GetOrElse(def A) A {
+    return j.value
+}</pre>
+			<p>The preceding code adheres to the <strong class="source-inline">Maybe</strong> interface. As such, we can use a <strong class="source-inline">JustMaybe</strong> as an instance of <strong class="source-inline">Maybe</strong>. To implement the absence of a value, we’ll implement the <span class="No-Break">analogous </span><span class="No-Break"><strong class="source-inline">NothingMaybe</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+type NothingMaybe[A any] struct{}
+func Nothing[A any]() Maybe[A] {
+    return NothingMaybe[A]{}
+}
+func (n NothingMaybe[A]) Get() (A) {
+    return *new(A)
+}
+func (n NothingMaybe[A]) GetOrElse(def A) A {
+    return def
+}</pre>
+			<p>The implementations are rather straightforward for each function. Perhaps the most surprising thing is the <strong class="source-inline">return</strong> statement in <strong class="source-inline">Get</strong> for a <strong class="source-inline">NothingMonad</strong>, where <span class="No-Break">we wrote:</span></p>
+			<pre class="source-code">
+    return *new(A)</pre>
+			<p>This statement <a id="_idIndexMarker233"/>returns a new instance of <strong class="source-inline">A</strong>, but <strong class="source-inline">A</strong> is an unknown value at compile time. By using <strong class="source-inline">new</strong>, we can instance it, but it’ll return a pointer value, which we will dereference to return a <span class="No-Break">concrete value.</span></p>
+			<p>Next, let’s also create constructor-like functions for these two implementations, which are functions that can wrap a value of a given type into the monadic representation. Recall that this is a requirement for our <span class="No-Break">monad pattern:</span></p>
+			<pre class="source-code">
+func Just[A any](a A) JustMaybe[A] {
+    return JustMaybe[A]{value: a}
+}
+func Nothing[A any]() Maybe[A] {
+    return NothingMaybe[A]{}
+}</pre>
+			<p>These two implementations will let us implement both the presence and absence of a given value. For example, we could now use these in <span class="No-Break">a function:</span></p>
+			<pre class="source-code">
+func getFromMap(m map[string]int, key string) Maybe[int] {
+    if value, ok := m[key]; ok {
+        return Just[int](value)
+    } else {
+        return Nothing[int]()
+    }
+}</pre>
+			<p>In the preceding function, we are getting a value from a map by looking up a given key. If a value is <a id="_idIndexMarker234"/>present, we return the <strong class="source-inline">JustMaybe</strong> implementation of our monad; otherwise, we return the <span class="No-Break"><strong class="source-inline">NothingMaybe</strong></span><span class="No-Break"> implementation.</span></p>
+			<p>Convenience functions can be written, such as <strong class="source-inline">fromNullable(*value)</strong>, which would return either a <strong class="source-inline">JustMaybe</strong> or a <strong class="source-inline">NothingMaybe</strong> by checking if the value passed to the function <span class="No-Break">is present.</span></p>
+			<p>Remember that our monad type is a data structure that holds underlying elements. As such, we can implement the <strong class="source-inline">fmap</strong> function on this type as well. In this implementation, we will turn a <strong class="source-inline">Maybe</strong> of type <strong class="source-inline">A</strong> into a <strong class="source-inline">Maybe</strong> of type <strong class="source-inline">B</strong>. We need to provide a function to map from the underlying type <strong class="source-inline">A</strong> to the underlying type <strong class="source-inline">B</strong> to <span class="No-Break">accomplish this:</span></p>
+			<pre class="source-code">
+func fmap[A, B any](m Maybe[A], mapFunc func(A) B) Maybe[B]
+{
+    switch m.(type) {
+    case JustMaybe[A]:
+        j := m.(JustMaybe[A])
+        return JustMaybe[B]{
+            value: mapFunc(j.value),
+        }
+    case NothingMaybe[A]:
+        return NothingMaybe[B]{}
+    default:
+        panic("unknown type")
+    }
+}</pre>
+			<p>In the preceding code, we are using a type switch to determine what type our <strong class="source-inline">Maybe</strong> monad is to <a id="_idIndexMarker235"/>figure out if it represents the <strong class="source-inline">JustMaybe</strong> or <strong class="source-inline">NothingMaybe</strong> implementation. If the type matches <strong class="source-inline">JustMaybe</strong>, we will map the underlying value from type <strong class="source-inline">A</strong> to type <strong class="source-inline">B</strong>, and return this wrapped in a <span class="No-Break">new monad.</span></p>
+			<p>This is an incomplete definition of a monad, but a practical implementation of one such instance. This concept can be pushed further, but Go does not provide a convenient way of exploring this further, so it would not often be used in the <span class="No-Break">real world.</span></p>
+			<h1 id="_idParaDest-99"><a id="_idTextAnchor099"/>Summary</h1>
+			<p>In this chapter, we touched upon immutability in Go. We took a small refresher on how immutability works in Go, by either pass-by-value or pass-by-reference. We learned that pointers do not guarantee that your code will be more performant than if you avoid them. We also discussed some of the benefits of immutable code, such as improving the readability and understandability of the code base. We also touched on how this makes concurrency easier to implement correctly, as the state is not mutated <span class="No-Break">between functions.</span></p>
+			<p>Finally, we wrapped up the discussion of pure functions that we started in the previous chapter by looking at monads and a practical implementation thereof with the <span class="No-Break"><strong class="source-inline">Maybe</strong></span><span class="No-Break"> monad.</span></p>
+			<p>In the next chapter, we will explore some must-have functions for writing <span class="No-Break">code functionally.</span></p>
+		</div>
+		<div>
+			<div id="_idContainer014" class="IMG---Figure">
+			</div>
+		</div>
+	
+
+		<div id="_idContainer015" class="Content">
+			<h1 id="_idParaDest-100"><a id="_idTextAnchor100"/>Part 2: Using Functional Programming Techniques</h1>
+			<p>After we have established the basic ideas of functional programming and see how they relate to the object-oriented paradigm, we will move on to this part. Here, we will look at how functional programming can be leveraged to compose larger programs while still at the class level. We’ll learn about solving problems iteratively versus recursively, the three important categories of function types, and how to chain functions together for more <span class="No-Break">readable code.</span></p>
+			<p>This part has the <span class="No-Break">following chapters:</span></p>
+			<ul>
+				<li><a href="B18771_06.xhtml#_idTextAnchor101"><em class="italic">Chapter 6</em></a><em class="italic">, Three Common Categories of Functions</em></li>
+				<li><a href="B18771_07.xhtml#_idTextAnchor113"><em class="italic">Chapter 7</em></a><em class="italic">, Recursion</em></li>
+				<li><a href="B18771_08.xhtml#_idTextAnchor126"><em class="italic">Chapter 8</em></a><em class="italic">, Readable Function Composition with Fluent Programming</em></li>
+			</ul>
+		</div>
+		<div>
+			<div id="_idContainer016">
+			</div>
+		</div>
+	</body></html>

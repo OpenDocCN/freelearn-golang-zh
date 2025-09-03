@@ -1,0 +1,109 @@
+<html><head></head><body>
+<div class="book" title="Chain of responsibility design pattern">
+<div class="book" title="Unit test"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_4"><a id="ch05lvl2sec0129" class="calibre1"/>Unit test</h2></div></div></div><p class="calibre10">The very first thing to do for the chain is, as usual, to define the interface. A chain of responsibility interface will usually have, at least, a  <code class="email">Next()</code> method. The <code class="email">Next()</code> method is the one that executes the next link in the chain, of course:</p><pre class="programlisting">type ChainLogger interface { 
+  Next(string) 
+} 
+</pre><p class="calibre10">The <code class="email">Next</code> method on our example's interface takes the message we want to log and passes it to the following link in the chain. As written in the acceptance criteria, we need three loggers:</p><pre class="programlisting">type FirstLogger struct { 
+  NextChain ChainLogger 
+} 
+ 
+func (f *FirstLogger) Next(s string) {} 
+ 
+type SecondLogger struct { 
+  NextChain ChainLogger 
+} 
+ 
+func (f *SecondLogger) Next(s string) {} 
+ 
+type WriterLogger struct { 
+  NextChain ChainLogger 
+  Writer    io.Writer 
+} 
+func (w *WriterLogger) Next(s string) {} 
+</pre>The <code class="email">FirstLogger</code> and <code class="email">SecondLogger</code> types have exactly the same structure--both implement <code class="email">ChainLogger</code> and have a <code class="email">NextChain</code> field that points to the next <code class="email">ChainLogger</code>. The <code class="email">WriterLogger</code> type is equal to the <code class="email">FirstLogger</code> and <code class="email">SecondLogger</code> types but also has a field to write its data to, so you can pass any <code class="email">io.Writer</code> interface to it.
+<p class="calibre10">As we have done before, we'll implement an <code class="email">io.Writer</code> struct to use in our testing. In our test file, we define the following struct:</p><pre class="programlisting">type myTestWriter struct { 
+  receivedMessage string 
+} 
+ 
+func (m *myTestWriter) Write(p []byte) (int, error) { 
+  m.receivedMessage += string(p) 
+  return len(p), nil 
+} 
+ 
+func(m *myTestWriter) Next(s string){ 
+  m.Write([]byte(s)) 
+} 
+</pre><p class="calibre10">We will pass an instance of the <code class="email">myTestWriter</code> struct to <code class="email">WriterLogger</code> so we can track what's being logged on testing. The <code class="email">myTestWriter</code> class implements the common <code class="email">Write([]byte) (int, error)</code> method from the <code class="email">io.Writer</code> interface. Remember, if it has the <code class="email">Write</code> method, it can be used as <code class="email">io.Writer</code>. The <code class="email">Write</code> method simply stored the string argument to the <code class="email">receivedMessage</code> field so we can check later its value on tests.</p><p class="calibre10">This is the beginning of the first test function:</p><pre class="programlisting">func TestCreateDefaultChain(t *testing.T) { 
+  //Our test ChainLogger 
+  myWriter := myTestWriter{} 
+ 
+  writerLogger := WriterLogger{Writer: &amp;myWriter} 
+  second := SecondLogger{NextChain: &amp;writerLogger} 
+  chain := FirstLogger{NextChain: &amp;second} 
+</pre><p class="calibre10">Let's describe these few lines a bit as they are quite important. We create a variable with a default <code class="email">myTestWriter</code> type that we'll use as an <code class="email">io.Writer</code> interface in the last link of our chain. Then we create the last piece of the link chain, the <code class="email">writerLogger</code> interface. When implementing the chain, you usually start with the last piece on the link and, in our case, it is a <code class="email">WriterLogger</code>. The <code class="email">WriterLogger</code> writes to an <code class="email">io.Writer</code> so we pass <code class="email">myWriter</code> as <code class="email">io.Writer</code> interface.</p><p class="calibre10">Then we have created a <code class="email">SecondLogger</code>, the middle link in our chain, with a pointer to the <code class="email">writerLogger</code>. As we mentioned before, <code class="email">SecondLogger</code> just logs and passes the message in case it contains the word <code class="email">hello</code>. In a production app, it could be an error-only logger.</p><p class="calibre10">Finally, the first link in the chain has the variable name chain. It points to the second logger. So, to resume, our chain looks like this: <code class="email">FirstLogger</code> | <code class="email">SecondLogger</code> | <code class="email">WriterLogger</code>.</p><p class="calibre10">This is going to be our default setup for our tests:</p><pre class="programlisting">t.Run("3 loggers, 2 of them writes to console, second only if it founds " + 
+  "the word 'hello', third writes to some variable if second found 'hello'", 
+  func(t *testing.T){ 
+    chain.Next("message that breaks the chain\n") 
+ 
+    if myWriter.receivedMessage != "" { 
+      t.Fatal("Last link should not receive any message") 
+    } 
+ 
+    chain.Next("Hello\n") 
+ 
+    if !strings.Contains(myWriter.receivedMessage, "Hello") { 
+      t.Fatal("Last link didn't received expected message") 
+    } 
+}) 
+</pre><p class="calibre10">Continuing with Go 1.7 or later testing signatures, we define an inner test with the following description: <span class="strong"><em class="calibre11">three loggers, two of them write to console, the second only if it finds the word 'hello', the third writes to some variable if the second found 'hello'</em></span>. It's quite descriptive and very easy to understand if someone else has to maintain this code.</p><p class="calibre10">First, we use a message on the <code class="email">Next</code> method that will not reach the third link in the chain as it doesn't contain the word <code class="email">hello</code>. We check the contents of the <code class="email">receivedMessage</code> variable, that by default is empty, to see if it has changed because it shouldn't.</p><p class="calibre10">Next, we use the chain variable again, our first link in the chain, and pass the message <code class="email">"Hello\n"</code>. According to the description of the test, it should log using <code class="email">FirstLogger</code>, then in <code class="email">SecondLogger</code> and finally in <code class="email">WriterLogger</code> because it contains the word <code class="email">hello</code> and the <code class="email">SecondLogger</code> will let it pass.</p><p class="calibre10">The test checks that <code class="email">myWriter</code>, the last link in the chain that stored the past message in a variable called <code class="email">receivedMessage</code>, has the word that we passed first in the chain: hello. Let's run it so it fails:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go test -v .</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestCreateDefaultChain</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestCreateDefaultChain/3_loggers,_2_of_them_writes_to_console,_second_only_if_it_founds_the_word_'hello',_third_writes_to_some_variable_if_second_found_'hello'</strong></span>
+<span class="strong"><strong class="calibre2">--- FAIL: TestCreateDefaultChain (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">--- FAIL: TestCreateDefaultChain/3_loggers,_2_of_them_writes_to_console,_second_only_if_it_founds_the_word_'hello',_third_writes_to_some_variable_if_second_found_'hello' (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">        chain_test.go:33: Last message didn't received expected message</strong></span>
+<span class="strong"><strong class="calibre2">FAIL</strong></span>
+<span class="strong"><strong class="calibre2">exit status 1</strong></span>
+<span class="strong"><strong class="calibre2">FAIL</strong></span>
+</pre><p class="calibre10">The test passed for the first check of the test and didn't for the second check. Well... ideally no check should pass before any implementation is done. Remember that in test-driven development, tests must fail on the first launch because the code they are testing isn't implemented yet. Go zero-initialization misleads us with this passed check on the test. We can solve this in two ways:</p><div class="book"><ul class="itemizedlist"><li class="listitem">Making the signature of the <code class="email">ChainLogger</code> to return an error: <code class="email">Next(string)</code> error. This way, we would break the chain returning an error. This is a much more convenient way in general, but it will introduce quite a lot of boilerplate right now.</li><li class="listitem">Changing the <code class="email">receivedMessage</code> field to a pointer. A default value of a pointer is nil, instead of an empty string.</li></ul></div><p class="calibre10">We will use the second option now, as it's much simpler and quite effective too. So let's change the signature of the <code class="email">myTestWriter</code> struct to the following:</p><pre class="programlisting">type myTestWriter struct { 
+  receivedMessage *string 
+} 
+ 
+func (m *myTestWriter) Write(p []byte) (int, error) { 
+  if m.receivedMessage == nil { 
+         m.receivedMessage = new(string) 
+} 
+  tempMessage := fmt.Sprintf("%s%s", m.receivedMessage, p) 
+  m.receivedMessage = &amp;tempMessage 
+  return len(p), nil 
+} 
+ 
+func (m *myTestWriter) Next(s string) { 
+  m.Write([]byte(s)) 
+} 
+</pre><p class="calibre10">Check that the type of <code class="email">receivedMessage</code> has the asterisk (<code class="email">*</code>) now to indicate that it's a pointer to a string. The <code class="email">Write</code> function needed to change too. Now we have to check the contents of the <code class="email">receivedMessage</code> field because, as every pointer, it's initialized to nil. Then we have to store the message in a variable first, so we can take the address in the next line on the assignment <code class="email">(m.receivedMessage = &amp;tempMessage)</code>.</p><p class="calibre10">So now our test code should change a bit too:</p><pre class="programlisting">t.Run("3 loggers, 2 of them writes to console, second only if it founds "+ 
+"the word 'hello', third writes to some variable if second found 'hello'", 
+func(t *testing.T) { 
+  chain.Next("message that breaks the chain\n") 
+ 
+  if myWriter.receivedMessage != nil { 
+    t.Error("Last link should not receive any message") 
+  } 
+ 
+  chain.Next("Hello\n") 
+ 
+  if myWriter.receivedMessage == "" || !strings.Contains(*myWriter.receivedMessage, "Hello") { 
+    t.Fatal("Last link didn't received expected message") 
+  } 
+}) 
+</pre><p class="calibre10">Now we are checking that <code class="email">myWriter.receivedMessage</code> is actually <code class="email">nil</code>, so no content has been written for sure on the variable. Also, we have to change the second if to check first that the member isn't nil before checking its contents or it can throw a panic on test. Let's test it again:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go test -v . 
+=== RUN   TestCreateDefaultChain 
+=== RUN   TestCreateDefaultChain/3_loggers,_2_of_them_writes_to_console,_second_only_if_it_founds_the_word_'hello',_third_writes_to_some_variable_if_second_found_'hello' 
+--- FAIL: TestCreateDefaultChain (0.00s) 
+--- FAIL: TestCreateDefaultChain/3_loggers,_2_of_them_writes_to_console,_second_only_if_it_founds_the_word_'hello',_third_writes_to_some_variable_if_second_found_'hello' (0.00s) 
+        chain_test.go:40: Last link didn't received expected message 
+FAIL 
+exit status 1 
+FAIL</strong></span>
+</pre><p class="calibre10">It fails again and, again, the first half of the test passes correctly without implemented code. So what should we do now? We have change the signature of the <code class="email">myWriter</code> type to make the test fail in both checks and, again, just fail in the second. Well, in this case we can pass this small issue. When writing tests, we must be very careful to not get too crazy about them; unit tests are tools to help us write and maintain code, but our target is to write functionality, not tests. This is important to keep in mind as you can get really crazy engineering unit tests.</p></div></div></body></html>

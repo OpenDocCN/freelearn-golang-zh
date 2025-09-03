@@ -1,0 +1,52 @@
+<html><head></head><body>
+<div class="book" title="Uploading an avatar picture">
+<div class="book" title="The Avatar implementation for local files"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_5"><a id="ch03lvl2sec0038" class="calibre1"/>The Avatar implementation for local files</h2></div></div></div><p class="calibre10">The final step in making filesystem avatars work is writing an implementation of our <code class="email">Avatar</code> interface that generates URLs that point to the filesystem endpoint we created in the previous section.</p><p class="calibre10">Let's add a test function to our <code class="email">avatar_test.go</code> file:</p><pre class="programlisting">func TestFileSystemAvatar(t *testing.T) { 
+   
+  filename := filepath.Join("avatars", "abc.jpg") 
+  ioutil.WriteFile(filename, []byte{}, 0777) 
+  defer os.Remove(filename)  
+  var fileSystemAvatar FileSystemAvatar 
+  client := new(client) 
+  client.userData = map[string]interface{}{"userid": "abc"} 
+  url, err := fileSystemAvatar.GetAvatarURL(client) 
+  if err != nil { 
+    t.Error("FileSystemAvatar.GetAvatarURL should not return an error") 
+  } 
+  if url != "/avatars/abc.jpg" { 
+    t.Errorf("FileSystemAvatar.GetAvatarURL wrongly returned %s", url) 
+  } 
+} 
+</pre><p class="calibre10">This test is similar to, but slightly more involved than, the <code class="email">GravatarAvatar</code> test because we are also creating a test file in our <code class="email">avatars</code> folder and deleting it afterwards.</p><div class="informaltable" title="Tip"><h3 class="title2"><a id="tip48" class="calibre1"/>Tip</h3><p class="calibre10">Even if our test code panics, the deferred functions will still be called. So regardless of what happens, our test code will clean up after itself.</p></div><p class="calibre10">The rest of the test is simple: we set a <code class="email">userid</code> field in <code class="email">client.userData</code> and call <code class="email">GetAvatarURL</code> to ensure we get the right value back. Of course, running this test will fail, so let's go and add the following code in order to make it pass in <code class="email">avatar.go</code>:</p><pre class="programlisting">type FileSystemAvatar struct{} 
+var UseFileSystemAvatar FileSystemAvatar 
+func (FileSystemAvatar) GetAvatarURL(c *client) (string, error) { 
+  if userid, ok := c.userData["userid"]; ok { 
+    if useridStr, ok := userid.(string); ok { 
+      return "/avatars/" + useridStr + ".jpg", nil 
+    } 
+  } 
+  return "", ErrNoAvatarURL 
+} 
+</pre><p class="calibre10">As you can see here, in order to generate the correct URL, we simply get the <code class="email">userid</code> value and build the final string by adding the appropriate segments together. You may have noticed that we have hardcoded the file extension to <code class="email">.jpg</code>, which means that the initial version of our chat application will only support JPEGs.</p><div class="informaltable" title="Tip"><h3 class="title2"><a id="tip49" class="calibre1"/>Tip</h3><p class="calibre10">Supporting only JPEGs might seem like a half-baked solution, but following Agile methodologies, this is perfectly fine; after all, custom JPEG profile pictures are better than no custom profile pictures at all.</p></div><p class="calibre10">Let's look at our new code in action by updating <code class="email">main.go</code> to use our new <code class="email">Avatar</code> implementation:</p><pre class="programlisting">r := newRoom(UseFileSystemAvatar) 
+</pre><p class="calibre10">Now build and run the application as usual and go to <code class="email">http://localhost:8080/upload</code> and use a web form to upload a JPEG image to use as your profile picture. To make sure it's working correctly, choose a unique image that isn't your Gravatar picture or the image from the auth service. Once you see the successful message after clicking on <span class="strong"><strong class="calibre2">Upload</strong></span>, go to <code class="email">http://localhost:8080/chat</code> and post a message. You will notice that the application has indeed used the profile picture that you uploaded.</p><p class="calibre10">To change your profile picture, go back to the <code class="email">/upload</code> page and upload a different picture, and then jump back to the <code class="email">/chat</code> page and post more messages.</p><p class="calibre10">
+</p><div class="mediaobject"><img src="../images/00054.jpeg" alt="The Avatar implementation for local files" class="calibre14"/></div><p class="calibre15"> </p><p class="calibre10">
+</p><div class="book" title="Supporting different file types"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch03lvl3sec007" class="calibre1"/>Supporting different file types</h3></div></div></div><p class="calibre10">To support different file types, we have to make our <code class="email">GetAvatarURL</code> method for the <code class="email">FileSystemAvatar</code> type a little smarter.</p><p class="calibre10">Instead of just blindly building the string, we will use the very important <code class="email">ioutil.ReadDir</code> method to get a listing of the files. The listing also includes directories so we will use the <code class="email">IsDir</code> method to determine whether we should skip it or not.</p><p class="calibre10">We will then check whether each file matches the <code class="email">userid</code> field (remember that we named our files in this way) by a call to <code class="email">path.Match</code>. If the filename matches the <code class="email">userid</code> field, then we have found the file for that user and we return the path. If anything goes wrong or if we can't find the file, we return the <code class="email">ErrNoAvatarURL</code> error as usual.</p><p class="calibre10">Update the appropriate method in <code class="email">avatar.go</code> with the following code:</p><pre class="programlisting">func (FileSystemAvatar) GetAvatarURL(c *client) (string, error) { 
+  if userid, ok := c.userData["userid"]; ok { 
+    if useridStr, ok := userid.(string); ok { 
+      files, err := ioutil.ReadDir("avatars") 
+      if err != nil { 
+        return "", ErrNoAvatarURL 
+      } 
+      for _, file := range files { 
+        if file.IsDir() { 
+          continue 
+        } 
+        if match, _ := path.Match(useridStr+"*", file.Name());
+        match { 
+          return "/avatars/" + file.Name(), nil 
+        } 
+      } 
+    } 
+  } 
+  return "", ErrNoAvatarURL 
+} 
+</pre><p class="calibre10">Delete all the files in the <code class="email">avatar</code> folder to prevent confusion and rebuild the program. This time, upload an image of a different type and note that our application has no difficulty handling it.</p></div></div></div></body></html>

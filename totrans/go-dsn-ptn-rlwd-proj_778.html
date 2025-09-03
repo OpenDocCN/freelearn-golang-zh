@@ -1,0 +1,38 @@
+<html><head></head><body>
+<div id="page" style="height:0pt"/><div class="book" title="Google App Engine users" id="62HIO1-9c484ed022e64a0fb0e1aebf8e05d4fd"><div class="book"><div class="book"><div class="book"><h1 class="title" id="calibre_pb_0"><a id="ch09lvl1sec0058" class="calibre1"/>Google App Engine users</h1></div></div></div><p class="calibre10">Another service we are going to make use of is the Google App Engine Users API, which provides the authentication of Google accounts (and Google Apps accounts).</p><p class="calibre10">Create a new file called <code class="email">users.go</code> and add the following code:</p><pre class="programlisting">type User struct { 
+  Key *datastore.Key `json:"id" datastore:"-"` 
+  UserID string `json:"-"` 
+  DisplayName string `json:"display_name"` 
+  AvatarURL string `json:"avatar_url"` 
+  Score int `json:"score"` 
+} 
+</pre><p class="calibre10">Similar to the <code class="email">Question</code> struct, we have <code class="email">Key</code> and a few fields that make up the <code class="email">User</code> entity. This struct represents an object that belongs to our application that describes a user; we will have one for every authenticated user in our system, but this isn't the same user object that we'll get from the Users API.</p><p class="calibre10">Importing the <a class="calibre1" href="https://godoc.org/google.golang.org/appengine/user">https://godoc.org/google.golang.org/appengine/user</a> package and calling the <code class="email">user.Current(context.Context)</code> function will return either nil (if no user is authenticated) or a <code class="email">user.User</code> object. This object belongs to the Users API and isn't suitable for our data store, so we need to write a helper function that will translate the App Engine user into our <code class="email">User</code>.</p><div class="informaltable" title="Tip"><h3 class="title2"><a id="tip140" class="calibre1"/>Tip</h3><p class="calibre10">Watch out that <code class="email">goimports</code> doesn't automatically import <code class="email">os/user</code> instead; sometimes it's best if you handle imports manually.</p></div><p class="calibre10">Add the following code to <code class="email">users.go</code>:</p><pre class="programlisting">func UserFromAEUser(ctx context.Context) (*User, error) { 
+  aeuser := user.Current(ctx) 
+  if aeuser == nil { 
+    return nil, errors.New("not logged in") 
+  } 
+  var appUser User 
+  appUser.Key = datastore.NewKey(ctx, "User", aeuser.ID, 0, nil) 
+  err := datastore.Get(ctx, appUser.Key, &amp;appUser) 
+  if err != nil &amp;&amp; err != datastore.ErrNoSuchEntity { 
+    return nil, err 
+  } 
+  if err == nil { 
+    return &amp;appUser, nil 
+  } 
+  appUser.UserID = aeuser.ID 
+  appUser.DisplayName = aeuser.String() 
+  appUser.AvatarURL = gravatarURL(aeuser.Email) 
+  log.Infof(ctx, "saving new user: %s", aeuser.String()) 
+  appUser.Key, err = datastore.Put(ctx, appUser.Key, &amp;appUser) 
+  if err != nil { 
+    return nil, err 
+  } 
+  return &amp;appUser, nil 
+} 
+</pre><p class="calibre10">We get the currently authenticated user by calling <code class="email">user.Current</code>, and if it is <code class="email">nil</code>, we return with an error. This means that the user is not logged in and the operation cannot complete. Our web package will be checking and ensuring that users are logged in for us, so by the time they hit an API endpoint, we'll expect them to be authenticated.</p><p class="calibre10">We then create a new <code class="email">appUser</code> variable (which is of our <code class="email">User</code> type) and set <code class="email">datastore.Key</code>. This time, we aren't making an incomplete key; instead, we are using <code class="email">datastore.NewKey</code> and specifying a string ID, matching the User API ID. This key predictability means that not only will there only be one <code class="email">User</code> entity per authenticated user in our application, but it also allows us to load a <code class="email">User</code> entity without having to use a query.</p><div class="informaltable" title="Tip"><h3 class="title2"><a id="tip141" class="calibre1"/>Tip</h3><p class="calibre10">If we had the App Engine User ID as a field instead, we would need to do a query to find the record we are interested in. Querying is a more expensive operation compared to a direct <code class="email">Get</code> method, so this approach is always preferred if you can do it.</p></div><p class="calibre10">We then call <code class="email">datastore.Get</code> to attempt to load the <code class="email">User</code> entity. If this is the first time the user has logged in, there will be no entity and the returned error will be the special <code class="email">datastore.ErrNoSuchEntity</code> variable. If that's the case, we set the appropriate fields and use <code class="email">datastore.Put</code> to save it. Otherwise, we just return the loaded <code class="email">User</code>.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="note00142" class="calibre1"/>Note</h3><p class="calibre10">Note that we are checking for early returns in this function. This is to ensure that it is easy to read the execution flow of our code without having to follow it in and out of indented blocks. I call this the line of sight of code and have written about it on my blog at <a class="calibre1" href="https://medium.com/@matryer">https://medium.com/@matryer</a>.</p></div><p class="calibre10">For now, we'll use Gravatar again for avatar pictures, so add the following helper function to the bottom of <code class="email">users.go</code>:</p><pre class="programlisting">func gravatarURL(email string) string { 
+  m := md5.New() 
+  io.WriteString(m, strings.ToLower(email)) 
+  return fmt.Sprintf("//www.gravatar.com/avatar/%x", m.Sum(nil)) 
+} 
+</pre></div></body></html>

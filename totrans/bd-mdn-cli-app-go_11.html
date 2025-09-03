@@ -1,0 +1,412 @@
+<html><head></head><body>
+		<div id="_idContainer093">
+			<h1 id="_idParaDest-222" class="chapter-number"><a id="_idTextAnchor258"/>11</h1>
+			<h1 id="_idParaDest-223"><a id="_idTextAnchor259"/>Custom Builds and Testing CLI Commands</h1>
+			<p>With any Golang application, you’ll need to build and test. However, it is increasingly important as the project and its user base grow. Build tags with Boolean logic give you the ability to create targeted builds and testing and further stabilize your project with each <span class="No-Break">new feature.</span></p>
+			<p>Given a deeper understanding of build tags and how to use them, we will use a real-world example, the audio file CLI, to integrate levels (free and pro) and enable a <span class="No-Break">profiling feature.</span></p>
+			<p>Build tags are not only used as input when building but also when testing. We will spend the latter half of this chapter on testing. We will learn specifically how to mock an HTTP client that our CLI is using, configure tests locally, write tests for individual commands, and run them. In this chapter, we will cover the following topics <span class="No-Break">in detail:</span></p>
+			<ul>
+				<li>What are build tags and how can you <span class="No-Break">use them?</span></li>
+				<li>Building <span class="No-Break">with tags</span></li>
+				<li>Testing <span class="No-Break">CLI commands</span></li>
+			</ul>
+			<h1 id="_idParaDest-224"><a id="_idTextAnchor260"/>Technical requirements</h1>
+			<ul>
+				<li>You’ll need a Unix operating system to understand and run the examples shared in <span class="No-Break">the chapter</span></li>
+				<li>You can also find the code examples on GitHub <span class="No-Break">at </span><a href="https://github.com/PacktPublishing/Building-Modern-CLI-Applications-in-Go/tree/main/Chapter11/audiofile"><span class="No-Break">https://github.com/PacktPublishing/Building-Modern-CLI-Applications-in-Go/tree/main/Chapter11/audiofile</span></a></li>
+			</ul>
+			<h1 id="_idParaDest-225"><a id="_idTextAnchor261"/>What are build tags and how can you use them?</h1>
+			<p><strong class="bold">Build tags</strong> are indicators<a id="_idIndexMarker707"/> of when a code file should be included within the build process. In Go, they are defined by a single line at the top, or near the top, of any source file, not just a Go file. They must precede the package clause and be followed by a blank line. They have the <span class="No-Break">following syntax:</span></p>
+			<pre class="source-code">
+//go:build [tag]<a id="_idTextAnchor262"/></pre>
+			<p>This line can only be defined once in a file. More than one definition would generate an error. However, when more than one tag is used, they interact using Boolean logic. In <a href="B18883_07.xhtml#_idTextAnchor143"><span class="No-Break"><em class="italic">Chapter 7</em></span></a>, <em class="italic">Developing for Different Platforms</em>, we briefly touched on tags and their logic. The other method for handling the development of different platforms uses a series of <strong class="source-inline">if-else</strong> statements that check the operating system at runtime. Another method is to include the operating system in the filename. For example, if there’s a filename ending in <strong class="source-inline">_windows.go</strong>, we indicate to the compiler to only include this file when building <span class="No-Break">for </span><span class="No-Break"><strong class="source-inline">windows</strong></span><span class="No-Break">.</span></p>
+			<p>Tags can help <a id="_idIndexMarker708"/>separate code to include when compiling for different operating systems using <strong class="source-inline">$GOOS</strong> and <strong class="source-inline">$GOARCH</strong>. Valid combinations of operating systems and the architecture can be found <span class="No-Break">here: </span><a href="https://go.dev/doc/install/source#environment"><span class="No-Break">https://go.dev/doc/install/source#environment</span></a><span class="No-Break">.</span></p>
+			<p>Besides targeting platforms, build tags can be customized to separate featured code or integration tests. Often, integration tags receive a specific tag, as they often take a longer time to run. Separating unit tests from integration tests adds a level of control when testing <span class="No-Break">your application.</span><a id="_idTextAnchor263"/></p>
+			<p>These build constraints, when used together, can powerfully compile different versions of your code. As mentioned, they are evaluated together using Boolean logic. Expressions contain build tags combined using the <strong class="source-inline">||</strong>, <strong class="source-inline">&amp;&amp;</strong>, and <strong class="source-inline">!</strong> operators and parentheses. To learn more about build constraints, run the following command in <span class="No-Break">your terminal:</span></p>
+			<pre class="console">
+go help buildconstraint</pre>
+			<p>As an example, the following build tags constrain a file to build when the <strong class="source-inline">linux</strong> or <strong class="source-inline">openbsd</strong> tags are satisfied and when <strong class="source-inline">amd64</strong> is satisfied and <strong class="source-inline">cgo</strong> <span class="No-Break">is not:</span></p>
+			<pre class="source-code">
+//go:build (linux  || openbsd) &amp;&amp; amd64 &amp;&amp; !cg<a id="_idTextAnchor264"/>o</pre>
+			<p>Run <strong class="source-inline">go</strong> <strong class="source-inline">env</strong> in your terminal to see which tags are satisfied automatically when building your application. You’ll see the target operating system (<strong class="source-inline">$GOOS</strong>) and architecture (<strong class="source-inline">$GOARCH</strong>) and <strong class="source-inline">unix</strong> if the operating system is Unix or Unix-like. The <strong class="source-inline">cgo</strong> field is determined by the <strong class="source-inline">CGO_ENABLED</strong> environment variable, the term for each Go major release, and any additional tags given by the <strong class="source-inline">–</strong><span class="No-Break"><strong class="source-inline">tags</strong></span><span class="No-Break"> flag.</span></p>
+			<p>As mentioned earlier, you <a id="_idIndexMarker709"/>can create your own pro and free versions based on tags placed at the top of code files, <strong class="source-inline">//go:build pro</strong> or <strong class="source-inline">//go:build free</strong>. Integration test files can be tagged with <strong class="source-inline">//go:build int</strong>, for example. However you want to customize your builds, you can do so with the power of tags and Boolean logic. Now, in the next section, let’s use tags in our code to do <span class="No-Break">just that.</span></p>
+			<h1 id="_idParaDest-226"><a id="_idTextAnchor265"/>How to utilize build tags</h1>
+			<p>As mentioned, we <a id="_idIndexMarker710"/>can use build tags to separate builds based on the operating system and architecture. Within the audio file repository, we’re already doing so with the following files associated with the <strong class="source-inline">play</strong> and <strong class="source-inline">bug</strong> commands. For the <strong class="source-inline">bug</strong> command, we have the <span class="No-Break">following files:</span></p>
+			<ul>
+				<li><strong class="source-inline">bug_darwin.go //</strong> only builds on <span class="No-Break">Darwin systems</span></li>
+				<li><strong class="source-inline">bug_linux.go //</strong> only builds on <span class="No-Break">Linux systems</span></li>
+				<li><strong class="source-inline">bug_windows.go //</strong> only builds on <span class="No-Break">Windows platfo<a id="_idTextAnchor266"/>rms</span></li>
+			</ul>
+			<p>Each of those files contains a function that is specifically coded for the targeted platform. The file suffixes have similar functionality to the build tags. You can choose a file suffix that matches the exact platform and architecture. However, build tags are preferred when you want to target more than one platform and architecture. Inside the files is the matching build tag, used as an example, but duplicates functionality. Inside <strong class="source-inline">bug_darwin.go</strong>, for example, at the top of the file is <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+//go:build darwin</pre>
+			<p>Since we already have these build tags set up throughout the repo to target platforms where needed, let’s explore a few other ways to utilize <span class="No-Break">build tags.</span></p>
+			<h2 id="_idParaDest-227"><a id="_idTextAnchor267"/>Creating a pro, free, and dev version</h2>
+			<p>Suppose the command-line<a id="_idIndexMarker711"/> interface utilized build tags to create different levels of access to the application’s features. This could be for admin or basic level users or<a id="_idIndexMarker712"/> restricted by the level of permissions, but it could also be, especially if the CLI was for external customers, a pro and free level version of <a id="_idIndexMarker713"/><span class="No-Break">your application.</span></p>
+			<p>First, it’s important to decide which commands will be available for each version. Let’s give this a try with the audio <span class="No-Break">file application:</span></p>
+			<div>
+				<div id="_idContainer091" class="IMG---Figure">
+					<img src="image/Table_11.1_B18883.jpg" alt="Table 11.1 – List of commands included in the free or pro level"/>
+				</div>
+			</div>
+			<p class="IMG---Figure">Table 11.1 – List of commands included in the free or pro level</p>
+			<p>Let’s also include a dev version; this simply allows the API to be run locally. In a real-world scenario, the application would be configured to call a public API, and storage could be done in a database. This gives us another build tag <span class="No-Break">to cr<a id="_idTextAnchor268"/>eate.</span></p>
+			<p>Now, let’s use build tags to distinguish the free, pro, and dev versions. The dev version build tag is placed at the top of the <strong class="source-inline">cmd/api.go</strong> file, making the API command only available when the <strong class="source-inline">dev</strong> tag <span class="No-Break">is specified:</span></p>
+			<pre class="source-code">
+//go:build dev</pre>
+			<p>Then, the tag to distinguish the pro version is <span class="No-Break">as follows:</span></p>
+			<pre class="source-code">
+//go:build !free &amp;<a id="_idTextAnchor269"/>&amp; pro</pre>
+			<p>There are a few files, as previously mentioned, that already have build tags to target platforms. This build tag means that the file will be available in the free, pro, and <span class="No-Break">dev versions:</span></p>
+			<pre class="source-code">
+//go:build d<a id="_idTextAnchor270"/>arwin</pre>
+			<p>The preceding build tags utilize Boolean logic to state that the file should be included in the build process when both the <strong class="source-inline">darwin</strong> and <strong class="source-inline">free</strong> tags <span class="No-Break">are defined.</span></p>
+			<p>Let’s break down the tags <a id="_idIndexMarker714"/>here with the Boolean logic <span class="No-Break">syntax examples:</span></p>
+			<div>
+				<div id="_idContainer092" class="IMG---Figure">
+					<img src="image/Table_11.2_B18883.jpg" alt="Table 11.2 – Boolean logic examples&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="IMG---Figure">Table 11.2 – Boolean logic examples</p>
+			<p>This Boolean logic<a id="_idIndexMarker715"/> included within the build tag will allow developers to build for any <a id="_idIndexMarker716"/>combination of platforms <span class="No-Break">and versions.</span></p>
+			<h2 id="_idParaDest-228">Adding build tags to enabl<a id="_idTextAnchor271"/>e pprof</h2>
+			<p>Another way to utilize<a id="_idIndexMarker717"/> build tags is to enable profiling on your API service. <strong class="source-inline">pprof</strong> is a tool for visualizing and analyzing profile data. The tool reads a collection <a id="_idIndexMarker718"/>of samples in <strong class="source-inline">proto</strong>, or protocol buffer, format and then creates reports that help visualize and analyze the data. This tool can generate text and <span class="No-Break">graphical reports.</span></p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">To learn more <a id="_idIndexMarker719"/>about how to use this tool, <span class="No-Break">visit </span><a href="https://pkg.go.dev/net/http/pprof"><span class="No-Break">https://pkg.go.dev/net/htt<span id="_idTextAnchor272"/>p/pprof</span></a><span class="No-Break">.</span></p>
+			<p>For this case, we’ll define a build tag called <strong class="source-inline">pprof</strong> to appropriately match its usage. Within the <strong class="source-inline">services/metadata/metadata.go</strong> file, we define the metadata service used to extract information from the audio files uploaded via the command-line interface. The <strong class="source-inline">CreateMetadataService</strong> function creates the metadata service and <a id="_idIndexMarker720"/>defines all the endpoints with matching handlers. To enable profiling, we will <a id="_idIndexMarker721"/>add this new block <span class="No-Break">of code:</span></p>
+			<pre class="source-code">
+if profile {
+    mux.HandleFunc("/debug/pprof/", pprof.Index)
+    mux.HandleFunc("/debug/pprof/{action}", pprof.Index)
+    mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+}</pre>
+			<p>At the top of the file, after the inputs, we’ll define the variable that it’s <span class="No-Break">dependent on:</span></p>
+			<pre class="source-code">
+var (
+    profile = false
+)</pre>
+			<p>However, we need some way to set the <strong class="source-inline">profile</strong> variable to <strong class="source-inline">true</strong>. To do so, we create a new file: <strong class="source-inline">services/metadata/pprof.go</strong>. This file contains the <span class="No-Break">following content:</span></p>
+			<pre class="source-code">
+//go:build profile &amp;&amp; (free || pro)
+package metadata
+func init() {
+    prof<a id="_idTextAnchor273"/>ile = true
+}</pre>
+			<p>As you can see, whether building the <strong class="source-inline">free</strong>, <strong class="source-inline">pro</strong>, or <strong class="source-inline">dev</strong> version, if the <strong class="source-inline">profile</strong> build tag is added as tag input, then the <strong class="source-inline">init</strong> function will be called to set the <strong class="source-inline">profile</strong> variable to <strong class="source-inline">true</strong>. Now, we have another idea of how to use build tags – to set Boolean variables that act as feature flags. Now that we’ve changed the necessary files to include the build<a id="_idIndexMarker722"/> tags, let’s use these as inputs to the <span class="No-Break">build</span><span class="No-Break"><a id="_idIndexMarker723"/></span><span class="No-Break"> commands.</span></p>
+			<h1 id="_idParaDest-229"><a id="_idTextAnchor274"/>Building with tags</h1>
+			<p>By now, we have built our applications using <strong class="source-inline">Makefile</strong>, which contains the following command specific to<a id="_idIndexMarker724"/> building a <span class="No-Break">Darwin application:</span></p>
+			<pre class="source-code">
+build-darwin:
+    go build -tags darwin -o bin/audiofile main.go
+    chmod +x bin/audiofile</pre>
+			<p>For the Darwin build, we can additionally build a version for a free and pro version and also a profile version to <span class="No-Break">enable </span><span class="No-Break"><strong class="source-inline">pprof</strong></span><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-230"><a id="_idTextAnchor275"/>Building a free version</h2>
+			<p>To build a <strong class="source-inline">free</strong> version for the Darwin operating system, we need to modify the preceding <strong class="source-inline">make</strong> command and <a id="_idIndexMarker725"/>create a <span class="No-Break">new one:</span></p>
+			<pre class="source-code">
+build-darwin-free:
+    go build -tags "darwin free" -o bin/audiofile main.go
+    chmod +x bin/audiofile</pre>
+			<p>In the <strong class="source-inline">build-darwin-free</strong> command, we pass in the two build tags: <strong class="source-inline">darwin</strong> and <strong class="source-inline">free</strong>. This will include files such as <strong class="source-inline">bug_darwin.go</strong> and <strong class="source-inline">play_darwin.go</strong>, which contain the following line at the top of the <span class="No-Break">Go file:</span></p>
+			<pre class="source-code">
+//go:build darwin</pre>
+			<p>Similarly, the files will be included in the build when we build the <span class="No-Break"><strong class="source-inline">pro</strong></span><span class="No-Break"> version.</span></p>
+			<h2 id="_idParaDest-231"><a id="_idTextAnchor276"/>Building a pro version</h2>
+			<p>To build a <strong class="source-inline">pro</strong> version for the Darwin<a id="_idIndexMarker726"/> operating system, we need to add a new <span class="No-Break"><strong class="source-inline">build</strong></span><span class="No-Break"> command:</span></p>
+			<pre class="source-code">
+build-darwin-pro:
+    go build -tags "darwin pro" -o bin/audiofile main.go
+    chmod +x bin/audiofile</pre>
+			<p>In the <strong class="source-inline">build-darwin-pro</strong> command, we<a id="_idIndexMarker727"/> pass in the two build tags: <strong class="source-inline">darwin</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">pro</strong></span><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-232"><a id="_idTextAnchor277"/>Building to enable pprof on the pro version</h2>
+			<p>To build a <strong class="source-inline">pro</strong> version<a id="_idIndexMarker728"/> that has <strong class="source-inline">pprof</strong> enabled, we add the following <span class="No-Break"><strong class="source-inline">build</strong></span><span class="No-Break"> command:</span></p>
+			<pre class="source-code">
+build-darwin-pro-profile:
+    go build -tags "darwin pro profile" -o bin/audiofile main.go
+    chmod +x bin/audiofile</pre>
+			<p>In the <strong class="source-inline">build-darwin-pro-profile</strong> command, we pass three build tags: <strong class="source-inline">darwin</strong>, <strong class="source-inline">pro</strong>, and <strong class="source-inline">profile</strong>.  This will include the <strong class="source-inline">services/metadata/pprof.go</strong> file, which includes the line at the top of <span class="No-Break">the file:</span></p>
+			<pre class="source-code">
+//go:build profile</pre>
+			<p>Similarly, the files will be included in the build when we build for the <span class="No-Break">free version.</span></p>
+			<p>At this point, we’ve learned what build tags are, the different ways to use build tags within your code, and, finally, how to build applications targeted to specific uses using build tags. Specifically, while build tags can be used to define different levels of features available (free versus pro), you can also enable profiling or any other debug tooling using build tags. Now that we have understood how to build our command-line application for different targets, let’s learn how to test our <span class="No-Break">CLI commands.</span></p>
+			<h1 id="_idParaDest-233"><a id="_idTextAnchor278"/>Testing CLI commands</h1>
+			<p>While building your<a id="_idIndexMarker729"/> command-line application, it’s important to also build testing around it so you can ensure that the application works as expected. There are a few things that typically need to be done, including <span class="No-Break">the following:</span></p>
+			<ol>
+				<li>Mock the <span class="No-Break">HTTP client</span></li>
+				<li>Handle <span class="No-Break">test configuration</span></li>
+				<li>Create a test for <span class="No-Break">each command</span></li>
+			</ol>
+			<p>We’ll go over the code for each <a id="_idIndexMarker730"/>of these steps that exist in the audio file repository for <a href="B18883_11.xhtml#_idTextAnchor258"><span class="No-Break"><em class="italic">Chapter 11</em></span></a><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-234">Mo<a id="_idTextAnchor279"/>cking the HTTP client</h2>
+			<p>To mock the HTTP client, we’ll need to<a id="_idIndexMarker731"/> create an interface to mimic the client’s <strong class="source-inline">Do</strong> method, as well as a function that returns this interface, which is both satisfied by the real and <span class="No-Break">mocked client.</span></p>
+			<p>In the <strong class="source-inline">cmd/client.go</strong> file, we’ve written some code to handle all <span class="No-Break">of this:</span></p>
+			<pre class="source-code">
+type AudiofileClient interface {
+    Do(req *http.Request) (*http.Response, error)
+}
+var (
+    getClient = GetHTTPClient()
+)
+func GetHTTPClient() AudiofileClient {
+    return &amp;http.Client{
+        Timeout: 15 <a id="_idTextAnchor280"/>* time.Second,
+    }
+}</pre>
+			<p>We can now easily create a mock client by replacing the <strong class="source-inline">getClient</strong> variable with a function that returns a mocked client. If you look at each command’s code, it uses the <strong class="source-inline">getClient</strong> variable. For example, the <strong class="source-inline">upload.go</strong> file calls the <strong class="source-inline">Do</strong> method with the <span class="No-Break">following line:</span></p>
+			<pre class="source-code">
+resp, err := getClient.Do(req)</pre>
+			<p>When the application runs, this returns the actual HTTP client with a 15-second timeout. However, in each test, we’ll set the <strong class="source-inline">getClient</strong> variable to a mocked <span class="No-Break">HTTP client.</span></p>
+			<p>The mocked HTTP<a id="_idIndexMarker732"/> client is set in the <strong class="source-inline">cmd/client_test.go</strong> file. First, we define <span class="No-Break">the type:</span></p>
+			<pre class="source-code">
+type ClientMock struct {
+}</pre>
+			<p>Then, to satisfy the <strong class="source-inline">AudiofileClient</strong> interface previously defined, we implement the <span class="No-Break"><strong class="source-inline">Do</strong></span><span class="No-Break"> method:</span></p>
+			<pre class="source-code">
+func (c *ClientMock) Do(req *http.Request) (*http.Response, error) {</pre>
+			<p>Some of the requests, including <strong class="source-inline">list</strong>, <strong class="source-inline">get</strong>, and <strong class="source-inline">search</strong> endpoints, will return data that is stored in JSON files under the <strong class="source-inline">cmd/testfiles</strong> folder. We read these files and store them in the corresponding byte slices: <strong class="source-inline">listBytes</strong>, <strong class="source-inline">getBytes</strong>, <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">searchBytes</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+listBytes, err := os.ReadFile("./testfiles/list.json")
+if err != nil {
+    return nil, fmt.Errorf("unable to read testfile/list.json")
+}
+getBytes, err := os.ReadFile("./testfiles/get.json")
+if err != nil {
+    return nil, fmt.Errorf("unable to read testfile/get.json")
+}
+searchBytes, err := os.ReadFile("./testfiles/search.json")
+if err != nil {
+    return nil, fmt.Errorf("unable to read testfile/search.json")
+}</pre>
+			<p>The data read from these files is used within the response. Since the <strong class="source-inline">Do</strong> method receives the request, we can create a switch case for each request endpoint and then handle the response <a id="_idIndexMarker733"/>individually. You can create more detailed cases to handle errors, but in this case, we are only returning the successful case. For the first case, the <strong class="source-inline">/request</strong> endpoint, we return <strong class="source-inline">200 OK</strong>, but the body of the response also contains the string value from <strong class="source-inline">getBytes</strong>. You can see the actual data in the <strong class="source-inline">./</strong><span class="No-Break"><strong class="source-inline">testfiles/get.json</strong></span><span class="No-Break"> file:</span></p>
+			<pre class="source-code">
+    switch req.URL.Path {
+         case "/request":
+             return &amp;http.Response{
+                 Status:  "OK",
+                 StatusCode: http.StatusOK,
+                 Body: ioutil.NopCloser(bytes.NewBufferString(string(getBytes))),
+      ContentLength: int64(len(getBytes)),
+      Request: req,
+      Header: make(http.Header, 0),
+  }, nil</pre>
+			<p>For the <strong class="source-inline">/upload</strong> endpoint, we return <strong class="source-inline">200 OK</strong>, but the body of the response also contains the <strong class="source-inline">"123"</strong> <span class="No-Break">string value:</span></p>
+			<pre class="source-code">
+         case "/upload":
+             return &amp;http.Response{
+                 Status:  "OK",
+                 StatusCode: http.StatusOK,
+      Body: ioutil.NopCloser(bytes.NewBufferString("123")),
+      ContentLength: int64(len("123")),
+      Request: req,
+      Header: make(http.Header, 0),
+   }, nil</pre>
+			<p>For the <strong class="source-inline">/list</strong> endpoint, we return <strong class="source-inline">200 OK</strong>, but the body of the response also contains the string value<a id="_idIndexMarker734"/> from <strong class="source-inline">listBytes</strong>. You can see the actual data in the <strong class="source-inline">./</strong><span class="No-Break"><strong class="source-inline">testfiles/list.json</strong></span><span class="No-Break"> file:</span></p>
+			<pre class="source-code">
+        case "/list":
+            return &amp;http.Response{
+                Status:  "OK",
+                StatusCode: http.StatusOK,
+                Body: ioutil.NopCloser(bytes.
+                      NewBufferString(string(listBytes))),
+                      ContentLength: int64(len(listBytes)),
+                      Request: req,
+                      Header: make(http.Header, 0),
+ }, nil</pre>
+			<p>For the <strong class="source-inline">/delete</strong> endpoint, we return <strong class="source-inline">200 OK</strong>, but the body of the response also contains <strong class="source-inline">"successfully deleted audio with </strong><span class="No-Break"><strong class="source-inline">id: 456"</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+        case "/delete":
+            return &amp;http.Response{
+                Status:  "OK",
+                StatusCode: http.StatusOK,
+                Body: ioutil.NopCloser(bytes.
+                      NewBufferString("successfully deleted 
+                        audio with id: 456")),
+                      ContentLength: int64(len("successfully 
+                                     deleted audio with id: 
+                                     456")),
+                      Request: req,
+                      Header: make(http.Header, 0),
+}, nil</pre>
+			<p>For the <strong class="source-inline">/search</strong> endpoint, we return <strong class="source-inline">200 OK</strong>, but the body of the response also contains the string value from <strong class="source-inline">searchBytes</strong>. You can <a id="_idIndexMarker735"/>see the actual data in the <strong class="source-inline">./</strong><span class="No-Break"><strong class="source-inline">testfiles/search.json</strong></span><span class="No-Break"> file:</span></p>
+			<pre class="source-code">
+        case "/search":
+            return &amp;http.Response{
+                Status:  "OK",
+                StatusCode: http.StatusOK,
+                Body: ioutil.NopCloser(bytes.
+                NewBufferString(string(searchBytes))),
+                ContentLength: int64(len(list searchBytes 
+                Bytes)),
+                Request: req,
+                Header: make(http.Header, 0),
+}, nil
+}
+return &amp;http.Response{}, nil
+}</pre>
+			<p>Finally, if the request path doesn’t match any of the endpoints in the <strong class="source-inline">switch</strong> statement, then an empty response <span class="No-Break">is returned.</span></p>
+			<h2 id="_idParaDest-235"><a id="_idTextAnchor281"/>Handling test configuration</h2>
+			<p>We handle the<a id="_idIndexMarker736"/> test configuration in the <span class="No-Break"><strong class="source-inline">cmd/root_test.go</strong></span><span class="No-Break"> file:</span></p>
+			<pre class="source-code">
+var Logger *zap.Logger
+var Verbose *zap.Logger
+func ConfigureTest() {
+    getClient = &amp;ClientMock{}
+    viper.SetDefault("cli.hostname", "testHostname")
+    viper.SetDefault("cli.port", 8000)
+    utils.InitCLILogger()
+}</pre>
+			<p>Within the <strong class="source-inline">ConfigureTest</strong> function, we set the <strong class="source-inline">getClient</strong> variable to a pointer to the <strong class="source-inline">ClientMock</strong> type. Because the <strong class="source-inline">viper</strong> configuration values are checked when the command is called, we set<a id="_idIndexMarker737"/> some default values for the CLI’s hostname and port to random test values. Finally, in this file, the regular logger, <strong class="source-inline">Logger</strong>, and verbose logger, <strong class="source-inline">Verbose</strong>, are both defined and then later initialized by the <strong class="source-inline">utils.InitCLILogger()</strong> <span class="No-Break">method call.</span></p>
+			<h2 id="_idParaDest-236">C<a id="_idTextAnchor282"/>reating a test for a command</h2>
+			<p>Now that we have the<a id="_idIndexMarker738"/> mocked client, configuration, and loggers set up, let’s create a test for the commands. Before I dive into the code for each, it’s important to mention the line of code that’s reused at the start of <span class="No-Break">each test:</span></p>
+			<pre class="source-code">
+ConfigureTest()</pre>
+			<p>The preceding section discusses the details of this function, but it prepares each state with a mocked client, default configuration values, and initialized loggers. In our examples, we use the <strong class="source-inline">testing</strong> package, which provides support for automated tests in Go. It is designed to be used in concert with the <strong class="source-inline">go test</strong> command, which executes any function in your code defined with the <span class="No-Break">following format:</span></p>
+			<pre class="source-code">
+func TestXxx(*testing.T)</pre>
+			<p><strong class="source-inline">Xxx</strong> can be replaced with anything else, but the first character needs to be capital. The name itself is used to identify the type of test that is being executed. I won’t go into each individual test, just three as examples. To view the entirety of tests, visit the audio file repository for <span class="No-Break">this cha<a id="_idTextAnchor283"/>pter.</span></p>
+			<h3>Testing the bug command</h3>
+			<p>The function <a id="_idIndexMarker739"/>for testing the <strong class="source-inline">bug</strong> command is defined here. It takes a single parameter, which is a pointer to the <strong class="source-inline">testing.T</strong> type, and fits the function format defined in the last section. Let’s break down <span class="No-Break">the code:</span></p>
+			<pre class="source-code">
+func TestBug(t *testing.T) {
+    ConfigureTest()
+    b := bytes.NewBufferString("")
+    rootCmd.SetOut(b)
+    rootCmd.SetArgs([]string{"bug", "unexpected"})
+    err := rootCmd.Execute()
+    if err != nil {
+        fmt.Println("err: ", err)
+    }
+    actualBytes, err := ioutil.ReadAll(b)
+    if err != nil {
+        t.Fatal(err)
+    }
+    expectedBytes, err := os.ReadFile("./testfiles/bug.txt")
+    if err != nil {
+        t.Fatal(err)
+    }
+    if strings.TrimSpace(string(actualBytes)) != strings.
+       TrimSpace(string(expectedBytes)) {
+        t.Fatal(string(actualBytes), "!=", 
+          string(expectedBytes))
+    }
+}</pre>
+			<p>In this function, we<a id="_idIndexMarker740"/> first define the output buffer, <strong class="source-inline">b</strong>, which we can later read for comparison to the expected output. We set the arguments using the <strong class="source-inline">SetArgs</strong> method and pass in an unexpected argument. The command is executed with the <strong class="source-inline">rootCmd.Execute()</strong> method and the actual result is read from the buffer and saved in the <strong class="source-inline">actualBytes</strong> variable. The expected output is stored within the <strong class="source-inline">./testfiles/bug.txt</strong> file and is read into the <strong class="source-inline">expectedBytes</strong> variable. We compare these values to ensure that they are equal. Since we passed in an unexpected argument, the command usage is printed out. This test is designed to pass; however, if the trimmed strings are not equal, the <span class="No-Break">test fails.</span></p>
+			<h3>Testing the get command</h3>
+			<p>The function for testing the <strong class="source-inline">get</strong> command is<a id="_idIndexMarker741"/> defined here. Similarly, the function definition fits the format to be picked up in the <strong class="source-inline">go test</strong> command. Remember the mocked client and that the <strong class="source-inline">get</strong> command calls the <strong class="source-inline">/request</strong> endpoint. The response body contains the value found in the <strong class="source-inline">./testfiles/get.json</strong> file. Let’s break down <span class="No-Break">the code:</span></p>
+			<pre class="source-code">
+func TestGet(t *testing.T) {
+    ConfigureTest()
+    b := bytes.NewBufferString("")
+    rootCmd.SetOut(b)</pre>
+			<p>We pass in the following arguments to mimic the <strong class="source-inline">audiofile get –id 123 –</strong><span class="No-Break"><strong class="source-inline">json</strong></span><span class="No-Break"> call:</span></p>
+			<pre class="source-code">
+    rootCmd.SetArgs([]string{"get", "--id", "123", "--json"})</pre>
+			<p>We execute the root command with the <span class="No-Break">preceding arguments:</span></p>
+			<pre class="source-code">
+    err := rootCmd.Execute()
+    if err != nil {
+        fmt.Println("err: ", err)
+    }</pre>
+			<p>We read the actual data output from <strong class="source-inline">rootCmd</strong>’s execution and store it in the <span class="No-Break"><strong class="source-inline">actualBytes</strong></span><span class="No-Break"> variable:</span></p>
+			<pre class="source-code">
+    actualBytes, err := ioutil.ReadAll(b)
+    if err != nil {
+        t.Fatal(err)
+    }</pre>
+			<p>We read the expected data output from the <strong class="source-inline">./</strong><span class="No-Break"><strong class="source-inline">testfiles/get.json</strong></span><span class="No-Break"> file:</span></p>
+			<pre class="source-code">
+    expectedBytes, err := os.ReadFile("./testfiles/get.json")
+    if err != nil {
+        t.Fatal(err)
+    }</pre>
+			<p>Then, the data of both <strong class="source-inline">actualBytes</strong> and <strong class="source-inline">expectedBytes</strong> is unmarshalled into the <strong class="source-inline">models.Audio</strong> struct and <span class="No-Break">then </span><span class="No-Break"><a id="_idIndexMarker742"/></span><span class="No-Break">compared:</span></p>
+			<pre class="source-code">
+    var audio1, audio2 models.Audio
+    json.Unmarshal(actualBytes, &amp;audio1)
+    json.Unmarshal(expectedBytes, &amp;audio2)
+    if !(audio1.Id == audio2.Id &amp;&amp;
+    audio1.Metadata.Tags.Album == audio2.Metadata.Tags.Album &amp;&amp;
+    audio1.Metadata.Tags.AlbumArtist == audio2.Metadata.Tags.AlbumArtist &amp;&amp;
+    audio1.Metadata.Tags.Artist == audio2.Metadata.Tags.Artist &amp;&amp;
+    audio1.Metadata.Tags.Comment == audio2.Metadata.Tags.Comment &amp;&amp;
+    audio1.Metadata.Tags.Composer == audio2.Metadata.Tags.Composer &amp;&amp;
+    audio1.Metadata.Tags.Genre == audio2.Metadata.Tags.Genre &amp;&amp;
+    audio1.Metadata.Tags.Lyrics == audio2.Metadata.Tags.Lyrics &amp;&amp;
+    audio1.Metadata.Tags.Year == audio2.Metadata.Tags.Year) {
+        t.Fatalf("expected %q got %q", string(expectedByt<a id="_idTextAnchor284"/>es), string(actualBytes))
+    }
+}</pre>
+			<p>This test was designed to<a id="_idIndexMarker743"/> succeed, but if the data is not as expected, then the <span class="No-Break">test fails.</span></p>
+			<h3>Testing the upload command</h3>
+			<p>The function for testing the <strong class="source-inline">upload</strong> command<a id="_idIndexMarker744"/> is defined here. Again, the function definition fits the format to be picked up in the <strong class="source-inline">go test</strong> command. Remember the mocked client and that the <strong class="source-inline">upload</strong> command calls the <strong class="source-inline">/upload</strong> endpoint with a mocked response body containing the <strong class="source-inline">"123"</strong> value. Let’s break down <span class="No-Break">the code:</span></p>
+			<pre class="source-code">
+func TestUpload(t *testing.T) {
+    ConfigureTest()
+    b := bytes.NewBufferString("")
+    rootCmd.SetOut(b)
+    rootCmd.SetArgs([]string{"upload", "--filename", "list.
+                   go"})
+    err := rootCmd.Execute()
+    if err != nil {
+        fmt.Println("err: ", err)
+    }
+    expected := "123"
+    actualBytes, err := ioutil.ReadAll(b)
+    if err != nil {
+        t.Fatal(err)
+    }
+    actual := string(actualBytes)
+    if !(actual == expected) {
+        t.Fatalf("expected \"%s\" got \"%s\"", expected, 
+                actual)
+    }
+}</pre>
+			<p><strong class="source-inline">rootCmd</strong>’s arguments are set to mimic the following <span class="No-Break">command call:</span><a id="_idTextAnchor285"/></p>
+			<pre class="console">
+audiofile upload –filename list.go</pre>
+			<p>The file type and data <a id="_idIndexMarker745"/>are not validated because that happens on the API side, which is mocked. However, since we know the body of the response contains the <strong class="source-inline">123</strong> value, we set the expected variable to <strong class="source-inline">123</strong>. The <strong class="source-inline">actual</strong> value, which contains the output of the command execution, is then later compared to the expected one. The test is designed for success, but if the values are not equal, then the <span class="No-Break">test fails.</span></p>
+			<p>We’ve now gone over several examples of how to test a CLI Cobra command. You can now create your own tests for your CLI, by mocking your own HTTP client and creating tests for each individual command. We haven’t done so in this chapter, but it’s good to know that build tags can also be used to separate different kinds of tests – for example, integration tests and <span class="No-Break">unit tests.</span></p>
+			<h2 id="_idParaDest-237"><a id="_idTextAnchor286"/>Running the tests</h2>
+			<p>To test your <a id="_idIndexMarker746"/>commands, you can run <strong class="source-inline">go test</strong> and pass in a few <span class="No-Break">additional flags:</span></p>
+			<ul>
+				<li><strong class="source-inline">-v</strong> for <span class="No-Break">verbose mode</span></li>
+				<li><strong class="source-inline">-tags</strong> for any files you want to <span class="No-Break">specifically target</span></li>
+			</ul>
+			<p>In our test, we want to target just the <strong class="source-inline">pro</strong> build tag because that will cover all commands. We add two additional <strong class="source-inline">Makefile</strong> commands, one to run tests in verbose mode and one <span class="No-Break">that doesn’t:</span></p>
+			<pre class="source-code">
+test:
+  go test ./... -tags pro
+test-verbose:
+  go test –v ./... -tags pro</pre>
+			<p>After saving the <strong class="source-inline">Makefile</strong> from the terminal, you can execute <span class="No-Break">the command:</span></p>
+			<pre class="console">
+make test</pre>
+			<p>The following output <span class="No-Break">is expected:</span></p>
+			<pre class="console">
+go test ./cmd -tags pro
+ok      github.com/marianina8/audiofile/cmd</pre>
+			<p>We now know how to run the tests utilizing build tags as well. This should be all the tools needed to run your own <span class="No-Break">CLI testing.</span></p>
+			<h1 id="_idParaDest-238"><a id="_idTextAnchor287"/>Summary</h1>
+			<p>In this chapter, you learned what build tags are and how to use them for different purposes. Build tags can be used for generating builds of different levels, separating our specific tests, or adding debug features. You also learned how to generate builds with the build tags that you added to the top of your files and how to utilize the Boolean logic of tags to quickly determine whether files will or won’t <span class="No-Break">be included.</span></p>
+			<p>You also learned how to test your Cobra CLI commands with Golang’s default <strong class="source-inline">testing</strong> package. Some necessary tools were also included, such as learning how to mock an HTTP client. Together with the build tags, you can now not only build targeted applications with tags but also run tests with the same tags to target specific tests. In the next chapter, <a href="B18883_12.xhtml#_idTextAnchor291"><span class="No-Break"><em class="italic">Chapter 12</em></span></a>, <em class="italic">Cross-Compilation Across Different Platforms</em>, we will learn how to use these tags and compile for the different major operating systems: <strong class="source-inline">darwin</strong>, <strong class="source-inline">linux</strong>, <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">windows</strong></span><span class="No-Break">.</span></p>
+			<h1 id="_idParaDest-239"><a id="_idTextAnchor288"/>Questions</h1>
+			<ol>
+				<li>Where does the build tag go in a Golang file and what is <span class="No-Break">the syntax?</span></li>
+				<li>What flag is used for both <strong class="source-inline">go build</strong> and <strong class="source-inline">go test</strong> to pass in the <span class="No-Break">build tags?</span></li>
+				<li>What build tag could you place on an integration test Golang file and how would you run <strong class="source-inline">go test</strong> with <span class="No-Break">the tag?</span></li>
+			</ol>
+			<h1 id="_idParaDest-240"><a id="_idTextAnchor289"/>Answers</h1>
+			<ol>
+				<li value="1">It’s placed at the top of the file, before the package declaration, followed by a single empty line. The syntax is: <strong class="source-inline">//</strong><span class="No-Break"><strong class="source-inline">go:build [tag]</strong></span><span class="No-Break">.</span></li>
+				<li>The <strong class="source-inline">–tags</strong> flag is used to pass in build tags for both the <strong class="source-inline">go build</strong> and <strong class="source-inline">go </strong><span class="No-Break"><strong class="source-inline">test</strong></span><span class="No-Break"> methods.</span></li>
+				<li>You could add the <strong class="source-inline">//go:build int</strong> build tag at the top of any integration test file, and then modify the test file to run this command: <strong class="source-inline">go test ./cmd -tags "</strong><span class="No-Break"><strong class="source-inline">pro int"</strong></span><span class="No-Break">.</span></li>
+			</ol>
+			<h1 id="_idParaDest-241"><a id="_idTextAnchor290"/>Further reading</h1>
+			<ul>
+				<li>Read more about the <strong class="source-inline">build</strong> package at <a href="https://pkg.go.dev/go/build">https://pkg.go.dev/go/build</a>, and read more about the <strong class="source-inline">testing</strong> package <span class="No-Break">at </span><a href="https://pkg.go.dev/testing"><span class="No-Break">https://pkg.go.dev/testing</span></a></li>
+			</ul>
+		</div>
+		<div>
+			<div id="_idContainer094" class="IMG---Figure">
+			</div>
+		</div>
+	</body></html>

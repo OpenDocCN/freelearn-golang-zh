@@ -1,0 +1,89 @@
+<html><head></head><body>
+<div class="book" title="Memento design pattern">
+<div class="book" title="Another example using the Command and Facade patterns"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_7"><a id="ch06lvl2sec0157" class="calibre1"/>Another example using the Command and Facade patterns</h2></div></div></div><p class="calibre10">The previous example is good and simple enough to understand the functionality of the Memento pattern. However, it is more commonly used in conjunction with the Command pattern and a simple Facade pattern.</p><p class="calibre10">The idea is to use a Command pattern to encapsulate a set of different types of states (those that implement a <code class="email">Command</code> interface) and provide a small facade to automate the insertion in the <code class="email">caretaker</code> object.</p><p class="calibre10">We are going to develop a small example of a hypothetical audio mixer. We are going to use the same Memento pattern to save two types of states: <code class="email">Volume</code> and <code class="email">Mute</code>. The <code class="email">Volume</code> state is going to be a byte type and the <code class="email">Mute</code> state a Boolean type. We will use two completely different types to show the flexibility of this approach (and its drawbacks).</p><p class="calibre10">As a side note, we can also ship each <code class="email">Command</code> interface with their own serialization methods on the interface. This way, we can give the ability to the caretaker to store states in some kind of storage without really knowing what's storing.</p><p class="calibre10">Our <code class="email">Command</code> interface is going to have one method to return the value of its implementer. It's very simple, every command in our audio mixer that we want to undo will have to implement this interface:</p><pre class="programlisting">type Command interface { 
+  GetValue() interface{} 
+} 
+</pre><p class="calibre10">There is something interesting in this interface. The <code class="email">GetValue</code> method returns an interface to a value. This also means that the return type of this method is... well... untyped? Not really, but it returns an interface that can be a representation of any type and we will need to typecast it later if we want to use its specific type. Now we have to define the <code class="email">Volume</code> and <code class="email">Mute</code> types and implement the <code class="email">Command</code> interface:</p><pre class="programlisting">type Volume byte 
+ 
+func (v Volume) GetValue() interface{} { 
+  return v 
+} 
+ 
+type Mute bool 
+ 
+func (m Mute) GetValue() interface{} { 
+  return m 
+} 
+</pre><p class="calibre10">They are both quite easy implementations. However, the <code class="email">Mute</code> type will return a <code class="email">bool</code> type on the <code class="email">GetValue()</code> method and <code class="email">Volume</code> will return a <code class="email">byte</code> type.</p><p class="calibre10">As in the previous example, we'll need a <code class="email">Memento</code> type that will hold a <code class="email">Command</code>. In other words, it will store a pointer to a <code class="email">Mute</code> or a <code class="email">Volume</code> type:</p><pre class="programlisting">type Memento struct { 
+  memento Command 
+} 
+</pre><p class="calibre10">The <code class="email">originator</code> type works as in the previous example but uses the <code class="email">Command</code> keyword instead of the <code class="email">state</code> keyword:</p><pre class="programlisting">type originator struct { 
+  Command Command 
+} 
+ 
+func (o *originator) NewMemento() Memento { 
+  return Memento{memento: o.Command} 
+} 
+ 
+func (o *originator) ExtractAndStoreCommand(m Memento) { 
+  o.Command = m.memento 
+} 
+</pre><p class="calibre10">And the <code class="email">caretaker</code> object is almost the same, but this time we'll use a stack instead of a simple list and we will store a command instead of a state:</p><pre class="programlisting">type careTaker struct { 
+  mementoList []Memento 
+} 
+ 
+func (c *careTaker) Add(m Memento) { 
+  c.mementoList = append(c.mementoList, m) 
+} 
+ 
+func (c *careTaker) Pop() Memento { 
+  if len(c.mementoStack) &gt; 0 { 
+    tempMemento := c.mementoStack[len(c.mementoStack)-1] 
+    c.mementoStack = c.mementoStack[0:len(c.mementoStack)-1] 
+    return tempMemento 
+  } 
+ 
+  return Memento{} 
+} 
+</pre><p class="calibre10">However, our <code class="email">Memento</code> list is replaced with a <code class="email">Pop</code> method. It also returns a <code class="email">memento</code> object but it will return them acting as a stack (last to enter, first to go out). So, we take the last element on the stack and store it in the <code class="email">tempMemento</code> variable. Then we replace the stack with a new version that doesn't contain the last element on the next line. Finally, we return the <code class="email">tempMemento</code> variable.</p><p class="calibre10">Until now, everything looks almost like in the previous example. We also talked about automating some tasks by using the Facade pattern, so let's do it. This is going to be called the <code class="email">MementoFacade</code> type and will have the <code class="email">SaveSettings</code> and <code class="email">RestoreSettings</code> methods. The <code class="email">SaveSettings</code> method takes a <code class="email">Command</code>, stores it in an inner originator, and saves it in an inner <code class="email">careTaker</code> field. The <code class="email">RestoreSettings</code> method makes the opposite flow-restores an index of the <code class="email">careTaker</code> and returns the <code class="email">Command</code> inside the <code class="email">Memento</code> object:</p><pre class="programlisting">type MementoFacade struct { 
+  originator originator 
+  careTaker  careTaker 
+} 
+ 
+func (m *MementoFacade) SaveSettings(s Command) { 
+  m.originator.Command = s 
+  m.careTaker.Add(m.originator.NewMemento()) 
+} 
+ 
+func (m *MementoFacade) RestoreSettings(i int) Command { 
+  m.originator.ExtractAndStoreCommand(m.careTaker.Memento(i)) 
+  return m.originator.Command 
+} 
+</pre><p class="calibre10">Our Facade pattern will hold the contents of the originator and the care taker and will provide those two easy-to-use methods to save and restore settings.</p><p class="calibre10">So, how do we use this?</p><pre class="programlisting">func main(){ 
+  m := MementoFacade{} 
+ 
+  m.SaveSettings(Volume(4)) 
+  m.SaveSettings(Mute(false)) 
+</pre><p class="calibre10">First, we get a variable with a Facade pattern. Zero-value initialization will give us zero-valued <code class="email">originator</code> and <code class="email">caretaker</code> objects. They don't have any unexpected field so everything will initialize correctly (if any of them had a pointer, for example, it would be initialized to <code class="email">nil</code> as mentioned in the <span class="strong"><em class="calibre11">Zero initialization</em></span> section of <a class="calibre1" title="Chapter 1. Ready... Steady... Go!" href="part0090_split_000.html#2LQIK1-9c484ed022e64a0fb0e1aebf8e05d4fd">Chapter 1</a>, <span class="strong"><em class="calibre11">Ready... Steady... Go!</em></span>).</p><p class="calibre10">We create a <code class="email">Volume</code> value with <code class="email">Volume(4)</code> and, yes, we have used parentheses. The <code class="email">Volume</code> type does not have any inner field like structs so we cannot use curly braces to set its value. The way to set it is to use parentheses (or create a pointer to the type <code class="email">Volume</code> and then set the value of the pointed space). We also save a value of the type <code class="email">Mute</code> using the Facade pattern.</p><p class="calibre10">We don't know what <code class="email">Command</code> type is returned here, so we need to make a type assertion. We will make a small function to help us with this that checks the type and prints an appropriate value:</p><pre class="programlisting">func assertAndPrint(c Command){ 
+  switch cast := c.(type) { 
+  case Volume: 
+    fmt.Printf("Volume:\t%d\n", cast) 
+  case Mute: 
+    fmt.Printf("Mute:\t%t\n", cast) 
+  } 
+} 
+</pre><p class="calibre10">The <code class="email">assertAndPrint</code> method takes a <code class="email">Command</code> type and casts it to the two possible types-<code class="email">Volume</code> or <code class="email">Mute</code>. In each case, it prints a message to the console with a personalized message. Now we can continue and finish the <code class="email">main</code> function, which will look like this:</p><pre class="programlisting">func main() { 
+  m := MementoFacade{} 
+ 
+  m.SaveSettings(Volume(4)) 
+  m.SaveSettings(Mute(false)) 
+ 
+<span class="strong"><strong class="calibre2">  assertAndPrint(m.RestoreSettings(0))</strong></span>
+<span class="strong"><strong class="calibre2">    
+  assertAndPrint(m.RestoreSettings(1))</strong></span> 
+} 
+</pre><p class="calibre10">The part highlighted in bold shows the new changes within the <code class="email">main</code> function. We took the index 0 from the <code class="email">careTaker</code> object and passed it to the new function and the same with the index <code class="email">1</code>. Running this small program, we should get the <code class="email">Volume</code> and <code class="email">Mute</code> values on the console:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ go run memento_command.go</strong></span>
+<span class="strong"><strong class="calibre2">Mute:   false</strong></span>
+<span class="strong"><strong class="calibre2">Volume: 4</strong></span>
+</pre><p class="calibre10">Great! In this small example, we have combined three different design patterns to keep getting comfortable using various patterns. Keep in mind that we could have abstracted the creation of <code class="email">Volume</code> and <code class="email">Mute</code> states to a Factory pattern too so this is not where would stop.</p></div></div></body></html>

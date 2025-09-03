@@ -1,0 +1,944 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Microservices for Applications in Go</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter the following recipes will be covered:</p>
+<ul>
+<li>Working with web handlers, requests, and ResponseWriters</li>
+<li>Using structs and closures for stateful handlers</li>
+<li>Validating input for Go structs and user inputs</li>
+<li>Rendering and content negotiation</li>
+<li>Implementing and using middleware</li>
+<li>Building a reverse proxy application</li>
+<li>Exporting GRPC as a JSON API</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Introduction</h1>
+                </header>
+            
+            <article>
+                
+<p>Out of the box, Go is an excellent choice for writing web applications. The built-in <kbd>net/http</kbd> packages combined with packages like <kbd>html/template</kbd> allow for fully-featured modern web applications out of the box. It's so easy that it encourages spinning up web interfaces for management of even basic long-running applications. Although the standard library is fully featured, there are still a large variety of third-party web packages for everything from routes to full-stack frameworks including these:</p>
+<ul>
+<li><a href="https://github.com/urfave/negroni">https://github.com/urfave/negroni</a></li>
+<li><a href="https://github.com/gin-gonic/gin">https://github.com/gin-gonic/gin</a></li>
+<li><a href="https://github.com/labstack/echo">https://github.com/labstack/echo</a></li>
+<li><a href="http://www.gorillatoolkit.org/">http://www.gorillatoolkit.org/</a></li>
+<li><a href="https://github.com/julienschmidt/httprouter">https://github.com/julienschmidt/httprouter</a></li>
+</ul>
+<p>The recipes in this chapter will focus on basic tasks you might run into when working with handlers, when navigating response and request objects, and in dealing with concepts such as middleware.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Working with web handlers, requests, and ResponseWriters</h1>
+                </header>
+            
+            <article>
+                
+<p>Go defines <kbd>HandlerFuncs</kbd> and a <kbd>Handler</kbd> interface with the following signatures:</p>
+<pre>
+// HandlerFunc implements the Handler interface<br/>type HandlerFunc func(http.ResponseWriter, *http.Request)<br/><br/>type Handler interface {<br/>    ServeHTTP(http.ResponseWriter, *http.Request)<br/>}
+</pre>
+<p>By default, the <kbd>net/http</kbd> package makes extensive use of these types. For example, a route can be attached to a <kbd>Handler</kbd> or <kbd>HandlerFunc</kbd> interface. This recipe will explore creating a <kbd>Handler</kbd> interface, listening on a local port, and performing some operations on an <kbd>http.ResponseWriter</kbd> interface after processing <kbd>http.Request</kbd>. This should be considered the basis for Go web applications and RESTFul APIs.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Download and install Go on your operating system from <a href="https://golang.org/doc/install">https://golang.org/doc/install</a>, and configure your <kbd>GOPATH</kbd> environment variable.</li>
+<li>Open a terminal/console application.</li>
+<li>Navigate to your <kbd>GOPATH/src</kbd> and create a project directory, such as <kbd>$GOPATH/src/github.com/yourusername/customrepo</kbd>.</li>
+</ol>
+<p style="padding-left: 60px">All code will be run and modified from this directory.</p>
+<ol start="4">
+<li>Optionally, install the latest tested version of the code using the <kbd>go get github.com/agtorre/go-cookbook/</kbd> command.</li>
+<li>Install the curl command from <a href="https://curl.haxx.se/download.html">https://curl.haxx.se/download.html</a>.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create and navigate to the <kbd>chapter7/handlers</kbd> directory.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter7/handlers">https://github.com/agtorre/go-cookbook/tree/master/chapter7/handlers</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>get.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package handlers<br/><br/>        import (<br/>            "fmt"<br/>            "net/http"<br/>        )<br/><br/>        // HelloHandler takes a GET parameter "name" and responds<br/>        // with Hello &lt;name&gt;! in plaintext<br/>        func HelloHandler(w http.ResponseWriter, r *http.Request) {<br/>            w.Header().Set("Content-Type", "text/plain")<br/>            if r.Method != http.MethodGet {<br/>                w.WriteHeader(http.StatusMethodNotAllowed)<br/>                return<br/>            }<br/>            name := r.URL.Query().Get("name")<br/><br/>            w.WriteHeader(http.StatusOK)<br/>            w.Write([]byte(fmt.Sprintf("Hello %s!", name)))<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>post.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package handlers<br/><br/>        import (<br/>            "encoding/json"<br/>            "net/http"<br/>        )<br/><br/>        // GreetingResponse is the JSON Response that<br/>        // GreetingHandler returns<br/>        type GreetingResponse struct {<br/>            Payload struct {<br/>                Greeting string `json:"greeting,omitempty"`<br/>                Name string `json:"name,omitempty"`<br/>                Error string `json:"error,omitempty"`<br/>            } `json:"payload"`<br/>            Successful bool `json:"successful"`<br/>        }<br/><br/>        // GreetingHandler returns a GreetingResponse which either has <br/>        // errors or a useful payload<br/>        func GreetingHandler(w http.ResponseWriter, r *http.Request) {<br/>            w.Header().Set("Content-Type", "application/json")<br/>            if r.Method != http.MethodPost {<br/>                w.WriteHeader(http.StatusMethodNotAllowed)<br/>                return<br/>            }<br/>            var gr GreetingResponse<br/>            if err := r.ParseForm(); err != nil {<br/>                gr.Payload.Error = "bad request"<br/>                if payload, err := json.Marshal(gr); err == nil {<br/>                    w.Write(payload)<br/>                }<br/>            }<br/>            name := r.FormValue("name")<br/>            greeting := r.FormValue("greeting")<br/><br/>            w.WriteHeader(http.StatusOK)<br/>            gr.Successful = true<br/>            gr.Payload.Name = name<br/>            gr.Payload.Greeting = greeting<br/>            if payload, err := json.Marshal(gr); err == nil {<br/>               w.Write(payload)<br/>            }<br/>        }
+</pre>
+<ol start="5">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file called <kbd>main.go</kbd> with the following contents; be sure to modify the <kbd>handlers</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/>            "net/http"<br/><br/>            "github.com/agtorre/go-cookbook/chapter7/handlers"<br/>        )<br/><br/>        func main() {<br/>            http.HandleFunc("/name", handlers.HelloHandler)<br/>            http.HandleFunc("/greeting", handlers.GreetingHandler)<br/>            fmt.Println("Listening on port :3333")<br/>            err := http.ListenAndServe(":3333", nil)<br/>            panic(err)<br/>        }
+</pre>
+<ol start="7">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You could also run the following command:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should see the following output:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      Listening on port :3333</strong>
+</pre>
+<ol start="9">
+<li><span>In a</span> separate term<span>inal, run the following commands:</span></li>
+</ol>
+<pre>
+<strong>      curl "http://localhost:3333/name?name=Reader" -X GET <br/></strong><strong>      curl "http://localhost:3333/greeting" -X POST -d <br/>      'name=Reader;greeting=Goodbye'</strong>
+</pre>
+<p style="padding-left: 60px">You will see the following output:</p>
+<pre>
+<strong>      $curl "http://localhost:3333/name?name=Reader" -X GET </strong><br/><strong>      Hello Reader!</strong><br/><br/><strong>      $curl "http://localhost:3333/greeting" -X POST -d   <br/>      'name=Reader;greeting=Goodbye' </strong><br/><strong>      {"payload":<br/>      {"greeting":"Goodbye","name":"Reader"},"successful":true}</strong>
+</pre>
+<ol start="10">
+<li><span>If you</span> copied or wr<span>ote your own tests, go up one directory and run</span> <kbd>go test</kbd>. Ensure that all tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>For this recipe, we set up two handlers. The first handler expects a <kbd>GET</kbd> request with a <kbd>GET</kbd> parameter called <kbd>name</kbd>. When we curl it, it returns the plain text string <kbd>Hello &lt;name&gt;!</kbd></p>
+<p>The second handler expects a <kbd>POST</kbd> method with <kbd>PostForm</kbd> requests. This is what you'd get if you used a standard HTML form without any AJAX calls. Alternatively, we could parse JSON out of the request body instead. This is commonly done with <kbd>json.Decoder</kbd>. I recommend trying this as an exercise as well. Lastly, the handler sends a JSON-formatted response and sets all the appropriate headers.</p>
+<p>Although all of this was written explicitly, there are a number of methods for making the code less verbose, as follows:</p>
+<ul>
+<li>Using <a href="https://github.com/unrolled/render">https://github.com/unrolled/render</a> to handle responses</li>
+<li>Using various web frameworks mentioned in the <em>Working with web handlers, requests, and ResponseWriters</em> recipe of this chapter to parse route arguments, restrict routes to specific HTTP verbs, handle graceful shutdown, and more</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using structs and closures for stateful handlers</h1>
+                </header>
+            
+            <article>
+                
+<p>Due to the sparse signatures of HTTP handler functions, it may seem tricky to add state to a handler. For example, there are a variety of ways to include a database connection. Two approaches to doing this are to pass in the state via closures, which is useful for flexibility on a single handler, or by using a struct.</p>
+<p>This recipe will demonstrate both. We'll use a struct controller to store a storage interface and create two routes with a single handler that are modified by an outer function.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Refer to the steps given in the <em>Getting ready</em> section of the</span> <em>Working with web handlers, requests, and ResponseWriters</em> <span>recipe.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create and navigate to the <kbd>chapter7/rest</kbd> directory.</li>
+</ol>
+<ol start="2">
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter7/controllers">https://github.com/agtorre/go-cookbook/tree/master/chapter7/controllers</a> or use this as an exercise to write some of your own.</li>
+<li>Create a file called <kbd>controller.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package controllers<br/><br/>        // Controller passes state to our handlers<br/>        type Controller struct {<br/>            storage Storage<br/>        }<br/><br/>        // New is a Controller 'constructor'<br/>        func New(storage Storage) *Controller {<br/>            return &amp;Controller{<br/>                storage: storage,<br/>            }<br/>        }<br/><br/>        // Payload is our common response<br/>        type Payload struct {<br/>            Value string `json:"value"`<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>storage.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package controllers<br/><br/>        // Storage Interface Supports Get and Put<br/>        // of a single value<br/>        type Storage interface {<br/>            Get() string<br/>            Put(string)<br/>        }<br/><br/>        // MemStorage implements Storage<br/>        type MemStorage struct {<br/>            value string<br/>        }<br/><br/>        // Get our in-memory value<br/>        func (m *MemStorage) Get() string {<br/>            return m.value<br/>        }<br/><br/>        // Put our in-memory value<br/>        func (m *MemStorage) Put(s string) {<br/>            m.value = s<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>post.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package controllers<br/><br/>        import (<br/>            "encoding/json"<br/>            "net/http"<br/>        )<br/><br/>        // SetValue modifies the underlying storage of the controller <br/>        // object<br/>        func (c *Controller) SetValue(w http.ResponseWriter, r <br/>        *http.Request) {<br/>            if r.Method != http.MethodPost {<br/>                w.WriteHeader(http.StatusMethodNotAllowed)<br/>                return<br/>            }<br/>            if err := r.ParseForm(); err != nil {<br/>                w.WriteHeader(http.StatusInternalServerError)<br/>                return<br/>            }<br/>            value := r.FormValue("value")<br/>            c.storage.Put(value)<br/>            w.WriteHeader(http.StatusOK)<br/>            p := Payload{Value: value}<br/>            if payload, err := json.Marshal(p); err == nil {<br/>                w.Write(payload)<br/>            }<br/><br/>        }
+</pre>
+<ol start="6">
+<li>Create a file called <kbd>get.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package controllers<br/><br/>        import (<br/>            "encoding/json"<br/>            "net/http"<br/>        )<br/><br/>        // GetValue is a closure that wraps a HandlerFunc, if <br/>        // UseDefault is true value will always be "default" else it'll <br/>        // be whatever is stored in storage<br/>        func (c *Controller) GetValue(UseDefault bool) http.HandlerFunc <br/>        {<br/>            return func(w http.ResponseWriter, r *http.Request) {<br/>                w.Header().Set("Content-Type", "application/json")<br/>                if r.Method != http.MethodGet {<br/>                    w.WriteHeader(http.StatusMethodNotAllowed)<br/>                    return<br/>                }<br/>                value := "default"<br/>                if !UseDefault {<br/>                    value = c.storage.Get()<br/>                }<br/>                w.WriteHeader(http.StatusOK)<br/>                p := Payload{Value: value}<br/>                if payload, err := json.Marshal(p); err == nil {<br/>                    w.Write(payload)<br/>                }<br/>            }<br/>        }
+</pre>
+<ol start="7">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file called <kbd>main.go</kbd> with the following contents; be sure to modify the <kbd>controllers</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/>            "net/http"<br/><br/>            "github.com/agtorre/go-cookbook/chapter7/controllers"<br/>        )<br/><br/>        func main() {<br/>            storage := controllers.MemStorage{}<br/>            c := controllers.New(&amp;storage)<br/>            http.HandleFunc("/get", c.GetValue(false))<br/>            http.HandleFunc("/get/default", c.GetValue(true))<br/>            http.HandleFunc("/set", c.SetValue)<br/><br/>            fmt.Println("Listening on port :3333")<br/>            err := http.ListenAndServe(":3333", nil)<br/>            panic(err)<br/>        }
+</pre>
+<ol start="9">
+<li>Run <kbd>go run main.go</kbd>.</li>
+</ol>
+<ol start="10">
+<li>You could also run:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You sh</span>ould see the follo<span>wing output:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      Listening on port :3333</strong>
+</pre>
+<ol start="11">
+<li><span>In a</span> separate ter<span>minal, run the following commands:</span></li>
+</ol>
+<pre>
+<strong>      curl "http://localhost:3333/set -X POST -d "value=value"  </strong><br/><strong>      curl "http://localhost:3333/get -X GET  </strong><br/><strong>      curl "http://localhost:3333/get/default -X GET</strong>
+</pre>
+<p style="padding-left: 60px">You will see the following output:</p>
+<pre>
+<strong>      $curl "http://localhost:3333/set -X POST -d "value=value"</strong><br/><strong>      {"value":"value"}</strong><br/><br/><strong>      $curl "http://localhost:3333/get -X GET </strong><br/><strong>      {"value":"value"}</strong><br/><br/><strong>      $curl "http://localhost:3333/get/default -X GET </strong><br/><strong>      {"value":"default"}</strong>
+</pre>
+<ol start="12">
+<li><span>If you</span> copied or wrote you<span>r own tests, go up one directory and run</span> <kbd>go test</kbd>. Ensure that all tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>These strategies work because Go allows methods to satisfy typed functions such as <kbd>http.HandlerFunc</kbd>. By using a struct, we can inject various pieces in <kbd>main.go</kbd>, which could include database connections, logging, and more. In this recipe, we inserted a <kbd>Storage</kbd> interface. All handlers connected to the controller can make use of its methods and attributes.</p>
+<p>The <kbd>GetValue</kbd> method doesn't have an <kbd>http.HandlerFunc</kbd> signature and instead returns it. This is how we can use a closure to inject state. In <kbd>main.go</kbd>, we define two routes one with <kbd>UseDefault</kbd> set to <kbd>false</kbd> and the other with it set to <kbd>true</kbd>. This could be used when defining a function that spans multiple routes, or when using a struct where your handlers feel too cumbersome.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Validating input for Go structs and user inputs</h1>
+                </header>
+            
+            <article>
+                
+<p>Validation for web can be a difficult problem. This recipe will explore using closures to support easy mocking of validation functions and to allow flexibility in the type of validation performed when initializing a controller struct as described by the previous recipe.</p>
+<p>We'll perform this validation on a struct, but not explore how to populate the struct. We can assume that the data will be populated by parsing a JSON payload, populating explicitly from the form input, or other methods.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Refer to the steps given in the <em>Getting ready</em> section of the <em>Working with web handlers, requests, and ResponseWriters</em> recipe.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create and navigate to the <kbd>chapter7/validation</kbd> directory.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter7/validation">https://github.com/agtorre/go-cookbook/tree/master/chapter7/validation</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>controller.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package validation<br/><br/>        // Controller holds our validation functions<br/>        type Controller struct {<br/>            ValidatePayload func(p *Payload) error<br/>        }<br/><br/>        // New initializes a controller with our<br/>        // local validation, it can be overwritten<br/>        func New() *Controller {<br/>            return &amp;Controller{<br/>                ValidatePayload: ValidatePayload,<br/>            }<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>validate.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package validation<br/><br/>        import "errors"<br/><br/>        // Verror is an error that occurs<br/>        // during validation, we can<br/>        // return this to a user<br/>        type Verror struct {<br/>            error<br/>        }<br/><br/>        // Payload is the value we<br/>        // process<br/>        type Payload struct {<br/>            Name string `json:"name"`<br/>            Age int `json:"age"`<br/>        }<br/><br/>        // ValidatePayload is 1 implementation of<br/>        // the closure in our controller<br/>        func ValidatePayload(p *Payload) error {<br/>            if p.Name == "" {<br/>                return Verror{errors.New("name is required")}<br/>            }<br/><br/>            if p.Age &lt;= 0 || p.Age &gt;= 120 {<br/>                return Verror{errors.New("age is required and must be a <br/>                value greater than 0 and less than 120")}<br/>            }<br/>            return nil<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>process.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package validation<br/><br/>        import (<br/>            "encoding/json"<br/>            "fmt"<br/>            "net/http"<br/>        )<br/><br/>        // Process is a handler that validates a post payload<br/>        func (c *Controller) Process(w http.ResponseWriter, r <br/>        *http.Request) {<br/>            if r.Method != http.MethodPost {<br/>                w.WriteHeader(http.StatusMethodNotAllowed)<br/>                return<br/>            }<br/><br/>            decoder := json.NewDecoder(r.Body)<br/>            defer r.Body.Close()<br/>            var p Payload<br/><br/>            if err := decoder.Decode(&amp;p); err != nil {<br/>                fmt.Println(err)<br/>                w.WriteHeader(http.StatusBadRequest)<br/>                return<br/>            }<br/><br/>            if err := c.ValidatePayload(&amp;p); err != nil {<br/>                switch err.(type) {<br/>                case Verror:<br/>                    w.WriteHeader(http.StatusBadRequest)<br/>                    // pass the Verror along<br/>                    w.Write([]byte(err.Error()))<br/>                    return<br/>                default:<br/>                    w.WriteHeader(http.StatusInternalServerError)<br/>                    return<br/>                }<br/>            }<br/>        }
+</pre>
+<ol start="6">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file called <kbd>main.go</kbd> with the following contents; be sure to modify the <kbd>validation</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/>            "net/http"<br/><br/>            "github.com/agtorre/go-cookbook/chapter7/validation"<br/>        )<br/><br/>        func main() {<br/>            c := validation.New()<br/>            http.HandleFunc("/", c.Process)<br/>            fmt.Println("Listening on port :3333")<br/>            err := http.ListenAndServe(":3333", nil)<br/>            panic(err)<br/>        }
+</pre>
+<ol start="8">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You could also run:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should see the following output:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      Listening on port :3333</strong>
+</pre>
+<ol start="10">
+<li><span>In a</span> separate termi<span>nal run the following commands:</span></li>
+</ol>
+<pre>
+<strong>      curl "http://localhost:3333/-X POST -d '{}'<br/></strong><strong>      curl "http://localhost:3333/-X POST -d '{"name":"test"}' <br/></strong><strong>      curl "http://localhost:3333/-X POST -d '{"name":"test",<br/>      "age": 5}'</strong>  
+</pre>
+<p style="padding-left: 60px">You should see the following output:</p>
+<pre>
+<strong>      $curl "http://localhost:3333/-X POST -d '{}'<br/>      name is required</strong><br/><br/><strong>      $curl "http://localhost:3333/-X POST -d '{"name":"test"}'</strong><br/><strong>      age is required and must be a value greater than 0 and <br/>      less than 120</strong><br/><br/><strong>      $curl "http://localhost:3333/-X POST -d '{"name":"test",<br/>      "age": 5}' -v</strong><br/><br/><strong>      &lt;lots of output, should contain a 200 OK status code&gt;</strong>
+</pre>
+<ol start="11">
+<li><span>If you co</span>pied or wrote <span>your own tests, go up one directory and r</span>un <kbd>go test</kbd>. Ensure that all tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>We handle validation by passing in a closure to our controller struct. For any input that the controller might need to validate, we'd need one of these closures. The advantage to this approach is that we can mock and replace the validation functions at run time, so testing becomes far simpler. In addition, we're not bound to a single function signature and we can pass in things such as a database connection to our validation functions.</p>
+<p>The other thing this recipe demonstrates is returning a typed error called a <kbd>Verror</kbd>. This type holds validation error messages that can be displayed to users. One shortcoming of this approach is that it doesn't handle multiple validation messages at once. This would be possible by modifying the <kbd>Verror</kbd> type to allow for more state, for example, by including a map, in order to house a number of validation errors before it returns from our <kbd>ValidatePayload</kbd> function.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Rendering and content negotiation</h1>
+                </header>
+            
+            <article>
+                
+<p>Web handlers can return a variety of content types, for example, they can return JSON, plain text, images, and more. Frequently, when communicating with APIs, it's possible to specify and accept content type to clarify what format you'll pass data in as and what data you want to receive back out.</p>
+<p>This recipe will explore using unrolled/render and a custom function to negotiate content type and respond accordingly.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li><span>Refer to the steps in the <em>Getting ready</em> section of the <em>Working with web handlers, requests, and ResponseWriters</em> recipe.</span></li>
+<li>Run the <kbd>go get github.com/unrolled/render</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create and navigate to the <kbd>chapter7/negotiate</kbd> directory.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter7/negotiate">https://github.com/agtorre/go-cookbook/tree/master/chapter7/negotiate</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>negotiate.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package negotiate<br/><br/>        import (<br/>            "net/http"<br/><br/>            "github.com/unrolled/render"<br/>        )<br/><br/>        // Negotiator wraps render and does<br/>        // some switching on ContentType<br/>        type Negotiator struct {<br/>            ContentType string<br/>            *render.Render<br/>        }<br/><br/>        // GetNegotiator takes a request, and figures<br/>        // out the ContentType from the Content-Type header<br/>        func GetNegotiator(r *http.Request) *Negotiator {<br/>            contentType := r.Header.Get("Content-Type")<br/><br/>            return &amp;Negotiator{<br/>                ContentType: contentType,<br/>                Render: render.New(),<br/>            }<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>respond.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package negotiate<br/><br/>        import "io"<br/>        import "github.com/unrolled/render"<br/><br/>        // Respond switches on Content Type to determine<br/>        // the response<br/>        func (n *Negotiator) Respond(w io.Writer, status int, v <br/>        interface{}) {<br/>            switch n.ContentType {<br/>                case render.ContentJSON:<br/>                    n.Render.JSON(w, status, v)<br/>                case render.ContentXML:<br/>                    n.Render.XML(w, status, v)<br/>                default:<br/>                    n.Render.JSON(w, status, v)<br/>                }<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>handler.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package negotiate<br/><br/>        import (<br/>            "encoding/xml"<br/>            "net/http"<br/>        )<br/><br/>        // Payload defines it's layout in xml and json<br/>        type Payload struct {<br/>            XMLName xml.Name `xml:"payload" json:"-"`<br/>            Status string `xml:"status" json:"status"`<br/>        }<br/><br/>        // Handler gets a negotiator using the request,<br/>        // then renders a Payload<br/>        func Handler(w http.ResponseWriter, r *http.Request) {<br/>            n := GetNegotiator(r)<br/><br/>            n.Respond(w, http.StatusOK, &amp;Payload{Status:       <br/>            "Successful!"})<br/>        }
+</pre>
+<ol start="6">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file called <kbd>main.go</kbd> with the following contents; be sure to modify the negotiate import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/>            "net/http"<br/><br/>            "github.com/agtorre/go-cookbook/chapter7/negotiate"<br/>        )<br/><br/>        func main() {<br/>            http.HandleFunc("/", negotiate.Handler)<br/>            fmt.Println("Listening on port :3333")<br/>            err := http.ListenAndServe(":3333", nil)<br/>            panic(err)<br/>        }
+</pre>
+<ol start="8">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You could also run:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should see the following output:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      Listening on port :3333</strong>
+</pre>
+<ol start="10">
+<li><span>In a s</span>eparate t<span>erminal run the following:</span></li>
+</ol>
+<pre>
+<strong>      curl "http://localhost:3333 -H "Content-Type: text/xml"<br/></strong><strong>      curl "http://localhost:3333 -H "Content-Type: application/json"</strong>
+</pre>
+<p style="padding-left: 60px">You will see the following output:</p>
+<pre>
+<strong>      $curl "http://localhost:3333 -H "Content-Type: text/xml"<br/>      &lt;payload&gt;&lt;status&gt;Successful!&lt;/status&gt;&lt;/payload&gt;<br/></strong><br/><strong>      $curl "http://localhost:3333 -H "Content-Type: application/json"</strong><br/><strong>      {"status":"Successful!"}</strong>
+</pre>
+<ol start="11">
+<li><span>If you</span> copied or <span>wrote your own tests, go up one directory and r</span>un <kbd>go test</kbd>. Ensure that all tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>github.com/unrolled/render</kbd> package does the heavy lifting for this recipe. There are a huge number of other options you can input if you need to work with HTML templates and more. This recipe can be used to autonegotiate when working through web handlers as is demonstrated here by passing in various content type headers, or directly by manipulating the struct.</p>
+<p>A similar pattern can be applied to accept headers, but beware that this header often includes multiple values and your code will have to take that into account.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing and using middleware</h1>
+                </header>
+            
+            <article>
+                
+<p>Middleware for handlers in Go is an area that has been widely explored. There are a variety of packages for handling middleware. This recipe will create middleware from scratch and implement an <kbd>ApplyMiddleware</kbd> function to chain together a bunch of middleware.</p>
+<p>It will also explore setting values in the request context object and retrieving them later using middleware. This will all be done with a very basic handler to help demonstrate how to decouple middleware logic from your handlers.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Refer to the steps given in the <em>Getting ready</em> section of the <em>Working with web handlers, requests, and ResponseWriters</em> recipe.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create and navigate to the <kbd>chapter7/middleware</kbd> directory.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter7/middleware">https://github.com/agtorre/go-cookbook/tree/master/chapter7/middleware</a> or use this as an exercise to write some of your own.</li>
+<li>Create a file called <kbd>middleware.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package middleware<br/><br/>        import (<br/>            "log"<br/>            "net/http"<br/>            "time"<br/>        )<br/><br/>        // Middleware is what all middleware functions will return<br/>        type Middleware func(http.HandlerFunc) http.HandlerFunc<br/><br/>        // ApplyMiddleware will apply all middleware, the last <br/>        // arguments will be the<br/>        // outer wrap for context passing purposes<br/>        func ApplyMiddleware(h http.HandlerFunc, middleware <br/>        ...Middleware) http.HandlerFunc {<br/>            applied := h<br/>            for _, m := range middleware {<br/>                applied = m(applied)<br/>            }<br/>            return applied<br/>        }<br/><br/>        // Logger logs requests, this will use an id passed in via<br/>        // SetID()<br/>        func Logger(l *log.Logger) Middleware {<br/>            return func(next http.HandlerFunc) http.HandlerFunc {<br/>                return func(w http.ResponseWriter, r *http.Request) {<br/>                    start := time.Now()<br/>                    l.Printf("started request to %s with id %s", r.URL, <br/>                    GetID(r.Context()))<br/>                    next(w, r)<br/>                    l.Printf("completed request to %s with id %s in<br/>                    %s", r.URL, GetID(r.Context()), time.Since(start))<br/>                }<br/>            }<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>context.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package middleware<br/><br/>        import (<br/>            "context"<br/>            "net/http"<br/>            "strconv"<br/>        )<br/><br/>        // ContextID is our type to retrieve our context<br/>        // objects<br/>        type ContextID int<br/><br/>        // ID is the only ID we've defined<br/>        const ID ContextID = 0<br/><br/>        // SetID updates context with the id then<br/>        // increments it<br/>        func SetID(start int64) Middleware {<br/>            return func(next http.HandlerFunc) http.HandlerFunc {<br/>                return func(w http.ResponseWriter, r *http.Request) {<br/>                    ctx := context.WithValue(r.Context(), ID, <br/>                    strconv.FormatInt(start, 10))<br/>                    start++<br/>                    r = r.WithContext(ctx)<br/>                    next(w, r)<br/>                }<br/>            }<br/>        }<br/><br/>        // GetID grabs an ID from a context if set<br/>        // otherwise it returns an empty string<br/>        func GetID(ctx context.Context) string {<br/>            if val, ok := ctx.Value(ID).(string); ok {<br/>                return val<br/>            }<br/>            return ""<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>handler.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package middleware<br/><br/>        import (<br/>            "net/http"<br/>        )<br/><br/>        // Handler is very basic<br/>        func Handler(w http.ResponseWriter, r *http.Request) {<br/>            w.WriteHeader(http.StatusOK)<br/>            w.Write([]byte("success"))<br/>        }
+</pre>
+<ol start="6">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file called <kbd>main.go</kbd> with the following contents; be sure to modify the <kbd>middleware</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/>            "log"<br/>            "net/http"<br/>            "os"<br/><br/>            "github.com/agtorre/go-cookbook/chapter7/middleware"<br/>        )<br/><br/>        func main() {<br/>            // We apply from bottom up<br/>            h := middleware.ApplyMiddleware(<br/>            middleware.Handler,<br/>            middleware.Logger(log.New(os.Stdout, "", 0)),<br/>            middleware.SetID(100),<br/>            ) <br/>            http.HandleFunc("/", h)<br/>            fmt.Println("Listening on port :3333")<br/>            err := http.ListenAndServe(":3333", nil)<br/>            panic(err)<br/>        }
+</pre>
+<ol start="8">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You could also run:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should see the following output:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      Listening on port :3333</strong>
+</pre>
+<ol start="10">
+<li>In a separate terminal, run the following curl command several times:</li>
+</ol>
+<pre>
+<strong>      curl "http://localhost:3333</strong>
+</pre>
+<p style="padding-left: 60px">You will see the following output:</p>
+<pre>
+<strong>      $curl "http://localhost:3333</strong><br/><strong>      success</strong><br/><br/><strong>      $curl "http://localhost:3333</strong><br/><strong>      success</strong><br/><br/><strong>      $curl "http://localhost:3333</strong><br/><strong>      success</strong>
+</pre>
+<ol start="11">
+<li>In the original <kbd>main.go</kbd>, you should see the following:</li>
+</ol>
+<pre>
+<strong>      Listening on port :3333</strong><br/><strong>      started request to / with id 100</strong><br/><strong>      completed request to / with id 100 in 52.284µs</strong><br/><strong>      started request to / with id 101</strong><br/><strong>      completed request to / with id 101 in 40.273µs</strong><br/><strong>      started request to / with id 102</strong>
+</pre>
+<ol start="12">
+<li><span>If you c</span>opied or <span>wrote your own tests, go up one directory and</span> run <kbd>go test</kbd>. Ensure that all tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>Middleware can be used to perform simple operations such as logging, metric collection and analytics. It can also be used to dynamically populate variables on each request. This can be used, for example, to collect an X-Header from the request to set an ID or generate an ID, like we did in this recipe. Another ID strategy might be to generate a UUID for every request--this allows us to easily correlate log messages together and trace your request across different applications if multiple microservices are involved in building the response.</p>
+<p>When working with context values, it's important to consider the order of your middleware. Typically, it's better to not make middleware reliant on one another. For example, in this recipe, it would probably be better to generate the UUID in the logging middleware itself. However, this recipe should serve as a guide for layering middleware and initializing them in <kbd>main.go</kbd>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building a reverse proxy application</h1>
+                </header>
+            
+            <article>
+                
+<p>In this recipe, we will develop a reverse proxy application. The idea is, by hitting <kbd>http://localhost:3333</kbd> in a browser, all traffic will be forwarded to a configurable host and the responses will be forwarded to your browser. The end result should be <a href="https://www.golang.org">https://www.golang.org</a> rendered in a browser through our proxy application.</p>
+<p>This can be combined with port forwarding and ssh tunnels in order to securely hit websites through an intermediate server. This recipe will build a reverse proxy from the ground up, but this functionality is also provided by the <span><kbd>net/http/httputil</kbd> package. Using this package, the incoming request can be modified by <kbd>Director func(*http.Request)</kbd> and the outgoing response can be modified by <kbd>ModifyResponse func(*http.Response) error</kbd>. In addition, there's support for buffering the response.<br/></span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Refer to the steps given in the <em>Getting ready</em> section of the <em>Working with web handlers, requests, and ResponseWriters</em> recipe.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create and navigate to the <kbd>chapter7/proxy</kbd> directory.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter7/proxy">https://github.com/agtorre/go-cookbook/tree/master/chapter7/proxy</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a file called <kbd>proxy.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package proxy<br/><br/>        import (<br/>            "log"<br/>            "net/http"<br/>        )<br/><br/>        // Proxy holds our configured client<br/>        // and BaseURL to proxy to<br/>        type Proxy struct {<br/>            Client *http.Client<br/>            BaseURL string<br/>        }<br/><br/>        // ServeHTTP means that proxy implments the Handler interface<br/>        // It manipulates the request, forwards it to BaseURL, then <br/>        // returns the response<br/>        func (p *Proxy) ServeHTTP(w http.ResponseWriter, r <br/>        *http.Request) {<br/>            if err := p.ProcessRequest(r); err != nil {<br/>                log.Printf("error occurred during process request: %s", <br/>                err.Error())<br/>                w.WriteHeader(http.StatusBadRequest)<br/>                return<br/>            }<br/><br/>            resp, err := p.Client.Do(r)<br/>            if err != nil {<br/>                log.Printf("error occurred during client operation: <br/>                %s", err.Error())<br/>                w.WriteHeader(http.StatusInternalServerError)<br/>                return<br/>            }<br/>            defer resp.Body.Close()<br/>            CopyResponse(w, resp)<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>process.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package proxy<br/><br/>        import (<br/>            "bytes"<br/>            "net/http"<br/>            "net/url"<br/>        )<br/><br/>        // ProcessRequest modifies the request in accordnance<br/>        // with Proxy settings<br/>        func (p *Proxy) ProcessRequest(r *http.Request) error {<br/>            proxyURLRaw := p.BaseURL + r.URL.String()<br/><br/>            proxyURL, err := url.Parse(proxyURLRaw)<br/>            if err != nil {<br/>                return err<br/>            }<br/>            r.URL = proxyURL<br/>            r.Host = proxyURL.Host<br/>            r.RequestURI = ""<br/>            return nil<br/>        }<br/><br/>        // CopyResponse takes the client response and writes everything<br/>        // to the ResponseWriter in the original handler<br/>        func CopyResponse(w http.ResponseWriter, resp *http.Response) {<br/>            var out bytes.Buffer<br/>            out.ReadFrom(resp.Body)<br/><br/>            for key, values := range resp.Header {<br/>                for _, value := range values {<br/>                w.Header().Add(key, value)<br/>                }<br/>            }<br/><br/>            w.WriteHeader(resp.StatusCode)<br/>            w.Write(out.Bytes())<br/>        }
+</pre>
+<ol start="5">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+</ol>
+<ol start="6">
+<li>Create a file called <kbd>main.go</kbd> with the following contents; be sure to modify the <kbd>proxy</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/>            "net/http"<br/><br/>            "github.com/agtorre/go-cookbook/chapter7/proxy"<br/>        )<br/><br/>        func main() {<br/>            p := &amp;proxy.Proxy{<br/>                Client: http.DefaultClient,<br/>                BaseURL: "https://www.golang.org",<br/>            }<br/>            http.Handle("/", p)<br/>            fmt.Println("Listening on port :3333")<br/>            err := http.ListenAndServe(":3333", nil)<br/>            panic(err)<br/>        }
+</pre>
+<ol start="7">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You could also run:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should see the following output:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      Listening on port :3333</strong>
+</pre>
+<ol start="9">
+<li>Navigate a browser to <kbd>localhost:3333/</kbd>. You should see the <a href="https://golang.org/">https://golang.org/</a> website rendered!</li>
+<li><span>If you copied or wrote your own tests, go up one directory and ru</span>n <kbd>go test</kbd>. Ensure that all tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>Go request and response objects are largely shareable between clients and handlers. This code takes a request obtained by a <kbd>Proxy</kbd> struct that satisfies a <kbd>Handler</kbd> interface. The <kbd>main.go</kbd> file is using <kbd>Handle</kbd> instead of <kbd>HandleFunc</kbd> used elsewhere. Once the request is available, it's modified to prepend <kbd>Proxy.BaseURL</kbd> for the request which the client then dispatches. Lastly, the response is copied back to the <kbd>ResponseWriter</kbd> interface. This includes all headers, the body, and the status.</p>
+<p>We can also add some additional features such as basic auth for requests, token management, and more if needed. This can be useful for token management where the proxy manages sessions for a JavaScript or other client application.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Exporting GRPC as a JSON API</h1>
+                </header>
+            
+            <article>
+                
+<p>In the <em>Understanding GRPC clients</em> recipe from <a href="7a5004b7-eae0-4fbb-bcfe-5798a97ec835.xhtml" target="_blank">Chapter 6</a>, <em>Web Clients and APIs</em>, we wrote a basic GRPC server and client. This recipe will expand on that idea by putting common RPC functions in a package and wrapping them in both a GRPC server and a standard web handler. This can be useful when your API wants to support both types of client, but you don't want to replicate code for common functionality.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li><span>Refer to the steps given in the <em>Getting ready</em> section of the <em>Working with web handlers, requests, and ResponseWriters</em> recipe.</span></li>
+<li>Install GRPC from <a href="https://github.com/grpc/grpc/blob/master/INSTALL.md">https://github.com/grpc/grpc/blob/master/INSTALL.md</a>.</li>
+<li><span class="s3">Run t</span>he <kbd>go get github.com/golang/protobuf/proto</kbd> command.</li>
+<li>Run the <kbd>go get github.com/golang/protobuf/protoc-gen-go</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create and navigate to the <kbd>chapter7/grpcjson</kbd> directory.</li>
+</ol>
+<ol start="2">
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter7/grpcjson">https://github.com/agtorre/go-cookbook/tree/master/chapter7/grpcjson</a> or use this as an exercise to write some of your own code.</li>
+<li>Create a new directory named <kbd>keyvalue</kbd> and navigate to it.</li>
+<li>Create a file called <kbd>keyvalue.proto</kbd> with the following contents:</li>
+</ol>
+<pre>
+        syntax = "proto3";<br/><br/>        package keyvalue;<br/><br/>        service KeyValue{<br/>            rpc Set(SetKeyValueRequest) returns (KeyValueResponse){}<br/>            rpc Get(GetKeyValueRequest) returns (KeyValueResponse){}<br/>        }<br/><br/>        message SetKeyValueRequest {<br/>            string key = 1;<br/>            string value = 2;<br/>        }<br/><br/>        message GetKeyValueRequest{<br/>            string key = 1;<br/>        }<br/><br/>        message KeyValueResponse{<br/>            string success = 1;<br/>            string value = 2;<br/>        }
+</pre>
+<ol start="5">
+<li>Run the following command:</li>
+</ol>
+<pre>
+<strong>      protoc --go_out=plugins=grpc:. keyvalue.proto</strong>
+</pre>
+<ol start="6">
+<li>Navigate back up a directory.</li>
+<li><span>Create a new directory named <kbd>internal</kbd></span><span>.</span></li>
+<li>Create a file called <kbd>internal/keyvalue.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package internal<br/><br/>        import (<br/>            "golang.org/x/net/context"<br/>            "sync"<br/><br/>            "github.com/agtorre/go-cookbook/chapter7/grpcjson/keyvalue"<br/>            "google.golang.org/grpc"<br/>            "google.golang.org/grpc/codes"<br/>        )<br/><br/>        // KeyValue is a struct that holds a map<br/>        type KeyValue struct {<br/>            <span class="blob-code-inner">mutex sync.<span class="pl-smi">RWMutex</span></span><br/>            m map[string]string<br/>        }<br/><br/>        // NewKeyValue initializes the map and controller<br/>        func NewKeyValue() *KeyValue {<br/>            return &amp;KeyValue{<br/>                m: make(map[string]string),<br/>            }<br/>        }<br/><br/>        // Set sets a value to a key, then returns the value<br/>        func (k *KeyValue) Set(ctx context.Context, r <br/>        *keyvalue.SetKeyValueRequest) (*keyvalue.KeyValueResponse, <br/>        error) {<br/>            <span class="blob-code-inner">k.<span class="pl-smi">mutex</span>.<span class="pl-c1">Lock</span>()</span><br/>            k.m[r.GetKey()] = r.GetValue()<br/>            <span class="blob-code-inner">k.<span class="pl-smi">mutex</span>.<span class="pl-c1">Unlock</span>()</span><br/>            return &amp;keyvalue.KeyValueResponse{Value: r.GetValue()}, nil<br/>        }<br/><br/>        // Get gets a value given a key, or say not found if <br/>        // it doesn't exist<br/>        func (k *KeyValue) Get(ctx context.Context, r <br/>        *keyvalue.GetKeyValueRequest) (*keyvalue.KeyValueResponse, <br/>        error) {<br/>            <span class="blob-code-inner">k.<span class="pl-smi">mutex</span>.<span class="pl-c1">RLock</span>()</span><br/><span class="blob-code-inner"><span class="pl-k">            defer</span> k.<span class="pl-smi">mutex</span>.<span class="pl-c1">RUnlock</span>()</span><br/>            val, ok := k.m[r.GetKey()]<br/>            if !ok {<br/>                return nil, grpc.Errorf(codes.NotFound, "key not set")<br/>            }<br/>            return &amp;keyvalue.KeyValueResponse{Value: val}, nil<br/>        }
+</pre>
+<ol start="9">
+<li>Create a new directory named <kbd>grpc</kbd>.</li>
+<li>Create a file called <kbd>grpc/main.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/>            "net"<br/><br/>            "github.com/agtorre/go-cookbook/chapter7/grpcjson/internal"<br/>            "github.com/agtorre/go-cookbook/chapter7/grpcjson/keyvalue"<br/>            "google.golang.org/grpc"<br/>        )<br/><br/>        func main() {<br/>            grpcServer := grpc.NewServer()<br/>            keyvalue.RegisterKeyValueServer(grpcServer, <br/>            internal.NewKeyValue())<br/>            lis, err := net.Listen("tcp", ":4444")<br/>            if err != nil {<br/>                panic(err)<br/>            }<br/>            fmt.Println("Listening on port :4444")<br/>            grpcServer.Serve(lis)<br/>        }
+</pre>
+<ol start="11">
+<li>Create a new directory named <kbd>http</kbd>.</li>
+<li>Create a file called <kbd>http/set.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "encoding/json"<br/>            "net/http"<br/><br/>            "github.com/agtorre/go-cookbook/chapter7/grpcjson/internal"<br/>            "github.com/agtorre/go-cookbook/chapter7/grpcjson/keyvalue"<br/>            "github.com/apex/log"<br/>        )<br/><br/>        // Controller holds an internal KeyValueObject<br/>        type Controller struct {<br/>            *internal.KeyValue<br/>        }<br/><br/>        // SetHandler wraps or GRPC Set<br/>        func (c *Controller) SetHandler(w http.ResponseWriter, r <br/>        *http.Request) {<br/>            var kv keyvalue.SetKeyValueRequest<br/><br/>            decoder := json.NewDecoder(r.Body)<br/>            if err := decoder.Decode(&amp;kv); err != nil {<br/>                log.Errorf("failed to decode: %s", err.Error())<br/>                w.WriteHeader(http.StatusBadRequest)<br/>                return<br/>            }<br/><br/>            gresp, err := c.Set(r.Context(), &amp;kv)<br/>            if err != nil {<br/>                log.Errorf("failed to set: %s", err.Error())<br/>                w.WriteHeader(http.StatusInternalServerError)<br/>                return<br/>            }<br/><br/>            resp, err := json.Marshal(gresp)<br/>            if err != nil {<br/>                log.Errorf("failed to marshal: %s", err.Error())<br/>                w.WriteHeader(http.StatusInternalServerError)<br/>                return<br/>            }<br/>            w.WriteHeader(http.StatusOK)<br/>            w.Write(resp)<br/>        }
+</pre>
+<ol start="13">
+<li>Create a file called <kbd>http/get.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "encoding/json"<br/>            "net/http"<br/><br/>            "google.golang.org/grpc"<br/>            "google.golang.org/grpc/codes"<br/><br/>            "github.com/agtorre/go-cookbook/chapter7/grpcjson/keyvalue"<br/>            "github.com/apex/log"<br/>        )<br/><br/>        // GetHandler wraps our RPC Get call<br/>        func (c *Controller) GetHandler(w http.ResponseWriter, r <br/>        *http.Request) {<br/>            key := r.URL.Query().Get("key")<br/>            kv := keyvalue.GetKeyValueRequest{Key: key}<br/><br/>            gresp, err := c.Get(r.Context(), &amp;kv)<br/>            if err != nil {<br/>                if grpc.Code(err) == codes.NotFound {<br/>                    w.WriteHeader(http.StatusNotFound)<br/>                    return<br/>                }<br/>                log.Errorf("failed to get: %s", err.Error())<br/>                w.WriteHeader(http.StatusInternalServerError)<br/>                return<br/>            }<br/><br/>            w.WriteHeader(http.StatusOK)<br/>            resp, err := json.Marshal(gresp)<br/>            if err != nil {<br/>                log.Errorf("failed to marshal: %s", err.Error())<br/>                w.WriteHeader(http.StatusInternalServerError)<br/>                return<br/>            }<br/>            w.Write(resp)<br/>        }
+</pre>
+<ol start="14">
+<li>Create a file called <kbd>http/main.go</kbd> with the following contents:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/>            "net/http"<br/><br/>            "github.com/agtorre/go-cookbook/chapter7/grpcjson/internal"<br/>        )<br/><br/>        func main() {<br/>            c := Controller{KeyValue: internal.NewKeyValue()}<br/>            http.HandleFunc("/set", c.SetHandler)<br/>            http.HandleFunc("/get", c.GetHandler)<br/><br/>            fmt.Println("Listening on port :3333")<br/>            err := http.ListenAndServe(":3333", nil)<br/>            panic(err)<br/>        }
+</pre>
+<ol start="15">
+<li>Run the <kbd>go run http/*.go</kbd> command.</li>
+</ol>
+<p style="padding-left: 60px"><span>You should see the following output:</span></p>
+<pre>
+<strong>      $ go run http/*.go</strong><br/><strong>      Listening on port :3333</strong>
+</pre>
+<ol start="16">
+<li><span>In a</span> sep<span>arate terminal run the following commands:</span></li>
+</ol>
+<pre>
+<strong>      curl "http://localhost:3333/set" -d '{"key":"test", <br/>      "value":"123"}' -v<br/></strong><strong>      curl "http://localhost:3333/get?key=badtest" -v<br/></strong><strong>      curl "http://localhost:3333/get?key=test" -v</strong>
+</pre>
+<p style="padding-left: 60px"/>
+<p style="padding-left: 60px">You should see the following output:</p>
+<pre>
+<strong>      $curl "http://localhost:3333/set" -d '{"key":"test", <br/>      "value":"123"}' -v</strong><br/><strong>      {"value":"123"}</strong><br/><br/><strong>      $curl "http://localhost:3333/get?key=badtest" -v  <br/>      'name=Reader;greeting=Goodbye' </strong><br/><strong>      &lt;should return a 404&gt;</strong><br/><br/><strong>      $curl "http://localhost:3333/get?key=test" -v <br/>      'name=Reader;greeting=Goodbye' </strong><br/><strong>      {"value":"123"}</strong>
+</pre>
+<ol start="17">
+<li><span>If yo</span>u cop<span>ied or wrote your own tests, go up one directory a</span>nd run <kbd>go test</kbd>. Ensure that all tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>Although this recipe omits the client, you could replicate the steps in <span>the</span> <em>Understanding GRPC clients</em> <span>recipe from</span> <a href="7a5004b7-eae0-4fbb-bcfe-5798a97ec835.xhtml" target="_blank">Chapter 6</a><span>,</span> <em>Web Clients and APIs</em>, and you should see identical results to what we see with our curls. Both the <kbd>http</kbd> and <kbd>grpc</kbd> directories make use of the same internal package. We have to be careful in this package to return appropriate GRPC error codes and to correctly map those error codes to our HTTP response. In this case, we use <kbd>codes.NotFound</kbd>, which we map to <kbd>http.StatusNotFound</kbd>. If you have to handle more than a few errors, a <kbd>switch</kbd> statement may make more sense than an <kbd>if…else</kbd> statements.</p>
+<p>The other thing you may notice is that GRPC signatures are usually very consistent. They take a request and return an optional response and an error. It's possible to create a generic handler shim if your GRPC calls are repetitive enough and it also seems like it lends itself well to code generation, you may eventually see something like that with a package such as <kbd>github.com/goadesign/goa</kbd>.</p>
+<p> </p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

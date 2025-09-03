@@ -1,0 +1,45 @@
+<html><head></head><body>
+<div class="book" title="Modeling a chat room and clients on the server">
+<div class="book" title="Modeling the client"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_1"><a id="ch01lvl2sec009" class="calibre1"/>Modeling the client</h2></div></div></div><p class="calibre10">Create a new file called <code class="email">client.go</code> alongside <code class="email">main.go</code> in the <code class="email">chat</code> folder and add the following code:</p><pre class="programlisting">package main  
+import ( 
+  "github.com/gorilla/websocket" 
+) 
+// client represents a single chatting user. 
+type client struct { 
+  // socket is the web socket for this client. 
+  socket *websocket.Conn 
+  // send is a channel on which messages are sent. 
+  send chan []byte 
+  // room is the room this client is chatting in. 
+  room *room 
+} 
+</pre><p class="calibre10">In the preceding code, <code class="email">socket</code> will hold a reference to the web socket that will allow us to communicate with the client, and the <code class="email">send</code> field is a buffered channel through which received messages are queued ready to be forwarded to the user's browser (via the socket). The <code class="email">room</code> field will keep a reference to the room that the client is chatting in this is required so that we can forward messages to everyone else in the room.</p><p class="calibre10">If you try to build this code, you will notice a few errors. You must ensure that you have called <code class="email">go get</code> to retrieve the <code class="email">websocket</code> package, which is as easy as opening a terminal and typing the following:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go get github.com/gorilla/websocket</strong></span>
+</pre><p class="calibre10">Building the code again will yield another error:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">./client.go:17 undefined: room</strong></span>
+</pre><p class="calibre10">The problem is that we have referred to a <code class="email">room</code> type without defining it anywhere. To make the compiler happy, create a file called <code class="email">room.go</code> and insert the following placeholder code:</p><pre class="programlisting">package main 
+type room struct { 
+  // forward is a channel that holds incoming messages 
+  // that should be forwarded to the other clients. 
+  forward chan []byte 
+} 
+</pre><p class="calibre10">We will improve this definition later once we know a little more about what our room needs to do, but for now, this will allow us to proceed. Later, the <code class="email">forward</code> channel is what we will use to send the incoming messages to all other clients.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="note0012" class="calibre1"/>Note</h3><p class="calibre10">You can think of channels as an in-memory thread-safe message queue where senders pass data and receivers read data in a non-blocking, thread-safe way.</p></div><p class="calibre10">In order for a client to do any work, we must define some methods that will do the actual reading and writing to and from the web socket. Adding the following code to <code class="email">client.go</code> outside (underneath) the <code class="email">client</code> struct will add two methods called <code class="email">read</code> and <code class="email">write</code> to the <code class="email">client</code> type:</p><pre class="programlisting">func (c *client) read() { 
+  defer c.socket.Close() 
+  for { 
+    _, msg, err := c.socket.ReadMessage() 
+    if err != nil { 
+      return 
+    } 
+    c.room.forward &lt;- msg 
+  } 
+} 
+func (c *client) write() { 
+  defer c.socket.Close() 
+  for msg := range c.send { 
+    err := c.socket.WriteMessage(websocket.TextMessage, msg) 
+    if err != nil { 
+      return 
+    } 
+  } 
+} 
+</pre><p class="calibre10">The <code class="email">read</code> method allows our client to read from the socket via the <code class="email">ReadMessage</code> method, continually sending any received messages to the <code class="email">forward</code> channel on the <code class="email">room</code> type. If it encounters an error (such as <code class="email">'the socket has died'</code>), the loop will break and the socket will be closed. Similarly, the <code class="email">write</code> method continually accepts messages from the <code class="email">send</code> channel writing everything out of the socket via the <code class="email">WriteMessage</code> method. If writing to the socket fails, the <code class="email">for</code> loop is broken and the socket is closed. Build the package again to ensure everything compiles.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="note0013" class="calibre1"/>Note</h3><p class="calibre10">In the preceding code, we introduced the <code class="email">defer</code> keyword, which is worth exploring a little. We are asking Go to run <code class="email">c.socket.Close()</code> when the function exits. It's extremely useful for when you need to do some tidying up in a function (such as closing a file or, as in our case, a socket) but aren't sure where the function will exit. As our code grows, if this function has multiple <code class="email">return</code> statements, we won't need to add any more calls to close the socket, because this single <code class="email">defer</code> statement will catch them all.</p><p class="calibre10">Some people complain about the performance of using the <code class="email">defer</code> keyword, since it doesn't perform as well as typing the <code class="email">close</code> statement before every exit point in the function. You must weigh up the runtime performance cost against the code maintenance cost and potential bugs that may get introduced if you decide not to use defer. As a general rule of thumb, writing clean and clear code wins; after all, we can always come back and optimize any bits of code we feel is slowing our product down if we are lucky enough to have such success.</p></div></div></div></body></html>

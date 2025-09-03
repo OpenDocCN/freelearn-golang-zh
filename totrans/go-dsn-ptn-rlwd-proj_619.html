@@ -1,0 +1,185 @@
+<html><head></head><body>
+<div class="book" title="Concurrent Publish/Subscriber design pattern">
+<div class="book" title="Unit test"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_5"><a id="ch10lvl2sec0244" class="calibre1"/>Unit test</h2></div></div></div><p class="calibre10">We have mentioned previously that testing concurrent applications can be difficult. With the correct mechanism, it still can be done, so let's see how much we can test without big headaches.</p><div class="book" title="Testing subscriber"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch10lvl3sec010" class="calibre1"/>Testing subscriber</h3></div></div></div><p class="calibre10">Starting with subscribers, which seem to have a more encapsulated functionality, the first subscriber must print incoming messages from the publisher to an <code class="email">io.Writer</code> interface. We have mentioned that the subscriber has an interface with two methods, <code class="email">Notify(interface{}) error</code> and the <code class="email">Close()</code> method:</p><pre class="programlisting">    // writer_sub.go file 
+    package main 
+ 
+    import "errors" 
+ 
+    type writerSubscriber struct { 
+        id int 
+        Writer io.Writer 
+    } 
+ 
+    func (s *writerSubscriber) Notify(msg interface{}) error { 
+        return erorrs.NeW("Not implemented yet") 
+    } 
+    func (s *writerSubscriber) Close() {} 
+</pre><p class="calibre10">OK. This is going to be our <code class="email">writer_sub.go</code> file. Create the corresponding test file, called the <code class="email">writer_sub_test.go</code> file:</p><pre class="programlisting">    package main 
+    func TestStdoutPrinter(t *testing.T) { 
+</pre><p class="calibre10">Now, the first problem we have is that the functionality prints to the <code class="email">stdout</code>, so there's no return value to check. We can solve it in three ways:</p><div class="book"><ul class="itemizedlist"><li class="listitem">Capturing the <code class="email">stdout</code> method.</li><li class="listitem">Injecting an <code class="email">io.Writer</code> interface to print to it. This is the preferred solution, as it makes the code more manageable.</li><li class="listitem">Redirecting the <code class="email">stdout</code> method to a different file.</li></ul></div><p class="calibre10">We'll take the second approach. Redirection is also a possibility. The <code class="email">os.Stdout</code> is a pointer to an <code class="email">os.File</code> type, so it involves replacing this file with one we control, and reading from it:</p><pre class="programlisting">    func TestWriter(t *testing.T) { 
+        sub := NewWriterSubscriber(0, nil) 
+</pre><p class="calibre10">The <code class="email">NewWriterSubscriber</code> subscriber isn't defined yet. It must help in the creation of this particular subscriber, returning a type that satisfies the <code class="email">Subscriber</code> interface, so let's quickly declare it on the <code class="email">writer_sub.go</code> file:</p><pre class="programlisting">    func NewWriterSubscriber(id int, out io.Writer) Subscriber { 
+        return &amp;writerSubscriber{} 
+    } 
+</pre><p class="calibre10">Ideally, it must accept an ID and an <code class="email">io.Writer</code> interface as the destination for its writes. In this case, we need a custom <code class="email">io.Writer</code> interface for our test, so we'll create a <code class="email">mockWriter</code> on the <code class="email">writer_sub_test.go</code> file for it:</p><pre class="programlisting">    type mockWriter struct { 
+        testingFunc func(string) 
+    } 
+ 
+    func (m *mockWriter) Write(p []byte) (n int, err error) { 
+        m.testingFunc(string(p)) 
+        return len(p), nil 
+    } 
+</pre><p class="calibre10">The <code class="email">mockWriter</code> structure will accept a <code class="email">testingFunc</code> as one of its fields. This <code class="email">testingFunc</code> field accepts a string that represents the bytes written to the <code class="email">mockWriter</code> structure. To implement an <code class="email">io.Writer</code> interface, we need to define a <code class="email">Write([]byte) (int, error)</code> method. In our definition, we pass the contents of <code class="email">p</code> as a string (remember that we always need to return the bytes read and an error, or not, on every <code class="email">Write</code> method). This approach delegates the definition of <code class="email">testingFunc</code> to the scope of the test.</p><p class="calibre10">We are going to call the <code class="email">Notify</code> method on the <code class="email">Subcriber</code> interface, which must write on the <code class="email">io.Writer</code> interface like the <code class="email">mockWriter</code> structure. So, we'll define the <code class="email">testingFunc</code> of a <code class="email">mockWriter</code> structure before calling the <code class="email">Notify</code> method:</p><pre class="programlisting">    // writer_sub_test.go file 
+    func TestPublisher(t *testing.T) { 
+        msg := "Hello" 
+ 
+        var wg sync.WaitGroup 
+        wg.Add(1) 
+ 
+        stdoutPrinter := sub.(*writerSubscriber) 
+        stdoutPrinter.Writer = &amp;mockWriter{ 
+            testingFunc: func(res string) { 
+                if !strings.Contains(res, msg) { 
+                    t.Fatal(fmt.Errorf("Incorrect string: %s", res)) 
+                } 
+                wg.Done() 
+            }, 
+        } 
+</pre><p class="calibre10">We will send the <code class="email">Hello</code> message. This also means that whatever the <code class="email">Subscriber</code> interface does, it must eventually print the <code class="email">Hello</code> message on the provided <code class="email">io.Writer</code> interface.</p><p class="calibre10">So if, eventually, we receive a string on the testing function, we'll need to synchronize with the <code class="email">Subscriber</code> interface to avoid race conditions on tests. That's why we use so much <code class="email">WaitGroup</code>. It's a very handy and easy-to-use type to handle this scenario. One <code class="email">Notify</code> method call will need to wait for one call to the <code class="email">Done()</code> method, so we call the <code class="email">Add(1)</code> method (with one unit).</p><p class="calibre10">Ideally, the <code class="email">NewWriterSubscriber</code> function must return an interface, so we need to type assert it to the type we are working with during the test, in this case, the <code class="email">stdoutPrinter</code> method. I have omitted error checking when doing the casting on purpose, just to make things easier. Once we have a <code class="email">writerSubscriber</code> type, we can access its <code class="email">Write</code> field to replace it with the <code class="email">mockWriter</code> structure. We could have directly passed an <code class="email">io.Writer</code> interface on the <code class="email">NewWriterSubscriber</code> function, but we wouldn't cover the scenario where a nil object is passed and it sets the <code class="email">os.Stdout</code> instance to a default value.</p><p class="calibre10">So, the testing function will eventually receive a string containing what was written by the subscriber. We just need to check if the received string, the one that the <code class="email">Subscriber</code> interface will receive, prints the word <code class="email">Hello</code> at some point and nothing better that <code class="email">strings.Contains</code> function for it. Everything is defined under the scope of the testing function, so we can use the value of the <code class="email">t</code> object to also signal that the test has failed.</p><p class="calibre10">Once we have done the checking, we must call to the <code class="email">Done()</code> method to signal that we have already tested the expected result:</p><pre class="programlisting">err := sub.Notify(msg) 
+if err != nil { 
+    t.Fatal(err) 
+    } 
+ 
+    wg.Wait() 
+    sub.Close() 
+} 
+</pre><p class="calibre10">We must actually call the <code class="email">Notify</code> and <code class="email">Wait</code> methods for the call to the <code class="email">Done</code> method to check that everything was correct.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="note022" class="calibre1"/>Note</h3><p class="calibre10">Did you realize that we have defined the behavior on tests more or less in reverse? This is very common in concurrent apps. It can be confusing sometimes, as it becomes difficult to know what a function could be doing if we can't follow calls linearly, but you get used to it quite quickly. Instead of thinking "it does this, then this, then that," it's more like "this will be called when executing that." This is also because the order of execution in a concurrent application is unknown until some point, unless we use synchronization primitives (such as WaitGroups and channels) to pause execution at certain moments.</p></div><p class="calibre10">Let's execute the test for this type now:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go test -cover -v -run=TestWriter .</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestWriter</strong></span>
+<span class="strong"><strong class="calibre2">--- FAIL: TestWriter (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">        writer_sub_test.go:40: Not implemented yet</strong></span>
+<span class="strong"><strong class="calibre2">FAIL</strong></span>
+<span class="strong"><strong class="calibre2">coverage: 6.7% of statements</strong></span>
+<span class="strong"><strong class="calibre2">exit status 1</strong></span>
+<span class="strong"><strong class="calibre2">FAIL</strong></span>
+</pre><p class="calibre10">It has exited fast but it has failed. Actually, the call to the <code class="email">Done()</code> method has not been executed, so it would be nice to change the last part of our test to this instead:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">err := sub.Notify(msg)</strong></span>
+<span class="strong"><strong class="calibre2">if err != nil {</strong></span>
+<span class="strong"><strong class="calibre2">    wg.Done()</strong></span>
+<span class="strong"><strong class="calibre2">t.Error(err)</strong></span>
+<span class="strong"><strong class="calibre2">        }</strong></span>
+<span class="strong"><strong class="calibre2">        wg.Wait()</strong></span>
+<span class="strong"><strong class="calibre2">sub.Close()</strong></span>
+<span class="strong"><strong class="calibre2">    }  </strong></span>
+</pre><p class="calibre10">Now, it doesn't stop execution because we are calling the <code class="email">Error</code> function instead of the <code class="email">Fatal</code> function, but we call the <code class="email">Done()</code> method and the test ends where we prefer it to end, after the <code class="email">Wait()</code> method is called. You can try to run the tests again, but the output will be the same.</p></div><div class="book" title="Testing publisher"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch10lvl3sec011" class="calibre1"/>Testing publisher</h3></div></div></div><p class="calibre10">We have already seen a <code class="email">Publisher</code> interface and the type that will satisfy which was the <code class="email">publisher</code> type. The only thing we know for sure is that it will need some way to store subscribers, so it will at least have a <code class="email">Subscribers</code> slice:</p><pre class="programlisting">    // publisher.go type 
+    type publisher struct { 
+        subscribers []Subscriber 
+    } 
+</pre><p class="calibre10">To test the <code class="email">publisher</code> type, we will also need a mock for the <code class="email">Subscriber</code> interface:</p><pre class="programlisting">    // publisher_test.go 
+    type mockSubscriber struct { 
+        notifyTestingFunc func(msg interface{}) 
+        closeTestingFunc func() 
+    } 
+ 
+    func (m *mockSubscriber) Close() { 
+        m.closeTestingFunc() 
+    } 
+ 
+    func (m *mockSubscriber) Notify(msg interface{}) error { 
+        m.notifyTestingFunc(msg) 
+        return nil 
+    } 
+</pre><p class="calibre10">The <code class="email">mockSubscriber</code> type must implement the <code class="email">Subscriber</code> interface, so it must have a <code class="email">Close()</code> and a <code class="email">Notify(interface{}) error</code> method. We can embed an existing type that implements it, such as,  the <code class="email">writerSubscriber</code>, and override just the method that is interesting for us, but we will need to define both, so we won't embed anything.</p><p class="calibre10">So, we need to override the <code class="email">Notify</code> and <code class="email">Close</code> methods in this case to call the testing functions stored on the fields of the <code class="email">mockSubscriber</code> type:</p><pre class="programlisting">    func TestPublisher(t *testing.T) { 
+        msg := "Hello" 
+ 
+        p := NewPublisher() 
+</pre><p class="calibre10">First of all, we will be sending messages through channels directly, this could lead to potential unwanted deadlocks so the first thing to define is a panic handler for cases such as, sending to close channels or no Goroutines listening on a channel. The message we will send to subscribers is <code class="email">Hello</code>. So, each subscriber that has been received using the channel returned by the <code class="email">AddSubscriberCh</code> method must receive this message. We will also use a <span class="strong"><em class="calibre11">New</em></span> function to create Publishers, called <code class="email">NewPublisher</code>. Change the <code class="email">publisher.go</code> file now to write it:</p><pre class="programlisting">   // publisher.go file 
+    func NewPublisher() Publisher { 
+        return &amp;publisher{} 
+    } 
+</pre><p class="calibre10">Now we'll define the <code class="email">mockSubscriber</code> to add it to the publisher list of known subscribers. Back to the <code class="email">publisher_test.go</code> file:</p><pre class="programlisting">        var wg sync.WaitGroup 
+ 
+        sub := &amp;mockSubscriber{ 
+            notifyTestingFunc: func(msg interface{}) { 
+                defer wg.Done() 
+ 
+                s, ok := msg.(string) 
+                if !ok { 
+                    t.Fatal(errors.New("Could not assert result")) 
+                } 
+ 
+                if s != msg { 
+                    t.Fail() 
+                } 
+            }, 
+            closeTestingFunc: func() { 
+                wg.Done() 
+            }, 
+        } 
+</pre><p class="calibre10">As usual, we start with a WaitGroup. First, testing the function in our subscriber defers a call to the <code class="email">Done()</code> method at the end of its execution. Then it needs to type cast <code class="email">msg</code> variable because it's coming as an interface. Remember that this way, we can use the <code class="email">Publisher</code> interface with many types by introducing the overhead of the type assertion. This is done on line <code class="email">s, ok := msg.(string)</code>.</p><p class="calibre10">Once we have type cast <code class="email">msg</code> to a string, <code class="email">s</code>, we just need to check if the value received in the subscriber is the same as the value we sent, or fail the test if not:</p><pre class="programlisting">        p.AddSubscriberCh() &lt;- sub 
+        wg.Add(1) 
+ 
+        p.PublishingCh() &lt;- msg 
+        wg.Wait() 
+</pre><p class="calibre10">We add the <code class="email">mockSubscriber</code> type using the <code class="email">AddSubscriberCh</code> method. We publish our message just after getting ready, by adding one to the <code class="email">WaitGroup</code>, and just before setting the <code class="email">WaitGroup</code> to wait so that the test doesn't continue until the <code class="email">mockSubscriber</code> type calls the <code class="email">Done()</code> method.</p><p class="calibre10">Also, we need to check if the number of the <code class="email">Subscriber</code> interface has grown after calling the <code class="email">AddSubscriberCh</code> method, so we'll need to get the concrete instance of publisher on the test:</p><pre class="programlisting">        pubCon := p.(*publisher) 
+        if len(pubCon.subscribers) != 1 { 
+            t.Error("Unexpected number of subscribers") 
+        } 
+</pre><p class="calibre10">Type assertion is our friend today! Once we have the concrete type, we can access the underlying slice of subscribers for the <code class="email">Publisher</code> interface. The number of subscribers must be 1 after calling the <code class="email">AddSubscriberCh</code> method once, or the test will fail. The next step is to check just the opposite--when we remove a <code class="email">Subscriber</code> interface, it must be taken from this list:</p><pre class="programlisting">   wg.Add(1) 
+   p.RemoveSubscriberCh() &lt;- sub 
+   wg.Wait() 
+ 
+   //Number of subscribers is restored to zero 
+   if len(pubCon.subscribers) != 0 { 
+         t.Error("Expected no subscribers") 
+   } 
+ 
+   p.Stop() 
+}  
+</pre><p class="calibre10">The final step in our test is to stop the publisher so no more messages can be sent and all the Goroutines are stopped.</p><p class="calibre10">The test is finished, but we can't run tests until the <code class="email">publisher</code> type has all the methods implemented; this must be the final result:</p><pre class="programlisting">    type publisher struct { 
+        subscribers []Subscriber 
+        addSubCh    chan Subscriber 
+        removeSubCh chan Subscriber 
+        in          chan interface{} 
+        stop        chan struct{} 
+    } 
+ 
+    func (p *publisher) AddSubscriberCh() chan&lt;- Subscriber { 
+        return nil 
+    } 
+ 
+    func (p *publisher) RemoveSubscriberCh() chan&lt;- Subscriber { 
+        return nil 
+    } 
+ 
+    func (p *publisher) PublishingCh() chan&lt;- interface{} { 
+        return nil 
+    } 
+ 
+    func (p *publisher) Stop(){} 
+</pre><p class="calibre10">With this empty implementation, nothing good can happen when running the tests:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go test -cover -v -run=TestPublisher .</strong></span>
+<span class="strong"><strong class="calibre2">atal error: all goroutines are asleep - deadlock!</strong></span>
+<span class="strong"><strong class="calibre2">goroutine 1 [chan receive]:</strong></span>
+<span class="strong"><strong class="calibre2">testing.(*T).Run(0xc0420780c0, 0x5244c6, 0xd, 0x5335a0, 0xc042037d20)</strong></span>
+<span class="strong"><strong class="calibre2">      /usr/local/go/src/testing/testing.go:647 +0x31d</strong></span>
+<span class="strong"><strong class="calibre2">testing.RunTests.func1(0xc0420780c0)</strong></span>
+<span class="strong"><strong class="calibre2">      /usr/local/go/src/testing/testing.go:793 +0x74</strong></span>
+<span class="strong"><strong class="calibre2">testing.tRunner(0xc0420780c0, 0xc042037e10)</strong></span>
+<span class="strong"><strong class="calibre2">      /usr/local/go/src/testing/testing.go:610 +0x88</strong></span>
+<span class="strong"><strong class="calibre2">testing.RunTests(0x5335b8, 0x5ada40, 0x2, 0x2, 0x40d7e9)</strong></span>
+<span class="strong"><strong class="calibre2">      /usr/local/go/src/testing/testing.go:799 +0x2fc</strong></span>
+<span class="strong"><strong class="calibre2">testing.(*M).Run(0xc042037ed8, 0xc04200a4f0)</strong></span>
+<span class="strong"><strong class="calibre2">      /usr/local/go/src/testing/testing.go:743 +0x8c</strong></span>
+<span class="strong"><strong class="calibre2">main.main()</strong></span>
+<span class="strong"><strong class="calibre2">      go-design-patterns/concurrency_3/pubsub/_test/_testmain.go:56 +0xcd</strong></span>
+<span class="strong"><strong class="calibre2">goroutine 5 [chan send (nil chan)]:</strong></span>
+<span class="strong"><strong class="calibre2">go-design-patterns/concurrency_3/pubsub.TestPublisher(0xc042078180)</strong></span>
+<span class="strong"><strong class="calibre2">      go-design-patterns/concurrency_3/pubsub/publisher_test.go:55 +0x372</strong></span>
+<span class="strong"><strong class="calibre2">testing.tRunner(0xc042078180, 0x5335a0)</strong></span>
+<span class="strong"><strong class="calibre2">      /usr/local/go/src/testing/testing.go:610 +0x88</strong></span>
+<span class="strong"><strong class="calibre2">created by testing.(*T).Run</strong></span>
+<span class="strong"><strong class="calibre2">      /usr/local/go/src/testing/testing.go:646 +0x2f3</strong></span>
+<span class="strong"><strong class="calibre2">exit status 2</strong></span>
+<span class="strong"><strong class="calibre2">FAIL  go-design-patterns/concurrency_3/pubsub   1.587s</strong></span>
+</pre><p class="calibre10">Yes it has failed but, it's not a controlled fail at all. This was done on purpose to show a couple of things to be careful of in Go. First of all, the error produced in this test is a <span class="strong"><strong class="calibre2">fatal</strong></span> error, which usually points to a bug in the code. This is important because while a <span class="strong"><strong class="calibre2">panic</strong></span> error can be recovered, you cannot do the same with a fatal error.</p><p class="calibre10">In this case, the error is telling us the problem: <code class="email">goroutine 5 [chan send (nil chan)]</code>, a nil channel so it's actually a bug in our code. How can we solve this? Well, this is also interesting.</p><p class="calibre10">The fact that we have a <code class="email">nil</code> channel is caused by the code we wrote to compile unit tests but this particular error won't be raised once the appropriate code is written (because we'll never return a nil channel in this case). We could return a channel that is never use we cause a fatal error with a deadlock, which wouldn't be any progress at all either.</p><p class="calibre10">An idiomatic way to solve it would be to return a channel and an error so that you can have an error package with a type implementing the <code class="email">Error</code> interface that returns a specific error such as <code class="email">NoGoroutinesListening</code> or <code class="email">ChannelNotCreated</code>. We have already seen many of this implementations so we'll leave these as an exercise to the reader and we will move forward to maintain focus on the concurrent nature of the chapter.</p><p class="calibre10">Nothing surprising there, so we can move to the implementation phase.</p></div></div></div></body></html>

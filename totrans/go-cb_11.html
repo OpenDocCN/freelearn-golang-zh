@@ -1,0 +1,726 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Reactive Programming and Data Streams</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we will cover the following recipes:</p>
+<ul>
+<li>Goflow for dataflow programming</li>
+<li>Reactive programming with RxGo</li>
+<li>Using Kafka with Sarama</li>
+<li>Using async producers with Kafka</li>
+<li>Connecting Kafka to Goflow</li>
+<li>Writing a GraphQL server in Go</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Introduction</h1>
+                </header>
+            
+            <article>
+                
+<p>This chapter will discuss reactive programming design patterns in Go. Reactive programming is a programming concept that focuses on data streams and the propagation of change (<a href="https://en.wikipedia.org/wiki/Reactive_programming">https://en.wikipedia.org/wiki/Reactive_programming</a>). Technologies such as Kafka allow you to quickly produce or consume a stream of data. As a result, these technologies are a natural fit for one another. In the <em>Connecting Kafka to Goflow</em> recipe, we'll explore combining a <kbd>kafka</kbd> message queue with <kbd>goflow</kbd> to show a practical example of using these technologies. This chapter will also explore various ways to connect with Kafka and use it to process messages. Lastly, this chapter will demonstrate how to create a basic <kbd>graphql</kbd> server in Go.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Goflow for dataflow programming</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>github.com/trustmaster/goflow</kbd> package is useful for creating dataflow-based applications. It tries to abstract concepts so that you can write components and connect them together using a custom network. This recipe will recreate the application discussed in <a href="ab72719b-7fbf-4127-a091-b4ca5cf59775.xhtml">Chapter 8</a>, <em>Testing</em>, but it will do so using the <kbd>goflow</kbd> package.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Download and install Go on your operating system from <a href="https://golang.org/doc/install">https://golang.org/doc/install</a> and configure your <kbd>GOPATH</kbd> environment variable.</li>
+<li>Open a terminal/console application.</li>
+<li>Navigate to your <kbd>GOPATH/src</kbd> and create a project directory, for example, <kbd>$GOPATH/src/github.com/yourusername/customrepo</kbd>. All code will be run and modified from this directory.</li>
+<li>Optionally, install the latest tested version of the code using the <kbd>go get github.com/agtorre/go-cookbook/</kbd> command.</li>
+<li>Run the <kbd>go get github.com/trustmaster/goflow</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter11/goflow</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter11/goflow">https://github.com/agtorre/go-cookbook/tree/master/chapter11/goflow</a> or use this as an exercise to write some of your own.</li>
+<li>Create a file called <kbd>components.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package goflow<br/><br/>        import (<br/>            "encoding/base64"<br/>            "fmt"<br/>            flow "github.com/trustmaster/goflow"<br/>        )<br/><br/>        // Encoder base64 encodes all input<br/>        type Encoder struct {<br/>            flow.Component<br/>            Val &lt;-chan string<br/>            Res chan&lt;- string<br/>        }<br/><br/>        // OnVal does the encoding then pushes the result onto Re<br/>        func (e *Encoder) OnVal(val string) {<br/>            encoded := base64.StdEncoding.EncodeToString([]byte(val))<br/>            e.Res &lt;- fmt.Sprintf("%s =&gt; %s", val, encoded)<br/>        }<br/><br/>        // Printer is a component for printing to stdout<br/>        type Printer struct {<br/>            flow.Component<br/>            Line &lt;-chan string<br/>        }<br/><br/>        // OnLine Prints the current line received<br/>        func (p *Printer) OnLine(line string) {<br/>            fmt.Println(line)<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>network.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package goflow<br/><br/>        import flow "github.com/trustmaster/goflow"<br/><br/>        // EncodingApp creates a flow-based<br/>        // pipeline to encode and print the<br/>        // result<br/>        type EncodingApp struct {<br/>            flow.Graph<br/>        }<br/><br/>        // NewEncodingApp wires together the components<br/>        func NewEncodingApp() *EncodingApp {<br/>            e := &amp;EncodingApp{}<br/>            e.InitGraphState()<br/><br/>            // define component types<br/>            e.Add(&amp;Encoder{}, "encoder")<br/>            e.Add(&amp;Printer{}, "printer")<br/><br/>            // connect the components using channels<br/>            e.Connect("encoder", "Res", "printer", "Line")<br/><br/>            // map the in channel to Val, which is<br/>            // tied to OnVal function<br/>            e.MapInPort("In", "encoder", "Val")<br/><br/>            return e<br/>        }
+</pre>
+<ol start="5">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file named <kbd>main.go</kbd> with the following content. Ensure that you modify the <kbd>goflow</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/><br/>            "github.com/agtorre/go-cookbook/chapter11/goflow"<br/>            flow "github.com/trustmaster/goflow"<br/>        )<br/><br/>        func main() {<br/><br/>            net := goflow.NewEncodingApp()<br/><br/>            in := make(chan string)<br/>            net.SetInPort("In", in)<br/><br/>            flow.RunNet(net)<br/><br/>            for i := 0; i &lt; 20; i++ {<br/>                in &lt;- fmt.Sprint("Message", i)<br/>            }<br/><br/>            close(in)<br/>            &lt;-net.Wait()<br/>        }
+</pre>
+<ol start="7">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You may also run the following commands:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"/>
+<p style="padding-left: 60px"><span>You should now see the following output:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      Message6 =&gt; TWVzc2FnZTY=</strong><br/><strong>      Message5 =&gt; TWVzc2FnZTU=</strong><br/><strong>      Message1 =&gt; TWVzc2FnZTE=</strong><br/><strong>      Message0 =&gt; TWVzc2FnZTA=</strong><br/><strong>      Message4 =&gt; TWVzc2FnZTQ=</strong><br/><strong>      Message8 =&gt; TWVzc2FnZTg=</strong><br/><strong>      Message2 =&gt; TWVzc2FnZTI=</strong><br/><strong>      Message3 =&gt; TWVzc2FnZTM=</strong><br/><strong>      Message7 =&gt; TWVzc2FnZTc=</strong><br/><strong>      Message10 =&gt; TWVzc2FnZTEw</strong><br/><strong>      Message9 =&gt; TWVzc2FnZTk=</strong><br/><strong>      Message12 =&gt; TWVzc2FnZTEy</strong><br/><strong>      Message11 =&gt; TWVzc2FnZTEx</strong><br/><strong>      Message14 =&gt; TWVzc2FnZTE0</strong><br/><strong>      Message13 =&gt; TWVzc2FnZTEz</strong><br/><strong>      Message16 =&gt; TWVzc2FnZTE2</strong><br/><strong>      Message15 =&gt; TWVzc2FnZTE1</strong><br/><strong>      Message18 =&gt; TWVzc2FnZTE4</strong><br/><strong>      Message17 =&gt; TWVzc2FnZTE3</strong><br/><strong>      Message19 =&gt; TWVzc2FnZTE5</strong>
+</pre>
+<ol start="9">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>github.com/trustmaster/goflow</kbd> package works by defining a network/graph, registering some components, and then wiring them together. This can feel a bit error-prone since these are described using strings, but usually this will fail early in runtime until it's set up correctly.</p>
+<p>In this recipe, we set up two components, one that base64 encodes an incoming string and one that prints anything passed to it. We connect it to an in channel that is initialized in <kbd>main.go</kbd>, and anything passed onto that channel will flow through our pipeline.</p>
+<p>A lot of the emphasis of this approach is on ignoring the internals of what's going on. We treat everything like a connected black box and let <kbd>goflow</kbd> do the rest. You can see in this recipe how small the code is to accomplish this pipeline of tasks and that we have fewer knobs to control the number of workers, among other things.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Reactive programming with RxGo</h1>
+                </header>
+            
+            <article>
+                
+<p>ReactiveX (<a href="http://reactivex.io/">http://reactivex.io/</a>) is an API for programming with observable streams. RxGo (<a href="http://github.com/reactivex/rxgo">github.com/reactivex/rxgo</a>) is a library to support this pattern in Go. It helps you to think of your application as a big stream of events that responds in different ways when those events occur. This recipe will create an application that uses this approach to process different wines. Ideally, this approach can be tied to wine data or wine APIs and can aggregate information about wine.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Refer to the <em>Getting ready</em> section of the <em>Goflow for dataflow programming</em> recipe in this chapter.</li>
+<li>Run the <kbd>go get github.com/reactivex/rxgo</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter11/reactive</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter11/reactive">https://github.com/agtorre/go-cookbook/tree/master/chapter11/reactive</a> or use this as an exercise to write some of your own.</li>
+<li>Create a file called <kbd>wine.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package reactive<br/><br/>        // Wine represents a bottle<br/>        // of wine and is our<br/>        // input stream<br/>        type Wine struct {<br/>            Name string<br/>            Age int<br/>            Rating float64 // 1-5<br/>        }<br/><br/>        // GetWine returns an array of wines,<br/>        // ages, and ratings<br/>        func GetWine() interface{} {<br/>            // some example wines<br/>            w := []interface{}{<br/>                Wine{"Merlot", 2011, 3.0},<br/>                Wine{"Cabernet", 2010, 3.0},<br/>                Wine{"Chardonnay", 2010, 4.0},<br/>                Wine{"Pinot Grigio", 2009, 4.5},<br/>            }<br/>            return w<br/>        }<br/><br/>        // Results holds a list of results by age<br/>        type Results map[int]Result<br/><br/>        // Result is used for aggregation<br/>        type Result struct {<br/>            SumRating float64<br/>            NumSamples int<br/>        }
+</pre>
+<ol start="4">
+<li>Create a file called <kbd>exec.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package reactive<br/><br/>        import (<br/>            "github.com/reactivex/rxgo/iterable"<br/>            "github.com/reactivex/rxgo/observable"<br/>            "github.com/reactivex/rxgo/observer"<br/>            "github.com/reactivex/rxgo/subscription"<br/>        )<br/><br/>        // Exec connects rxgo and returns<br/>        // our results side-effect + a subscription<br/>        // channel to block on at the end<br/>        func Exec() (Results, &lt;-chan subscription.Subscription) {<br/>            results := make(Results)<br/>            watcher := observer.Observer{<br/>                NextHandler: func(item interface{}) {<br/>                    wine, ok := item.(Wine)<br/>                    if ok {<br/>                        result := results[wine.Age]<br/>                        result.SumRating += wine.Rating<br/>                        result.NumSamples++<br/>                        results[wine.Age] = result<br/>                    }<br/>                },<br/>            }<br/>            wine := GetWine()<br/>            it, _ := iterable.New(wine)<br/><br/>            source := observable.From(it)<br/>            sub := source.Subscribe(watcher)<br/><br/>            return results, sub<br/>        }
+</pre>
+<ol start="5">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file named <kbd>main.go</kbd> with the following content. Ensure that you modify the <kbd>reactive</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/><br/>            "github.com/agtorre/go-cookbook/chapter11/reactive"<br/>        )<br/><br/>        func main() {<br/>            results, sub := reactive.Exec()<br/><br/>            // wait for the channel to emit a Subscription<br/>            &lt;-sub<br/><br/>            // process results<br/>            for key, val := range results {<br/>                fmt.Printf("Age: %d, Sample Size: %d, Average Rating: <br/>                %.2f\n", key, val.NumSamples, <br/>                val.SumRating/float64(val.NumSamples))<br/>            }<br/>        }
+</pre>
+<ol start="7">
+<li>Run <kbd>go run main.go</kbd>.</li>
+<li>You may also run the following command:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should now see the following:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      Age: 2011, Sample Size: 1, Average Rating: 3.00</strong><br/><strong>      Age: 2010, Sample Size: 2, Average Rating: 3.50</strong><br/><strong>      Age: 2009, Sample Size: 1, Average Rating: 4.50</strong>
+</pre>
+<ol start="9">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>RxGo works by abstracting a source stream, which can be an array or a channel, allowing you to aggregate streams, and finally creating observers that handle events. These can handle errors or data. RxGo uses an <kbd>interface{}</kbd> type for its argument so that you can pass in arbitrary values. As a result, you must use reflection in order to convert incoming data to its correct type. This can be tricky if you need to return errors on your observers. In addition, the added reflection can be costly in terms of performance.</p>
+<p>Lastly, you must modify some shared state, either global or within a local closure, which will be used at the end. In our case, we have a <kbd>Results</kbd> type, which is a map with a key of the year and the value of the aggregate score and number of samples. This allows us to emit averages about each year. If we had used wine names instead of types, we could also aggregate by types. This library is still in its early stages. In many ways, you can achieve the same effect using basic Go channels. It helps to illustrate how some of these ideas may translate to Go.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using Kafka with Sarama</h1>
+                </header>
+            
+            <article>
+                
+<p>Kafka is a popular distributed message queue with a lot of advanced functions for building distributed systems. This recipe will show how to write to a Kafka topic using a synchronous producer and how to consume the same topic using a partition consumer. This recipe will not explore different configurations of Kafka as that is a much wider topic, but I suggest beginning at <a href="https://kafka.apache.org/intro">https://kafka.apache.org/intro</a>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Refer to the <em>Getting ready</em> section of the <em>Goflow for dataflow programming</em> recipe in this chapter.</li>
+<li>Install Kafka using the steps mentioned at <a href="https://www.tutorialspoint.com/apache_kafka/apache_kafka_installation_steps.htm">https://www.tutorialspoint.com/apache_kafka/apache_kafka_installation_steps.htm</a>.</li>
+<li>Alternatively, you can also access <a href="https://github.com/spotify/docker-kafka">https://github.com/spotify/docker-kafka</a>.</li>
+<li><span>Run the</span> <kbd>go get gopkg.in/Shopify/sarama.v1</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter11/synckafka</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter11/synckafka">https://github.com/agtorre/go-cookbook/tree/master/chapter11/synckafka</a> or use this as an exercise to write some of your own.</li>
+<li>Ensure that Kafka is up and running on <kbd>localhost:9092</kbd>.</li>
+<li>Create a file called <kbd>main.go</kbd> in a directory named <kbd>consumer</kbd> with the following content:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "log"<br/><br/>            sarama "gopkg.in/Shopify/sarama.v1"<br/>        )<br/><br/>        func main() {<br/>            consumer, err := <br/>            sarama.NewConsumer([]string{"localhost:9092"}, nil)<br/>            if err != nil {<br/>                panic(err)<br/>            }<br/>            defer consumer.Close()<br/><br/>            partitionConsumer, err := <br/><br/>           consumer.ConsumePartition("example", 0, <br/>            sarama.OffsetNewest)<br/>            if err != nil {<br/>                panic(err)<br/>            }<br/>            defer partitionConsumer.Close()<br/><br/>            for {<br/>                msg := &lt;-partitionConsumer.Messages()<br/>                log.Printf("Consumed message: \"%s\" at offset: %d\n", <br/>                msg.Value, msg.Offset)<br/>            }<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>main.go</kbd> in a directory named <kbd>producer</kbd> with the following content:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/><br/>           "fmt"<br/>           "log"<br/><br/>            sarama "gopkg.in/Shopify/sarama.v1"<br/>        )<br/><br/>        func sendMessage(producer sarama.SyncProducer, value string) {<br/>            msg := &amp;sarama.ProducerMessage{Topic: "example", Value: <br/>            sarama.StringEncoder(value)}<br/>            partition, offset, err := producer.SendMessage(msg)<br/>            if err != nil {<br/><br/>               log.Printf("FAILED to send message: %s\n", err)<br/>                return<br/>            }<br/>            log.Printf("&gt; message sent to partition %d at offset %d\n", <br/>            partition, offset)<br/>        }<br/><br/>        func main() {<br/>            producer, err := <br/>            sarama.NewSyncProducer([]string{"localhost:9092"}, nil)<br/>            if err != nil {<br/>                panic(err)<br/>            }<br/>            defer producer.Close()<br/><br/>            for i := 0; i &lt; 10; i++ {<br/>                sendMessage(producer, fmt.Sprintf("Message %d", i))<br/>            }<br/>        }
+</pre>
+<ol start="6">
+<li>Run <kbd>go run consumer/main.go</kbd>.</li>
+<li>In a separate terminal, run <kbd>go run producer/main.go</kbd>.</li>
+<li>In the producer terminal, you should see the following:</li>
+</ol>
+<pre>
+<strong>      $ go run producer/main.go  </strong><br/><strong>      2017/05/07 11:50:38 &gt; message sent to partition 0 at offset 0</strong><br/><strong>      2017/05/07 11:50:38 &gt; message sent to partition 0 at offset 1</strong><br/><strong>      2017/05/07 11:50:38 &gt; message sent to partition 0 at offset 2</strong><br/><strong>      2017/05/07 11:50:38 &gt; message sent to partition 0 at offset 3</strong><br/><strong>      2017/05/07 11:50:38 &gt; message sent to partition 0 at offset 4</strong><br/><strong>      2017/05/07 11:50:38 &gt; message sent to partition 0 at offset 5</strong><br/><strong>      2017/05/07 11:50:38 &gt; message sent to partition 0 at offset 6</strong><br/><strong>      2017/05/07 11:50:38 &gt; message sent to partition 0 at offset 7</strong><br/><strong>      2017/05/07 11:50:38 &gt; message sent to partition 0 at offset 8</strong><br/><strong>      2017/05/07 11:50:38 &gt; message sent to partition 0 at offset 9</strong>
+</pre>
+<ol start="9">
+<li>In the consumer terminal, you should see this:</li>
+</ol>
+<pre>
+<strong>      $ go run consumer/main.go </strong><br/><strong>      2017/05/07 11:50:38 Consumed message: "Message 0" at offset: 0</strong><br/><strong>      2017/05/07 11:50:38 Consumed message: "Message 1" at offset: 1</strong><br/><strong>      2017/05/07 11:50:38 Consumed message: "Message 2" at offset: 2</strong><br/><strong>      2017/05/07 11:50:38 Consumed message: "Message 3" at offset: 3</strong><br/><strong>      2017/05/07 11:50:38 Consumed message: "Message 4" at offset: 4</strong><br/><strong>      2017/05/07 11:50:38 Consumed message: "Message 5" at offset: 5</strong><br/><strong>      2017/05/07 11:50:38 Consumed message: "Message 6" at offset: 6</strong><br/><strong>      2017/05/07 11:50:38 Consumed message: "Message 7" at offset: 7</strong><br/><strong>      2017/05/07 11:50:38 Consumed message: "Message 8" at offset: 8</strong><br/><strong>      2017/05/07 11:50:38 Consumed message: "Message 9" at offset: 9</strong>
+</pre>
+<ol start="10">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure all tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>This recipe demonstrates passing simple messages via Kafka. More complex methods should use a serialization format such as <kbd>json</kbd>, <kbd>gob</kbd>, <kbd>protobuf</kbd>, or others. The producer can send a message to Kafka synchronously through <kbd>sendMessage</kbd>. This does not the handle cases well where the Kafka cluster is down and may result in a hung process for these cases. This is important to consider for applications such as web handlers as it may result in timeouts and hard dependencies on the Kafka cluster.</p>
+<p>Assuming the message queues correctly, our consumer will observe the Kafka stream and do something with the results. Previous recipes in this chapter might make use of this stream to do some additional processing.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using async producers with Kafka</h1>
+                </header>
+            
+            <article>
+                
+<p>It's often useful to not wait for a Kafka producer to complete before moving on to the next task. In cases like this, you can use an async producer. These producers take Sarama messages on a channel and have methods to return a success/error channel that can be checked separately.</p>
+<p>In this recipe, we'll create a go routine that will handle success and failure messages while we allow a handler to queue messages to send regardless of the result.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Refer to the <em>Getting ready</em> section of</span> <span>the <em>Using Kafka with Sarama</em></span> recipe.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter11/asyncsarama</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter11/asyncsarama">https://github.com/agtorre/go-cookbook/tree/master/chapter11/asyncsarama</a> or use this as an exercise to write some of your own.</li>
+<li>Ensure that Kafka is up and running on <kbd>localhost:9092</kbd>.</li>
+<li>Copy the consumer directory from the previous recipe.</li>
+<li>Create a directory named <kbd>producer</kbd> and navigate to it.</li>
+<li>Create a file called <kbd>producer.go</kbd>:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "log"<br/><br/>            sarama "gopkg.in/Shopify/sarama.v1"<br/>        )<br/><br/>        // Process response grabs results and errors from a producer<br/>        // asynchronously<br/>        func ProcessResponse(producer sarama.AsyncProducer) {<br/>            for {<br/>                select {<br/>                    case result := &lt;-producer.Successes():<br/>                    log.Printf("&gt; message: \"%s\" sent to partition <br/>                    %d at offset %d\n", result.Value, <br/>                    result.Partition, result.Offset)<br/>                    case err := &lt;-producer.Errors():<br/>                    log.Println("Failed to produce message", err)<br/>                }<br/>            }<br/>        }
+</pre>
+<ol start="7">
+<li>Create a file called <kbd>handler.go</kbd>:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "net/http"<br/><br/>            sarama "gopkg.in/Shopify/sarama.v1"<br/>        )<br/><br/>        // KafkaController allows us to attach a producer<br/>        // to our handlers<br/>        type KafkaController struct {<br/>            producer sarama.AsyncProducer<br/>        }<br/><br/>        // Handler grabs a message from a GET parama and<br/>        // send it to the kafka queue asynchronously<br/>        func (c *KafkaController) Handler(w http.ResponseWriter, r <br/>        *http.Request) {<br/>            if err := r.ParseForm(); err != nil {<br/>                w.WriteHeader(http.StatusBadRequest)<br/>                return<br/>            }<br/><br/>            msg := r.FormValue("msg")<br/>            if msg == "" {<br/>                w.WriteHeader(http.StatusBadRequest)<br/>                w.Write([]byte("msg must be set"))<br/>                return<br/>            }<br/>            c.producer.Input() &lt;- &amp;sarama.ProducerMessage{Topic: <br/>            "example", Key: nil, Value: <br/>            sarama.StringEncoder(r.FormValue("msg"))}<br/>            w.WriteHeader(http.StatusOK)<br/>        }
+</pre>
+<ol start="8">
+<li>Create a file called <kbd>main.go</kbd>:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "fmt"<br/>            "net/http"<br/><br/>            sarama "gopkg.in/Shopify/sarama.v1"<br/>        )<br/><br/>        func main() {<br/>            config := sarama.NewConfig()<br/>            config.Producer.Return.Successes = true<br/>            config.Producer.Return.Errors = true<br/>            producer, err := <br/>            sarama.NewAsyncProducer([]string{"localhost:9092"}, config)<br/>            if err != nil {<br/>                panic(err)<br/>            }<br/>            defer producer.AsyncClose()<br/><br/>            go ProcessResponse(producer)<br/><br/>            c := KafkaController{producer}<br/>            http.HandleFunc("/", c.Handler)<br/>            fmt.Println("Listening on port :3333")<br/>            panic(http.ListenAndServe(":3333", nil))<br/>        }
+</pre>
+<ol start="9">
+<li>Run the <kbd>go build</kbd> command.</li>
+<li>Navigate up a directory.</li>
+<li>Run <kbd>go run consumer/main.go</kbd>.</li>
+<li>In a separate terminal from the same directory, run <kbd>./producer/producer</kbd>.</li>
+<li>In a third terminal, run the following commands:</li>
+</ol>
+<pre>
+<strong>      $ curl "http://localhost:3333/?msg=this" </strong><br/><strong>      $ curl "http://localhost:3333/?msg=is" </strong><br/><strong>      $ curl "http://localhost:3333/?msg=an" </strong><br/><strong>      $ curl "http://localhost:3333/?msg=example"</strong> 
+</pre>
+<p style="padding-left: 60px">In the producer terminal, you should see the following:</p>
+<pre>
+<strong>      $ ./producer/producer </strong><br/><strong>      Listening on port :3333</strong><br/><strong>      2017/05/07 13:52:54 &gt; message: "this" sent to partition 0 at </strong><br/><strong>      offset 0</strong><br/><strong>      2017/05/07 13:53:25 &gt; message: "is" sent to partition 0 at offset </strong><br/><strong>      1</strong><br/><strong>      2017/05/07 13:53:27 &gt; message: "an" sent to partition 0 at offset </strong><br/><strong>      2</strong><br/><strong>      2017/05/07 13:53:29 &gt; message: "example" sent to partition 0 at </strong><br/><strong>      offset 3</strong>
+</pre>
+<ol start="14">
+<li>In the consumer terminal, you should see this:</li>
+</ol>
+<pre>
+<strong>      $ go run consumer/main.go </strong><br/><strong>      2017/05/07 13:52:54 Consumed message: "this" at offset: 0</strong><br/><strong>      2017/05/07 13:53:25 Consumed message: "is" at offset: 1</strong><br/><strong>      2017/05/07 13:53:27 Consumed message: "an" at offset: 2</strong><br/><strong>      2017/05/07 13:53:29 Consumed message: "example" at offset: 3</strong>
+</pre>
+<ol start="15">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure all tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>Our modifications in this chapter were all made to the producer. This time, we created a separate go routine to handle successes and errors. If these are left unhandled, your application will deadlock. Next, we attached our producer to a handler and we emit messages on it whenever a message is received via a <kbd>GET</kbd> call to the handler.</p>
+<p>The handler will immediately return success upon sending the message regardless of its response. If this is not acceptable, a synchronous approach should be used instead. In our case, we're okay with later processing success and errors separately.</p>
+<p>Lastly, we curl our endpoint with a few different messages and you can see them flow from the handler to where they're eventually printed by the Kafka consumer we wrote in the previous section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Connecting Kafka to Goflow</h1>
+                </header>
+            
+            <article>
+                
+<p>This recipe will combine a Kafka consumer with a Goflow pipeline. As our consumer receives messages from Kafka, it will run <kbd>strings.ToUpper()</kbd> on them and then print the results. These naturally pair as Goflow is designed to operate on an incoming stream, which is exactly what Kafka provides us.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p><span>Refer to the <em>Getting ready</em> section of</span> <span>the <em>Using Kafka with Sarama</em></span> recipe<span><em>.</em></span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter11/kafkaflow</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter11/kafkaflow">https://github.com/agtorre/go-cookbook/tree/master/chapter11/kafkaflow</a> or use this as an exercise to write some of your own.</li>
+<li>Ensure that Kafka is up and running on <kbd>localhost:9092</kbd>.</li>
+<li>Create a file called <kbd>components.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package kafkaflow<br/><br/>        import (<br/>            "fmt"<br/>            "strings"<br/><br/>            flow "github.com/trustmaster/goflow"<br/>        )<br/><br/>        // Upper upper cases the incoming<br/>        // stream<br/>        type Upper struct {<br/>            flow.Component<br/>            Val &lt;-chan string<br/>            Res chan&lt;- string<br/>        }<br/><br/>        // OnVal does the encoding then pushes the result onto Re<br/>        func (e *Upper) OnVal(val string) {<br/>            e.Res &lt;- strings.ToUpper(val)<br/>        }<br/><br/>        // Printer is a component for printing to stdout<br/>        type Printer struct {<br/>            flow.Component<br/>            Line &lt;-chan string<br/>        }<br/><br/>        // OnLine Prints the current line received<br/>        func (p *Printer) OnLine(line string) {<br/>            fmt.Println(line)<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>network.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package kafkaflow<br/><br/>        import flow "github.com/trustmaster/goflow"<br/><br/>        // UpperApp creates a flow-based<br/>        // pipeline to upper case and print the<br/>        // result<br/>        type UpperApp struct {<br/>            flow.Graph<br/>        }<br/><br/>        // NewUpperApp wires together the compoents<br/>        func NewUpperApp() *UpperApp {<br/>            u := &amp;UpperApp{}<br/>            u.InitGraphState()<br/><br/>            u.Add(&amp;Upper{}, "upper")<br/>            u.Add(&amp;Printer{}, "printer")<br/><br/>            u.Connect("upper", "Res", "printer", "Line")<br/>            u.MapInPort("In", "upper", "Val")<br/><br/>            return u<br/>        }
+</pre>
+<ol start="6">
+<li>Create a file called <kbd>main.go</kbd> in a directory named <kbd>consumer</kbd> with the following content:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "github.com/agtorre/go-cookbook/chapter11/kafkaflow"<br/>            flow "github.com/trustmaster/goflow"<br/>            sarama "gopkg.in/Shopify/sarama.v1"<br/>        )<br/><br/>        func main() {<br/>            consumer, err := <br/>            sarama.NewConsumer([]string{"localhost:9092"}, nil)<br/>            if err != nil {<br/>                panic(err)<br/>            }<br/>            defer consumer.Close()<br/><br/>            partitionConsumer, err := <br/>            consumer.ConsumePartition("example", 0, <br/>            sarama.OffsetNewest)<br/>            if err != nil {<br/>                panic(err)<br/>            }<br/>            defer partitionConsumer.Close()<br/><br/>            net := kafkaflow.NewUpperApp()<br/><br/>            in := make(chan string)<br/>            net.SetInPort("In", in)<br/><br/>            flow.RunNet(net)<br/>            defer func() {<br/>                close(in)<br/>                &lt;-net.Wait()<br/>            }()<br/><br/>            for {<br/>                msg := &lt;-partitionConsumer.Messages()<br/>                in &lt;- string(msg.Value)<br/>            }<br/>        }
+</pre>
+<ol start="7">
+<li>Copy the consumer directory from the <em>Using Kafka with Saram</em> recipe.</li>
+<li>Run <kbd>go run consumer/main.go</kbd>.</li>
+<li>In a separate terminal, run <kbd>go run producer/main.go</kbd>.</li>
+<li>In the producer terminal, you should now see the following:</li>
+</ol>
+<pre>
+<strong>      $ go run producer/main.go  </strong><br/><strong>      go run producer/main.go !3300</strong><br/><strong>      2017/05/07 18:24:12 &gt; message "Message 0" sent to partition 0 at </strong><br/><strong>      offset 0</strong><br/><strong>      2017/05/07 18:24:12 &gt; message "Message 1" sent to partition 0 at </strong><br/><strong>      offset 1</strong><br/><strong>      2017/05/07 18:24:12 &gt; message "Message 2" sent to partition 0 at </strong><br/><strong>      offset 2</strong><br/><strong>      2017/05/07 18:24:12 &gt; message "Message 3" sent to partition 0 at </strong><br/><strong>      offset 3</strong><br/><strong>      2017/05/07 18:24:12 &gt; message "Message 4" sent to partition 0 at </strong><br/><strong>      offset 4</strong><br/><strong>      2017/05/07 18:24:12 &gt; message "Message 5" sent to partition 0 at </strong><br/><strong>      offset 5</strong><br/><strong>      2017/05/07 18:24:12 &gt; message "Message 6" sent to partition 0 at </strong><br/><strong>      offset 6</strong><br/><strong>      2017/05/07 18:24:12 &gt; message "Message 7" sent to partition 0 at </strong><br/><strong>      offset 7</strong><br/><strong>      2017/05/07 18:24:12 &gt; message "Message 8" sent to partition 0 at </strong><br/><strong>      offset 8</strong><br/><strong>      2017/05/07 18:24:12 &gt; message "Message 9" sent to partition 0 at </strong><br/><strong>      offset 9</strong>
+</pre>
+<p style="padding-left: 60px">In the consumer terminal, you should see the following:</p>
+<pre>
+<strong>      $ go run consumer/main.go </strong><br/><strong>      MESSAGE 0</strong><br/><strong>      MESSAGE 1</strong><br/><strong>      MESSAGE 2</strong><br/><strong>      MESSAGE 3</strong><br/><strong>      MESSAGE 4</strong><br/><strong>      MESSAGE 5</strong><br/><strong>      MESSAGE 6</strong><br/><strong>      MESSAGE 7</strong><br/><strong>      MESSAGE 8</strong><br/><strong>      MESSAGE 9</strong>
+</pre>
+<ol start="11">
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>This recipe combines ideas from previous recipes in this chapter. Like previous recipes, we set up a Kafka consumer and producer. This recipe uses the synchronous producer from the <em>Using Kafka With Sarama</em> recipe, but could have also used an asynchronous producer instead. Once a message is received, we enqueue it on an in channel just like we did in the <em>Goflow for dataflow programming</em> recipe<em>.</em> We modify the components from this recipe to uppercase our incoming string rather than base64 encoding it. We reuse the print components and the resultant network configuration is similar.</p>
+<p>The end result is that all messages received through the Kafka consumer are transported into our flow-based work pipeline to be operated on. This allows us to instrument our pipeline components to be modular and reusable, and we can use the same component multiple times in different configurations. Similarly, we'll receive traffic from any producer that writes to Kafka, so we can multiplex producers into a single data stream.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Writing a GraphQL server in Go</h1>
+                </header>
+            
+            <article>
+                
+<p>GraphQL is an alternative to REST, created by Facebook (<a href="http://graphql.org/">http://graphql.org/</a>). This technology allows a server to implement and publish a schema and the clients then can ask for the information they need rather than understanding and making use of various API endpoints.</p>
+<p>For this recipe, we'll create a <kbd>Graphql</kbd> schema that represents a deck of playing cards. We'll expose one resource card, which can be filtered by suit and value. Alternatively, it can return all the cards in the deck if no arguments are specified.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting ready</h1>
+                </header>
+            
+            <article>
+                
+<p>Configure your environment according to these steps:</p>
+<ol>
+<li>Refer to the <em>Getting ready</em> section of the <em>Goflow for dataflow programming</em> recipe in this chapter.</li>
+<li>Run the <kbd>go get github.com/graphql-go/graphql</kbd> command.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How to do it...</h1>
+                </header>
+            
+            <article>
+                
+<p>These steps cover writing and running your application:</p>
+<ol>
+<li>From your terminal/console application, create the <kbd>chapter11/graphql</kbd> directory and navigate to it.</li>
+<li>Copy tests from <a href="https://github.com/agtorre/go-cookbook/tree/master/chapter11/graphql">https://github.com/agtorre/go-cookbook/tree/master/chapter11/graphql</a> or use this as an exercise to write some of your own.</li>
+<li>Create and navigate to the <kbd>cards</kbd> directory.</li>
+<li>Create a file called <kbd>card.go</kbd> with the following content:</li>
+</ol>
+<pre>
+        package cards<br/><br/>        // Card represents a standard playing<br/>        // card<br/>        type Card struct {<br/>            Value string<br/>            Suit string<br/>        }<br/><br/>        var cards []Card<br/><br/>        func init() {<br/>            cards = []Card{<br/>                {"A", "Spades"}, {"2", "Spades"}, {"3", "Spades"},<br/>                {"4", "Spades"}, {"5", "Spades"}, {"6", "Spades"},<br/>                {"7", "Spades"}, {"8", "Spades"}, {"9", "Spades"},<br/>                {"10", "Spades"}, {"J", "Spades"}, {"Q", "Spades"},<br/>                {"K", "Spades"},<br/>                {"A", "Hearts"}, {"2", "Hearts"}, {"3", "Hearts"},<br/>                {"4", "Hearts"}, {"5", "Hearts"}, {"6", "Hearts"},<br/>                {"7", "Hearts"}, {"8", "Hearts"}, {"9", "Hearts"},<br/>                {"10", "Hearts"}, {"J", "Hearts"}, {"Q", "Hearts"},<br/>                {"K", "Hearts"},<br/>                {"A", "Clubs"}, {"2", "Clubs"}, {"3", "Clubs"},<br/>                {"4", "Clubs"}, {"5", "Clubs"}, {"6", "Clubs"},<br/>                {"7", "Clubs"}, {"8", "Clubs"}, {"9", "Clubs"},<br/>                {"10", "Clubs"}, {"J", "Clubs"}, {"Q", "Clubs"},<br/>                {"K", "Clubs"},<br/>                {"A", "Diamonds"}, {"2", "Diamonds"}, {"3", <br/>                "Diamonds"},<br/>                {"4", "Diamonds"}, {"5", "Diamonds"}, {"6", <br/>                "Diamonds"},<br/>                {"7", "Diamonds"}, {"8", "Diamonds"}, {"9", <br/>                "Diamonds"},<br/>                {"10", "Diamonds"}, {"J", "Diamonds"}, {"Q", <br/>                "Diamonds"},<br/>                {"K", "Diamonds"},<br/>            }<br/>        }
+</pre>
+<ol start="5">
+<li>Create a file called <kbd>type.go</kbd>:</li>
+</ol>
+<pre>
+        package cards<br/><br/>        import "github.com/graphql-go/graphql"<br/><br/>        // CardType returns our card graphql object<br/>        func CardType() *graphql.Object {<br/>            cardType := graphql.NewObject(graphql.ObjectConfig{<br/>                Name: "Card",<br/>                Description: "A Playing Card",<br/>                Fields: graphql.Fields{<br/>                    "value": &amp;graphql.Field{<br/>                        Type: graphql.String,<br/>                        Description: "Ace through King",<br/>                        Resolve: func(p graphql.ResolveParams) <br/>                        (interface{}, error) {<br/>                            if card, ok := p.Source.(Card); ok {<br/>                                return card.Value, nil<br/>                            }<br/>                            return nil, nil<br/>                        },<br/>                    },<br/>                    "suit": &amp;graphql.Field{<br/>                        Type: graphql.String,<br/>                        Description: "Hearts, Diamonds, Clubs, Spades",<br/>                        Resolve: func(p graphql.ResolveParams) <br/>                        (interface{}, error) {<br/>                            if card, ok := p.Source.(Card); ok {<br/>                                return card.Suit, nil<br/>                            }<br/>                            return nil, nil<br/>                        },<br/>                    },<br/>                },<br/>            })<br/>            return cardType<br/>        }
+</pre>
+<ol start="6">
+<li>Create a file called <kbd>resolve.go</kbd>:</li>
+</ol>
+<pre>
+        package cards<br/><br/>        import (<br/>            "strings"<br/><br/>            "github.com/graphql-go/graphql"<br/>        )<br/><br/>        // Resolve handles filtering cards<br/>        // by suit and value<br/>        func Resolve(p graphql.ResolveParams) (interface{}, error) {<br/>            finalCards := []Card{}<br/>            suit, suitOK := p.Args["suit"].(string)<br/>            suit = strings.ToLower(suit)<br/><br/>            value, valueOK := p.Args["value"].(string)<br/>            value = strings.ToLower(value)<br/><br/>            for _, card := range cards {<br/>                if suitOK &amp;&amp; suit != strings.ToLower(card.Suit) {<br/>                    continue<br/>                }<br/>                if valueOK &amp;&amp; value != strings.ToLower(card.Value) {<br/>                    continue<br/>                }<br/><br/>                finalCards = append(finalCards, card)<br/>            }<br/>            return finalCards, nil<br/>        }
+</pre>
+<ol start="7">
+<li>Create a file called <kbd>schema.go</kbd>:</li>
+</ol>
+<pre>
+        package cards<br/><br/>        import "github.com/graphql-go/graphql"<br/><br/>        // Setup prepares and returns our card<br/>        // schema<br/>        func Setup() (graphql.Schema, error) {<br/>            cardType := CardType()<br/><br/>            // Schema<br/>            fields := graphql.Fields{<br/>                "cards": &amp;graphql.Field{<br/>                    Type: graphql.NewList(cardType),<br/>                    Args: graphql.FieldConfigArgument{<br/>                        "suit": &amp;graphql.ArgumentConfig{<br/>                            Description: "Filter cards by card suit <br/>                            (hearts, clubs, diamonds, spades)",<br/>                            Type: graphql.String,<br/>                        },<br/>                        "value": &amp;graphql.ArgumentConfig{<br/>                            Description: "Filter cards by card <br/>                            value (A-K)",<br/>                            Type: graphql.String,<br/>                        },<br/>                    },<br/>                    Resolve: Resolve,<br/>                },<br/>            }<br/><br/>            rootQuery := graphql.ObjectConfig{Name: "RootQuery", <br/>            Fields: fields}<br/>            schemaConfig := graphql.SchemaConfig{Query: <br/>            graphql.NewObject(rootQuery)}<br/>            schema, err := graphql.NewSchema(schemaConfig)<br/><br/>            return schema, err<br/>        }
+</pre>
+<ol start="8">
+<li>Navigate back to the <kbd>graphql</kbd> directory.</li>
+</ol>
+<ol start="9">
+<li>Create a new directory named <kbd>example</kbd> and navigate to it.</li>
+<li>Create a file named <kbd>main.go</kbd> with the following content. Ensure that you modify the <kbd>cards</kbd> import to use the path you set up in step 2:</li>
+</ol>
+<pre>
+        package main<br/><br/>        import (<br/>            "encoding/json"<br/>            "fmt"<br/>            "log"<br/><br/>            "github.com/agtorre/go-cookbook/chapter11/graphql/cards"<br/>            "github.com/graphql-go/graphql"<br/>        )<br/><br/>        func main() {<br/>            // grab our schema<br/>            schema, err := cards.Setup()<br/>            if err != nil {<br/>                panic(err)<br/>            }<br/><br/>            // Query<br/>            query := `<br/>            {<br/>                cards(value: "A"){<br/>                    value<br/>                    suit<br/>                }<br/>            }<br/> `<br/>            params := graphql.Params{Schema: schema, RequestString: <br/>            query}<br/>            r := graphql.Do(params)<br/>            if len(r.Errors) &gt; 0 {<br/>                log.Fatalf("failed to execute graphql operation, <br/>                errors: %+v", r.Errors)<br/>            }<br/>            rJSON, err := json.MarshalIndent(r, "", " ")<br/>            if err != nil {<br/>                panic(err)<br/>            }<br/>            fmt.Printf("%s \n", rJSON)<br/>        }
+</pre>
+<ol start="11">
+<li>Run <kbd>go run main.go</kbd>.</li>
+</ol>
+<ol start="12">
+<li>You may also run the following command:</li>
+</ol>
+<pre>
+<strong>      go build<br/></strong><strong>      ./example</strong>
+</pre>
+<p style="padding-left: 60px"><span>You should see the following output:</span></p>
+<pre>
+<strong>      $ go run main.go</strong><br/><strong>      {</strong><br/><strong>          "data": {</strong><br/><strong>              "cards": [</strong><br/><strong>                  {</strong><br/><strong>                      "suit": "Spades",</strong><br/><strong>                      "value": "A"</strong><br/><strong>                  },</strong><br/><strong>                  {</strong><br/><strong>                      "suit": "Hearts",</strong><br/><strong>                      "value": "A"</strong><br/><strong>                  },</strong><br/><strong>                  {</strong><br/><strong>                      "suit": "Clubs",</strong><br/><strong>                      "value": "A"</strong><br/><strong>                  },</strong><br/><strong>                  {</strong><br/><strong>                      "suit": "Diamonds",</strong><br/><strong>                      "value": "A"</strong><br/><strong>                  }</strong><br/><strong>              ]</strong><br/><strong>          }</strong><br/><strong>      }</strong> 
+</pre>
+<ol start="13">
+<li>Test some additional queries, such as the following:
+<ul>
+<li><kbd>cards(suit: "Spades")</kbd></li>
+<li><kbd>cards(value: "3", suit:"Diamonds")</kbd></li>
+</ul>
+</li>
+<li>If you copied or wrote your own tests, go up one directory and run <kbd>go test</kbd>. Ensure that all the tests pass.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">How it works...</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>cards.go</kbd> file defines a <kbd>card</kbd> object and initializes the base deck in a global variable called cards. This state could also be held in long-term storage such as a database. We then define <kbd>CardType</kbd> in <kbd>types.go</kbd> that allows <kbd>graphql</kbd> to resolve card objects to responses. Next, we jump into <kbd>resolve.go</kbd>, where we define how to filter cards by value and type. This <kbd>Resolve</kbd> function will be used by the final schema, which is defined in <kbd>schema.go</kbd>.</p>
+<p>For example, you would modify the <kbd>Resolve</kbd> function in this recipe in order to retrieve data from a database. Lastly, we load the schema and run a query against it. It's a small modification to mount our schema onto a rest endpoint, but for brevity, this recipe just runs a hardcoded query. For more information about <kbd>GraphQL</kbd> queries, visit <a href="http://graphql.org/learn/queries/">http://graphql.org/learn/queries/</a>.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

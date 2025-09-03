@@ -1,0 +1,629 @@
+<html><head></head><body>
+<div id="book-content">
+<div id="sbo-rt-content"><div id="_idContainer008">
+			<h1 id="_idParaDest-32" class="chapter-number"><a id="_idTextAnchor031"/>2</h1>
+			<h1 id="_idParaDest-33"><a id="_idTextAnchor032"/>Refreshing Concurrency and Parallelism</h1>
+			<p>This chapter will explore goroutines at the core of Go’s concurrency. You will learn how they function, distinguish between concurrency and parallelism, manage currently running goroutines, handle data race issues, use channels for communication, and use <strong class="source-inline">Channel</strong> states and signaling to maximize their potential. Mastering these concepts is essential to write efficient and error-free <span class="No-Break">Go code.</span></p>
+			<p>In this chapter, we’re going to cover the following <span class="No-Break">main topics:</span></p>
+			<ul>
+				<li><span class="No-Break">Understanding goroutines</span></li>
+				<li>Managing <span class="No-Break">data races</span></li>
+				<li>Making sense <span class="No-Break">of channels</span></li>
+				<li>The guarantee <span class="No-Break">of delivery</span></li>
+				<li>State <span class="No-Break">and signaling</span></li>
+			</ul>
+			<h1 id="_idParaDest-34"><a id="_idTextAnchor033"/>Technical requirements</h1>
+			<p>You can find this chapter’s source code <span class="No-Break">at </span><a href="https://github.com/PacktPublishing/System-Programming-Essentials-with-Go/tree/main/ch2"><span class="No-Break">https://github.com/PacktPublishing/System-Programming-Essentials-with-Go/tree/main/ch2</span></a><span class="No-Break">.</span></p>
+			<h1 id="_idParaDest-35"><a id="_idTextAnchor034"/>Understanding goroutines</h1>
+			<p>Goroutines are<a id="_idIndexMarker032"/> functions created and scheduled to be run independently by the Go scheduler. The Go scheduler<a id="_idIndexMarker033"/> is responsible for the management and execution <span class="No-Break">of goroutines.</span></p>
+			<p>Behind the scenes, we have a complex algorithm to make goroutines work. Fortunately, in Golang, we can achieve this highly complex<a id="_idIndexMarker034"/> operation with simplicity using the <span class="No-Break"><strong class="source-inline">go</strong></span><span class="No-Break"> keyword.</span></p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">If you are accustomed to a language that has <a id="_idIndexMarker035"/>the <strong class="source-inline">async</strong>/<strong class="source-inline">await</strong> feature, you probably are used to deciding your function beforehand. It will be used concurrently to change the function signature to sign that the function can be paused/resumed. Calling this function also needs a special notation. When using goroutines, there is no need to change the <span class="No-Break">function signature.</span></p>
+			<p>In the following snippets, we have a main function calling sequentially the <strong class="source-inline">say </strong>function, passing as an argument <strong class="source-inline">"hello"</strong> and <strong class="source-inline">"</strong><span class="No-Break"><strong class="source-inline">world"</strong></span><span class="No-Break">, respectively:</span></p>
+			<pre class="source-code">
+f<a id="_idTextAnchor035"/>unc main() {
+  say(«hello»)
+  say(«world»)
+}</pre>			<p><a id="_idTextAnchor036"/>The <strong class="source-inline">say</strong> function <a id="_idIndexMarker036"/>receives a string as a parameter and iterates five times. For each iteration, we make the function sleep for 500 milliseconds and print the <strong class="source-inline">s</strong> parameter <span class="No-Break">immediately after:</span></p>
+			<pre class="source-code">
+<a id="_idTextAnchor037"/>func say(s string) {
+  for i := 1; i &lt; 5; i++ {
+     time.Sleep(500 * time.Millisecond)
+     fmt.Println(s)
+  }
+}</pre>			<p>When we execute the program, it should print the <span class="No-Break">following output:</span></p>
+			<pre class="console">
+hello
+hello
+hello
+hello
+hello
+world
+world
+world
+world
+world</pre>			<p>Now, we introduce the <strong class="source-inline">go</strong> keyword<a id="_idIndexMarker037"/> right before the first call to the <strong class="source-inline">say</strong> function to introduce concurrency in <span class="No-Break">our program:</span><a id="_idTextAnchor038"/></p>
+			<pre class="source-code">
+func main() {
+  go say(«hello»)
+  say(«world»)
+}</pre>			<p>The output should <a id="_idIndexMarker038"/>alternate between <strong class="source-inline">hello</strong> <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">world</strong></span><span class="No-Break">.</span></p>
+			<p>So, we can achieve the same result if we create a goroutine for the second function <span class="No-Break">call, right<a id="_idTextAnchor039"/>?</span></p>
+			<pre class="source-code">
+func main() {
+  say(«hello»)
+  go say(«world»)
+}</pre>			<p>Let’s see the results of the <span class="No-Break">program now:</span></p>
+			<pre class="console">
+hello
+hello
+hello
+hello</pre>			<p>Wait! Something is wrong here. What did we do wrong? The main function and the goroutine seem out <span class="No-Break">of sync.</span></p>
+			<p>We didn’t do anything wrong. That is the expected behavior. When you take a closer look at the first program, the goroutine is fired, and the second call of <strong class="source-inline">say</strong> executes in the context of the main <span class="No-Break">function sequentially.</span></p>
+			<p>In other words, the program should wait for the function to terminate to reach the end of the <strong class="source-inline">main</strong> function. For the second program, we have the opposite behavior. The first call is a normal function call, so it prints five times as expected, but when the second goroutine is fired, there is no following instruction on the main function, so the <span class="No-Break">program terminates.</span></p>
+			<p>Although the <a id="_idIndexMarker039"/>behavior is correct from the perspective of how the program works, this is not our intention. We need a way to synchronize the <strong class="source-inline">wait</strong> for all the goroutines in this group of executions before giving the <strong class="source-inline">main</strong> function a chance to terminate. In situations such as this, we can leverage Go’s construct, the <strong class="source-inline">sync</strong> package, <span class="No-Break">called </span><span class="No-Break"><strong class="source-inline">WaitGroup</strong></span><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-36"><a id="_idTextAnchor040"/>WaitGroup</h2>
+			<p><strong class="source-inline">WaitGroup</strong>, as the name <a id="_idIndexMarker040"/>suggests, is a Go standard library mechanism that allows us to wait for a group of goroutines until they <span class="No-Break">finish explicitly.</span></p>
+			<p>No particular factory function exists to create them, since their zero-value is already a valid usable state. Since <strong class="source-inline">WaitGroup</strong> has been created, we need to control how many goroutines we are waiting for. We can<a id="_idTextAnchor041"/> use the <strong class="source-inline">Add()</strong> method to inform <span class="No-Break">the group.</span></p>
+			<p>How can we inform the group that we have completed one of the routines? It couldn’t be more intuitive. We can achieve this u<a id="_idTextAnchor042"/>sing the <span class="No-Break"><strong class="source-inline">Done()</strong></span><span class="No-Break"> method.</span></p>
+			<p>In the following example, we introduce the wait group to make our program output the messages <span class="No-Break">as intend<a id="_idTextAnchor043"/>ed:</span></p>
+			<pre class="source-code">
+func main() {
+  wg := sync.WaitGroup{}
+  wg.Add(2)
+  go say(«world», &amp;<a id="_idTextAnchor044"/>wg)
+  go say("hello", &amp;wg)
+  wg.Wait()
+}</pre>			<p>We create the <strong class="source-inline">WaitG<a id="_idTextAnchor045"/>roup</strong> ( <strong class="source-inline">wg := sync.WaitGroup{}</strong>) and declare that two goroutines participate in this <span class="No-Break">group (</span><span class="No-Break"><strong class="source-inline">wg.Add(2)</strong></span><span class="No-Break">).</span></p>
+			<p>In the last line of the <a id="_idIndexMarker041"/>program, we explicitly hold the execution<a id="_idTextAnchor046"/> with the <strong class="source-inline">Wait()</strong> method to avoid the <span class="No-Break">program termination.</span></p>
+			<p>To make our function interact with <strong class="source-inline">Waitgroup</strong>, we need to send a reference to this group. Once we have its reference, the function can defer<a id="_idTextAnchor047"/>, calling <strong class="source-inline">Done()</strong>, to ensure that we signal correctly for our group every time the function <span class="No-Break">is complete.</span></p>
+			<p>This is the new <span class="No-Break"><strong class="source-inline">say</strong></span><span class="No-Break"> funct<a id="_idTextAnchor048"/>ion:</span></p>
+			<pre class="source-code">
+func say(s string, wg *sync.WaitGroup) {
+  defer wg.Done()
+  for i := 0; i &lt; 5; i++ {
+     fmt.Println(s)
+  }
+}</pre>			<p>We don’t need to rely on <strong class="source-inline">time.Sleep()</strong>, so this version doesn’t <span class="No-Break">have it.</span></p>
+			<p>Now, we can control our group of goroutines. Let’s deal with one central worrisome issue in concurrent programming – <span class="No-Break">state.</span></p>
+			<h2 id="_idParaDest-37"><a id="_idTextAnchor049"/>Changing shared state</h2>
+			<p>Imagine a scenario where two <a id="_idIndexMarker042"/>diligent workers are tasked with packing items into boxes in a busy warehouse. Each worker fills a fixed number of things into packets, and we must keep track of the total number of <span class="No-Break">items packed.</span></p>
+			<p>This seemingly straightforward task, analogous to concurrent programming, can quickly become a nightmare when not handled properly. With proper synchronization, the workers may avoid intentionally interfering with each other’s work, leading to incorrect results and unpredictable behavior. It’s a classic example of a data race, a common challenge in <span class="No-Break">concurrent programming.</span></p>
+			<p>The following code will walk you through an analogy where two warehouse workers face a data race issue while packing items into boxes. We’ll first present the code without proper synchronization, demonstrating the data race problem. Then, we’ll modify the code to address the issue, ensuring that the workers collaborate smoothly <span class="No-Break">and accurately.</span></p>
+			<p>Let’s step into the bustling warehouse and witness firsthand the challenges of concurrency and the importance of synchronization in <span class="No-Break">this example:</span></p>
+			<pre class="source-code">
+package main
+import (
+     "fmt"
+     "syn<a id="_idTextAnchor050"/>c"
+)
+func main() {
+     fmt.Println("Total Items Packed:", PackItems(0))
+}
+func PackItems(totalItems int) int {
+     const workers = 2
+     const itemsPerWorker = 1000
+     var wg sync.WaitGroup
+     itemsPacked := 0
+     for i := 0; i &lt; workers; i++ {
+          wg.Add(1)
+          go func(workerID int) {
+               defer wg.Done()
+               // Simulate the worker packing items into boxes.
+        <a id="_idTextAnchor051"/>       for j := 0; j &lt; itemsPerWorker; j++ {
+                      itemsPacked = totalItems
+                    // Simulate packing an item.
+                    itemsPacked++
+               // Update the total items packed without proper synchronization.
+               totalItems = itemsPacked
+               }
+          }(i)
+     }
+     // Wait for all workers to finish.
+     wg.Wait()
+     return totalItems
+}</pre>			<p>The <strong class="source-inline">main</strong> function <a id="_idIndexMarker043"/>starts by calling the <strong class="source-inline">PackItems</strong> function with an initial <strong class="source-inline">totalItems</strong> value <span class="No-Break">of 0.</span></p>
+			<p>In the <strong class="source-inline">PackItems</strong> function, there are two <span class="No-Break">constants defined:</span></p>
+			<ul>
+				<li><strong class="source-inline">workers</strong>: The number of worker goroutines (set <span class="No-Break">to 2)</span></li>
+				<li><strong class="source-inline">itemsPerWorker</strong>: The number of items each worker should pack into boxes (set <span class="No-Break">to 1,000)</span></li>
+			</ul>
+			<p><strong class="source-inline">WaitGroup</strong> named <strong class="source-inline">wg</strong> is created to wait for all worker goroutines to finish before returning the final <span class="No-Break"><strong class="source-inline">totalItems</strong></span><span class="No-Break"> value.</span></p>
+			<p>A loop runs <strong class="source-inline">workers</strong> times, where each iteration starts a new goroutine to simulate a worker packing items into boxes. Inside the goroutine, the following steps <span class="No-Break">are performed:</span></p>
+			<ol>
+				<li>A worker ID is passed to the goroutine as <span class="No-Break">an argument.</span></li>
+				<li>The <strong class="source-inline">defer wg.Done()</strong> statement ensures that the wait group is decremented when the <span class="No-Break">goroutine exits.</span></li>
+				<li>An <strong class="source-inline">itemsPacked</strong> variable is initialized with the current value of <strong class="source-inline">totalItems</strong> to keep track of the items packed by <span class="No-Break">this worker.</span></li>
+				<li>A loop runs <strong class="source-inline">itemsPerWorker</strong> times, simulating the process of packing items into boxes. However, there’s no actual packing happening;the loop’s just incrementing the <span class="No-Break"><strong class="source-inline">itemsPacked</strong></span><span class="No-Break"> variable.</span></li>
+				<li>In the last step in the inner loop, <strong class="source-inline">totalItems</strong> receive the altered value of the <strong class="source-inline">itemsPacked</strong> variable, which contains the number of items packed by <span class="No-Break">the worker.</span></li>
+				<li><strong class="bold">This is where the synchronization issue occurs</strong>. The worker attempts to update the <strong class="source-inline">totalItems</strong> variable by adding the <strong class="source-inline">itemsPacked</strong> value <span class="No-Break">to it.</span></li>
+			</ol>
+			<p>Since multiple<a id="_idIndexMarker044"/> goroutines attempt to modify <strong class="source-inline">totalItems</strong> concurrently without proper synchronization, a data race occurs, leading to unpredictable and <span class="No-Break">incorrect results.</span></p>
+			<h3>Nondeterministic results</h3>
+			<p>Consider this<a id="_idIndexMarker045"/> alternative <span class="No-Break"><strong class="source-inline">main</strong></span><span class="No-Break"> f<a id="_idTextAnchor052"/>unction:</span></p>
+			<pre class="source-code">
+func main() {
+     times := 0
+     for {
+          times++
+          counter := PackItems(0)<a id="_idTextAnchor053"/>
+          if counter != 2000 {
+               log.Fatalf("it should be 2000 but found %d on execution %d", counter, times)
+          }
+     }
+}</pre>			<p>The program constantly runs the <strong class="source-inline">PackItems</strong> function until the expected result of 2,000 is not achieved. Once this occurs, the program will display the incorrect value returned by the function and the number of attempts it took to reach <span class="No-Break">that point.</span></p>
+			<p>Because of the non-deterministic nature of the Go scheduler, the result would be right <em class="italic">most of the time</em>. This code would need a lot of runs to reveal its <span class="No-Break">synchronization flaw.</span></p>
+			<p>In a single execution, I needed more than <span class="No-Break">16,000 iterations:</span></p>
+			<pre class="console">
+it should be 2000 but found 1170 on execution 16421</pre>			<p class="callout-heading">Your turn!</p>
+			<p class="callout">Experiment running the code on your machine. How many iterations did your code need <span class="No-Break">to fail?</span></p>
+			<p>If you’re using your <a id="_idIndexMarker046"/>personal computer, there are likely many tasks being performed, but your machine probably has a lot of unused resources. However, it’s important to consider the amount of noise on shared nodes in a cluster if you’re running programs in cloud environments with containers. By “noise,” I mean the work done on the host machine while running your program. It may be just as idle as your local experiment. Still, it’s likely being used to its full potential in a cost-effective scenario where every core and memory <span class="No-Break">is utilized.</span></p>
+			<p>This scenario of a constant contest for resources makes our schedule much more inclined to choose another workload instead of just continuing to run <span class="No-Break">our goroutine.</span></p>
+			<p>In the following example, we call the <strong class="source-inline">runtime.Gosched</strong> function to emulate noise. The idea is to give a hint to the Go scheduler, saying, “<em class="italic">Hey! Maybe it is a good moment to </em><span class="No-Break"><em class="italic">p<a id="_idTextAnchor054"/>ause me</em></span><span class="No-Break">”:</span></p>
+			<pre class="source-code">
+for j := 0; j &lt; itemsPerWorker; j++ {
+    itemsPacked = totalItems
+    runtime.Gosched() // emulating noise!
+    itemsPacked++
+    totalItems = itemsPacked
+}</pre>			<p>Running the main function again, we can see that the erroneous results occur much faster than before. In my execution, for example, I need just <span class="No-Break">four iterations:</span></p>
+			<pre class="console">
+it should be 2000 but found 1507 on execution 4</pre>			<p>Unfo<a id="_idTextAnchor055"/>rtunately, the code is still buggy. How can we anticipate that? At this point, you should have guessed that Go tools have the answer, and you’re right again. We can manage data races on <span class="No-Break">our tests.</span></p>
+			<h1 id="_idParaDest-38"><a id="_idTextAnchor056"/>Managing data races</h1>
+			<p>When multiple <a id="_idIndexMarker047"/>goroutines access shared data or resources concurrently, a “race condition” can occur. As we can attest, this type of concurrency bug can lead to unpredictable and undesirable behavior. The Go test tool has a built-in feature called <strong class="bold">Go race detection</strong> that can <a id="_idIndexMarker048"/>detect and identify race conditions in your <span class="No-Break">Go code.</span></p>
+			<p>So, let’s create a <strong class="source-inline">main_test.go</strong> file with a simple <span class="No-Break">test case:</span></p>
+			<pre class="source-code">
+package main
+import (
+     "testing"
+)
+func TestPackItems(t *testing.T) {
+     totalItems := PackItems(2000)
+     expectedTotal := 2000
+     if totalItems != expectedTotal {
+          t.Errorf("Expected total: %d, Actual total: %d", expectedTotal, totalItems)
+     }
+}</pre>			<p>Now, let’s use the <span class="No-Break">race detector:</span></p>
+			<pre class="console">
+go test -race</pre>			<p>The result in the console will be something <span class="No-Break">like this:</span></p>
+			<pre class="console">
+==================
+WARNING: DATA RACE
+Read at 0x00c00000e288 by goroutine 9:
+  example1.PackItems.func1()
+      /tmp/main.go:35 +0xa8
+  example1.PackItems.func2()
+      /tmp/main.go:45 +0x47
+Previous write at 0x00c00000e288 by goroutine 8:
+  example1.PackItems.func1()
+      /tmp/main.go:39 +0xba
+  example1.PackItems.func2()
+      /tmp/main.go:45 +0x47
+// Other lines omitted for brevity</pre>			<p>The output can be quite intimidating at first glance, but the most revealing information initially is the message <strong class="source-inline">WARNING: </strong><span class="No-Break"><strong class="source-inline">DATA RACE</strong></span><span class="No-Break">.</span></p>
+			<p>To fix the synchronization issue in this code, we should use synchronization mechanisms to protect access to the <strong class="source-inline">totalItems</strong> variable. Without proper synchronization, concurrent <a id="_idIndexMarker049"/>writes to shared data can lead to race conditions and <span class="No-Break">unexpected results.</span></p>
+			<p>We have used <strong class="source-inline">WaitGroup</strong> from the <strong class="source-inline">sync</strong> package. Let’s explore more synchronization mechanisms to ensure the <span class="No-Break">program’s correctness.</span></p>
+			<h2 id="_idParaDest-39"><a id="_idTextAnchor057"/>Atomic operations</h2>
+			<p>It’s <a id="_idIndexMarker050"/>heartbreaking that the term “atomic” in Go doesn’t involve physically manipulating atoms, like in physics or chemistry. It would be fascinating to have that capability in programming; instead, atomic operations in Go are focused on synchronizing and managing concurrency among goroutines using the <span class="No-Break">sync/atomic package.</span></p>
+			<p>Go offers <a id="_idIndexMarker051"/>atomic operations<a id="_idIndexMarker052"/> to load, store, add, and <strong class="bold">CAS</strong> (<strong class="bold">compare and swap</strong>) for certain types, such as <strong class="source-inline">int32</strong>, <strong class="source-inline">int64</strong>, <strong class="source-inline">uint32</strong>, <strong class="source-inline">uint64</strong>, <strong class="source-inline">uintptr</strong>, <strong class="source-inline">float32</strong>, and <strong class="source-inline">float64</strong>. Atomic operations can’t be directly performed on arbitrary <span class="No-Break">data structures.</span></p>
+			<p>Let’s change our program using the atomic package. First, we should <span class="No-Break">import it:</span></p>
+			<pre class="source-code">
+import (
+     "fmt"
+     "sync"
+     "sync/atomic"
+)</pre>			<p>Instead of updating <strong class="source-inline">totalItems</strong> directly, we will leverage the <strong class="source-inline">AddInt32</strong> function to guarantee <span class="No-Break">the <a id="_idTextAnchor058"/>synchronization:</span></p>
+			<pre class="source-code">
+for j := 0; j &lt; items<a id="_idTextAnchor059"/>PerWorker; j++ {
+    atomic.AddInt32(&amp;totalItems, int32(itemsPacked))
+}</pre>			<p>If we check for data races again, no problem will <span class="No-Break">be reported.</span></p>
+			<p>Atomic structures are great when we need to synchronize a single operation, but when we want to synchronize a block of code, other tools are a better fit, such <span class="No-Break">as mutexes.</span></p>
+			<h2 id="_idParaDest-40"><a id="_idTextAnchor060"/>Mutexes</h2>
+			<p>Ah, mutexes! They’re like the <a id="_idIndexMarker053"/>bouncers at a party for goroutines. Imagine a bunch of these little Go creatures trying to dance around with shared data. It’s all fun and games until chaos breaks loose, and you have a goroutine traffic jam with data spills all over <span class="No-Break">the place!</span></p>
+			<p>Do not worry, as mutexes swoop in like the dance-floor supervisors, ensuring that only one groovy goroutine can bust a move in the critical section at a time. They’re like the rhythm keepers of concurrency, ensuring that everyone takes turns and nobody steps on each <span class="No-Break">other’s toes.</span></p>
+			<p>You can create a mutex by declaring a variable of type <strong class="source-inline">sync.Mutex</strong>. A mutex allows us to protect a critical section of code, using the <strong class="source-inline">Lock()</strong> and <strong class="source-inline">Unlock()</strong> methods. When a goroutine calls <strong class="source-inline">Lock()</strong>, it acquires the mutex lock, and any other goroutines attempting to call <strong class="source-inline">Lock()</strong> will be blocked until the lock is released <span class="No-Break">with </span><span class="No-Break"><strong class="source-inline">Unlock()</strong></span><span class="No-Break">.</span></p>
+			<p>Here is the code for our program <span class="No-Break">using </span><span class="No-Break"><a id="_idIndexMarker054"/></span><span class="No-Break">mutex:</span></p>
+			<pre class="source-code">
+package main
+import (
+     "fm<a id="_idTextAnchor061"/>t"
+     "sync"
+)
+func main() {
+      m := sync.Mutex{}
+     fmt.Println("Total Items Packed:", PackItems(&amp;m, 0))
+}
+func PackItems(m *sync.Mutex, totalItems int) int {
+     const workers = 2
+     const itemsPerWorker = 1000
+     var wg sync.WaitGroup
+     for i := 0; i &lt; workers; i++ {
+          wg.Add(1)
+          go func(workerID int) {
+               defer wg.Don<a id="_idTextAnchor062"/>e()
+               for j := 0; j &lt; itemsPerWorker; j++ {
+                    m.Lock()
+                    itemsPacked := totalItems
+                   itemsPacked++
+                      totalItems = itemsPacked
+                    m.Unlock()
+               }
+          }(i)
+     }
+     // Wait for all workers to finish.
+     wg.Wait()
+     return totalItems
+}</pre>			<p>In this example, we lock a <a id="_idIndexMarker055"/>block of code handling to change our shared state, and when we’re done, we unlock <span class="No-Break">the mutex.</span></p>
+			<p>If the mutexes ensure the correctness handling shared state, you could consider <span class="No-Break">two options:</span></p>
+			<ul>
+				<li>You could use lock and unlock for every <span class="No-Break">critical line</span></li>
+				<li>You could simply lock in the beginning of the function and defer <span class="No-Break">the unlock</span></li>
+			</ul>
+			<p>Yes, you could! Sadly, there is a catch in both approaches. We introduce latency indiscriminately. To make my point, let’s benchmark the second approach versus the original use <span class="No-Break">of mutex.</span></p>
+			<p>Let’s create a second version of the function using multiple calls to lock/unlock, called <strong class="source-inline">MultiplePackItems</strong>, where everything remains the same except the function name and the <span class="No-Break">inner loop.</span></p>
+			<p>Here<a id="_idTextAnchor063"/> is the <span class="No-Break">inner loop:</span></p>
+			<pre class="source-code">
+for j := 0; j &lt; itemsPerWorker; j++ {
+    m.Lock()
+    itemsPacked = totalItems
+    m.Unlock()
+    m.Lock()
+    itemsPacked++
+    m.Unlock()
+    m.Lock()
+    totalItems = itemsPacked
+    m.Unlock()
+}</pre>			<p>Let’s look at the <a id="_idIndexMarker056"/>performance of both options running a <span class="No-Break">benchmark test:</span></p>
+			<pre class="console">
+Benchmark-8                   36546             32629 ns/op
+BenchmarkMultipleLocks-8      13243             91246 ns/op</pre>			<p>The version with multiple locks is approximately <strong class="bold">~64%</strong> slower than the first one in terms of the time taken <span class="No-Break">per operation.</span></p>
+			<p class="callout-heading">Benchmarks</p>
+			<p class="callout">We’ll cover in detail benchmarks and other techniques of performance measurement in <a href="B21662_06.xhtml#_idTextAnchor145"><span class="No-Break"><em class="italic">Chapter 6</em></span></a>, <span class="No-Break"><em class="italic">Analyzing Performance</em></span><span class="No-Break">.</span></p>
+			<p>These examples show goroutines performing their tasks independently, without collaborating with each other. However, in many cases, our tasks require exchanging information or signals to make decisions, such as starting or stopping <span class="No-Break">a procedure.</span></p>
+			<p>When exchanging information is crucial, we can use a flagship tool in Go called <span class="No-Break">a channel.</span></p>
+			<h1 id="_idParaDest-41"><a id="_idTextAnchor064"/>Making sense of channels</h1>
+			<p>Welcome to the <a id="_idIndexMarker057"/><span class="No-Break">channel carnival!</span></p>
+			<p>Imagine Go channels as magical, clown-sized pipes that allow circus performers (goroutines) to pass around juggling balls (data) while making sure nobody drops the ball – <span class="No-Break">quite literally!</span></p>
+			<h2 id="_idParaDest-42"><a id="_idTextAnchor065"/>How to use channels</h2>
+			<p>To use channels, we <a id="_idIndexMarker058"/>need to use a built-in function called <strong class="source-inline">make()</strong>, informing what type of data we’re interested in passing using <span class="No-Break">this channel:</span></p>
+			<pre class="source-code">
+ make(Chan T)</pre>			<p>If we want a channel of <strong class="source-inline">string</strong>, we should declare <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+ make (chan string)</pre>			<p>We can inform a capacity. Channels with capacity are called buffered channels. We won’t bother going into detail about capacity for now. We create an unbuffered channel when we don’t inform <span class="No-Break">the capacity.</span></p>
+			<h2 id="_idParaDest-43"><a id="_idTextAnchor066"/>An unbuffered channel</h2>
+			<p>An unbuffered channel <a id="_idIndexMarker059"/>is a way to communicate between multiple goroutines, and it needs<a id="_idIndexMarker060"/> to respect a simple rule – the goroutine that wants to send in the channel and the one that wants to receive should be <strong class="bold">ready</strong> at the <span class="No-Break">same time.</span></p>
+			<p>Think of this as a “trust fall” exercise. The sender and receiver must trust each other fully, ensuring the safety of the data, just like acrobats trust their partners to catch <span class="No-Break">them mid-air.</span></p>
+			<p>Abstract? Let’s explore this concept <span class="No-Break">with examples.</span></p>
+			<p>First, let’s send information to a channel with <span class="No-Break">no<a id="_idTextAnchor067"/> receiver:</span></p>
+			<pre class="source-code">
+pa<a id="_idTextAnchor068"/>ckage<a id="_idTextAnchor069"/> main
+func main() {
+    c := make(chan string)
+    c &lt;- "message"
+}</pre>			<p>When we execute, the console will print something like <span class="No-Break">the following:</span></p>
+			<pre class="console">
+fatal error: all goroutines are sleep – dead lock!
+goroutine 1 [chan send]:
+main.main()</pre>			<p>Let’s break down <span class="No-Break">this output.</span></p>
+			<p><strong class="source-inline">all goroutines are sleep – deadlock!</strong> is the main error message. It tells us that all<a id="_idIndexMarker061"/> goroutines in<a id="_idIndexMarker062"/> our program are in a <strong class="source-inline">sleep</strong> state, which implies that they are waiting for some event or resource to become available. However, because all of them are waiting and cannot make any progress, your program has encountered a <span class="No-Break">deadlock situation.</span></p>
+			<p><strong class="source-inline">goroutine 1 [chan send]:</strong> is the part of the message that provides additional information about the specific goroutine that has encountered the deadlock. In this case, it’s <strong class="source-inline">goroutine 1</strong>, and it was involved in a channel send operation (<span class="No-Break"><strong class="source-inline">chan send</strong></span><span class="No-Break">).</span></p>
+			<p>This deadlock occurs because the execution is paused, waiting for another goroutine to receive the information, but <span class="No-Break">there’s none.</span></p>
+			<p class="callout-heading">Deadlocks</p>
+			<p class="callout">A deadlock is a condition where two or more processes or goroutines are unable to proceed because they are all waiting for something that will <span class="No-Break">never happen.</span></p>
+			<p>Now, we can try the opposite; in the next example, we want to receive from a channel wit<a id="_idTextAnchor070"/>h <span class="No-Break">no sender:</span></p>
+			<pre class="source-code">
+<a id="_idTextAnchor071"/>packa<a id="_idTextAnchor072"/>ge main
+func main() {
+    c := make(c<a id="_idTextAnchor073"/>han string)
+    fmt.Println(&lt;- c )
+}</pre>			<p>The output in the console is very similar, except that now, the error is <span class="No-Break">about receiving:</span></p>
+			<pre class="console">
+fatal error: all goroutines are sleep – dead lock!
+goroutine 1 [chan receive]:
+main.main()</pre>			<p>Now, following the<a id="_idIndexMarker063"/> rule is as simple as sending and receiving<a id="_idIndexMarker064"/> simultaneously. So, declaring both will <a id="_idTextAnchor074"/><span class="No-Break">be sufficient<a id="_idTextAnchor075"/>:</span></p>
+			<pre class="source-code">
+pac<a id="_idTextAnchor076"/>kage main
+func main() {
+    c := make(chan string)
+    c &lt;- "messag<a id="_idTextAnchor077"/>e" // Sending
+    fmt.Println(&lt;- c ) // Receiving
+}</pre>			<p>It’s a good idea, but unfortunately, it doesn’t work, as we can see in the <span class="No-Break">following output:</span></p>
+			<pre class="console">
+fatal error: all goroutines are sleep – dead lock!
+goroutine 1 [chan send]:
+main.main()</pre>			<p>If we’re following the rule, why is it <span class="No-Break">not working?</span></p>
+			<p>Well, we’re not exactly following the rule. The rule states that the goroutine that wants to send in the channel and the one that wants to receive should be <em class="italic">ready</em> at the <span class="No-Break">same time.</span></p>
+			<p>The important thing to take note of is the final part – <em class="italic">ready at the </em><span class="No-Break"><em class="italic">same time</em></span><span class="No-Break">.</span></p>
+			<p>Since the code runs sequentially, line by line, when we try to send <strong class="source-inline">c &lt;- "message"</strong>, the program waits for the receiver to receive the message. We need to make these two parties send and receive the message simultaneously. We can use our concurrent programming knowledge to make <span class="No-Break">this happen.</span></p>
+			<p>Let’s add<a id="_idIndexMarker065"/> goroutines to the mix, using the circus analogy. We’ll introduce a <a id="_idIndexMarker066"/>function, <strong class="source-inline">throwBalls</strong>, that will expect the color of the balls to be thrown (<strong class="source-inline">color</strong>) and the channel (<strong class="source-inline">balls</strong>) where it should receive <span class="No-Break">these throws:</span></p>
+			<pre class="source-code">
+package main
+import "fmt"
+func main() {
+    balls := make(chan string)
+    go throwBalls("red", balls)
+    fmt.Println(&lt;-balls, "received!")
+}
+func throwBalls(color string, balls chan string) {
+    fmt.Printf("throwing the %s ball\n", color)
+    balls &lt;- color
+}</pre>			<p>Here, we have three <span class="No-Break">major steps:</span></p>
+			<ol>
+				<li>We create an unbuffered string channel <span class="No-Break">named </span><span class="No-Break"><strong class="source-inline">balls</strong></span><span class="No-Break">.</span></li>
+				<li>A goroutine is launched inline using the <strong class="source-inline">throwBalls</strong> function to send “red” into <span class="No-Break">the channel.</span></li>
+				<li>The main function receives and prints the value received from <span class="No-Break">the channel.</span></li>
+			</ol>
+			<p>The output for this example is <span class="No-Break">as follows:</span></p>
+			<pre class="console">
+throwing the red ball
+red received!</pre>			<p>We did it! We <a id="_idIndexMarker067"/>successfully passed information between goroutines<a id="_idIndexMarker068"/> <span class="No-Break">using channels!</span></p>
+			<p>But what happens when we send one more ball? Let’s try it with a <span class="No-Break">green ball:</span></p>
+			<pre class="source-code">
+func main() {
+    balls := make(chan string)
+    go throwBalls("red", balls)
+    go throwBalls("green", balls)
+    fmt.Println(&lt;-balls, "received!")
+}</pre>			<p>The output shows just one ball being received. <span class="No-Break">What happened?</span></p>
+			<pre class="console">
+throwing the red ball
+red received!</pre>			<p class="callout-heading">Red or green?</p>
+			<p class="callout">Since we’re launching more than one goroutine, the scheduler will elect arbitrarily what should execute first. Therefore, you can see green or red randomly running <span class="No-Break">the code.</span></p>
+			<p>We can fix the issue by putting in one more <strong class="source-inline">print</strong> statement received from <span class="No-Break">the channel:</span></p>
+			<pre class="source-code">
+func main() {
+    balls := make(chan string)
+    go throwBalls("red", balls)
+    go throwBalls("green", balls)
+    fmt.Println(&lt;-balls, "received!")
+    fmt.Println(&lt;-balls, "received!")
+}</pre>			<p>Although it works, it’s <a id="_idIndexMarker069"/>not the most elegant solution. We could have <a id="_idIndexMarker070"/>trouble with deadlocks again if we have more receivers <span class="No-Break">than senders:</span></p>
+			<pre class="source-code">
+func main() {
+    balls := make(chan string)
+    go throwBalls("red", balls)
+    go throwBalls("green", balls)
+    fmt.Println(&lt;-balls, "received!")
+    fmt.Println(&lt;-balls, "received!")
+    fmt.Println(&lt;-balls, "received!")
+}</pre>			<p>The last print will await forever, causing <span class="No-Break">another deadlock.</span></p>
+			<p>If we want to make code work with any number of balls, we should stop adding more and more lines and replace them all with the <span class="No-Break"><strong class="source-inline">range</strong></span><span class="No-Break"> keyword.</span></p>
+			<h3>Iterating over a channel</h3>
+			<p>The mechanism<a id="_idIndexMarker071"/> used to iterate over the values sent through a channel is the <span class="No-Break"><strong class="source-inline">range</strong></span><span class="No-Break"> keyword.</span></p>
+			<p>Let’s change the code to iterate over the <span class="No-Break">channel values:</span></p>
+			<pre class="source-code">
+func main() {
+    balls := make(chan string)
+    go throwBalls("red", balls)
+    go throwBalls("green", balls)
+    for color := range balls {
+         fmt.Println(color, "received!")
+    }
+}</pre>			<p>We can happily check the console to see the balls received elegantly, but wait – all the goroutines are asleep! <span class="No-Break">Deadlock again?</span></p>
+			<p>This error occurs <a id="_idIndexMarker072"/>when we iterate over channels and the range expects a channel to be closed to stop <span class="No-Break">the iteration.</span></p>
+			<h3>Closing a channel</h3>
+			<p>To close a channel, we<a id="_idIndexMarker073"/> need to call the built-in <strong class="source-inline">close</strong> function, passing <span class="No-Break">the channel:</span></p>
+			<pre class="console">
+close(balls)</pre>			<p>OK, we can now guarantee that the channel is closed. Let’s change the code by adding the <strong class="source-inline">close</strong> call between the senders <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">range</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+go throwBalls("green", balls)
+close(balls)
+for color := range balls {</pre>			<p>You may have noticed that if the range stops when the channel is closed, with this code, the range will never run once the channel <span class="No-Break">has closed.</span></p>
+			<p>We need to<a id="_idIndexMarker074"/> orchestrate this group of tasks, and yes, you’re right – we’re using <strong class="source-inline">WaitGroup</strong> to save us again. This time, we don’t want to taint the <strong class="source-inline">throwBalls</strong> signature to receive our <strong class="source-inline">WaitGroup</strong>, so we’ll create inline anonymous functions to keep our functions unaware of the concurrency. Additionally, we want to close the channel when we have the guarantee that all <a id="_idTextAnchor078"/>the tasks are done. We infer this with the <strong class="source-inline">Wait()</strong> method from <span class="No-Break">our </span><span class="No-Break"><strong class="source-inline">WaitGroup</strong></span><span class="No-Break">.</span></p>
+			<p>Here is our <span class="No-Break"><strong class="source-inline">main</strong></span><span class="No-Break"> function:</span></p>
+			<pre class="source-code">
+func main() {
+    balls := make(chan string)
+    wg := sync.WaitGroup{}
+    wg.Add(2)
+    go func() {
+        defer wg.Done()
+        throwBalls("red", balls)
+    }()
+    go func() {
+        defer wg.Done()
+        throwBalls("green", balls)
+    }()
+    go func() {
+        wg.Wait()
+        close(balls)
+    }()
+    for color := range balls {
+        fmt.Println(color, "received!")
+    }
+}</pre>			<p>Phew! This<a id="_idIndexMarker075"/> time, the output is <span class="No-Break">correctly shown:</span></p>
+			<pre class="console">
+throwing the green ball
+green received!
+throwing the red ball
+red received!</pre>			<p>What a ride, huh? But wait! We still need to explore the <span class="No-Break">buffered channels!</span></p>
+			<h2 id="_idParaDest-44"><a id="_idTextAnchor079"/>Buffered channels</h2>
+			<p>It’s <span class="No-Break">analogy time!</span></p>
+			<p>These are the <a id="_idIndexMarker076"/>channels where <a id="_idIndexMarker077"/>clowns come into play! Imagine a clown car with a limited number of seats (capacity). Clowns (senders) can hop in and out of the car, dropping juggling balls (data) <span class="No-Break">into it.</span></p>
+			<p>We want to create a program with buffered channels that simulate a circus car ride, where clowns try to get into a clown car (limited to three clowns at a time) with balloons. The driver controls the car and manages the clowns’ rides while the clowns attempt to get in. If the car is full, they wait and print a message. After all the clowns are done, the program waits for the car driver to finish and then prints that the circus car ride <span class="No-Break">is over.</span></p>
+			<p>If a clown tries to stuff too many juggling balls into the car, it’s as hilarious as a car overflowing with clowns and juggling balls, creating a <span class="No-Break">comical spectacle!</span></p>
+			<p>First, let’s create the program structure to receive our senders <span class="No-Break">and receivers:</span></p>
+			<pre class="source-code">
+package main
+import (
+    "fmt"
+    "sync"
+    "time"
+)
+func main() {
+    clownChannel := make(chan int, 3)
+    clowns := 5
+    // senders and receivers logic here!
+    var wg sync.WaitGroup
+    wg.Wait()
+    fmt.Println("Circus car ride is over!")
+}</pre>			<p>Here is<a id="_idIndexMarker078"/> the<a id="_idIndexMarker079"/> driver’s <span class="No-Break">goroutine (receiver):</span></p>
+			<pre class="source-code">
+go func() {
+        defer close(clownChannel)
+        for clownID := range clownChannel {
+            balloon := fmt.Sprintf("Balloon %d", clownID)
+            fmt.Printf("Driver: Drove the car with %s inside\n", balloon)
+            time.Sleep(time.Millisecond * 500)
+            fmt.Printf("Driver: Clown finished with %s, the car is ready for more!\n", balloon)
+        }
+    }()</pre>			<p>We <a id="_idIndexMarker080"/>add the<a id="_idIndexMarker081"/> clown logic (sender) just below the <span class="No-Break">rider’s block:</span></p>
+			<pre class="source-code">
+for clown := 1; clown &lt;= clowns; clown++ {
+    wg.Add(1)
+    go func(clownID int) {
+        defer wg.Done()
+        balloon := fmt.Sprintf("Balloon %d", clownID)
+        fmt.Printf("Clown %d: Hopped into the car with %s\n", clownID, balloon)
+        select {
+            case clownChannel &lt;- clownID:
+                fmt.Printf("Clown %d: Finished with %s\n", clownID, balloon)
+            default:
+                fmt.Printf("Clown %d: Oops, the car is full, can't fit %s!\n", clownID, balloon)
+        }
+    }(clown)
+}</pre>			<p>Running <a id="_idIndexMarker082"/>the code, we can see all the trouble that the clowns <span class="No-Break">are </span><span class="No-Break"><a id="_idIndexMarker083"/></span><span class="No-Break">making:</span></p>
+			<pre class="console">
+Clown 1: Hopped into the car with Balloon 1
+Clown 1: Finished with Balloon 1
+Driver: Drove the car with Balloon 1 inside
+Clown 2: Hopped into the car with Balloon 2
+Clown 2: Finished with Balloon 2
+Clown 5: Hopped into the car with Balloon 5
+Clown 5: Finished with Balloon 5
+Clown 3: Hopped into the car with Balloon 3
+Clown 3: Finished with Balloon 3
+Clown 4: Hopped into the car with Balloon 4
+Clown 4: Oops, the car is full, can't fit Balloon 4!
+Circus car ride is over!</pre>			<p class="callout-heading">select</p>
+			<p class="callout">The <strong class="source-inline">select</strong> statement allows us to wait on multiple communication channels and select the first one that becomes ready, effectively allowing us to perform non-blocking operations <span class="No-Break">on channels.</span></p>
+			<p>When working with channels, it’s easy to get caught up in comparing message queues and channels, but there may be better ways to understand them. The channel internals are ring buffers, and this information can be confusing and unhelpful when choosing the program design. By prioritizing an understanding of signaling and the guaranteed delivery of messages, you’d be better equipped to work efficiently <span class="No-Break">with channels.</span></p>
+			<h1 id="_idParaDest-45"><a id="_idTextAnchor080"/>The guarantee of delivery</h1>
+			<p>The main difference between buffered and<a id="_idIndexMarker084"/> unbuffered channels is the guarantee <span class="No-Break">of delivery.</span></p>
+			<p>As we saw earlier, the unbuffered channels always guarantee delivery, since they only send a message when the receiver is ready. Conversely, the buffered channels can’t ensure message delivery because they can “buffer” an arbitrary number of messages before the synchronization step becomes mandatory. Therefore, the reader could fail to read a message from the <span class="No-Break">channel buffer.</span></p>
+			<p>The most considerable side effect of choosing between them is how much latency you can afford to introduce to <span class="No-Break">your program.</span></p>
+			<h2 id="_idParaDest-46"><a id="_idTextAnchor081"/>Latency</h2>
+			<p>Latency in the <a id="_idIndexMarker085"/>context of concurrent programming refers to the time it takes for a piece of data to travel from a sender (goroutine) to a receiver (goroutine) through <span class="No-Break">a channel.</span></p>
+			<p>In Go channels, latency is influenced by <span class="No-Break">several factors:</span></p>
+			<ul>
+				<li><strong class="bold">Buffering</strong>: Buffering can reduce latency when the sender and receiver are not <span class="No-Break">perfectly synchronized.</span></li>
+				<li><strong class="bold">Blocking</strong>: Unbuffered channels block the sender and receiver until they are ready to communicate, leading to potentially higher latency. Buffered channels allow the sender to continue without immediate synchronization, potentially <span class="No-Break">reducing latency.</span></li>
+				<li><strong class="bold">Goroutine scheduling</strong>: The latency in channel communication also depends on how the Go runtime schedules goroutines. Factors such as the number of available CPU cores and the scheduling algorithm influence how quickly goroutines can <span class="No-Break">be executed.</span></li>
+			</ul>
+			<h3>Choosing a channel type</h3>
+			<p>As a rule of thumb, we consider an<a id="_idIndexMarker086"/> unbuffered channel a strong choice for the <span class="No-Break">following scenarios:</span></p>
+			<ul>
+				<li><strong class="bold">Guaranteed delivery</strong>: Provide a guarantee that the value being sent is received by another goroutine. This is especially useful in scenarios where you need to ensure data integrity and that no data <span class="No-Break">is lost.</span></li>
+				<li><strong class="bold">One-to-one communication</strong>: Unbuffered channels are best suited for one-to-one communication <span class="No-Break">between goroutines.</span></li>
+				<li><strong class="bold">Load balancing</strong>: Unbuffered channels can be used to implement load-balancing patterns, ensuring<a id="_idIndexMarker087"/> that work is distributed evenly among <span class="No-Break">worker goroutines.</span></li>
+			</ul>
+			<p>Conversely, buffered channels<a id="_idIndexMarker088"/> offer <span class="No-Break">the following:</span></p>
+			<ul>
+				<li><strong class="bold">Asynchronous communication</strong>: Buffered channels allow for asynchronous communication between goroutines. When sending data on a buffered channel, the sender won’t block until the data is received, if there is space in the channel’s buffer. This can improve throughput in <span class="No-Break">certain scenarios.</span></li>
+				<li><strong class="bold">Reducing contention</strong>: In scenarios where you have multiple senders and receivers, using a buffered channel can reduce contention. For example, in a producer-consumer pattern, you can use a buffered channel to allow producers to keep producing without waiting for consumers to <span class="No-Break">catch up.</span></li>
+				<li><strong class="bold">Preventing deadlocks</strong>: Buffered channels can help prevent goroutine deadlocks by allowing a certain level of buffering, which can be useful when you have unpredictable variations in <span class="No-Break">a workload.</span></li>
+				<li><strong class="bold">Batch processing</strong>: Buffered channels can be used for batch processing or pipelining where data is produced at one rate and consumed at <span class="No-Break">another rate.</span></li>
+			</ul>
+			<p>Now that we’ve covered the key aspects of latency and how it impacts channel communication in concurrent programming, let’s shift our focus to another critical aspect – state and signaling. Understanding the semantics of state and signaling is essential to avoid common pitfalls and make informed <span class="No-Break">design decisions.</span></p>
+			<h1 id="_idParaDest-47"><a id="_idTextAnchor082"/>State and signaling</h1>
+			<p>Exploring the semantics of state and signaling puts you ahead of the curve in avoiding more straightfo<a id="_idTextAnchor083"/>rward bugs or making good <span class="No-Break">design choices.</span></p>
+			<h2 id="_idParaDest-48"><a id="_idTextAnchor084"/>State</h2>
+			<p>Although Go eased the adoption <a id="_idIndexMarker089"/>of concurrency with channels, there are some characteristics <span class="No-Break">and pitfalls.</span></p>
+			<p>We should remember that channels have three states – nil, open (empty, not empty), and closed. These states strongly relate to what we can and cannot do with channels, whether from the sender’s or <span class="No-Break">receiver’s perspective.</span></p>
+			<p>Consider a channel when you want to <span class="No-Break">read from:</span></p>
+			<ul>
+				<li>Reading to a <strong class="source-inline">write-only</strong> channel results in a <span class="No-Break">compilation error</span></li>
+				<li>If the channel is <strong class="source-inline">nil</strong>, reading from it indefinitely blocks your goroutine until it <span class="No-Break">is initialized</span></li>
+				<li>Reading will be blocked in an <strong class="source-inline">open</strong> and <strong class="source-inline">empty</strong> channel until data <span class="No-Break">is available</span></li>
+				<li>In an <strong class="source-inline">open</strong> and <strong class="source-inline">not empty</strong> channel, reading will <span class="No-Break">return data</span></li>
+				<li>If the channel is <strong class="source-inline">closed</strong>, reading it will return the default value for its type and <strong class="source-inline">false</strong> to <span class="No-Break">indicate closure</span></li>
+			</ul>
+			<p>Writing also has <span class="No-Break">its nuances:</span></p>
+			<ul>
+				<li>Writing to a <strong class="source-inline">read-only</strong> channel results in a <span class="No-Break">compilation error</span></li>
+				<li>Writing to a <strong class="source-inline">nil</strong> channel block until <span class="No-Break">it’s initialized</span></li>
+				<li>Writing to an <strong class="source-inline">open</strong> and <strong class="source-inline">full</strong> channel blocks until <span class="No-Break">there’s space</span></li>
+				<li>In an <strong class="source-inline">open</strong> and <strong class="source-inline">not full</strong> channel, writing <span class="No-Break">is successful</span></li>
+				<li>Writing on a <strong class="source-inline">closed</strong> channel leads to <span class="No-Break">a panic</span></li>
+			</ul>
+			<p>Closing a channel depends on <span class="No-Break">its state:</span></p>
+			<ul>
+				<li>Closing an <strong class="source-inline">open channel with data</strong> allows reads until drained, and then returns the <span class="No-Break">default value.</span></li>
+				<li>Closing an <strong class="source-inline">open empty channel</strong> immediately closes it, and reads also return the <span class="No-Break">default value.</span></li>
+				<li>Attempting to close an <strong class="source-inline">already closed channel</strong> results in <span class="No-Break">a </span><span class="No-Break"><strong class="source-inline">panic</strong></span><span class="No-Break">.</span></li>
+				<li>Closing a<a id="_idIndexMarker090"/> read-only channel results in a <span class="No-Break">compilation error.</span></li>
+			</ul>
+			<h2 id="_idParaDest-49"><a id="_idTextAnchor085"/>Signaling</h2>
+			<p>Signaling between <a id="_idIndexMarker091"/>goroutines is an everyday use case for channels. You can use channels to coordinate and synchronize the execution of different goroutines by sending signals or messages <span class="No-Break">between them.</span></p>
+			<p>Here is a simple example of how to use a Go channel to signal between <span class="No-Break">two goroutines:</span></p>
+			<pre class="source-code">
+package main
+import (
+    "fmt"
+    "sync"
+)
+func main() {
+    signalChannel := make(chan bool)
+    var wg sync.WaitGroup
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        fmt.Println("Goroutine 1 is waiting for a signal...")
+        &lt;-signalChannel
+        fmt.Println("Goroutine 1 received the signal and is now doing something.")
+    }()
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        fmt.Println("Goroutine 2 is about to send a signal.")
+        signalChannel &lt;- true
+        fmt.Println("Goroutine 2 sent the signal.")
+    }()
+    wg.Wait()
+    fmt.Println("Both goroutines have finished.")
+}</pre>			<p>In this snippet, we create<a id="_idIndexMarker092"/> a channel called <strong class="source-inline">signalChannel</strong> to signal between the two goroutines. <strong class="source-inline">Goroutine 1</strong> waits for a signal on the channel using <strong class="source-inline">&lt;-signalChannel</strong>, and <strong class="source-inline">Goroutine 2</strong> sends a signal using <strong class="source-inline">signalChannel &lt;- </strong><span class="No-Break"><strong class="source-inline">true</strong></span><span class="No-Break">.</span></p>
+			<p>The <strong class="source-inline">sync.WaitGroup</strong> ensures that we wait for both goroutines to finish before printing <strong class="source-inline">"Both goroutines </strong><span class="No-Break"><strong class="source-inline">have finished."</strong></span><span class="No-Break">.</span></p>
+			<p>When you run this program, you’ll see that <strong class="source-inline">Goroutine 1</strong> waits for the signal from <strong class="source-inline">Goroutine 2</strong> and then proceeds with <span class="No-Break">its task.</span></p>
+			<p>Go channels are a flexible way to synchronize and coordinate complex interactions between goroutines. They can be used to implement concurrency patterns producer-consumer <span class="No-Break">or fan-out/fan-in.</span></p>
+			<h2 id="_idParaDest-50"><a id="_idTextAnchor086"/>Choosing your synchronization mechanism</h2>
+			<p>Are channels always the<a id="_idIndexMarker093"/> answer? Definitely not! We can use mutexes or channels to solve the same problem. How do we choose? Prefer pragmatism. When mutexes make your solution easy to read and maintain, don’t think twice and go <span class="No-Break">with mutexes!</span></p>
+			<p>If you have trouble choosing between them, here is an <span class="No-Break">opinionated guideline.</span></p>
+			<p>Use channels when you need to do <span class="No-Break">the following:</span></p>
+			<ul>
+				<li>Pass the ownership <span class="No-Break">of data</span></li>
+				<li>Distribute units <span class="No-Break">of work</span></li>
+				<li>Communicate results in an <span class="No-Break">asynchronous way</span></li>
+			</ul>
+			<p>Use mutexes when you’re handling <span class="No-Break">the following:</span></p>
+			<ul>
+				<li><span class="No-Break">Caches</span></li>
+				<li><span class="No-Break">Shared state</span></li>
+			</ul>
+			<p>Alright, let’s wrap things up and recap what we’ve covered in <span class="No-Break">this chapter.</span></p>
+			<h1 id="_idParaDest-51"><a id="_idTextAnchor087"/>Summary</h1>
+			<p>In this chapter, we learned about the functioning of goroutines, their simplicity, and the importance of synchronization using <strong class="source-inline">WaitGroup</strong>. We also became aware of the difficulties in managing shared state, using a warehouse analogy to explain data races. Additionally, we were introduced to Go’s race detection tool to identify race conditions, the significance of communication channels, and their <span class="No-Break">potential pitfalls.</span></p>
+			<p>Now that our concurrency knowledge is refreshed, let’s explore in the next chapter interactions with an operational system using <span class="No-Break">system calls.</span></p>
+		</div>
+	</div>
+</div>
+
+
+<div id="book-content">
+<div id="sbo-rt-content"><div id="_idContainer009" class="Content">
+			<h1 id="_idParaDest-52" lang="en-US" xml:lang="en-US"><a id="_idTextAnchor088"/>Part 2: Interaction with the OS</h1>
+			<p>In this part, we will delve into system-level programming concepts using Go. You will explore inter-process communication (IPC) mechanisms, system event handling, file operations, and Unix sockets. This section provides practical examples and detailed explanations to equip you with the knowledge and skills to build robust and efficient <span class="No-Break">system-level applications.</span></p>
+			<p>This part has the <span class="No-Break">following chapters:</span></p>
+			<ul>
+				<li><a href="B21662_03.xhtml#_idTextAnchor089"><em class="italic">Chapter 3</em></a>, <em class="italic">Understanding System Calls</em></li>
+				<li><a href="B21662_04.xhtml#_idTextAnchor110"><em class="italic">Chapter 4</em></a>, <em class="italic">File and Directories operations</em></li>
+				<li><a href="B21662_05.xhtml#_idTextAnchor126"><em class="italic">Chapter 5</em></a>, <em class="italic">Working with System Events</em></li>
+				<li><a href="B21662_06.xhtml#_idTextAnchor145"><em class="italic">Chapter 6</em></a>, <em class="italic">Understanding Pipes in Inter-Process Communication</em></li>
+				<li><a href="B21662_07.xhtml#_idTextAnchor160"><em class="italic">Chapter 7</em></a>, <em class="italic">Unix Sockets</em></li>
+			</ul>
+		</div>
+		<div>
+			<div id="_idContainer010">
+			</div>
+		</div>
+	</div>
+</div>
+</body></html>

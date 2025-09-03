@@ -1,0 +1,123 @@
+<html><head></head><body>
+<div class="book" title="Chapter&#xA0;10.&#xA0;Concurrency Patterns - Workers Pool and Publish/Subscriber Design Patterns">
+<div class="book" title="Workers pool">
+<div class="book" title="Implementation"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_6"><a id="ch10lvl2sec0236" class="calibre1"/>Implementation</h2></div></div></div><p class="calibre10">The very beginning is a request type. According to the description, it must hold the string that will enter the pipeline as well as the handler function:</p><pre class="programlisting">   // workers_pipeline.go file 
+    type Request struct { 
+          Data    interface{} 
+          Handler RequestHandler 
+    } 
+</pre><p class="calibre10">Where is the <code class="email">return</code>? We have a <code class="email">Data</code> field of type <code class="email">interface{}</code> so we can use it to pass a string. By using an interface, we can reuse this type for a <code class="email">string</code>, an <code class="email">int</code>, or a <code class="email">struct</code> data type. The receiver is the one who must know how to deal with the incoming interface.</p><p class="calibre10">The <code class="email">Handler</code> field has the type <code class="email">Request</code> handler, which we haven't defined yet:</p><pre class="programlisting">type RequestHandler func(interface{}) 
+</pre><p class="calibre10">A request handler is any function that accepts an interface as its first argument, and returns nothing. Again, we see the <code class="email">interface{}</code>, where we would usually see a string. This is one of the receivers we mentioned previously, which we'll need to cast the incoming result.</p><p class="calibre10">So, when sending a request, we must fill it with some value in the <code class="email">Data</code> field and implement a handler; for example:</p><pre class="programlisting">func NewStringRequest(s string, id int, wg *sync.WaitGroup) Request { 
+    return := Request{ 
+        Data: "Hello", Handler: func(i interface{})
+        { 
+            defer wg.Done() 
+            s, ok := i.(string) 
+                if !ok{ 
+                    log.Fatal("Invalid casting to string") 
+                 } 
+             fmt.Println(s) 
+         } 
+    } 
+} 
+</pre><p class="calibre10">The handler is defined by using a closure. We again check the type if the interface (and we defer the call to the <code class="email">Done()</code> method at the end). In case of an improper interface, we simply print its contents and return. If the casting is OK, we also print them, but here is where we will usually do something with the result of the operation; we have to use type casting to retrieve the contents of the <code class="email">interface{}</code> (which is a string). This must be done in every step in the pipeline, although it will introduce a bit of overhead.</p><p class="calibre10">Now we need a type that can handle <code class="email">Request</code> types. Possible implementations are virtually infinite, so it is better to define an interface first:</p><pre class="programlisting">   // worker.go file 
+    type WorkerLauncher interface { 
+        LaunchWorker(in chan Request) 
+    } 
+</pre><p class="calibre10">The <code class="email">WorkerLauncher</code> interface must implement only the <code class="email">LaunchWorker(chan Request)</code> method. Any type that implements this interface will have to receive a channel of <code class="email">Request</code> type to satisfy it. This channel of the <code class="email">Request</code> type is the single entrance point to the pipeline.</p><div class="book" title="The dispatcher"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch10lvl3sec08" class="calibre1"/>The dispatcher</h3></div></div></div><p class="calibre10">Now, to launch workers in parallel and handle all the possible incoming channels, we'll need something like a dispatcher:</p><pre class="programlisting">   // dispatcher.go file 
+    type Dispatcher interface { 
+        LaunchWorker(w WorkerLauncher) 
+        MakeRequest(Request) 
+        Stop() 
+    } 
+</pre><p class="calibre10">A <code class="email">Dispatcher</code> interface can launch an injected <code class="email">WorkerLaunchers</code> type in its own <code class="email">LaunchWorker</code> method. The <code class="email">Dispatcher</code> interface must use the <code class="email">LaunchWorker</code> method of any of the <code class="email">WorkerLauncher</code> types to initialize a pipeline. This way we can reuse the <code class="email">Dispatcher</code> interface to launch many types of <code class="email">WorkerLaunchers</code>.</p><p class="calibre10">When using <code class="email">MakeRequest(Request)</code>, the <code class="email">Dispatcher</code> interface exposes a nice method to inject a new <code class="email">Request</code> into the workers pool.</p><p class="calibre10">Finally, the user must call stop when all Goroutines must be finished. We must handle graceful shutdown in our apps, and we want to avoid Goroutine leaks.</p><p class="calibre10">We have enough interfaces, so let's start with the dispatcher which is a bit less complicated:</p><pre class="programlisting">    type dispatcher struct { 
+        inCh chan Request 
+    } 
+</pre><p class="calibre10">Our <code class="email">dispatcher</code> structure stores a channel of <code class="email">Request</code> type in one of its fields. This is going to be the single point of entrance for requests in any pipeline. We said that it must implement three methods, as follows:</p><pre class="programlisting">    func (d *dispatcher) LaunchWorker(id int, w WorkerLauncher) { 
+        w.LaunchWorker(d.inCh) 
+    } 
+ 
+    func (d *dispatcher) Stop(){ 
+        close(d.inCh) 
+    } 
+ 
+    func (d *dispatcher) MakeRequest(r Request) { 
+        d.inCh &lt;- r 
+    } 
+</pre><p class="calibre10">In this example, the <code class="email">Dispatcher</code> interface doesn't need to do anything special to itself before launching a worker, so the <code class="email">LaunchWorker</code> method on the <code class="email">Dispatcher</code> simply executes the <code class="email">LaunchWorker</code> method of the incoming <code class="email">WorkerLauncher,</code>which also has a <code class="email">LaunchWorker</code> method to initiate itself. We have previously defined that a <code class="email">WorkerLauncher</code> type needs at least an ID and a channel for incoming requests, so that's what we are passing through.</p><p class="calibre10">It may seem unnecessary to implement the <code class="email">LaunchWorker</code> method in the <code class="email">Dispatcher</code> interface. In different scenarios, it could be interesting to save running worker IDs in the dispatcher to control which ones are up or down; the idea is to hide launching implementation details. In this case, the <code class="email">Dispatcher</code> interface is merely acting as a Facade design pattern hiding some implementation details from the user.</p><p class="calibre10">The second method is <code class="email">Stop</code>. It closes the incoming requests channel, provoking a chain reaction. We saw in the pipeline example that, when closing the incoming channel, each for-range loop within the Goroutines breaks and the Goroutine is also finished. In this case, when closing a shared channel, it will provoke the same reaction, but in every listening Goroutine, so all pipelines will be stopped. Cool, huh?</p><p class="calibre10">Request implementation is very simple; we just pass the request in the argument to the channel of incoming requests. The Goroutine will block there forever until the opposite end of the channel retrieves the request. Forever? That seems like a lot if something happens. We can introduce a timeout, as follows:</p><pre class="programlisting">    func (d *dispatcher) MakeRequest(r Request) { 
+        select { 
+        case d.inCh &lt;- r: 
+        case &lt;-time.After(time.Second * 5): 
+            return 
+        } 
+    } 
+</pre><p class="calibre10">If you remember from previous chapters, we can use select to control which operation is performed over a channel. Like a <code class="email">switch</code> case, just one operation can be executed. In this case, we have two different operations: sending and receiving.</p><p class="calibre10">The first case is a sending operation--try to send this, and it will block there until someone takes the value in the opposite side of the channel. Not a huge improvement, then. The second case is a receiving operation; it will be triggered after 5 seconds if the upper request can't be sent successfully, and the function will return. It would be very convenient to return an error here, but to make things simple, we will leave it empty</p><p class="calibre10">Finally, in the dispatcher, for convenience, we will define a <code class="email">Dispatcher</code> creator:</p><pre class="programlisting">    func NewDispatcher(b int) Dispatcher { 
+        return &amp;dispatcher{ 
+            inCh:make(chan Request, b), 
+        } 
+    } 
+</pre><p class="calibre10">By using this function instead of creating the dispatcher manually, we can simply avoid small mistakes, such as forgetting to initialize the channel field. As you can see, the <code class="email">b</code> argument refers to the buffer size in the channel.</p></div><div class="book" title="The pipeline"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch10lvl3sec09" class="calibre1"/>The pipeline</h3></div></div></div><p class="calibre10">So, our dispatcher is done and we need to develop the pipeline described in the acceptance criteria. First, we need a type to implement the <code class="email">WorkerLauncher</code> type:</p><pre class="programlisting">   // worker.go file 
+    type PreffixSuffixWorker struct { 
+        id int 
+        prefixS string 
+        suffixS string 
+    } 
+ 
+    func (w *PreffixSuffixWorker) LaunchWorker(i int, in chan Request) {} 
+</pre><p class="calibre10">The <code class="email">PreffixSuffixWorker</code> variable stores an ID, a string to prefix, and another string to suffix the incoming data of the <code class="email">Request</code> type. So, the values to prefix and append will be static in these fields, and we will take them from there.</p><p class="calibre10">We will implement the <code class="email">LaunchWorker</code> method later and begin with each step in the pipeline. According to <span class="strong"><em class="calibre11">first acceptance criteria</em></span>, the incoming string must be uppercase. So, the uppercase method will be the first step in our pipeline:</p><pre class="programlisting">    func (w *PreffixSuffixWorker) uppercase(in &lt;-chan Request) &lt;-chan Request { 
+        out := make(chan Request) 
+ 
+        go func() { 
+            for msg := range in { 
+                s, ok := msg.Data.(string) 
+              
+                if !ok { 
+                    msg.handler(nil) 
+                    continue 
+                } 
+              
+                msg.Data = strings.ToUpper(s) 
+              
+                out &lt;- msg 
+            } 
+ 
+            close(out) 
+        }() 
+ 
+        return out 
+    } 
+</pre><p class="calibre10">Good. As in the previous chapter, a step in the pipeline accepts a channel of incoming data and returns a channel of the same type. It has a very similar approach to the examples we developed in the previous chapter. This time, though, we aren't using package functions, and uppercase is part of the <code class="email">PreffixSuffixWorker</code> type and the incoming data is a <code class="email">struct</code> instead of an <code class="email">int</code>.</p><p class="calibre10">The <code class="email">msg</code> variable is a <code class="email">Request</code> type and it will have a handler function and data in the form of an interface. The <code class="email">Data</code> field should be a string, so we type cast it before using it. When type casting a value, we will receive the same value with the requested type and a <code class="email">true</code> or <code class="email">false</code> flag (represented by the <code class="email">ok</code> variable). If the <code class="email">ok</code> variable is <code class="email">false</code>, the cast could not be done and we won't throw the value down the pipeline. We stop this <code class="email">Request</code> here by sending a <code class="email">nil</code> to the handler (which will also provoke a type-casting error).</p><p class="calibre10">Once we have a nice string in the <code class="email">s</code> variable, we can uppercase it and store it again in the <code class="email">Data</code> field to send down the pipeline to the next step. Be aware that the value will be sent as an interface again, so the next step will need to cast it again. This is the downside of using this approach.</p><p class="calibre10">With the first step done, let's continue with the second. According to the <span class="strong"><em class="calibre11">second acceptance criteria</em></span> now, a predefined text must be appended. This text is the one stored in the <code class="email">suffixS</code> field:</p><pre class="programlisting">func (w *PreffixSuffixWorker) append(in &lt;-chan Request) &lt;-chan Request { 
+    out := make(chan Request) 
+    go func() { 
+        for msg := range in { 
+        uppercaseString, ok := msg.Data.(string) 
+                
+        if !ok { 
+            msg.handler(nil) 
+            continue 
+            } 
+        msg.Data = fmt.Sprintf("%s%s", uppercaseString, w.suffixS) 
+        out &lt;- msg 
+        } 
+        close(out) 
+    }() 
+    return out 
+} 
+</pre><p class="calibre10">The <code class="email">append</code> function has the same structure as the <code class="email">uppercase</code> function. It receives and returns a channel of incoming requests, and launches a new Goroutine that iterates over the incoming channel until it is closed. We need to type cast the incoming value, as mentioned previously.</p><p class="calibre10">In this step in the pipeline the incoming string is uppercase (after doing a type assertion). To append any text to it, we just need to use the <code class="email">fmt.Sprintf()</code> function, as we have done many times before, which formats a new string with the provided data. In this case, we pass the value of the <code class="email">suffixS</code> field as the second value, to append it to the end of the string.</p><p class="calibre10">Just the last step in the pipeline is missing, the prefix operation:</p><pre class="programlisting">    func (w *PreffixSuffixWorker) prefix(in &lt;-chan Request) { 
+        go func() { 
+            for msg := range in { 
+                uppercasedStringWithSuffix, ok := msg.Data.(string) 
+              
+                if !ok { 
+                    msg.handler(nil) 
+                    continue 
+                } 
+ 
+                msg.handler(fmt.Sprintf("%s%s", w.prefixS, uppercasedStringWithSuffix)) 
+            } 
+        }() 
+    } 
+</pre><p class="calibre10">What's calling your attention in this function? Yes, it doesn't return any channel now. We could have done this entire pipeline in two ways. I suppose you have realized that we have used a <code class="email">Future</code> handler function to execute with the final result in the pipeline. A second approach would be to pass a channel to return the data back to its origin. In some cases, a Future would be enough, while in others it could be more convenient to pass a channel so that it can be connected to a different pipeline (for example).</p><p class="calibre10">In any case, the structure of a step in a pipeline must be very familiar to you already. We cast the value, check the result of the casting, and send nil to the handler if anything went wrong. But, in case everything was OK, the last thing to do is to format the text again to place the <code class="email">prefixS</code> field at the beginning of the text, to send the resulting string back to the origin by calling the request's handler.</p><p class="calibre10">Now, with our worker almost finished, we can implement the <code class="email">LaunchWorker</code> method:</p><pre class="programlisting">    func (w *PreffixSuffixWorker) LaunchWorker(in chan Request) { 
+        w.prefix(w.append(w.uppercase(in))) 
+    } 
+</pre><p class="calibre10">That's all for workers! We simply pass the returning channels to the next steps in the Pipeline, as we did in the previous chapter. Remember that the pipeline is executed from inside to outside of the calls. So, what's the order of execution of any incoming data to the pipeline?</p><div class="book"><ol class="orderedlist"><li class="listitem" value="1">The data enters the pipeline through the Goroutine launched in the <code class="email">uppercase</code> method.</li><li class="listitem" value="2">Then, it goes to the Goroutine launched in <code class="email">append</code>.</li><li class="listitem" value="3">Finally, in enters the Goroutine launched in <code class="email">prefix</code> method, which doesn't return anything but executes the handler after prefixing the incoming string with more data.</li></ol><div class="calibre12"/></div><p class="calibre10">Now we have a full pipeline and a dispatcher of pipelines. The dispatcher will launch as many instances of the pipelines as we want to route the incoming requests to any available worker.</p><p class="calibre10">If none of the workers takes the request within 5 seconds, the request is lost.</p><p class="calibre10">Let's use this library in a small app.</p></div></div></div></div></body></html>

@@ -1,0 +1,1269 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building, Packaging, and Deploying Software</h1>
+                </header>
+            
+            <article>
+                
+<div class="packt_quote">"Kubernetes is the Linux of distributed systems."</div>
+<div class="packt_quote CDPAlignRight CDPAlign"><span>– Kelsey Hightower</span></div>
+<p>This chapter will guide you through the steps involved in dockerizing Go programs and will iterate the best practices for building the smallest possible container image for your applications. Following this, this chapter will focus on Kubernetes.</p>
+<p>We'll begin our tour of Kubernetes by comparing the different types of nodes that comprise a Kubernetes cluster and take a closer look at the function of the various services that make up Kubernetes' control plane. Moving forward, we will be describing a step-by-step walkthrough for setting up a Kubernetes cluster on your local development machine. The last part of this chapter is a practical application of everything you have learned so far. We will bring all the components that we created in the previous chapters together, join them with a fully functioning frontend, and create a monolithic version of Links 'R' Us that we will then deploy on Kubernetes.</p>
+<p>The following topics will be covered in this chapter:</p>
+<ul>
+<li>Using intermediate build containers to compile static binaries for your Go applications</li>
+<li>Using the correct set of linker flags to ensure that Go binaries compile to the smallest possible size</li>
+<li>The anatomy of the components that comprise a Kubernetes cluster</li>
+<li>The different types of resource types supported by Kubernetes and their application</li>
+<li>Spinning up a Kubernetes cluster on your local workstation</li>
+<li>Building a monolithic version of the Links 'R' Us application using the components we developed in the previous chapters and deploying it on Kubernetes</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>The full code for the topics that will be discussed in this chapter has been published to this book's GitHub repository under the<span> </span><kbd>Chapter10</kbd> folder.</p>
+<div class="packt_infobox">You can access this book's GitHub repository, which contains the code and all the required resources for the chapters in this book, by pointing your web browser to the following URL: <a href="https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang">https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang</a>.</div>
+<p>To get you up and running as quickly as possible, each example project includes a<span> Makefile</span><span> </span><span>that defines the following set of targets</span><span>:</span></p>
+<table style="border-collapse: collapse;width: 100%" border="1">
+<tbody>
+<tr>
+<td><strong>Makefile target</strong></td>
+<td><strong>Description</strong></td>
+</tr>
+<tr class="odd">
+<td><kbd>deps</kbd></td>
+<td>Install any required dependencies.</td>
+</tr>
+<tr class="even">
+<td><kbd>test</kbd></td>
+<td>Run all tests and report coverage.</td>
+</tr>
+<tr class="odd">
+<td><kbd>lint</kbd></td>
+<td>Check for lint errors.</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>As with all the other chapters in this book, you will need a fairly recent version of Go, which you can download at<span> </span><a href="https://golang.org/dl">https://golang.org/dl</a><em>.</em></p>
+<p>To run some of the code in this chapter, you will need to have a working Docker <sup>[5]</sup> installation on your machine. Furthermore, a subset of the examples have been designed to run on Kubernetes <sup>[8]</sup>. If you don't have access to a Kubernetes cluster for testing, you can simply follow the instructions laid out in the following sections to set up a small cluster on your laptop or workstation.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building and packaging Go services using Docker</h1>
+                </header>
+            
+            <article>
+                
+<p>Over the last few years, more and more software engineers started using systems such as Docker to containerize their applications. Containers offer a simple and clean way to execute an application without having to worry about the underlying hardware or operating system. In other words, the same container image can run on your local development machine, a VM on the cloud, or even on a bare-metal server located in your company's data center.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Benefits of containerization</h1>
+                </header>
+            
+            <article>
+                
+<p>Other than portability, containerization offers a few more important benefits, both from a software engineering and DevOps perspective. To begin with, containers make it easy to deploy a new version of a piece of software and to effortlessly roll back the deployment if something goes wrong. Secondly, containerization introduces an extra layer of security; every application executes in complete isolation from not only other applications but also from the underlying host itself.</p>
+<p>Whenever a new container image is being built (for example, as part of a continuous integration pipeline), the target application gets packaged with an<span> </span><em>immutable</em><span> </span>copy of all the required dependencies for running it. As a result, when an engineer runs a particular container, they are guaranteed to run exactly the same binary as their other colleagues, whereas compiling and running the application locally could produce different results, depending on what compiler version or system libraries were installed on the development machine.</p>
+<p>To take this a step further, apart from containerizing our applications, we can also containerize the tools that are used to build them. This allows us to create<span> </span><strong>hermetic</strong><span> </span>builds and paves the way for supporting repeatable builds, whose benefits we have already enumerated in <a href="bdd8b231-e9fa-4522-8497-66d77231b7f3.xhtml">Chapter 3</a>, <em>Dependency Management</em>.</p>
+<div class="packt_infobox">When executing a hermetic build, the emitted binary artifact is not affected by any of the software or system libraries that are installed on the build machine. Instead, the build process uses pinned compiler and dependency versions to ensure that compiling the same snapshot (for example, a specific git SHA) of the code base will always produce the same, bit-by-bit identical binary.</div>
+<p class="mce-root"/>
+<p>In the next section, we will delve into the process of building Docker containers for your Go applications and explore a set of best practices for producing containers that are optimized for size.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Best practices for dockerizing Go applications</h1>
+                </header>
+            
+            <article>
+                
+<p>Go comes with built-in support for producing standalone, static binaries, making it an ideal candidate for containerization! Let's take a look at the best practices for building Docker containers for your Go applications.</p>
+<p>Since static Go binaries tend to be quite large, we must take extra steps to ensure that the containers we build do not include any of the build tools (for example, the Go compiler) that are used at build time. Unless you are using a really old version of Docker, your currently installed version will most likely support a feature known as <em>build containers</em>.</p>
+<p>A build container includes all the tools that are needed for compiling our Go application: the Go compiler and the Go standard library, git, tools for compiling protocol buffer definitions, and so on. We will be using the build compiler as an <em>intermediate</em> container for compiling and linking our application. Then, we will create a<span> </span><em>new</em><span> </span>container, copy the compiled binary over, and discard the build container.</p>
+<p>To understand how this process works, let's examine the Dockerfile for building the Links 'R' Us application that we will be building in the last part of this chapter. You can find the Dockerfile in the<span> </span><kbd>Chapter10/linksrus</kbd><span> </span>folder of this book's GitHub repository:</p>
+<div>
+<pre>FROM golang:1.13 AS builder
+
+<a>WORKDIR $GOPATH/src/github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang</a>
+<a>COPY . .</a>
+<a>RUN make deps</a>
+
+<a>RUN GIT_SHA=$(git rev-parse --short HEAD) &amp;&amp; \</a>
+<a>    CGO_ENABLED=0 GOARCH=amd64 GOOS=linux \</a>
+<a>    go build -a \</a>
+<a>    -ldflags "-extldflags '-static' -w -s -X main.appSha=$GIT_SHA" \</a>
+<a>    -o /go/bin/linksrus-monolith \</a>
+<a>    github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang/Chapter10/linksrus</a></pre></div>
+<p>The first line specifies the container that we will be using as the base for our build container. We can reference this container within the Dockerfile using the<span> </span><kbd>builder</kbd> alias. The rest of the commands from the preceding Dockerfile perform the following operations:</p>
+<ul>
+<li>The source files for the application are copied from the host into the build container. Note that we copy the<span> </span><strong>entire</strong><span> </span>book repository into the container to ensure that the<span> </span><kbd>make deps</kbd><span> </span>command can resolve all package imports from this book's repository and not try to download them from GitHub.</li>
+<li>The <kbd>make deps</kbd> command is invoked to fetch any external package dependencies.</li>
+<li>Finally, the Go compiler is invoked to compile the application and place the resulting binary in a known location (in this case, <kbd>/go/bin/linksrus-monolith</kbd>).</li>
+</ul>
+<p>Let's zoom in and explain what actually happens when the <kbd>go build</kbd> command is executed:</p>
+<ul>
+<li>The<span> </span><kbd>GIT_SHA</kbd><span> </span>environment variable is set to the short git SHA of the current commit. The<span> </span><kbd>-X main.appSha=$GIT_SHA</kbd><span> </span>linker flag overrides the value of the placeholder variable called<span> </span><kbd>appSha</kbd><span> </span>in the main package with the SHA value that we just calculated. We will be outputting the value of the<span> </span><kbd>appSha</kbd><span> </span>variable in the application logs to make it easy for operators to figure out which application version is currently deployed simply by tailing the logs.</li>
+<li>The<span> </span><kbd>CGO_ENABLED=0</kbd><span> </span>environment variable notifies the Go compiler that we won't be invoking any C code from our program and allows it to optimize away quite a bit of code from the final binary.</li>
+<li>The<span> </span><kbd>-static</kbd><span> </span>flag instructs the compiler to produce a static binary.</li>
+<li>Finally, the<span> </span><kbd>-w</kbd> and <kbd>-s</kbd><span> </span>flags instruct the Go linker to drop debug symbols (more specifically, the DWARF section and symbol information) from the final binary. This still allows you to get full stack traces in case of a panic but prevents you from attaching a debugger (for example, delve) to the binary. On the bright side, these flags will significantly reduce the total size of the final binary!</li>
+</ul>
+<p>The next section of the Dockerfile contains the steps for building the final container:</p>
+<div class="sourceCode">
+<pre class="sourceCode dockerfile"><a><span class="kw">FROM</span> alpine:3.10</a>
+<a><span class="kw">RUN</span> apk update &amp;&amp; apk add ca-certificates &amp;&amp; rm -rf /var/cache/apk/*</a>
+<a><span class="kw">COPY</span> --from=builder /go/bin/linksrus-monolith /go/bin/linksrus-monolith</a>
+
+<a><span class="kw">ENTRYPOINT</span> [<span class="st">"/go/bin/linksrus-monolith"</span>]</a></pre></div>
+<p>Since we know that the Links 'R' Us application will most probably be making TLS connections, we need to ensure that the final container image ships with the CA certificates for trusted authorities around the world. This is achieved by installing the<span> </span><kbd>ca-certificates</kbd><span> </span>package. To complete the build, we<span> </span><em>copy</em><span> </span>the compiled binary from the<span> </span><strong>build</strong><span> </span>container into the final container.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Selecting a suitable base container for your application</h1>
+                </header>
+            
+            <article>
+                
+<p>In the previous example, I chose to use<span> </span><em>Alpine</em><span> </span>as the base container for the application. So, why pick alpine over something more widely known, such as Ubuntu? The answer is size!</p>
+<p>The Alpine Linux<span> </span><sup><span class="citation">[1]</span></sup><span> </span>container is one of the smallest base containers you can find out there. It ships with a small footprint libc implementation (musl) and uses busybox as its shell. As a result, the total size of the alpine container is only 5 M, thus making it ideal for hosting our Go static binaries. Furthermore, it includes its own package manager (apk), which lets you install additional packages such as the ca-certificates or network tools while the final container is being built.</p>
+<p>What if we don't need this extra functionality, though? Is it possible to produce an application container that is even smaller? The answer is yes! We can use the special<span> </span><strong>scratch</strong><span> </span>container as our base container. As the name implies, the scratch container is literally empty... It has no root filesystem and only includes our application binary. However, it does come with a few caveats:</p>
+<ul>
+<li>It does not include any CA certificates, nor is there any way to install them besides copying them over from an intermediate build container. However, if your application or microservice will only communicate with services in a private subnet using non-TLS connections, this might not be a problem.</li>
+<li>The container does not include a shell. This makes it impossible to actually SSH into a running container for debugging purposes (for example, to check that DNS resolution works or to grep through log files).</li>
+</ul>
+<div class="packt_tip">My recommendation is to always use a tiny container such as alpine or something similar instead of the scratch container.</div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root">At this point, you should be able to apply the best practices we outlined in the previous sections and create space-efficient container images for your own Go applications. So, what's next? The next step is, of course, to deploy and scale your applications. As you probably suspect, we won't be doing this manually! Instead, we will be leveraging an existing, industrial-grade solution for managing containers at scale: Kubernetes.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">A gentle introduction to Kubernetes</h1>
+                </header>
+            
+            <article>
+                
+<p>Kubernetes<span> </span><sup><span class="citation">[8]</span></sup><span> </span>is an open source platform for managing containerized workloads that was built from the start with future extensibility in mind. It was originally released by Google back in 2014 and it encompasses both their insights and best practices for running large-scale, production-grade applications. Nowadays, it has eclipsed the managed container offerings of the most popular cloud providers and is en route to becoming the <em>de facto</em> standard for deploying applications on-premises and in the cloud.</p>
+<p>Describing Kubernetes in detail is not within the scope of this book. Instead, the goal of the following sections is to provide you with a brief introduction to Kubernetes and distill some of its basic concepts into an easily digestible format that conveys enough information to allow you to spin up a test cluster and deploy the Links 'R' Us project to it.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Peeking under the hood</h1>
+                </header>
+            
+            <article>
+                
+<p>Okay, so we have already mentioned that Kubernetes will do the heavy lifting and manage different types of containerized workloads for you. But how does this work under the hood? The following diagram illustrates the basic components that comprise a Kubernetes cluster:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/985bfbe5-58d9-4726-a105-e945048a2e56.png"/></p>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><span><span>Figure 1: A high-level overview of a Kubernetes cluster</span></span></div>
+<p>A Kubernetes cluster consists of two types of nodes:<span> </span><strong>masters</strong><span> </span>and<span> </span><strong>workers</strong>. These can be either physical or virtual machines. The master nodes implement the control plane for your cluster, whereas the worker nodes pool their resources together (CPUs, memory, disk, or even GPUs) and execute the workloads that are assigned to them by the master.</p>
+<p>Every master node runs the following processes:</p>
+<ul>
+<li>The<span> </span><strong>kube-api-server</strong>. You can think of this as an API gateway for allowing worker nodes and cluster operators to access the control plane for the cluster.</li>
+<li><strong>etcd</strong><span> </span>implements a key-value store where the cluster's current state is persisted. It also provides a convenient API that allows clients to watch a particular key or set of keys and receive a notification when their values change.</li>
+<li>The<span> </span><strong>scheduler</strong><span> </span>monitors the cluster state for incoming workloads and makes sure that every workload is assigned to one of the available worker nodes. If the workload requirements cannot be met by any of the worker nodes, the scheduler might opt to<span> </span><strong>reschedule</strong><span> </span>an existing workload to a different worker so as to make room for the incoming workload.</li>
+<li>The<span> </span><strong>cloud controller manager</strong><span> </span>handles all the necessary interactions with the underlying cloud substrate that hosts the cluster. Examples of such interactions include provisioning<span> </span><em>cloud-specific</em><span> </span>services, such as storage or load balancers, and creating or manipulating resources such as routing tables and DNS records.</li>
+</ul>
+<p>A production-grade Kubernetes cluster will typically be configured with multiple master nodes; the control plane manages the cluster state, so it is quite important for it to be<span> </span><em>highly available</em>. In such a scenario, data will be automatically replicated across the master nodes and DNS-based load balancing will be used to access the kube-api-server gateway.</p>
+<p>Now, let's take a look at the internals of a worker node. Given that Kubernetes manages containers, a key requirement is that each worker node provides a suitable container runtime. As you've probably guessed, the most commonly used runtime is Docker; however, Kubernetes will happily work with other types of container runtime interfaces, such as containerd<span> </span><sup><span class="citation">[4]</span></sup><span> </span>or rkt<span> </span><sup><span class="citation">[12]</span></sup>.</p>
+<p>Each and every workload that is scheduled on a particular worker node is executed in isolation within its container runtime. The minimum unit of work in Kubernetes is referred to as<span> a </span><strong>pod</strong>. Pods consist of one or<span> </span><em>more</em><span> </span>container images that are executed on the same worker instance. While single-container pods are the most typical, multi-container pods are also quite useful. For instance, we could deploy a pod that includes nginx and a sidecar container that monitors an external configuration source and regenerates the nginx configuration as needed. An application can be horizontally scaled by creating additional pod instances.</p>
+<p class="mce-root"/>
+<p>The worker nodes also run the following processes:</p>
+<ul>
+<li>The<span> </span><strong>kubelet</strong><span> </span>agent connects to the master's<span> </span><strong>api-server</strong><span> </span>and watches for workload assignments to the worker node it is running on. It ensures that the required containers are always up and running by automatically restarting them if they suddenly die.</li>
+<li>The<span> </span><strong>kube-proxy</strong><span> </span>works like a network proxy. It maintains a set of rules that control the routing of internal (cluster) or external traffic to the pods that are currently executing on the worker.</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summarizing the most common Kubernetes resource types</h1>
+                </header>
+            
+            <article>
+                
+<p>Operators interact with the Kubernetes cluster by creating, deleting, or otherwise manipulating different types of resources via a CRUD-like interface. Let's take a brief look at some of the most common Kubernetes resource types.</p>
+<p>It is quite rare to come across an application that doesn't require any sort of configuration. While we could definitely hardcode the configuration settings when we create our pods, this is generally considered to be bad practice and frankly becomes a major source of frustration when we need to change a configuration setting (for example, the endpoint for a database) that is shared between multiple applications. To alleviate this problem, Kubernetes offers the<span> </span><em>config map</em><span> </span>resource. Config maps are collections of key-value pairs that can be injected into pods either as environment variables or mounted as plain text files. This approach allows us to manage configuration settings at a single location and avoid hardcoding them when creating pods for our applications. Kubernetes also provides the<span> </span><strong>secret</strong><span> </span>resource, which works in a similar fashion to a config map but is meant to be used for sharing sensitive information such as certificate keys and service credentials between pods.</p>
+<p>A<span> </span><strong>namespace</strong><span> </span>resource works as a virtual container for logically grouping other Kubernetes resources and controlling access to them. This is a very handy feature if multiple teams are using the same cluster for their deployments. In such a scenario, each team is typically assigned full access to their own namespace so that they cannot interfere with the resources that are deployed by other teams unless they are granted explicit access.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>Once a pod dies, any data stored within any of its containers will be lost. To support use cases where we want to persist data across pod restarts or we simply want to share the same set of data (for example, the pages served by a web server) across multiple pod instances, Kubernetes provides the<span> </span><strong>persistent volume</strong><span> </span>(<strong>PV</strong>) and<span> </span><strong>persistent volume claim</strong><span> </span>(<strong>PVC</strong>) resources. A persistent volume is nothing more than a piece of block storage that is made available to the cluster. Depending on the substrate, it can either be manually provisioned by the cluster administrators or dynamically allocated on-demand by the underlying substrate (for example, an EBS volume when running on AWS). On the other hand, a persistent volume claim represents an operator's request for a block of storage with a particular set of attributes (for example, size, IOPS, and spinning disk or SSD). The Kubernetes control plane attempts to match the available volumes with the operator-specified claims and mount the volumes to the pods that reference each claim.</p>
+<p>To deploy a stateless application on Kubernetes, the recommended approach is to create a<span> </span><strong>deployment</strong><span> </span>resource. A deployment resource specifies a<span> </span><strong>template</strong><span> </span>for instantiating a single pod of the application and the desired number of replicas. Kubernetes continuously monitors the state of each deployment and attempts to synchronize the cluster state with the desired state by either creating new pods (using the template) or deleting existing pods when the number of active pods exceeds the requested number of replicas. Each pod in a deployment gets assigned a random hostname by Kubernetes and shares the<span> </span><em>same PVC</em><span> </span>with every other pod.</p>
+<p>Many types of workloads, such as databases or message queues, require a stateful kind of deployment where pods are assigned stable and predictable hostnames and each individual pod gets its own PVC. What's more, these applications usually operate in a clustered configuration and expect nodes to be deployed, upgraded, and scaled in a particular sequence. In Kubernetes, this type of deployment is accomplished by creating a<span> </span><strong>StatefulSet</strong>. Similar to a deployment resource, a StatefulSet also defines a pod template and a number of replicas. Each replica is assigned a hostname, which is constructed by concatenating the name of the StatefulSet and the index of each pod in the set (for example, web-0 and web-1).</p>
+<p>Being able to scale the number of deployed pods up and down is a great feature to have but not that useful unless other resources in the cluster can connect to them! To this end, Kubernetes supports another type of resource, called a<span> </span><strong>service</strong>. Services come in two flavors:</p>
+<ul>
+<li>A service can sit in front of a group of pods and act as a<span> </span><strong>load balancer</strong>. In this scenario, the service is automatically assigned both an IP address and a DNS record to aid its discovery by clients. In case you are wondering, this functionality is implemented by the<span> </span><strong>kube-proxy</strong><span> </span>component that runs on each worker node.</li>
+<li>A<span> </span><strong>headless</strong><span> </span>service allows you to implement a custom service discovery mechanism. These services are not assigned a cluster IP address and they are totally ignored by kube-proxy. However, these services create DNS records for the service and resolve to the address of every single pod behind the service.</li>
+</ul>
+<p>The last Kubernetes resource that we will be examining is<span> </span><strong>ingresses</strong>. Depending on its configuration, an ingress exposes HTTP or HTTPS endpoints for routing traffic from outside the cluster to particular services within the cluster. The common set of features that are supported by the majority of ingress controller implementations include TLS termination, name-based virtual hosts, and URL rewriting for incoming requests.</p>
+<p>This concludes our overview of the most common Kubernetes resource types. Keep in mind that this is only the tip of the iceberg! Kubernetes supports many other resource types (for example, cron jobs) and even provides APIs that allow operators to define their own custom resources. If you want to learn more about Kubernetes resources, I would strongly recommend browsing the quite extensive set of Kubernetes documentation that is available online<span> </span><sup><span class="citation">[8]</span></sup>. </p>
+<p>Next, you will learn how to easily set up your very own Kubernetes cluster on your laptop or workstation.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Running a Kubernetes cluster on your laptop!</h1>
+                </header>
+            
+            <article>
+                
+<p>A few years ago, experimenting with Kubernetes was more or less restricted to engineers who were either granted access to a test or dev cluster or they had the resources and knowledge that was required to bootstrap and operate their own cluster on the cloud. Nowadays, things are much simpler... In fact, you can even spin up a fully operational Kubernetes cluster on your laptop in just a couple of minutes!</p>
+<p>Let's take a look at some of the most popular, dev-friendly Kubernetes distributions that you can deploy on your development machine:</p>
+<ul>
+<li>K3S<span> </span><sup><span class="citation">[7]</span></sup><span> </span>is a tiny (it's literally a 50 M binary!) distribution that allows you to run Kubernetes on resource-constrained devices. It provides binaries for multiple architectures, including ARM64/ARMv7. This makes it a great candidate for running Kubernetes on Raspberry Pi.</li>
+<li class="CDPAlignLeft CDPAlign">Microk8s<span> </span><sup><span class="citation">[9]</span></sup><span> </span>is a project by Canonical that promises zero-ops Kubernetes cluster setups. Getting a Kubernetes cluster up and running on Linux is as simple as running<span> </span><kbd>snap install microk8s</kbd>. On other platforms, the recommended approach for installing microk8s is to use an application such as Multipass<span> </span><sup><span class="citation">[11]</span></sup><span> </span>to spin up a VM and run the aforementioned command inside it.</li>
+<li>Minikube<span> </span><sup><span class="citation">[10]</span></sup><span> </span>is yet another distribution, this time by the Kubernetes authors. It can work with different types of hypervisors (for example, VirtualBox, Hyperkit, Parallels, VMware Fusion, or Hyper-V) and can even be deployed on bare metal (Linux only).</li>
+</ul>
+<p>To make it as easy as possible for you to set up your own Kubernetes cluster on your favorite OS and run the examples shown in the upcoming sections, we will be working exclusively with Minikube and use VirtualBox as our hypervisor.</p>
+<p>Before we begin, make sure that you have downloaded and installed the following software:</p>
+<ul>
+<li>Docker<span> </span><sup><span class="citation">[5]</span></sup>.</li>
+<li>VirtualBox<span> </span><sup><span class="citation">[13]</span></sup>.</li>
+<li>The kubectl binary for your platform.</li>
+<li>The helm<span> </span><span class="citation">[6]</span><span> </span>binary for your platform. Helm is a package manager for Kubernetes and we will be using it to deploy the CockroachDB and Elasticsearch instances for the Links 'R' Us project.</li>
+<li>The latest Minikube version for your platform.</li>
+</ul>
+<p>With all the preceding dependencies in place, we are ready to bootstrap our Kubernetes cluster using the following code:</p>
+<pre class="console">minikube start --kubernetes-version=v1.15.3 \
+               --memory=4g \
+               --network-plugin=cni</pre>
+<p>This command will create a virtual machine with 4 GB of RAM and deploy Kubernetes 1.15.3 to it. It will also update the local configuration for kubectl so that it automatically connects to the cluster we have just provisioned. What's more, it will enable the<span> </span><strong>Container Networking Interface</strong><span> </span>(<strong>CNI</strong>) plugin for the cluster. In the next chapter, we will leverage this functionality to install a network security solution such as Calico<span> </span><sup><span class="citation">[2]</span></sup><span> </span>or Cilium<span> </span><sup><span class="citation">[3]</span></sup><span> </span>and define fine-grained network policies to lock down our cluster.</p>
+<p>As our deployed services will be running inside Minikube's virtual machine, the only way to access them from the <strong>host</strong> machine is by provisioning an ingress resource. Luckily for us, Minikube provides a suitable ingress implementation as an add-on that we can activate by running <kbd>minikube addons enable ingress</kbd>. What's more, for our tests, we want to use a private Docker registry for pushing the Docker images that we will be building. Minikube ships with a private registry add-on that we can enable by running<span> </span><kbd>minikube addons enable registry</kbd>.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>However, by default, Minikube's private registry runs in insecure mode. When using insecure registries, we need to explicitly configure our local Docker daemon to allow connections to them; otherwise, we won't be able to push our images. The registry is exposed on port<span> </span><kbd>5000</kbd><span> </span>at the IP used by Minikube.</p>
+<div class="packt_tip">You can find Minikube's IP address by running<span> </span><kbd>minikube ip</kbd>.</div>
+<p>On Linux, you can edit<span> </span><kbd>/etc/docker/daemon.json</kbd>, merge in the following JSON block (replacing<span> </span><kbd>$MINIKUBE_IP</kbd><span> </span>with the IP we obtained with the<span> </span><kbd>minikube ip</kbd><span> </span>command), and then<span> </span><em>restart the Docker daemon</em>, as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode json"><a><span class="fu">{</span></a>
+<a>  <span class="dt">"insecure-registries"</span> <span class="fu">:</span> <span class="ot">[</span></a>
+<a>    <span class="st">"$MINIKUBE_IP:5000"</span></a>
+<a>  <span class="ot">]</span></a>
+<a><span class="fu">}</span></a></pre></div>
+<p>On OS X and Windows, you can simply right-click on the Docker for desktop, select <span class="packt_screen">preferences</span>, and then click on the <span class="packt_screen">Daemon</span> tab to access the list of trusted insecure registries.</p>
+<p>The last thing we need to do is install the required cluster resources so that we can use the helm package manager. We can do this by running<span> </span><kbd>helm init</kbd>.</p>
+<div class="packt_tip">To save you some time, I have encoded all the preceding steps into a Makefile, which you can find in the<span> </span><kbd>Chapter10/k8s</kbd><span> </span>folder of this book's GitHub repository.<br/>
+<br/>
+To bootstrap the cluster, install all the required add-ons, and configure helm, you can simply type<span> </span><kbd>make bootstrap-minikube</kbd>.</div>
+<p>That's it! We have a fully functioning Kubernetes cluster at our disposal. Now, we are ready to build and deploy a monolithic version of the Links 'R' Us project.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building and deploying a monolithic version of Links 'R' Us</h1>
+                </header>
+            
+            <article>
+                
+<p>This is the moment of truth! In the following sections, we will leverage everything we have learned in this chapter to assemble all the Links 'R' Us components that we developed in the previous chapters into a monolithic application that we will then proceed to deploy on Kubernetes.</p>
+<p>Based on the user stories from <a href="6e4047ad-1fc1-4c3e-b90a-f27a62d06f17.xhtml">Chapter 5</a>, <em>The Links 'R' Us Project</em>, in order for our application to satisfy our design goals, it should provide the following services:</p>
+<ul>
+<li>A periodically running, multi-pass crawler for scanning the link graph, retrieving links for indexing, and augmenting the graph with newly discovered links to be crawled during a future pass</li>
+<li>Another periodically running service to recalculate and persist PageRank scores for the continuously expanding link graph</li>
+<li>A frontend for our end users to perform search queries and to submit website URLs for indexing</li>
+</ul>
+<p>So far, we haven't really discussed the frontend. Don't worry; we will be building a fully fledged frontend for our application in one of the following sections.</p>
+<p>As you've probably guessed, due to the number of components involved, the final application will undoubtedly include quite a bit of boilerplate code. Given that it is not feasible to include the full source code in this chapter, we will only focus on the most interesting parts. Nevertheless, you can find the documented source code for the entire application in the<span> </span><kbd>Chapter10/linksrus</kbd><span> </span>folder of this book's GitHub repository.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Distributing computation across application instances</h1>
+                </header>
+            
+            <article>
+                
+<p>In anticipation of the Links 'R' Us project becoming an overnight success and attracting a lot of traffic, especially after posting a link on sites such as Hacker News and Slashdot, we need to come up with a reasonable plan for scaling. Even though we are currently dealing with a monolithic application, we can always scale horizontally by spinning up additional instances. Moreover, as our link graph size grows, we will undoubtedly need additional compute resources for both our web crawlers and our PageRank calculator.</p>
+<p class="mce-root"/>
+<p>One of the key benefits of using a container orchestration platform such as Kubernetes is that we can effortlessly scale up (or down) any deployed application. As we saw at the beginning of this chapter, a<span> </span><kbd>Service</kbd><span> </span>resource connected to an<span> </span><kbd>Ingress</kbd><span> </span>can act as a load balancer and distribute<span> </span><em>incoming</em><span> </span>traffic to our application. This transparently takes care of our frontend scaling issues with no additional development effort on our end.</p>
+<p>On the other hand, making sure that<span> </span><em>each</em><span> </span>application instance crawls a specific<span> </span><em>subset</em><span> </span>of the graph isn't straightforward as it requires application instances to coordinate with each other. This implies that we need to establish a communication channel between the individual instances. Or does it?</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Carving the UUID space into non-overlapping partitions</h1>
+                </header>
+            
+            <article>
+                
+<p>In <a href="ce489d62-aaa3-4fbb-b239-c9de3daa9a8f.xhtml">Chapter 6</a>, <em>Building a Persistence Layer</em>, we mentioned that the caller of the <kbd>Links</kbd> and <kbd>Edges</kbd> methods that are exposed by the link-graph component is responsible for implementing a suitable partitioning scheme and providing the appropriate UUID ranges as arguments to these methods. So, how can we go about implementing such a partitioning scheme?</p>
+<p>Our approach exploits the observation that the link (and edge) IDs are, in fact, V4 (random) UUIDs and are therefore expected to be more or less evenly distributed in the massive (2<sup>128</sup>) UUID space. Let's assume that the total number of workers (that is, the number of partitions) available to us is<span> </span><em>N</em>. For the time being, we will treat the number of workers as being fixed and a priority known. In the following section, we will learn how to leverage the Kubernetes infrastructure to automatically discover this information.</p>
+<p>To figure out the range of UUIDs that the<span> </span><em>M<sub>th</sub></em><span> </span>worker (where 0 &lt;= M &lt; N) needs to provide as arguments to the<span> </span><kbd>Links</kbd><span> </span>and<span> </span><kbd>Edges</kbd><span> </span>methods of the graph, we need to perform some calculations. First, we need to subdivide the 128-bit UUID space into<span> </span><em>N</em><span> </span>equally sized sections; in essence, each section will contain<span> </span><em>C = 2<sup>128</sup><span> </span>/ N</em><span> </span>UUIDs. Consequently, to calculate the<span> </span><em>M<sub>th</sub></em><span> </span>worker's UUID range, we can use the following formula:</p>
+<div style="text-align: center"><img src="assets/a40a2bfe-c178-4e4a-8af1-34cffdf18d39.png" style="width:26.67em;height:6.00em;"/></div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>If the number of workers (<em>N</em>) is<span> </span><em>odd</em>, then we will not be able to divide the UUID space evenly; therefore, the<span> </span><strong>last</strong><span> </span>(N-1) section is treated in a special manner: it always extends to the<span> </span><strong>end</strong><span> </span>of the UUID space (the UUID value<span> </span><kbd>ffffffff-ffff-ffff-ffff-ffffffffffff</kbd>). This ensures that we always cover the entire UUID space, regardless of whether<span> </span><em>N</em><span> </span>is odd or even!</p>
+<p>The rationale behind this type of split is as follows:</p>
+<ul>
+<li>Most modern database systems tend to cache the primary key index in memory</li>
+<li>They contain special optimized code paths for performing<span> </span><em>range scans</em><span> </span>on primary key ranges</li>
+</ul>
+<p>The combination of the preceding two properties makes this solution quite attractive for the read-heavy workloads that are performed by both the crawler and the PageRank calculator components. One small nuisance is that UUIDs are 128-bit values and Go does not provide scalar types for performing 128-bit arithmetic. Fortunately, the standard library provides the<span> </span><kbd>math/big</kbd><span> </span>package, which can perform arbitrary-precision arithmetic operations!</p>
+<p>Let's go ahead and create a helper that will take care of all these calculations for us. The<span> </span><kbd>Range</kbd><span> </span>helper implementation will live in a file called <kbd>range.go</kbd>, which is part of the <kbd>Chapter10/linksrus/partition</kbd><span> package (see this book's GitHub repository)</span>. Its type definition is as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">type</span> Range <span class="kw">struct</span> {</a>
+<a>    start       uuid.UUID</a>
+<a>    rangeSplits []uuid.UUID</a>
+<a>}</a></pre></div>
+<p>For our particular application, we will provide two constructors for creating ranges. The first constructor creates a<span> </span><kbd>Range</kbd><span> </span>that spans the full UUID space and splits it into<span> </span><kbd>numPartitions</kbd>:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> NewFullRange(numPartitions <span class="dt">int</span>) (Range, <span class="dt">error</span>) {</a>
+<a>    <span class="kw">return</span> NewRange(</a>
+<a>        uuid.Nil,</a>
+<a>        uuid.MustParse(<span class="st">"ffffffff-ffff-ffff-ffff-ffffffffffff"</span>),</a>
+<a>        numPartitions,</a>
+<a>    )</a>
+<a>}</a></pre></div>
+<p>As you can see, the constructor delegates the creation of the range to the<span> </span><kbd>NewRange</kbd><span> </span>helper, whose implementation has been broken down into smaller snippets:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">if</span> bytes.Compare(start[:], end[:]) &gt;= <span class="dv">0</span> {</a>
+<a>    <span class="kw">return</span> Range{}, xerrors.Errorf(<span class="st">"range start UUID must be less than the end UUID"</span>)</a>
+<a>} <span class="kw">else</span> <span class="kw">if</span> numPartitions &lt;= <span class="dv">0</span> {</a>
+<a>    <span class="kw">return</span> Range{}, xerrors.Errorf(<span class="st">"number of partitions must be at least equal to 1"</span>)</a>
+<a>}</a>
+
+<a><span class="co">// Calculate the size of each partition as: ((end - start + 1) / numPartitions)</span></a>
+<a>tokenRange := big.NewInt(<span class="dv">0</span>)</a>
+<a>partSize := big.NewInt(<span class="dv">0</span>)</a>
+<a>partSize = partSize.Sub(big.NewInt(<span class="dv">0</span>).SetBytes(end[:]), big.NewInt(<span class="dv">0</span>).SetBytes(start[:]))</a>
+<a>partSize = partSize.Div(partSize.Add(partSize, big.NewInt(<span class="dv">1</span>)), big.NewInt(<span class="dt">int64</span>(numPartitions)))</a></pre></div>
+<p>Before we proceed, the code verifies that the provided UUID range is valid by making sure that the start UUID is smaller than the end UUID. To achieve this, we use the handy<span> </span><kbd>bytes.Compare</kbd><span> </span>function, which compares two byte slices and returns a value greater than or equal to zero if the two byte slices are either equal or the first byte slice is greater than the second. One caveat here is that the UUID type is defined as<span> </span><kbd>[16]byte</kbd><span>, </span>whereas the<span> </span><kbd>bytes.Compare</kbd><span> </span>function expects byte slices. However, we can easily convert each UUID into a byte slice using the convenience operator,<span> </span><kbd>[:]</kbd>.</p>
+<p>After the preliminary argument validation, we create an empty<span> </span><kbd>big.Integer</kbd><span> </span>value and use the cumbersome API of the<span> </span><kbd>math/big</kbd><span> </span>package to load it with the result of the <kbd>(end - start) + 1</kbd><span> expression</span>. Once the value has been loaded, we divide it by the number of partitions that the caller provided as an argument to the function. This yields the <kbd>C</kbd><span> value </span>from the formula we saw in the previous section.</p>
+<p>The following block of code uses a <kbd>for</kbd> loop to calculate and store the<span> </span><strong>end</strong><span> </span>UUID for each partition that is part of the range we are creating:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">var</span> to uuid.UUID</a>
+<a><span class="kw">var</span> err <span class="dt">error</span></a>
+<a><span class="kw">var</span> ranges = <span class="bu">make</span>([]uuid.UUID, numPartitions)</a>
+<a><span class="kw">for</span> partition := <span class="dv">0</span>; partition &lt; numPartitions; partition++ {</a>
+<a>    <span class="kw">if</span> partition == numPartitions<span class="dv">-1</span> {</a>
+<a>        to = end</a>
+<a>    } <span class="kw">else</span> {</a>
+<a>        tokenRange.Mul(partSize, big.NewInt(<span class="dt">int64</span>(partition+<span class="dv">1</span>)))</a>
+<a>        <span class="kw">if</span> to, err = uuid.FromBytes(tokenRange.Bytes()); err != <span class="ot">nil</span> {</a>
+<a>            <span class="kw">return</span> <span class="ot">nil</span>, xerrors.Errorf(<span class="st">"partition range: %w"</span>, err)</a>
+<a>        }</a>
+<a>    }</a>
+<a>    ranges[partition] = to</a>
+<a>}</a>
+<a><span class="kw">return</span> &amp;Range{start: start, rangeSplits: ranges}, <span class="ot">nil</span></a></pre></div>
+<p>As we mentioned in the previous section, the end UUID for the last partition is always the maximum possible UUID value. For all the other partitions, we calculate the end by multiplying the size of each partition by the partition number, plus one. Once all the calculations have been completed, a new<span> </span><kbd>Range</kbd><span> </span>object is allocated and returned to the caller. In addition to the calculated end ranges, we also keep track of the start UUID for the range.</p>
+<p>Now, to make the<span> </span><kbd>Range</kbd><span> </span>type easier to use from within the crawler service code, let's define two auxiliary methods:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (r *Range) Extents() (uuid.UUID, uuid.UUID) {</a>
+<a>    <span class="kw">return</span> r.start, r.rangeSplits[<span class="bu">len</span>(r.rangeSplits)-<span class="dv">1</span>]</a>
+<a>}</a>
+
+<a><span class="kw">func</span> (r *Range) PartitionExtents(partition <span class="dt">int</span>) (uuid.UUID, uuid.UUID, <span class="dt">error</span>) {</a>
+<a>    <span class="kw">if</span> partition &lt; <span class="dv">0</span> || partition &gt;= <span class="bu">len</span>(r.rangeSplits) {</a>
+<a>        <span class="kw">return</span> uuid.Nil, uuid.Nil, xerrors.Errorf(<span class="st">"invalid partition index"</span>)</a>
+<a>    }</a>
+<a>    <span class="kw">if</span> partition == <span class="dv">0</span> {</a>
+<a>        <span class="kw">return</span> r.start, r.rangeSplits[<span class="dv">0</span>], <span class="ot">nil</span></a>
+<a>    }</a>
+<a>    <span class="kw">return</span> r.rangeSplits[partition<span class="dv">-1</span>], r.rangeSplits[partition], <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>The<span> </span><kbd>Extends</kbd><span> </span>method returns the start (inclusive) and end (exclusive) UUID value for the<span> </span><em>entire</em><span> </span>range. On the other hand, the<span> </span><kbd>PartitionExtents</kbd><span> function </span>returns the start and end UUID values for a specific<span> </span><em>partition</em><span> </span>within the range.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Assigning a partition range to each pod</h1>
+                </header>
+            
+            <article>
+                
+<p>With the help of the<span> </span><kbd>Range</kbd><span> </span>type from the previous section, we now have the means to query the UUID range that's assigned to every single partition. For our particular use case, the number of partitions is equal to the number of pods that we launch. However, one crucial bit of information that we are lacking is the partition number that's assigned to each individual launched pod! Consequently, we now have two problems that we need to solve:</p>
+<ul>
+<li>What is the partition number of an individual pod?</li>
+<li>What is the total number of pods?</li>
+</ul>
+<p>If we deploy our application as a StatefulSet with<span> </span><em>N</em><span> </span>replicas, every pod in the set will be assigned a hostname that follows the pattern<span> </span><kbd>SET_NAME-INDEX</kbd>, where <kbd>INDEX</kbd> is a number from<span> </span><em>0</em><span> </span>to<span> </span><em>N-1</em><span> </span>that indicates the index of the pod in the set. All we need to do is read the pod's hostname from our application, parse the numeric suffix, and use that as the partition number.</p>
+<p>One approach to answering the second question would be to query the Kubernetes server API. However, this requires additional effort to set up (for example, create service accounts, RBAC records) <span>– n</span>ot to mention that it effectively locks us into Kubernetes! Fortunately, there is an easier way...</p>
+<p>If we were to create a<span> </span><strong>headless</strong><span> </span>service for our application, it would automatically generate a set of SRV records that we can query and obtain the host for each individual pod that belongs to the service. The following diagram shows the results of running an SRV query from within a pod in the Kubernetes cluster:</p>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><img src="assets/b560f6db-9058-4603-85ec-01efca0ad74e.png"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign">Figure 2: <span>The</span><span> </span>linksrus-headless<span> </span><span>service is associated with four pods whose hostnames are visible on the right-hand side</span></div>
+<p>Based on the information displayed in the preceding screenshot, we could write a helper for figuring out the partition number and the total number of partitions for a running application instance, as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (det FromSRVRecords) PartitionInfo() (<span class="dt">int</span>, <span class="dt">int</span>, <span class="dt">error</span>) {</a>
+<a>    hostname, err := os.Hostname()</a>
+<a>    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> <span class="dv">-1</span>, <span class="dv">-1</span>, xerrors.Errorf(<span class="st">"partition detector: unable to detect host name: %w"</span>, err)</a>
+<a>    }</a>
+<a>    tokens := strings.Split(hostname, <span class="st">"-"</span>)</a>
+<a>    partition, err := strconv.ParseInt(tokens[<span class="bu">len</span>(tokens)-<span class="dv">1</span>], <span class="dv">10</span>, <span class="dv">32</span>)</a>
+<a>    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> <span class="dv">-1</span>, <span class="dv">-1</span>, xerrors.Errorf(<span class="st">"partition detector: unable to extract partition number from host name suffix"</span>)</a>
+<a>    }</a>
+<a>    _, addrs, err := net.LookupSRV(<span class="st">""</span>, <span class="st">""</span>, det.srvName)</a>
+<a>    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> <span class="dv">-1</span>, <span class="dv">-1</span>, ErrNoPartitionDataAvailableYet</a>
+<a>    }</a>
+<a>    <span class="kw">return</span> <span class="dt">int</span>(partition), <span class="bu">len</span>(addrs), <span class="ot">nil</span></a>
+<a>}</a></pre></div>
+<p>To get the hostname, we invoke the<span> </span><kbd>Hostname</kbd><span> </span>function provided by the<span> </span><kbd>os</kbd><span> </span>package. Then, we split on the dash separator, extract the right-most part of the hostname, and use<span> </span><kbd>ParseInt</kbd><span> </span>to convert it into a number.</p>
+<p>Next, to get the SRV records, we use the<span> </span><kbd>LookupSRV</kbd><span> </span>function from the<span> </span><kbd>net</kbd><span> </span>package and pass the service name as the last argument. Then, we count the number of results to figure out the total number of pods in the set. One important thing to be aware of is that SRV record creation is not instantaneous! When the StatefulSet is initially deployed, it will take a bit of time for the SRV records to become available. To this end, if the SRV lookup does not yield any results, the code will return a typed error to let the caller know that they should try again later.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building wrappers for the application services</h1>
+                </header>
+            
+            <article>
+                
+<p>So far, we intentionally designed the various Link 'R' Us components so that they are more or less decoupled from their input sources. For example, the crawler component from <a href="51dcc0d4-2ba3-4db9-83f7-fcf73a33aa74.xhtml">Chapter 7</a>, <em>Data-Processing Pipelines</em>, expects an iterator that yields the set of links to be crawled, while the PageRank calculator component from <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a>, Graph<em>-Based Data Processing</em>, only provides convenience methods for creating the nodes and edges of the graph that are used by the PageRank algorithm.</p>
+<p>To integrate these components into a larger application, we need to provide a thin layer that implements two key functions:</p>
+<ul>
+<li>It connects each component with a suitable link graph and the text indexer data store implementation from <a href="ce489d62-aaa3-4fbb-b239-c9de3daa9a8f.xhtml">Chapter 6</a>, <em>Building a Persistence Layer</em></li>
+<li>It manages the<span> </span><em>refresh cycle</em><span> </span>for each component (for example, triggering a new crawler pass or recalculating PageRank scores)</li>
+</ul>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mceNonEditable"/>
+<p>Each service will be started from the main package of the Links 'R' Us application and execute independently of other services. If any of the services exit due to an error, we want our application to cleanly shut down, log the error, and exit with the appropriate status code. This necessitates the introduction of a supervisor mechanism that will manage the execution of each service. Before we get to that, let's start by defining an interface that each of our application services needs to implement:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">type</span> Service <span class="kw">interface</span> {</a>
+<a>    Name() <span class="dt">string</span></a>
+<a>    Run(context.Context) <span class="dt">error</span></a>
+<a>}</a></pre></div>
+<p>No surprise there... The<span> </span><kbd>Name</kbd><span> </span>method returns the name of the service, which we can use for logging purposes. As you've probably guessed, the<span> </span><kbd>Run</kbd><span> </span>method implements the business logic for the service. Calls to <kbd>Run</kbd> are expected to block until either the provided context expires or an error occurs.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The crawler service</h1>
+                </header>
+            
+            <article>
+                
+<p>The business logic for the crawler service is quite straightforward. The service uses a timer to sleep until the next update interval is due and then executes the following steps:</p>
+<ol>
+<li>First, it queries the most recent information about partition assignments. This includes the partition number for the pod and the total number of partitions (pod count).</li>
+<li>Using the partition count information from the previous step, a new full<span> </span><kbd>Range</kbd><span> is created and the extents (UUID range) for the currently assigned partition number are calculated.</span></li>
+<li>Finally, the service obtains a link iterator for the calculated UUID range and uses it as a data source to drive the crawler component that we built in <a href="51dcc0d4-2ba3-4db9-83f7-fcf73a33aa74.xhtml">Chapter 7</a><span>, </span><em>Data-Processing Pipelines</em><span>.</span></li>
+</ol>
+<p>The service constructor expects a configuration object that includes not only the required configuration options but also a set of interfaces that the service depends on. This approach allows us to test the service in total isolation by injecting mock objects that satisfy these interfaces. Here's what the<span> </span><kbd>Config</kbd><span> </span>type for the crawler service looks like:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">type</span> Config <span class="kw">struct</span> {</a>
+<a>    GraphAPI GraphAPI</a>
+<a>    IndexAPI IndexAPI</a>
+<a>    PrivateNetworkDetector crawler_pipeline.PrivateNetworkDetector</a>
+<a>    URLGetter crawler_pipeline.URLGetter</a>
+<a>    PartitionDetector partition.Detector</a>
+<a>    Clock clock.Clock</a>
+<a>    </a>
+<a>    Fand so onhWorkers <span class="dt">int</span></a>
+<a>    UpdateInterval time.Duration</a>
+<a>    ReIndexThreshold time.Duration</a>
+<a>    Logger *logrus.Entry</a>
+<a>}</a></pre></div>
+<p>You might be wondering why I chose to redefine the <kbd>GraphAPI</kbd> and<span> </span><kbd>IndexAPI</kbd><span> </span>interfaces<span> </span>inside<span> </span>this package instead of simply importing and using the original interfaces from the<span> </span><kbd>graph</kbd><span> </span>or <kbd>index</kbd><span> </span>packages. This is, in fact, an application of the interface segregation principle! The original interfaces contain more methods than what we actually need for this service. For example, the following is the set of methods that the crawler requires to access the link graph and indexing documents:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">type</span> GraphAPI <span class="kw">interface</span> {</a>
+<a>    UpsertLink(link *graph.Link) <span class="dt">error</span></a>
+<a>    UpsertEdge(edge *graph.Edge) <span class="dt">error</span></a>
+<a>    RemoveStaleEdges(fromID uuid.UUID, updatedBefore time.Time) <span class="dt">error</span></a>
+<a>    Links(fromID, toID uuid.UUID, retrievedBefore time.Time) (graph.LinkIterator, <span class="dt">error</span>)</a>
+<a>}</a>
+
+<a><span class="kw">type</span> IndexAPI <span class="kw">interface</span> {</a>
+<a>    Index(doc *index.Document) <span class="dt">error</span></a>
+<a>}</a></pre></div>
+<p>A very handy side effect of using the smallest possible interface definitions for the graph and index APIs is that these minimal interfaces also happen to be compatible with the gRPC clients that we created in the previous chapter. We will be exploiting this observation in the next chapter so that we can split our monolithic application into microservices! <span>Now, let's take a look at the</span> rest of the<span> configuration fields:</span></p>
+<ul>
+<li><kbd>PartitionDetector</kbd><span> </span>will be queried by the service to obtain its partition information. When running in Kubernetes, the detector will use the code from the previous section to discover the available partitions. Alternatively, a partition detector that always reports a single partition can be injected to allow us to run the application as a standalone binary on our development machine.</li>
+<li><kbd>Clock</kbd><span> allows us to inject a fake clock instance for our tests. Just as we did in <a href="d279a0af-50bb-4af2-80aa-d18fedc3cb90.xhtml">Chapter 4</a>, <em>The Art of Testing</em>, we will be using the </span><kbd>juju/clock</kbd><span> package to mock time-related operations within our tests.</span></li>
+<li><kbd>Fand so onhWorkers</kbd><span> </span>controls the number of workers that are used by the crawler component to retrieve links.</li>
+<li><kbd>UpdateInterval</kbd><span> </span>specifies how often the crawler should perform a new pass.</li>
+<li><kbd>ReIndexThreshold</kbd><span> </span>is used as a filter when selecting the set of links to be crawled in the next crawler pass. A link will be considered for crawling when its<span> </span><em>last retrieval time</em><span> </span>is<span> </span><em>older</em><span> </span>than<span> </span><kbd>time.Now() - ReIndexThreshold</kbd>.</li>
+<li><kbd>Logger</kbd><span> </span>specifies an optional logger instance to use for log messages. We will talk more about structured logging in the next chapter.</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The PageRank calculator service</h1>
+                </header>
+            
+            <article>
+                
+<p>In a similar fashion to the crawler service, the PageRank service also wakes up periodically to recalculate the PageRank scores for every link in the graph. Under the hood, it uses the PageRank calculator component that we built in <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a>, <em>Graph-Based Data Processing</em>, to execute a complete pass of the PageRank algorithm. The service layer is responsible for populating the internal graph representation that's used by the calculator component, invoking it to calculate the updated PageRank scores, and updating the PageRank scores for every indexed document.</p>
+<p>The service constructor also accepts a<span> </span><kbd>Config</kbd><span> </span>object that looks like this:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">type</span> Config <span class="kw">struct</span> {</a>
+<a>    GraphAPI GraphAPI</a>
+<a>    IndexAPI IndexAPI</a>
+<a>    PartitionDetector partition.Detector</a>
+<a>    Clock clock.Clock</a>
+
+<a>    ComputeWorkers <span class="dt">int</span></a>
+<a>    UpdateInterval time.Duration</a>
+<a>    Logger *logrus.Entry</a>
+<a>}</a></pre></div>
+<p>The<span> </span><kbd>pagerank</kbd><span> </span>service package defines its own version of<span> the </span><kbd>GraphAPI</kbd><span> </span>and<span> </span><kbd>IndexAPI</kbd><span> </span>types. As shown in the following code, the method list for these interfaces is different from the one we used for the crawler service in the previous section:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">type</span> GraphAPI <span class="kw">interface</span> {</a>
+<a>    Links(fromID, toID uuid.UUID, retrievedBefore time.Time) (graph.LinkIterator, <span class="dt">error</span>)</a>
+<a>    Edges(fromID, toID uuid.UUID, updatedBefore time.Time) (graph.EdgeIterator, <span class="dt">error</span>)</a>
+<a>}</a>
+
+<a><span class="kw">type</span> IndexAPI <span class="kw">interface</span> {</a>
+<a>    UpdateScore(linkID uuid.UUID, score <span class="dt">float64</span>) <span class="dt">error</span></a>
+<a>}</a></pre></div>
+<p>The<span> </span><kbd>ComputeWorkers</kbd><span> </span>parameter is passed through to the PageRank calculator component and controls the number of workers that are used to execute the PageRank algorithm. On the other hand, the<span> </span><kbd>UpdateInterval</kbd><span> </span>parameter controls the score refresh frequency.</p>
+<p>Unfortunately, it is not<span> </span><em>currently</em><span> </span>feasible to run the PageRank service in partitioned mode. As we saw in <a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a>, <em>Graph-Based Data Processing</em>, the calculator implementation operates under the assumption that every node in the graph can send messages to<span> </span><em>every</em><span> </span>other node in the graph and that all the vertices have access to the shared global state (aggregators). For the time being, we will use the detected partition information as a constraint to execute the service on a<span> </span><strong>single</strong><span> </span>pod (more specifically, the one assigned to partition 0). No need to worry, though! In <a href="67abdf43-7d4c-4bff-a17e-b23d0a900759.xhtml">Chapter 12</a>, <em>Building Distributed Graph-Processing Systems</em>, we will revisit this implementation and rectify all the aforementioned issues.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Serving a fully functioning frontend to users</h1>
+                </header>
+            
+            <article>
+                
+<p>Of course, our little project can't really be complete without a proper frontend for our users! To build one, we will leverage the Go standard library's support for HTML templates (the<span> </span><kbd>text/template</kbd><span> </span>and<span> </span><kbd>html/template</kbd><span> </span>packages) to design a fully functioning static website for Links 'R' Us. For simplicity, all the HTML templates will be embedded into our application as<span> </span><em>strings</em><span> </span>and parsed into<span> </span><kbd>text.Template</kbd><span> </span>when the application starts. In terms of functionality, our frontend must implement a number of features.</p>
+<p>First, it must implement an index/landing page where the user can enter a search query. Queries can either be keyword- or phrase-based. The index page should also include a link that can navigate users to another page where they can submit a website for indexing. The following screenshot shows a rendering of the index page template:</p>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><img src="assets/066ea421-a3a2-4d39-862d-4f6372496d63.png"/></div>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><span><span>Figure 3: The landing page for Links 'R' Us</span></span></div>
+<p>Next, we need a page where webmasters can manually submit their websites for indexing. As we mentioned previously, the index/landing page will include a link to the site submission page. The following screenshot shows what the rendered site submission page for indexing will look like:</p>
+<p class="mce-root CDPAlignCenter CDPAlign"><img src="assets/416b6e86-061e-41af-967d-05be5b1dcec3.png" style="width:31.92em;height:12.58em;"/></p>
+<div class="mce-root CDPAlignCenter CDPAlign packt_figref"><span>Figure 4: A form for manually submitting sites for indexing</span></div>
+<p>The final, and obviously most important, page in our entire application is the search results page. As shown in the following screenshot, the results page renders a<span> </span><strong>paginated</strong><span> </span>list of websites matching the user's search query. The header of the page includes a search text box that displays the currently searched term and allows users to change their search terms without leaving the page:</p>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><img src="assets/8f8aab16-317e-4958-a397-50aefedf6ed1.png"/></div>
+<p class="mce-root"/>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><span><span>Figure 5: The paginated list of search results</span></span></div>
+<p>The template for rendering the individual search result blocks, as portrayed in the preceding screenshot, consists of three sections:</p>
+<ul>
+<li>A link to the web page. The link text will either display the title of the matched page or the link to the page itself, depending on whether the crawler was able to extract its title.</li>
+<li>The URL to the matched web page in a smaller font.</li>
+<li>A summary of the page's contents where the matched keywords are highlighted.</li>
+</ul>
+<p>Now that we have defined all the necessary templates for rendering the pages that compose the Links 'R' Us frontend, we need to register a series of HTTP routes to allow our end users to access our service.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Specifying the endpoints for the frontend application</h1>
+                </header>
+            
+            <article>
+                
+<p>The following table<span> </span>lists the HTTP request types and endpoints that our frontend service needs to handle in order to implement all the features we described previously:</p>
+<table style="border-collapse: collapse;width: 100%" border="1">
+<tbody>
+<tr>
+<td><strong>Request Type</strong></td>
+<td><strong>Path</strong></td>
+<td><strong>Description</strong></td>
+</tr>
+<tr class="odd">
+<td>GET</td>
+<td><kbd>/</kbd></td>
+<td>Displays the index page</td>
+</tr>
+<tr class="even">
+<td>GET</td>
+<td><kbd>/search?q=TERM</kbd></td>
+<td>Displays the first page of results for TERM</td>
+</tr>
+<tr class="odd">
+<td>GET</td>
+<td><kbd>/search?q=TERM&amp;offset=X</kbd></td>
+<td>Displays the results for TERM, starting from a particular offset</td>
+</tr>
+<tr class="even">
+<td>GET</td>
+<td><kbd>/submit/site</kbd></td>
+<td>Displays the site submission form</td>
+</tr>
+<tr class="odd">
+<td>POST</td>
+<td><kbd>/submit/site</kbd></td>
+<td>Handles a site submission</td>
+</tr>
+<tr class="even">
+<td>ANY</td>
+<td>Any other path</td>
+<td>Displays a 404 page</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>To make our life easier, we will be using<span> </span><kbd>gorilla/mux</kbd><span> </span>as our preferred router. Creating the router and registering the endpoint handlers is as simple as using the following code:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>svc := &amp;Service{</a>
+<a>    router: mux.NewRouter(),</a>
+<a>    cfg:    cfg,</a>
+<a>}</a>
+
+<a>svc.router.HandleFunc(indexEndpoint, svc.renderIndexPage).Methods(<span class="st">"GET"</span>)</a>
+<a>svc.router.HandleFunc(searchEndpoint, svc.renderSearchResults).Methods(<span class="st">"GET"</span>)</a>
+<a>svc.router.HandleFunc(submitLinkEndpoint, svc.submitLink).Methods(<span class="st">"GET"</span>, <span class="st">"POST"</span>)</a>
+<a>svc.router.NotFoundHandler = http.HandlerFunc(svc.render404Page)</a></pre></div>
+<p>To make the frontend service easier to test, the<span> </span><kbd>Service</kbd><span> </span>type stores a reference to the router. This way, we can use the<span> </span><kbd>httptest</kbd><span> </span>package primitives to perform HTTP requests directly at the mux without having to spin up any servers.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Performing searches and paginating results</h1>
+                </header>
+            
+            <article>
+                
+<p>Searching and paginating results is more or less a straightforward task for the frontend service. All our service needs to do is parse the search terms, offset from the request's query string, and invoke the<span> </span><kbd>Query</kbd><span> </span>method of the text indexer store that was passed as a configuration option when the service was instantiated.</p>
+<p>Then, the service consumes the result iterator until it has either processed enough results to populate the results page or the iterator reaches the end of the result set. Consider the following code:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">for</span> resCount := <span class="dv">0</span>; resultIt.Next() &amp;&amp; resCount &lt; svc.cfg.ResultsPerPage; resCount++ {</a>
+<a>    doc := resultIt.Document()</a>
+<a>    matchedDocs = <span class="bu">append</span>(matchedDocs, matchedDoc{</a>
+<a>        doc: doc,</a>
+<a>        summary: highlighter.Highlight(</a>
+<a>            template.HTMLEscapeString(</a>
+<a>                summarizer.MatchSummary(doc.Content),</a>
+<a>            ),</a>
+<a>        ),</a>
+<a>    })</a>
+<a>}</a></pre></div>
+<p>The service creates a decorated model for each result that provides some convenience methods that will be called by the Go code blocks within the template. In addition, the<span> </span><kbd>matchedDoc</kbd><span> </span>type includes a<span> </span><kbd>summary</kbd><span> </span>field, which is populated with a short excerpt of the matched page's contents, with the search terms highlighted.</p>
+<p>To highlight search terms in the text summary, the keyword highlighter will wrap each term in a<span> </span><kbd>&lt;em&gt;</kbd><span> </span>tag. However, this approach requires the result page template to render summaries as<span> </span><strong>raw HTML</strong>. Consequently, we must be very careful not to allow any other HTML tags in our result summaries as this would make our application vulnerable to <strong>cross-site scripting</strong> (<strong>XSS</strong>) attacks. While the crawler component strips all the HTML tags from crawled pages, it doesn't hurt to be a little paranoid and escape any HTML characters from the generated summaries before passing them through to our keyword highlighter.</p>
+<p class="mce-root"/>
+<p>To be able to render the navigation header and footer, we need to provide the page template with information about the current pagination state. The following code shows how the<span> </span><kbd>paginationDetails</kbd><span> </span>type is populated with the required bits of information:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>pagination := &amp;paginationDetails{</a>
+<a>    From:  <span class="dt">int</span>(offset + <span class="dv">1</span>),</a>
+<a>    To:    <span class="dt">int</span>(offset) + <span class="bu">len</span>(matchedDocs),</a>
+<a>    Total: <span class="dt">int</span>(resultIt.TotalCount()),</a>
+<a>}</a>
+<a><span class="kw">if</span> offset &gt; <span class="dv">0</span> {</a>
+<a>    pagination.PrevLink = fmt.Sprintf(<span class="st">"%s?q=%s"</span>, searchEndpoint, searchTerms)</a>
+<a>    <span class="kw">if</span> prevOffset := <span class="dt">int</span>(offset) - svc.cfg.ResultsPerPage; prevOffset &gt; <span class="dv">0</span> {</a>
+<a>        pagination.PrevLink += fmt.Sprintf(<span class="st">"&amp;offset=%d"</span>, prevOffset)</a>
+<a>    }</a>
+<a>}</a>
+<a><span class="kw">if</span> nextPageOffset := <span class="dt">int</span>(offset) + <span class="bu">len</span>(matchedDocs); nextPageOffset &lt; pagination.Total {</a>
+<a>    pagination.NextLink = fmt.Sprintf(<span class="st">"%s?q=%s&amp;offset=%d"</span>, searchEndpoint, searchTerms, nextPageOffset)</a>
+<a>}</a></pre></div>
+<p>A<span> </span><em>previous</em><span> </span>result page link will always be rendered when the current result offset is greater than 0. Unless we are moving back to the<span> </span><em>first</em><span> </span>result page, the link will always include an offset parameter. Similarly, the<span> </span><em>next</em><span> </span>result page link will be rendered as long as we haven't reached the end of the result set.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Generating convincing summaries for search results</h1>
+                </header>
+            
+            <article>
+                
+<p>Generating a descriptive short summary that conveys enough information to the user about the contents of a web page that matched their query is quite a hard problem to solve. As a matter of fact, automatic summarization is an active research field for natural language processing and machine learning.</p>
+<p>Arguably, building such a system is outside the scope of this book. Instead, we will be implementing a much simpler algorithm that yields plausible summaries that should be good enough for our particular use case. Here is an outline of the algorithm's steps:</p>
+<ol type="1">
+<li>Split the matched page's content into sentences.</li>
+<li>For each sentence, calculate the ratio of matched keywords to the total number of words. This will serve as our quality metric for selecting and prioritizing the set of sentences to be included in the summary.</li>
+</ol>
+<ol start="3" type="1">
+<li>Skip any sentences where the ratio is zero; that is, they don't contain any of the searched keywords. These sentences are not really useful for our summary.</li>
+<li>Add the remaining sentences to a list where each entry is a tuple of<span> </span><kbd>{ordinal, text, matchRatio}</kbd>. The ordinal value refers to the location of the sentence in the text.</li>
+<li>Sort the list by<span> </span><em>match ratio</em> in <em>descending</em><span> </span>order.</li>
+<li>Initialize a second list for the sentence fragments that will be used for the summary and a variable that keeps track of the remaining characters for the summary.</li>
+<li>Iterate the sorted list; for each entry<span>, do the following:</span> If its length is<span> </span><em>less</em><span> </span>than the remaining summary characters, append the entry as is to the second list and subtract its length from the remaining characters, variable. If its length is<span> </span><em>more</em><span> </span>than the remaining summary character, truncate the sentence text to the remaining summary characters, append it to the second list, and<span> </span><em>terminate</em><span> </span>the iteration.</li>
+<li>Sort the summary fragment list by<span> </span><em>ordinal</em> in <em>ascending</em><span> </span>order. This ensures that sentence fragments appear in the same order as the text.</li>
+<li>Iterate the sorted fragment list and concatenate the entries as follows:
+<ul>
+<li>If the ordinal of the current sentence is one more than the previous sentence's ordinal, they should be joined with a single period, just like they were connected together in the original text.</li>
+<li>Otherwise, the sentences should be joined with an ellipsis since they belong to different parts of the text.</li>
+</ul>
+</li>
+</ol>
+<p>The complete Go implementation of the preceding algorithm is too long to list here, but if you're curious, you can take a look at it by visiting this book's GitHub repository and browsing the contents of the <kbd>summarizer.go</kbd> file, which you can find under the<span> </span><kbd>Chapter10/linksrus/service/frontend</kbd> folder.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Highlighting search keywords</h1>
+                </header>
+            
+            <article>
+                
+<p>Once we have generated a summary for a matched document, we need to identify and highlight all the search keywords that are present within it. For this task, we will create a helper type named<span> </span><kbd>matchHighlighter</kbd><span> </span>that constructs a set of regular expressions for matching each search keyword and wrap it with a special HTML tag that our frontend template renders using a highlighted style.</p>
+<p class="mce-root"/>
+<p>The frontend creates a single<span> </span><kbd>matchHighlighter</kbd><span> </span>instance for the entire set of results by invoking the<span> </span><kbd>newMatchHighlighter</kbd><span> </span>function, which is listed in the following code:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> newMatchHighlighter(searchTerms <span class="dt">string</span>) *matchHighlighter {</a>
+<a>    <span class="kw">var</span> regexes []*regexp.Regexp</a>
+<a>    <span class="kw">for</span> _, token := <span class="kw">range</span> strings.Fields(strings.Trim(searchTerms, <span class="st">`"`</span>)) {</a>
+<a>        re, err := regexp.Compile(</a>
+<a>            fmt.Sprintf(<span class="st">`(?i)%s`</span>, regexp.QuoteMeta(token)),</a>
+<a>        )</a>
+<a>        <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>            <span class="kw">continue</span></a>
+<a>        }</a>
+<a>        regexes = <span class="bu">append</span>(regexes, re)</a>
+<a>    }</a>
+
+<a>    <span class="kw">return</span> &amp;matchHighlighter{regexes: regexes}</a>
+<a>}</a></pre></div>
+<p>The constructor receives the user's search terms as input and splits them into a list of words. Note that the search term will be enclosed in quotes if the user is searching for an exact phrase. Therefore, before passing the term string to<span> </span><kbd>strings.Fields</kbd><span>, </span>we need to trim any quotes at the beginning and end of the input string.</p>
+<p>Then, for each individual term, we compile a<span> </span><em>case-insensitive</em><span> </span>regular expression, which will be used by the<span> </span><kbd>Highlight</kbd><span> </span>method. This is as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (h *matchHighlighter) Highlight(sentence <span class="dt">string</span>) <span class="dt">string</span> {</a>
+<a>    <span class="kw">for</span> _, re := <span class="kw">range</span> h.regexes {</a>
+<a>        sentence = re.ReplaceAllStringFunc(sentence, <span class="kw">func</span>(match <span class="dt">string</span>) <span class="dt">string</span> {</a>
+<a>            <span class="kw">return</span> <span class="st">"&lt;em&gt;"</span> + match + <span class="st">"&lt;/em&gt;"</span></a>
+<a>        })</a>
+<a>    }</a>
+<a>    <span class="kw">return</span> sentence</a>
+<a>}</a></pre></div>
+<p>The<span> </span><kbd>Highlight</kbd><span> </span>method simply iterates the list of regular expressions and wraps each match in a<span> </span><kbd>&lt;em&gt;</kbd><span> </span>tag that our result page template can style using CSS rules.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Orchestrating the execution of individual services</h1>
+                </header>
+            
+            <article>
+                
+<p>So far, we have created three services for our monolith that all implement the<span> </span><kbd>Service</kbd><span> </span>interface. Now, we need to introduce a supervisor for coordinating their execution and making sure that they all cleanly terminate if any of them reports an error. Let's define a new type so that we can model a group of services and add a helper<span> </span><kbd>Run</kbd><span> </span>method to manage their execution life cycle:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">type</span> Group []Service</a>
+
+<a><span class="kw">func</span> (g Group) Run(ctx context.Context) <span class="dt">error</span> {...}</a></pre></div>
+<p>Now, let's break down the<span> </span><kbd>Run</kbd><span> </span>method's implementation into smaller chunks and go through each one:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">if</span> ctx == <span class="ot">nil</span> {</a>
+<a>    ctx = context.Background()</a>
+<a>}</a>
+<a>runCtx, cancelFn := context.WithCancel(ctx)</a>
+<a><span class="kw">defer</span> cancelFn()</a></pre></div>
+<p>As you can see, first, we <span>create a new cancelable context that wraps the one that was externally provided to us by the <kbd>Run</kbd> method caller. The wrapped context will be provided as an argument to the</span><span> </span><kbd>Run</kbd><span> </span><span>method of each individual service, thus ensuring that <em>all</em> the services can be canceled in one of two ways:</span></p>
+<ul>
+<li><span>By the caller if, for instance, the provided context is canceled or expires</span></li>
+<li><span>By the supervisor, if any of the services raise an error</span></li>
+</ul>
+<p>Next, we will spin up a goroutine for each service in the group and execute its<span> </span><kbd>Run</kbd><span> </span><span>method, as follows:</span></p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">var</span> wg sync.WaitGroup</a>
+<a>errCh := <span class="bu">make</span>(<span class="kw">chan</span> <span class="dt">error</span>, <span class="bu">len</span>(g))</a>
+<a>wg.Add(<span class="bu">len</span>(g))</a>
+<a><span class="kw">for</span> _, s := <span class="kw">range</span> g {</a>
+<a>    <span class="kw">go</span> <span class="kw">func</span>(s Service) {</a>
+<a>        <span class="kw">defer</span> wg.Done()</a>
+<a>        <span class="kw">if</span> err := s.Run(runCtx); err != <span class="ot">nil</span> {</a>
+<a>            errCh &lt;- xerrors.Errorf(<span class="st">"%s: %w"</span>, s.Name(), err)</a>
+<a>            cancelFn()</a>
+<a>        }</a>
+<a>    }(s)</a>
+<a>}</a></pre></div>
+<p>If an error occurs, the goroutine will annotate it with the service name and write it to a buffered error channel before invoking the cancel function for the wrapped context. As a result, if any service fails, all the other services will be automatically instructed to shut down.</p>
+<p>A <kbd>sync.WaitGroup</kbd><span> </span>helps us keep track of the currently running goroutines. As we mentioned previously, we are working with long-running services whose<span> </span><kbd>Run</kbd><span> </span>method only returns if the context is canceled or an error occurs. In either case, the wrapped context will expire so that we can have our service runner wait for this event to occur and then call the wait group's<span> </span><kbd>Wait</kbd><span> </span>method to ensure that all the spawned goroutines have terminated before proceeding. The following code demonstrates how this is achieved:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>    &lt;-runCtx.Done()</a>
+<a>    wg.Wait()</a></pre></div>
+<p>Before returning, we must check for the presence of errors. To this end, we close the error channel so that we can iterate it using a<span> </span><kbd>range</kbd><span> </span>statement. Closing the channel is safe since all the goroutines that could potentially write to it have already terminated. Consider the following code:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>    <span class="kw">var</span> err <span class="dt">error</span></a>
+<a>    <span class="bu">close</span>(errCh)</a>
+<a>    <span class="kw">for</span> srvErr := <span class="kw">range</span> errCh {</a>
+<a>        err = multierror.Append(err, srvErr)</a>
+<a>    }</a>
+<a>    <span class="kw">return</span> err</a></pre></div>
+<p>As shown in the preceding snippet, after closing the channel, the code dequeues and aggregates any reported errors and returns them to the caller. Note that a nil error value will be returned if no error has occurred. </p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Putting everything together</h1>
+                </header>
+            
+            <article>
+                
+<p>The main package serves as the entry point for our application. It exposes the configuration options for the various services as command-line flags and takes care of the following:</p>
+<ul>
+<li>Instantiating the appropriate data store implementations for the link graph (memory or CockroachDB) and text indexer (memory or Elasticsearch)</li>
+<li>Instantiating the various application services with the correct configuration options</li>
+</ul>
+<p class="mce-root"/>
+<p>The<span> </span><kbd>runMain</kbd><span> </span>method implements the main loop of the application:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> runMain(logger *logrus.Entry) <span class="dt">error</span> {</a>
+<a>    svcGroup, err := setupServices(logger)</a>
+<a>    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> err</a>
+<a>    }</a>
+
+<a>    ctx, cancelFn := context.WithCancel(context.Background())</a>
+<a>    <span class="kw">defer</span> cancelFn()</a>
+<a>   <span class="kw">return</span> svcGroup.Run(ctx)</a>
+<a>}<br/></a></pre></div>
+<p><span>As shown in the preceding code, the first line instantiates all the required services and adds them to a</span><span> </span><kbd>Group</kbd><span>. Then, a new cancelable context is created and is used to invoke the group's (blocking)</span><span> </span><kbd>Run</kbd><span> </span><span>method.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Terminating the application in a clean way</h1>
+                </header>
+            
+            <article>
+                
+<p>At this point, you are probably wondering: how does the application terminate? The answer is by receiving a signal from the operating system. The<span> </span><kbd>signal</kbd><span> </span>package in the Go standard library comes with a<span> </span><kbd>Notify</kbd><span> </span>function that allows an application to register for, and receive, notifications when the application receives a particular signal type. Common signal types include the following:</p>
+<ul>
+<li><kbd>SIGINT</kbd><span>, </span>which is normally sent to a foreground application when the user presses<em><span> </span>Ctrl </em>+ <em>C</em>.</li>
+<li><kbd>SIGHUP</kbd><span>, </span>which many applications (for example, HTTP servers) hook and use as a trigger to reload their configuration.</li>
+<li><kbd>SIGKILL</kbd><span>, </span>which is sent to an application before the operating system kills it. This particular signal cannot be caught.</li>
+<li><kbd>SIGQUIT</kbd><span>, </span>which is sent to a foreground application when the user presses <em>Ctrl</em>+ <em>_</em>. The Go runtime hooks this signal so that it can print the stacks for every running goroutine before terminating the application.</li>
+</ul>
+<p>Since our application will be running as a Docker container, we are only interested in handling<span> </span><kbd>SIGINT</kbd><span> </span>(sent by Kubernetes when the pod is about to shut down) and<span> </span><kbd>SIGHUP</kbd><span> </span>(for debug purposes). Since the preceding code blocks on the group's<span> </span><kbd>Run</kbd><span> </span>method, we need to use a goroutine to watch for incoming signals:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">go</span> <span class="kw">func</span>() {</a>
+<a>    sigCh := <span class="bu">make</span>(<span class="kw">chan</span> os.Signal, <span class="dv">1</span>)</a>
+<a>    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGHUP)</a>
+<a>    <span class="kw">select</span> {</a>
+<a>    <span class="kw">case</span> s := &lt;-sigCh:</a>
+<a>        cancelFn()</a>
+<a>    <span class="kw">case</span> &lt;-ctx.Done():</a>
+<a>    }</a>
+<a>}()</a></pre></div>
+<p>Upon receiving one of the specified signals, we immediately invoke the cancellation function for the context and return. This action will cause all the services in the group to cleanly shut down and for the<span> </span><kbd>svcGroup.Run</kbd><span> </span>call to return, thus allowing<span> </span><kbd>runMain</kbd><span> </span>to also return and for the application to terminate.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Dockerizing and starting a single instance of the monolith</h1>
+                </header>
+            
+            <article>
+                
+<p>The<span> </span><kbd>Chapter10/linksrus</kbd><span> </span>package comes with a Dockerfile that includes the necessary steps for building a dockerized version of the monolithic application that you can then run either locally or deploy to Kubernetes using the guide in the following section.</p>
+<p>To create a Docker image for testing purposes, you can simply type<span> </span><kbd>make dockerize</kbd><span> </span>into the package directory. Alternatively, if you wish to build and push the generated images to a Docker registry, you can type<span> </span><kbd>make dockerize-and-push</kbd>. The Makefile target assumes that you are running Minikube and have enabled the private registry add-on according to the instructions from the previous sections.</p>
+<p>The tags for all the Docker images that are created by this Makefile will include the private registry URL as a prefix. For example, if the IP currently in use by Minikube is <kbd>192.168.99.100</kbd>, the generated image will be tagged as follows:</p>
+<ul>
+<li><kbd>192.168.99.100/linksrus-monolith:latest</kbd></li>
+<li><kbd>192.168.99.100/linksrus-monolith:$GIT_SHA</kbd></li>
+</ul>
+<div class="packt_tip">If you want to use a different private registry (for example, <kbd>localhost:32000</kbd>, if you're using microk8s), you can run<span> </span><kbd>make PRIVATE_REGISTRY=localhost:32000 dockerize-and-push</kbd> instead.<br/>
+<br/>
+On the other hand, if you want to push the images to the<span> </span><strong>public</strong><span> </span>Docker registry, you can invoke the command with an<span> </span><strong>empty</strong><span> </span><kbd>PRIVATE_REGISTRY</kbd><span> </span>environment variable with<span> </span><kbd>make PRIVATE_REGISTRY= dockerize-and-push</kbd>.</div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>To make it easier for those of you who don't want to spin up a Kubernetes cluster to test-drive the monolithic application, the application default command-line values will start the application in standalone mode:</p>
+<ul>
+<li>An in-memory store will be used for both the link graph and the text indexer</li>
+<li>A new crawler pass will be triggered every 5 minutes and a PageRank recalculation will occur every hour</li>
+<li>The frontend is exposed on port <kbd>8080</kbd></li>
+</ul>
+<p>The receding default settings make it easy to start the application either locally by running a command such as <kbd>go run main.go</kbd><span> </span>or inside a Docker container by running<span> </span><kbd>docker run -it --rm -p 8080:8080 $(minikube ip):5000/linksrus-monolith:latest</kbd>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deploying and scaling the monolith on Kubernetes</h1>
+                </header>
+            
+            <article>
+                
+<p>In the last part of this chapter, we will deploy the Links 'R' Us monolithic application on Kubernetes and put the partitioning logic to the test by scaling our deployment horizontally.</p>
+<p>The following diagram illustrates what our final setup will look like. As you can see, we will be using Kubernetes namespaces to logically split the various components for our deployment:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/b93c4d8a-8468-4f80-aa46-e849cbb671cc.png"/></p>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><span><span>Figure 6: Deploying a monolithic version of Links 'R' Us on Kubernetes</span></span></div>
+<p>From the preceding diagram, we can see that the<span> </span><kbd>linksrus-data</kbd><span> </span>namespace will host our data stores, which will be configured in highly available mode. The CockroachDB cluster consists of multiple nodes that are hidden behind a Kubernetes service resource called<span> </span><kbd>cdb-cockroachdb-public</kbd>. Our application can access the DB cluster via the service's DNS entry,<span> </span><kbd>cdb-cockroachdb-public.linksrus-data</kbd>. The Elasticsearch cluster follows exactly the same pattern; it also exposes a service that we can use to reach the master nodes by connecting to<span> </span><kbd>elasticsearch-master.linksrus-data:9200</kbd>.</p>
+<p>On the other hand, the<span> </span><kbd>linksrus</kbd><span> </span>namespace is where our application will be deployed as a StatefulSet consisting of four replicas. The choice of the number of replicas is arbitrary and can be easily adjusted upward or downward at any point in time by reconfiguring the StatefulSet.</p>
+<p>To be able to query the SRV records for all the pods in the <span>StatefulSet</span><span>, we will create a</span><span> </span><strong>headless</strong><span> </span><span>Kubernetes service. This service makes it possible for us to use the partition discovery code that we described in</span> <em>The crawler service</em> section<span>. Before we can expose our frontend to the outside world, we need to create yet another Kubernetes service that will act as a load balancer for distributing incoming traffic to the pods in our StatefulSet.</span></p>
+<p>The final ingredient in our deploy recipe is an Ingress resource, which will allow our end users to access the frontend service over the internet.</p>
+<p>Every Kubernetes manifest that we will be working with in the following sections is available in the<span> </span><kbd>Chapter10/k8s</kbd><span> </span>folder of this book's GitHub repository. Inside the same folder, you can find a Makefile with the following handy targets:</p>
+<ul>
+<li><kbd>bootstrap-minikube</kbd>: Bootstraps a Kubernetes cluster using Minikube and installs all the required add-ons for deploying Links 'R' Us</li>
+<li><kbd>deploy</kbd>: Deploys all the components for the Links 'R' Us project, including the data stores</li>
+<li><kbd>purge</kbd>: Removes all the components that have been installed via<span> </span><kbd>make deploy</kbd></li>
+<li><kbd>dockerize-and-push</kbd>: Builds and pushes<span> </span><strong>all</strong><span> the </span>required container images for the Links 'R' Us project</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Setting up the required namespaces</h1>
+                </header>
+            
+            <article>
+                
+<p>To create the required namespaces for the deployment, you need to switch to the<span> </span><kbd>Chapter10/k8s</kbd><span> </span>folder and apply the<span> </span><kbd>01-namespaces.yaml</kbd><span> </span>manifest by running the following command:<span> </span></p>
+<pre>kubectl apply -f 01-namespaces.yaml</pre>
+<p>After applying the manifest, the new namespaces should show up when you run<span> </span><kbd>kubectl get namespaces</kbd>. The following screenshot shows a list <span>of the Kubernetes cluster namespaces:</span></p>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><img src="assets/75c397ac-2ad3-4e25-b8f8-44f0f52f42da.png" style="width:32.67em;height:12.75em;"/></div>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><span>Figure 7: Listing the Kubernetes cluster namespaces</span></div>
+<p>The following steps entail the deployment of our database services, followed by the deployment of the monolithic Links 'R' Us application.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deploying CockroachDB and Elasticsearch using Helm</h1>
+                </header>
+            
+            <article>
+                
+<p>Setting up the CockroachDB and Elasticsearch cluster is quite tedious and involves applying quite a few manifests. Instead of doing this manually, we will actually cheat and deploy both data stores using the <kbd>helm</kbd> tool!</p>
+<p>For CockroachDB, we can run the following command to deploy a three-node cluster:</p>
+<pre>helm install --namespace=linksrus-data --name cdb \
+    --values chart-settings/cdb-settings.yaml \
+    --set ImageTag=v19.1.5 \
+    stable/cockroachdb</pre>
+<p><span>The</span><span> </span><kbd>cdb-settings.yaml</kbd><span> </span><span>file that's referenced by the preceding command contains overrides for the default chart values, which r</span><span>estrict the spawned database instance to using 512 M of RAM and 100 M of disk space. </span></p>
+<p class="mce-root"/>
+<p>The <kbd>helm</kbd> charts for Elasticsearch are currently maintained in an external repository that must be registered with <kbd>helm</kbd> before we can proceed with the installation. Similar to CockroachDB, a settings override file is also provided that restricts the Elasticsearch master nodes to using 512 M of RAM and 300 M of disk space. The following command will take care of the Elasticsearch deployment:</p>
+<pre>helm repo add elastic https://helm.elastic.co 
+helm install --namespace=linksrus-data --name es \
+    --values chart-settings/es-settings.yaml \
+    --set imageTag=7.4.0 \
+    elastic/elasticsearch</pre>
+<p>After running all of the preceding commands, you should be able to type<span> </span><kbd>kubectl -n linksrus-data get pods</kbd><span> </span>and see an output similar to the following:</p>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><img src="assets/eea6e389-2e3e-4817-866a-52f5b4298485.png" style="width:38.58em;height:15.00em;"/></div>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><span>Figure 8: Listing the pods in the linksrus-data namespace</span></div>
+<p>Once all the data store pods show up as <em>running</em>, we can deploy Links 'R' Us!</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deploying Links 'R' Us</h1>
+                </header>
+            
+            <article>
+                
+<p>Before we can create the Links 'R' Us StatefulSet, there is one more aspect that we need to take care of: the CockroachDB instance is not aware of the schema for the link graph. Nothing to worry about... We can remedy this issue by spawning a one-off container that will create the database for the link graph and apply the schema migrations from <a href="ce489d62-aaa3-4fbb-b239-c9de3daa9a8f.xhtml">Chapter 6</a>, <em>Building a Persistence Layer</em>.</p>
+<p>You can find the source code and Dockerfile for this container in the<span> </span><kbd>Chapter10/cdb-schema</kbd><span> </span>folder. Assuming that you are currently using Minikube for your cluster, you can run the following command in the preceding folder to create the Docker image and push it to the private registry exposed by Minikube:<span> </span></p>
+<pre>make dockerize-and-push</pre>
+<p>Moving back to the manifests inside the<span> </span><kbd>Chapter10/k8s</kbd><span> </span>folder, you can apply the<span> </span><kbd>02-cdb-schema.yaml</kbd><span> </span>manifest to create a one-off Kubernetes <kbd>Job</kbd> that waits for the DB cluster to become available, ensures that the link-graph database and schema are up to date, and then exits. Here's what the content of this YAML file looks like:</p>
+<div class="sourceCode">
+<pre class="sourceCode yaml"><a><span class="fu">apiVersion:</span><span class="at"> batch/v1</span></a>
+<a><span class="fu">kind:</span><span class="at"> Job</span></a>
+<a><span class="fu">metadata:</span></a>
+<a>  <span class="fu">name:</span><span class="at"> cdb-ensure-schema</span></a>
+<a>  <span class="fu">namespace:</span><span class="at"> linksrus-data</span></a>
+<a><span class="fu">spec:</span></a>
+<a>  <span class="fu">template:</span></a>
+<a>    <span class="fu">spec:</span></a>
+<a>      <span class="fu">containers:</span></a>
+<a>      <span class="kw">-</span> <span class="fu">name:</span><span class="at"> cdb-schema</span></a>
+<a>        <span class="fu">imagePullPolicy:</span><span class="at"> Always</span></a>
+<a>        <span class="fu">image:</span><span class="at"> localhost:5000/cdb-schema:latest</span></a>
+<a>        <span class="fu">args:</span><span class="at"> </span></a>
+<a>         <span class="kw">-</span> <span class="st">"linkgraph"</span></a>
+<a>         <span class="kw">-</span> <span class="st">"cdb-cockroachdb-public.linksrus-data"</span></a>
+<a>      <span class="fu">restartPolicy:</span><span class="at"> Never</span></a></pre></div>
+<p>Finally, we can deploy the remaining Links 'R' Us resources by applying the<span> </span><kbd>03-linksrus-monolith.yaml</kbd><span> </span>manifest. If you haven't done so already, make sure that you run<span> </span><kbd>make dockerize-and-push</kbd><span> </span>in the<span> </span><kbd>Chapter10/linksrus</kbd><span> </span>folder prior to applying the manifest to make sure that Kubernetes can find the referenced container images.</p>
+<div class="packt_tip">The Makefile in the<span> </span><kbd>k8s</kbd><span> </span>folder also defines a<span> </span><kbd>dockerize-and-push</kbd><span> </span>target that can build and push<span> </span><strong>all</strong><span> the </span>required container images for running the Links 'R' Us demo from this section with a single command.</div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>After a few seconds, you can type<span> </span><kbd>kubectl -n linksrus get pods,statefulsets,services,ingresses</kbd><span> </span>to get a list of all the resources we just deployed. The following screenshot shows the expected output of this command:</p>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><img src="assets/28e1cb08-0975-483f-98a1-78e90f99850c.png" style="width:47.50em;height:22.67em;"/></div>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><span>Figure 9: Listing all the resources in the linksrus namespace</span></div>
+<p>Success! Our monolithic application has been deployed and connected to the data stores in the<span> </span><kbd>linksrus-data</kbd><span> </span>namespace. You can access the frontend service by pointing your browser to the IP address of your ingress. In the preceding output, I was using Minikube inside a VM and therefore the displayed ingress address is not accessible from the host. However, you can easily find out the public IP that was used by Minikube by running<span> </span><kbd>minikube ip</kbd><span> </span>and pointing your browser to it.</p>
+<div class="packt_tip">You can tail the logs of each individual pod in the StatefulSet using the <kbd>kubectl -n linksrus logs linksrus-monolith-instance-X -f</kbd><span> command, </span>where<span> </span><em>X</em><span> </span>is a pod number from the set.<br/>
+<br/>
+Moreover, you can also tail the logs from<span> </span><em>all</em><span> the </span>pods in the set using the <kbd>kubectl -n linksrus logs -lapp=linksrus-monolith-instance -f</kbd> command.</div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we learned how to dockerize our Go applications in a way that yields container images with the smallest possible size. Then, we talked about the design philosophy and general architecture behind Kubernetes and elaborated on the different types of resources that you can create and manage on a Kubernetes cluster. In the last part of this chapter, we pieced together the first fully functioning version of the Links 'R' Us project and deployed it as a single monolithic application on Kubernetes.</p>
+<p>In the next chapter, we will discuss the challenges and potential caveats involved when switching to a microservice architecture.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol type="1">
+<li>Name some benefits of containerization.</li>
+<li>What is the difference between a master and a worker node in a Kubernetes cluster?</li>
+<li>What is the difference between a regular service and a headless service?</li>
+<li>What kind of Kubernetes resource would you use to share your OAuth2 client ID and secret with your frontend?</li>
+<li>Explain the difference between a deployment and a StatefulSet.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li>Alpine Linux: A security-oriented, lightweight Linux distribution based on musl libc and busybox.<span> </span><a href="https://alpinelinux.org">https://alpinelinux.org</a>.</li>
+<li>Calico: Secure networking for the cloud-native era.<span> </span><a href="https://www.projectcalico.org">https://www.projectcalico.org</a>.</li>
+<li>Cilium: API-aware networking and security. <a href="https://cilium.io">https://cilium.io</a>.</li>
+<li>Containerd: An industry-standard container runtime with an emphasis on simplicity, robustness, and portability.<span> </span><a href="https://containerd.io">https://containerd.io</a>.</li>
+<li>Docker: Enterprise container platform.<span> </span><a href="https://www.docker.com">https://www.docker.com</a>.</li>
+<li>Helm: The package manager for Kubernetes.<span> </span><a href="https://helm.sh">https://helm.sh</a>.</li>
+<li>K3S: Lightweight Kubernetes.<span> </span><a href="https://k3s.io/">https://k3s.io/</a>.</li>
+</ol>
+<ol start="8">
+<li>Kubernetes: Production-grade container orchestration.<span> </span><a href="https://www.kubernetes.io">https://www.kubernetes.io</a>.</li>
+<li>Microk8s: Zero-ops Kubernetes for workstations and edge / IoT.<span> </span><a href="https://microk8s.io">https://microk8s.io</a>.</li>
+<li>Minikube: Local Kubernetes, focused on application development and education.<span> </span><a href="https://minikube.sigs.k8s.io">https://minikube.sigs.k8s.io</a>.</li>
+<li>Multipass: Orchestrates virtual Ubuntu instances.<span> <a href="https://multipass.run/">https://multipass.run/</a>.</span></li>
+<li>rkt: A security-minded, standards-based container engine.<span> </span><a href="https://coreos.com/rkt">https://coreos.com/rkt</a>.</li>
+<li>VirtualBox: A powerful x86 and AMD64/Intel64 virtualization product for enterprise as well as home use<em>.</em><span> </span><a href="https://www.virtualbox.org">https://www.virtualbox.org</a>.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

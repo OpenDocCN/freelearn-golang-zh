@@ -1,0 +1,104 @@
+<html><head></head><body><div class="book" title="Working with the io package" id="23MNU1-9c484ed022e64a0fb0e1aebf8e05d4fd"><div class="book"><div class="book"><div class="book"><h1 class="title" id="calibre_pb_0"><a id="ch10lvl1sec67" class="calibre1"/>Working with the io package</h1></div></div></div><p class="calibre10">The obvious place to start with IO is, well, the <code class="email">io</code> package (<a class="calibre1" href="https://golang.org/pkg/io">https://golang.org/pkg/io</a>). As we have already seen, the <code class="email">io</code> package defines input and output primitives as the <code class="email">io.Reader</code> and <code class="email">io.Writer</code> interfaces. The following table summarizes additional functions and types, available in the <code class="email">io</code> package, that facilitate streaming IO operations.</p><div class="informaltable"><table border="1" class="calibre17"><colgroup class="calibre18"><col class="calibre19"/><col class="calibre19"/></colgroup><tbody class="calibre20"><tr class="calibre21"><td class="calibre22">
+<p class="calibre23"><span><strong class="calibre24">Function</strong></span></p>
+</td><td class="calibre22">
+<p class="calibre23"><span><strong class="calibre24">Description</strong></span></p>
+</td></tr><tr class="calibre21"><td class="calibre22">
+<p class="calibre23"><code class="literal">io.Copy()</code></p>
+</td><td class="calibre22">
+<p class="calibre23">The <code class="literal">io.Copy</code> function (and its variants <code class="literal">io.CopyBuffer</code> and <code class="literal">io.CopyN</code>) make it easy to copy data from an arbitrary <code class="literal">io.Reader</code> source into an equally arbitrary <code class="literal">io.Writer</code> sink as shown in the following snippet:
+</p><pre class="programlisting1">data := strings.NewReader("Write   me down.")   
+file, _ := os.Create("./iocopy.data")   
+io.Copy(file, data)   
+</pre><p class="calibre23">
+</p><p class="calibre23">golang.fyi/ch10/iocopy.go</p>
+</td></tr><tr class="calibre21"><td class="calibre22">
+<p class="calibre23"><code class="literal">PipeReader PipeWriter</code></p>
+</td><td class="calibre22">
+<p class="calibre23">The <code class="literal">io</code> package includes the <span><em class="calibre25">PipeReader</em></span> and <span><em class="calibre25">PipeWriter</em></span> types that model IO operations as an in-memory pipe. Data is written to the pipe's <code class="literal">io.Writer</code> and can independently be read at the pipe's <code class="literal">io.Reader</code>. The following abbreviated snippet illustrates a simple pipe that writes a string to the writer <code class="literal">pw</code>. The data is then consumed with the <code class="literal">pr</code> reader and copied to a file:
+</p><pre class="programlisting1">file, _ := os.Create("./iopipe.data")   
+pr, pw := io.Pipe()    
+go func() {   
+    fmt.Fprint(pw, "Pipe   streaming")   
+    pw.Close()   
+}()   
+   
+wait := make(chan struct{})   
+go func() {   
+    io.Copy(file, pr)   
+    pr.Close()   
+    close(wait)   
+}()   
+&lt;-wait //wait for pr to finish   
+</pre><p class="calibre23">
+</p><p class="calibre23">golang.fyi/ch10/iopipe.go</p><p class="calibre23">
+</p><p class="calibre23">Note that the pipe writer will block until the reader completely consumes the pipe content or an error is encountered. Therefore, both the reader and writer should be wrapped in a goroutine to avoid deadlocks.</p>
+</td></tr><tr class="calibre21"><td class="calibre22">
+<p class="calibre23"><code class="literal">io.TeeReader()</code></p>
+</td><td class="calibre22">
+<p class="calibre23">Similar to the <code class="literal">io.Copy</code> function, <code class="literal">io.TeeReader</code> transfers content from a reader to a writer. However, the function also emits the copied bytes (unaltered) via a returned <code class="literal">io.Reader</code>.</p><p class="calibre23">
+</p><p class="calibre23">The TeeReader works well for composing multi-step IO stream processing. The following abbreviated snippet first calculates the SHA-1 hash of a file content using the <code class="literal">TeeReader</code>. The resulting reader, <code class="literal">data</code>, is then streamed to a gzip writer <code class="literal">zip</code>:</p><p class="calibre23">
+</p><pre class="programlisting1">fin, _ := os.Open("./ioteerdr.go")   
+defer fin.Close()   
+fout, _ := os.Create("./teereader.gz")   
+defer fout.Close()   
+   
+zip := gzip.NewWriter(fout)   
+defer zip.Close()   
+sha := sha1.New()   
+data := io.TeeReader(fin, sha)    
+io.Copy(zip, data)   
+   
+fmt.Printf("SHA1 hash %x\n",   sha.Sum(nil))   
+</pre><p class="calibre23">
+</p><p class="calibre23">golang.fyi/ch10/ioteerdr0.go</p><p class="calibre23">
+</p><p class="calibre23">If we wanted to calculate both SHA-1 and MD5, we can update the code to nest the two <code class="literal">TeeReader</code> values as shown in the following snippet:</p><p class="calibre23">
+</p><pre class="programlisting1">sha := sha1.New()   
+md := md5.New()   
+data := io.TeeReader(
+  io.TeeReader(fin, md), sha,   
+)    
+io.Copy(zip, data)   
+</pre><p class="calibre23">
+</p><p class="calibre23">golang.fyi/ch10/ioteerdr1.go</p>
+</td></tr><tr class="calibre21"><td class="calibre22">
+<p class="calibre23"><code class="literal">io.WriteString()</code></p>
+</td><td class="calibre22">
+<p class="calibre23">The <code class="literal">io.WriteString</code> function writes the content of string into a specified writer. The following writes the content of a string to a file:
+</p><pre class="programlisting1">fout, err := os.Create("./iowritestr.data")   
+if err != nil {   
+    fmt.Println(err)   
+    os.Exit(1)   
+}   
+defer fout.Close()   
+io.WriteString(fout, "Hello   there!\n")   
+</pre><p class="calibre23">
+</p><p class="calibre23">golang.fyi/ch10/iowritestr.go</p>
+</td></tr><tr class="calibre21"><td class="calibre22">
+<p class="calibre23"><code class="literal">io.LimitedReader</code></p>
+</td><td class="calibre22">
+<p class="calibre23">As its name suggests, the <code class="literal">io.LimitedReader</code> struct is a reader that reads only <span><em class="calibre25">N</em></span> number of bytes from the specified <code class="literal">io.Reader</code>. The following snippet will print the first 19 bytes from the string:
+</p><pre class="programlisting1">str := strings.NewReader("The   quick brown " +       
+    "fox jumps over the lazy   dog")   
+limited :=   &amp;io.LimitedReader{R: str, N: 19}   
+io.Copy(os.Stdout, limited)   
+</pre><p class="calibre23">
+</p><p class="calibre23">golang.fyi/ch10/iolimitedrdr.go</p><p class="calibre23">
+</p><pre class="programlisting1">$&gt; go run iolimitedrd.go   
+The quick brown fox   
+</pre>
+</td></tr><tr class="calibre21"><td class="calibre22">
+<p class="calibre23"><code class="literal">io.SectionReader</code></p>
+</td><td class="calibre22">
+<p class="calibre23">The <code class="literal">io.SectionReader</code> type implements seek and skip primitives by specifying an index (zero-based) where to start reading and an offset value indicating the number of bytes to read as shown in the following snippet:
+</p><pre class="programlisting1">str := strings.NewReader("The   quick brown"+   
+    "fox jumps over the lazy   dog")   
+section := io.NewSectionReader(str,   19, 23)   
+io.Copy(os.Stdout, section)   
+</pre><p class="calibre23">
+</p><p class="calibre23">golang.fyi/ch10/iosectionrdr.go</p><p class="calibre23">
+</p><p class="calibre23">This example will print <code class="literal">jumps over the lazy dog</code>.</p>
+</td></tr><tr class="calibre21"><td class="calibre22">
+<p class="calibre23">Package <code class="literal">io/ioutil</code></p>
+</td><td class="calibre22">
+<p class="calibre23">The <code class="literal">io/ioutil </code>sub-package implements a small number of functions that provide utilitarian shortcuts to IO primitives such as file read, directory listing, temp directory creation, and file write.</p>
+</td></tr></tbody></table></div></div></body></html>

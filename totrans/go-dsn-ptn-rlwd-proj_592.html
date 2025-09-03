@@ -1,0 +1,151 @@
+<html><head></head><body>
+<div class="book" title="Future design pattern">
+<div class="book" title="Unit tests"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_5"><a id="ch09lvl2sec0222" class="calibre1"/>Unit tests</h2></div></div></div><p class="calibre10">So, as we mentioned, we will use first class functions to achieve this behavior, and we will need three specific types of function:</p><div class="book"><ul class="itemizedlist"><li class="listitem"><code class="email">type SuccessFunc func(string)</code>: The <code class="email">SuccessFunc</code> function will be executed if everything went well. Its string argument will be the result of the operation, so this function will be called by our Goroutine.</li><li class="listitem"><code class="email">type FailFunc func(error)</code>: The <code class="email">FailFunc</code> function handles the opposite result, that is, when something goes wrong, and, as you can see, it will return an error.</li><li class="listitem"><code class="email">type ExecuteStringFunc func() (string, error)</code>: Finally, the <code class="email">ExecuteStringFunc</code> function is a type that defines the operation we want to perform. Maybe it will return a string or an error. Don't worry if this all seems confusing; it will be clearer later.</li></ul></div><p class="calibre10">So, we create the <code class="email">future</code> object, we define a success behavior, we define a fail behavior, and we pass an <code class="email">ExecuteStringFunc</code> type to be executed. In the implementation file, we'll need a new type:</p><pre class="programlisting">type MaybeString struct {} 
+</pre><p class="calibre10">We will also create two tests in the <code class="email">_test.go</code> file:</p><pre class="programlisting">package future 
+ 
+import ( 
+  "errors" 
+  "testing" 
+  "sync" 
+) 
+ 
+func TestStringOrError_Execute(t *testing.T) { 
+  future := &amp;MaybeString{} 
+  t.Run("Success result", func(t *testing.T) { 
+    ... 
+  }) 
+  t.Run("Error result", func(t *testing.T) { 
+  ... 
+  }) 
+} 
+</pre><p class="calibre10">We will define functions by chaining them, as you would usually see in Node.js. Code like this is compact and not particularly difficult to follow:</p><pre class="programlisting">t.Run("Success result", func(t *testing.T) { 
+<span class="strong"><strong class="calibre2">    future.Success(func(s string) {</strong></span>
+<span class="strong"><strong class="calibre2">        
+        t.Log(s)</strong></span>
+<span class="strong"><strong class="calibre2">    
+    }).Fail(func(e error) {</strong></span>
+<span class="strong"><strong class="calibre2">        
+        t.Fail()</strong></span>
+<span class="strong"><strong class="calibre2">    
+    })</strong></span>
+<span class="strong"><strong class="calibre2"> 
+    future.Execute(func() (string, error) {</strong></span>
+<span class="strong"><strong class="calibre2">        
+        return "Hello World!", nil</strong></span>
+<span class="strong"><strong class="calibre2">    
+    })</strong></span> 
+}) 
+</pre><p class="calibre10">The <code class="email">future.Success</code> function must be defined in the <code class="email">MaybeString</code> structure to accept a <code class="email">SuccessFunc</code> function that will be executed if everything goes correctly and return the same pointer to the <code class="email">future</code> object (so we can keep chaining). The <code class="email">Fail</code> function must also be defined in the <code class="email">MaybeString</code> structure and must accept a <code class="email">FailFunc</code> function to later return the pointer. We return the pointer in both cases so we can define the <code class="email">Fail</code> and the <code class="email">Success</code> or vice versa.</p><p class="calibre10">Finally, we use the <code class="email">Execute</code> method to pass an <code class="email">ExecuteStringFunc</code> type (a function that accepts nothing and returns a string or an error). In this case, we return a string and nil, so we expect that the <code class="email">SuccessFunc</code> function will be executed and we log the result to the console. In case that fail function is executed, the test has failed because the <code class="email">FailFunc</code> function shouldn't be executed for a returned nil error.</p><p class="calibre10">But we still lack something here. We said that the function must be executed asynchronously in a different Goroutine, so we have to synchronize this test somehow so that it doesn't finish too soon. Again, we can use a channel or a <code class="email">sync.WaitGroup</code>:</p><pre class="programlisting">t.Run("Success result", func(t *testing.T) { 
+<span class="strong"><strong class="calibre2">    var wg sync.WaitGroup</strong></span>
+<span class="strong"><strong class="calibre2">    wg.Add(1)</strong></span> 
+    future.Success(func(s string) { 
+      t.Log(s) 
+ 
+<span class="strong"><strong class="calibre2">      wg.Done()</strong></span> 
+    }).Fail(func(e error) { 
+      t.Fail() 
+       
+<span class="strong"><strong class="calibre2">      wg.Done()</strong></span> 
+    }) 
+ 
+    future.Execute(func() (string, error) { 
+      return "Hello World!", nil 
+    }) 
+<span class="strong"><strong class="calibre2">    wg.Wait()</strong></span> 
+  }) 
+</pre><p class="calibre10">We have seen WaitGroups before in the previous channel. This WaitGroup is configured to wait for one signal (<code class="email">wg.Add(1)</code>). The <code class="email">Success</code> and <code class="email">Fail</code> methods will trigger the <code class="email">Done()</code> method of the <code class="email">WaitGroup</code> to allow execution to continue and finish testing (that is why the <code class="email">Wait()</code> method is at the end). Remember that each <code class="email">Done()</code> method will subtract one from the WaitGroup, and we have added only one, so our <code class="email">Wait()</code> method will only block until one <code class="email">Done()</code> method is executed.</p><p class="calibre10">Using what we know of making a <code class="email">Success</code> result unit test, it's easy to make a Failed result unit test by swapping the <code class="email">t.Fail()</code> method call from the error to success so that the test fails if a call to success is done:</p><pre class="programlisting">t.Run("Failed result", func(t *testing.T) { 
+<span class="strong"><strong class="calibre2">    var wg sync.WaitGroup</strong></span>
+<span class="strong"><strong class="calibre2">  
+    wg.Add(1)</strong></span>
+<span class="strong"><strong class="calibre2">  
+    future.Success(func(s string) {</strong></span>
+<span class="strong"><strong class="calibre2">    
+        t.Fail()</strong></span>
+<span class="strong"><strong class="calibre2">    
+        wg.Done()</strong></span>
+<span class="strong"><strong class="calibre2">  
+    }).Fail(func(e error) {</strong></span>
+<span class="strong"><strong class="calibre2">    
+        t.Log(e.Error())</strong></span>
+<span class="strong"><strong class="calibre2">    
+        wg.Done()</strong></span>
+<span class="strong"><strong class="calibre2">  
+    })</strong></span>
+<span class="strong"><strong class="calibre2">  
+    future.Execute(func() (string, error) {</strong></span>
+<span class="strong"><strong class="calibre2">    
+        return "", errors.New("Error ocurred")</strong></span>
+<span class="strong"><strong class="calibre2">  
+    })</strong></span>
+<span class="strong"><strong class="calibre2">  
+    wg.Wait()</strong></span> 
+}) 
+</pre><p class="calibre10">If you are using an IDE like me, your <code class="email">Success</code>, <code class="email">Fail</code>, and <code class="email">Execute</code> method calls must be in red. This is because we lack our method's declaration in the implementation file:</p><pre class="programlisting">package future 
+ 
+type SuccessFunc func(string) 
+type FailFunc func(error) 
+type ExecuteStringFunc func() (string, error) 
+ 
+type MaybeString struct { 
+  ... 
+} 
+ 
+func (s *MaybeString) Success(f SuccessFunc) *MaybeString { 
+  return nil 
+} 
+ 
+func (s *MaybeString) Fail(f FailFunc) *MaybeString { 
+  return nil 
+} 
+ 
+func (s *MaybeString) Execute(f ExecuteStringFunc) { 
+  ... 
+} 
+</pre><p class="calibre10">Our test seems ready to execute. Let's try it out:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go test -v .</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestStringOrError_Execute</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestStringOrError_Execute/Success_result</strong></span>
+<span class="strong"><strong class="calibre2">fatal error: all goroutines are asleep - deadlock!</strong></span>
+<span class="strong"><strong class="calibre2">goroutine 1 [chan receive]:</strong></span>
+<span class="strong"><strong class="calibre2">testing.(*T).Run(0xc4200780c0, 0x5122e9, 0x19, 0x51d750, 0xc420041d30)</strong></span>
+<span class="strong"><strong class="calibre2">        /usr/lib/go/src/testing/testing.go:647 +0x316</strong></span>
+<span class="strong"><strong class="calibre2">testing.RunTests.func1(0xc4200780c0)</strong></span>
+<span class="strong"><strong class="calibre2">        /usr/lib/go/src/testing/testing.go:793 +0x6d</strong></span>
+<span class="strong"><strong class="calibre2">testing.tRunner(0xc4200780c0, 0xc420041e20)</strong></span>
+<span class="strong"><strong class="calibre2">        /usr/lib/go/src/testing/testing.go:610 +0x81</strong></span>
+<span class="strong"><strong class="calibre2">testing.RunTests(0x51d758, 0x5931e0, 0x1, 0x1, 0x50feb4)</strong></span>
+<span class="strong"><strong class="calibre2">        /usr/lib/go/src/testing/testing.go:799 +0x2f5</strong></span>
+<span class="strong"><strong class="calibre2">testing.(*M).Run(0xc420041ee8, 0xc420014550)</strong></span>
+<span class="strong"><strong class="calibre2">        /usr/lib/go/src/testing/testing.go:743 +0x85</strong></span>
+<span class="strong"><strong class="calibre2">main.main()</strong></span>
+<span class="strong"><strong class="calibre2">        go-design-patterns/future/_test/_testmain.go:54 +0xc6</strong></span>
+<span class="strong"><strong class="calibre2">...continue</strong></span>
+</pre><p class="calibre10">Well... the tests have failed, yes... but not in a controllable way. Why is this? We don't have any implementation yet, so no <code class="email">Success</code> or <code class="email">Fail</code> functions are being executed either. Our WaitGroup is waiting forever for a call to the <code class="email">Done()</code> method that will never arrive, so it can't continue and finish the test. That's the meaning of <span class="strong"><em class="calibre11">All Goroutines are asleep - deadlock!</em></span>. In our specific example, it would mean <span class="strong"><em class="calibre11">Nobody is going to call Done(), so we are dead!</em></span>.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="note020" class="calibre1"/>Note</h3><p class="calibre10">Thanks to the Go compiler and the runtime executor, we can detect deadlocks easily. Imagine if Go runtime couldn't detect deadlocks--we would be effectively stuck in a blank screen without knowing what was wrong.</p></div><p class="calibre10">So how can we solve this? Well, an easy way would be with a timeout that calls the <code class="email">Done()</code> method after waiting a while for completion. For this code, it's safe to wait for 1 second because it's not doing long-running operations.</p><p class="calibre10">We will declare a <code class="email">timeout</code> function within our <code class="email">test</code> file that waits for a second, then prints a message, sets the test as failed, and lets the WaitGroup continue by calling its <code class="email">Done()</code> method:</p><pre class="programlisting">func timeout(t *testing.T, wg *sync.WaitGroup) { 
+  time.Sleep(time.Second) 
+  t.Log("Timeout!") 
+ 
+  t.Fail() 
+  wg.Done() 
+} 
+</pre><p class="calibre10">The final look of each subtest is similar to our previous example of the <code class="email">"Success result"</code>:</p><pre class="programlisting">t.Run("Success result", func(t *testing.T) { 
+  var wg sync.WaitGroup 
+  wg.Add(1) 
+ 
+  //Timeout! 
+  go timeout(t, wg) 
+  // ... 
+}) 
+</pre><p class="calibre10">Let's see what happens when we execute our tests again:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go test -v .</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestStringOrError_Execute</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestStringOrError_Execute/Success_result</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestStringOrError_Execute/Failed_result</strong></span>
+<span class="strong"><strong class="calibre2">--- FAIL: TestStringOrError_Execute (2.00s)</strong></span>
+<span class="strong"><strong class="calibre2">    --- FAIL: TestStringOrError_Execute/Success_result (1.00s)</strong></span>
+<span class="strong"><strong class="calibre2">        future_test.go:64: Timeout!</strong></span>
+<span class="strong"><strong class="calibre2">    --- FAIL: TestStringOrError_Execute/Failed_result (1.00s)</strong></span>
+<span class="strong"><strong class="calibre2">        future_test.go:64: Timeout!</strong></span>
+<span class="strong"><strong class="calibre2">FAIL</strong></span>
+<span class="strong"><strong class="calibre2">exit status 1</strong></span>
+<span class="strong"><strong class="calibre2">FAIL</strong></span>
+</pre><p class="calibre10">Our tests failed, but in a controlled way. Look at the end of the <code class="email">FAIL</code> lines--notice how the elapsed time is 1 second because it has been triggered by the timeout, as we can see in the logging messages.</p><p class="calibre10">It's time to pass to the implementation.</p></div></div></body></html>

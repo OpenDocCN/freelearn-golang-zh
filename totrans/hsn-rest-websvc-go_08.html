@@ -1,0 +1,662 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building a REST API Client in Go</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">In this chapter, we are going to discuss how Go client applications work in depth. We will explore <kbd>grequests</kbd>, a Python requests-style library that allows us to make API calls from the Go code. Then, we'll write some client software that uses the GitHub API. While doing that, we'll try to learn about two Go libraries called <kbd>cli</kbd> and <kbd>cobra</kbd>. After learning about the fundamentals of those packages, we'll write an API testing tool for the command line. Then, we'll introduce Redis, an in-memory database that we can use to cache the API responses to back up the data.</p>
+<p>In this chapter, we will cover the following topics:</p>
+<ul>
+<li class="h1">Plan for building a REST API client</li>
+<li>Basics for writing a command-line tool in Go</li>
+<li><kbd>grequests</kbd> <span>–</span> a REST API package for Go</li>
+<li>Getting comfortable with the GitHub REST API</li>
+<li>Cobra, an advanced CLI library</li>
+<li>Creating a CLI tool as an API client for the GitHub REST API</li>
+<li>Using Redis to cache the API data</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>The following software needs to be pre-installed so that you can run the code samples in this chapter:</p>
+<ul>
+<li>OS: Linux(Ubuntu 18.04)/ Windows 10/Mac OS X &gt;=10.13</li>
+<li>Go stable version compiler &gt;= 1.13.5</li>
+<li>Dep: A dependency management tool for Go &gt;= 0.5.3</li>
+</ul>
+<p><span>You can download the code for this chapter from</span> <a href="https://github.com/PacktPublishing/Hands-On-Restful-Web-services-with-Go/tree/master/chapter8" target="_blank">https://github.com/PacktPublishing/Hands-On-Restful-Web-services-with-Go/tree/master/chapter8</a><span>. Clone the code and use the code samples in the</span> <kbd>chapter8</kbd> <span>directory.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Plan for building a REST API client</h1>
+                </header>
+            
+            <article>
+                
+<p>So far, we've mainly focused on writing server-side REST APIs. Basically, these are server programs. In a few cases, such as gRPC, we need a client. A client program takes input from the user and executes some logic. For developing a Go client, we should know about the <kbd>flag</kbd> library in Go. Before that, we should be aware of how to make requests for an API from a Go program. In the previous chapters, we used different clients such as cURL, Browser, Postman, and so on. But how can we turn a Go program into a client?</p>
+<p>Command-line tools are equally important as web user interfaces to perform system tasks. In <strong>business-to-business</strong> (<strong>B2B</strong>) companies, the software is packaged as a single binary instead of having multiple different packages. As a Go developer, you should know how to achieve the goal of writing apps for the command line. Then, that knowledge can be invested in creating REST API-related web clients easily and elegantly.</p>
+<p>Let's explore the basics of how we can write <strong>command-line interface </strong>(<strong>CLI</strong>) tools in Go.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Basics for writing a command-line tool in Go</h1>
+                </header>
+            
+            <article>
+                
+<p>Go provides a built-in library called <kbd>flag</kbd> for writing CLI tools. It refers to the command-line flags. Since it is already packed with the Go distribution, there is no need to install anything externally. The <kbd>flag</kbd> package has multiple functions, such as <kbd>Int</kbd> and <kbd>String</kbd>, to handle the respective type input that's supplied as a command-line flag. Let's suppose that we collect a name from the user and print it back to the console.</p>
+<p>To do this, we can use the <kbd>flag.String</kbd> method, as shown in the following code snippet:</p>
+<pre>import "flag"<br/>var name = flag.String("name", "stranger", "your wonderful name")</pre>
+<p>Let's write a short program to illustrate the <kbd>flag</kbd> API in more detail:</p>
+<ol>
+<li>Create a file called <kbd>flagExample.go</kbd> in the <kbd>GOPATH</kbd>, as follows:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>mkdir -p $GOPATH/src/github.com/git-user/chapter8/basic/<br/>touch </strong><strong>$GOPATH/src/github.com/git-user/chapter8/basic/</strong><strong>flagExample.go</strong></pre>
+<ol start="2">
+<li>Now, we can use the <kbd>flag</kbd> package's <kbd>String</kbd> method to receive a string from the command line as an option, like so:</li>
+</ol>
+<pre style="padding-left: 60px">package main<br/><br/>import (<br/>    "flag"<br/>    "log"<br/>    )<br/><br/>var name = flag.String("name", "stranger", "your wonderful name")<br/><br/>func main(){<br/>    flag.Parse()<br/>    log.Printf("Hello %s, Welcome to the command line world",<br/>     *name)<br/>}</pre>
+<p style="padding-left: 60px">In this program, we are creating a flag called <kbd>name</kbd>. It is a string pointer. <kbd>flag.String</kbd> takes three arguments. The first argument is the name of the option. The second and third method arguments are the default values of that flag and the help text, respectively. We have asked the program to parse all the flag pointers in the main block.</p>
+<p style="padding-left: 60px">When we run the program, it maps the values supplied from the command-line options to the respective variables. To access the value of a flag in code, we use <kbd>*</kbd>, which is a pointer value reference; for example <kbd>*name</kbd> in the preceding code block.</p>
+<ol start="3">
+<li>Build and then run the program using the following command:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>go build </strong><strong>$GOPATH/src/github.com/git-user/chapter8/basic/<br/></strong><strong>flagExample.go</strong></pre>
+<p style="padding-left: 60px">This creates a binary in the <kbd>basic</kbd> directory.</p>
+<ol start="4">
+<li>We can run it like a normal executable, as follows:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>./flagExample</strong></pre>
+<p style="padding-left: 60px">It gives us the following output:</p>
+<pre style="padding-left: 60px"><strong>Hello stranger, Welcome to the command line world</strong></pre>
+<p style="padding-left: 60px">As you may have noticed, we didn't pass the <kbd>name</kbd> argument to the command. However, we did assign the default value to that argument. Go's flag takes the default value and proceeds further.</p>
+<ol start="5">
+<li>Now, in order to see what options are available and to find out about them, we need to ask for help, like this:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>./flagExample -h</strong><br/><br/>Output<br/>========<br/><strong>Usage of ./flagExample:</strong><br/><strong>  -name string</strong><br/><strong>      your wonderful name (default "stranger")</strong> </pre>
+<p style="padding-left: 60px">This is the reason why we passed the help text as the third argument for the flag command.</p>
+<div class="packt_infobox">In Windows, <kbd>.exe</kbd> will be generated when we build a <kbd>.go</kbd> file. After that, from the command line, we can run the program by calling the program name.</div>
+<ol start="6">
+<li>Now, try to pass the <kbd>name</kbd> option with a value:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>./flagExample -name Albert</strong><br/><strong>(or)</strong><br/><strong>./flagExample -name=Albert</strong></pre>
+<p style="padding-left: 60px">Both styles work fine and the output prints the supplied value:</p>
+<pre style="padding-left: 60px"><strong>Hello Albert, Welcome to the command line world</strong></pre>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p class="mceNonEditable"/>
+<ol start="7">
+<li>If we wish to pass <span>multiple options</span>, modify the preceding program in the <kbd>basic</kbd> directory to add age, and call it <kbd>flagExampleMultipleParam.go</kbd>:</li>
+</ol>
+<pre style="padding-left: 60px">package main<br/><br/>import (<br/>    "flag"<br/>    "log"<br/>    )<br/><br/>var name = flag.String("name", "stranger", "your wonderful name")<br/>var age = flag.Int("age", 0, "your graceful age")<br/><br/>func main(){<br/>    flag.Parse()<br/>    log.Printf("Hello %s (%d years), Welcome to the command line<br/>     world", *name, *age)<br/>}</pre>
+<ol start="8">
+<li>This takes two options, with the addition of a different type. If we build and run this, we'll see the following output:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>./flagExampleMultiParam -name Albert -age 24</strong><br/><br/><strong>Hello Albert (24 years), Welcome to the command line world</strong></pre>
+<p style="padding-left: 60px">This is exactly what we expected.</p>
+<ol start="9">
+<li>Instead of using pointers, we can bind a variable to the parsed output. This binding is done through the <kbd>init()</kbd> function, which runs in a Go program, irrespective of whether the main function exists or not:</li>
+</ol>
+<pre style="padding-left: 60px">var name String <br/><br/>func init() {<br/>  flag.StringVar(&amp;name, "name", "stranger", "your wonderful name")<br/>}</pre>
+<p style="padding-left: 60px">In this way, the value will be directly stored in the variable.</p>
+<ol start="10">
+<li>Completely rewriting the preceding program to create a new one using the <kbd>init()</kbd> function can be seen in the following code snippet:</li>
+</ol>
+<p style="padding-left: 90px"><kbd>basic/initFlag.go</kbd></p>
+<pre style="padding-left: 90px">package main<br/><br/>import (<br/>    "flag"<br/>    "log"<br/>    )<br/><br/>var name string<br/>var age int<br/><br/>func init() {<br/>    flag.StringVar(&amp;name, "name", "stranger", "your wonderful<br/>     name")<br/>    flag.IntVar(&amp;age, "age", 0, "your graceful age")<br/>}<br/><br/>func main(){<br/>    flag.Parse()<br/>    log.Printf("Hello %s (%d years), Welcome to the command<br/>     line world", name, age)<br/>}</pre>
+<p style="padding-left: 60px">The output is exactly the same as it was for the preceding program. Here, instead of using pointers, we are able to load data directly into our variables.</p>
+<div class="packt_infobox"><span>In Go, execution starts from the</span> main <span>program. However, a Go program can have any number of</span> <kbd>init</kbd> <span>functions. If a package has an <kbd>init</kbd> function in it, that will be executed before the <kbd>main</kbd> function.</span></div>
+<p>This <kbd>flag</kbd> library is very basic to work with. However, in order to write advanced client applications, we need to take the help of a CLI package. In the next section, we'll explore a package called <kbd>cli</kbd> that will do just this.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">CLI – a package for building beautiful clients</h1>
+                </header>
+            
+            <article>
+                
+<p>The <kbd>cli</kbd> package is the next step for a Go developer after working with the <kbd>flag</kbd> package. It provides an intuitive API for creating command-line applications with ease. It allows a Go program to collect arguments and flags. It's quite handy for designing complex applications.</p>
+<p>First, create a directory for our example programs. For our basic CLI example, create the following directory:</p>
+<pre><strong>mkdir -p $GOPATH/src/github.com/git-user/chapter8/cli/example1</strong></pre>
+<p>To install the package, we use the <kbd>dep</kbd> tool. Initialize the tool first and then add the <kbd>cli</kbd> package as the dependency:</p>
+<pre><strong>dep init <br/>dep ensure --add github.com/urfave/cli<br/></strong></pre>
+<p>Now, we can write a program that does exactly the same job as the preceding flag example. Create a file called <kbd>example1/main.go</kbd>.</p>
+<p>The <kbd>cli</kbd> package provides three major elements:</p>
+<ul>
+<li>App</li>
+<li>Flag</li>
+<li>Action</li>
+</ul>
+<p><strong>Apps</strong> are used for defining <span>namespaces in applications. </span><span>A <strong>flag</strong> is an actual container that stores options passed. <strong>Action</strong> is a function that executes on collected options. Let's look at the following example code for further insight. Here, we're trying to use the <kbd>cli</kbd> API to create App, Flags, and Action. We have to import the package into our program:<br/></span></p>
+<pre>package main
+
+import (
+  "log"
+  "os"
+
+  "github.com/urfave/cli"
+)
+
+func main() {
+  // Create new app
+  app := cli.NewApp()
+
+  // add flags with three arguments
+  app.Flags = []cli.Flag {
+    cli.StringFlag{
+      Name: "name",
+      Value: "stranger",
+      Usage: "your wonderful name",
+    },
+    cli.IntFlag{
+      Name: "age",
+      Value: 0,
+      Usage: "your graceful age",
+    },
+  }
+  // This function parses and brings data in cli.Context struct
+  app.Action = func(c *cli.Context) error {
+    // c.String, c.Int looks for value of given flag
+    log.Printf("Hello %s (%d years), Welcome to the command line world",<br/>     c.String("name"), c.Int("age"))
+    return nil
+  }
+  // Pass os.Args to cli app to parse content
+  app.Run(os.Args)
+}</pre>
+<p>This is lengthier than the one we saw previously, but it is more expressive. Here, we created a new app using the <kbd>cli.NewApp</kbd> function. This creates a new struct. We need to attach parameters to this struct, specifically the <kbd>Flags</kbd> struct and the <kbd>Action</kbd> function. The <kbd>Flags</kbd> struct is a list that defines all possible flags for this application.</p>
+<p>The structure of <kbd>Flag</kbd> from GoDoc (<a href="https://godoc.org/github.com/urfave/cli#Flag" target="_blank">https://godoc.org/github.com/urfave/cli#Flag</a>) is as follows:</p>
+<pre>type Flag interface {<br/>    fmt.Stringer<br/>    // Apply Flag settings to the given flag set<br/>    Apply(*flag.FlagSet)<br/>    GetName() string<br/>}</pre>
+<p>The inbuilt structs, such as <kbd>StringFlag</kbd> and <kbd>IntFlag</kbd>, implement this <kbd>Flag</kbd> interface. The <kbd>Name</kbd>, <kbd>Value</kbd>, and <kbd>Usage</kbd> fields are straightforward. They are similar to the ones we used in the <kbd>flag</kbd> package. The <kbd>Action</kbd> function takes the <kbd>cli.Context</kbd> argument.</p>
+<p>The context object holds any information regarding flags and command-line arguments. The <kbd>c.String</kbd>, <kbd>c.Int</kbd>, and other functions are used to look up the flag variables. For example, in the preceding program, <kbd>c.String("name")</kbd> fetches a flag variable whose name is <kbd>name</kbd>. This program runs the same as the previous flag example. You can build and run the program like so:</p>
+<pre><strong>go build example1/main.go<br/><br/>./main -name "Albert" # Run program</strong></pre>
+<p>That's it regarding the basic usage of the <kbd>cli</kbd> package. This package also provides advanced combinations of flags and arguments. We'll look at this in the next section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Collecting command-line arguments in the CLI</h1>
+                </header>
+            
+            <article>
+                
+<p>In bash terminology, there is a difference between command-line arguments and flags. The following diagram clearly specifies the distinction between them:</p>
+<div class="CDPAlignCenter CDPAlign packt_figref"><img src="assets/df0a34bf-d4fc-4c65-a291-af487838555c.png" style="width:27.92em;height:12.33em;"/></div>
+<p>Suppose that we have a command-line app called <kbd>storeMarks</kbd> for saving the marks of a student. It has a flag (called <kbd>save</kbd>) to specify whether details should be persisted or not. The arguments that are given are the name and actual marks of the student. We already saw how to collect the flag values in the program. In this section, we will learn how to collect program arguments in an expressive way. Follow these steps:</p>
+<ol>
+<li>For collecting arguments, we use the <kbd>c.Args</kbd> function, where <kbd>c</kbd> is the <kbd>cli</kbd> context of the <kbd>Action</kbd> function. Add a new directory called <kbd>example2</kbd> for our project:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>mkdir -p $GOPATH/src/github.com/git-user/chapter8/cli/example2</strong></pre>
+<p style="padding-left: 60px">Then, create a program file called <kbd>example2/main.go</kbd>.</p>
+<ol start="2">
+<li>Define the app in the main block <kbd>cli.NewApp</kbd> creates a new application:</li>
+</ol>
+<pre style="padding-left: 60px">app := cli.NewApp()</pre>
+<ol start="3">
+<li>Next, we define the flags on the <kbd>app.cli.Flag</kbd> takes a few predefined flags, such as integer flag or string flag. Here, we need a string flag:</li>
+</ol>
+<pre style="padding-left: 60px">  app.Flags = []cli.Flag{
+    cli.StringFlag{
+      Name:  "save",
+      Value: "no",
+      Usage: "Should save to database (yes/no)",
+    },
+  }</pre>
+<ol start="4">
+<li>Now, we have to define actions on the app. Actions are the control structures that define the dynamics of logic upon given flags. These options are as follows:</li>
+</ol>
+<ul>
+<li style="padding-left: 60px"><kbd>--save=no</kbd>, which skips saving arguments to the database</li>
+<li style="padding-left: 60px"><kbd>--save=yes</kbd> (or) no flag, which saves arguments to the database:</li>
+</ul>
+<pre style="padding-left: 60px">  app.Version = "1.0"
+ // define action
+  app.Action = func(c *cli.Context) error {
+    var args []string
+    if c.NArg() &gt; 0 {
+      // Fetch arguments in a array
+      args = c.Args()
+      personName := args[0]
+      marks := args[1:len(args)]
+      log.Println("Person: ", personName)
+      log.Println("marks", marks)
+    }
+    // check the flag value
+    if c.String("save") == "no" {
+      log.Println("Skipping saving to the database")
+    } else {
+      // Add database logic here
+      log.Println("Saving to the database", args)
+    }
+    return nil
+  }</pre>
+<p style="padding-left: 60px">All the preceding statements will go into the main function.</p>
+<ol start="5">
+<li>We have to run the app using <kbd>app.Run</kbd> to make the tool run and collect arguments:</li>
+</ol>
+<pre style="padding-left: 60px">package main
+
+import (
+  "github.com/urfave/cli"
+  "log"
+  "os"
+)
+
+func main() {
+  // Here goes app, flags, actions
+  app.Run(os.Args)
+}</pre>
+<p><kbd>c.Args</kbd> stores all the arguments supplied with the command. Since we know the order of the arguments, we deduced that the first argument is the name, and the remaining values are the marks. We are checking a flag called <kbd>save</kbd> to save those details in a database or not (we don't have database logic here, for simplicity). <kbd>app.Version</kbd> sets the version of the tool. Everything else remains the same as the previous <kbd>cli</kbd> introductory example.</p>
+<p>First, let's build the program:</p>
+<pre><strong>go build </strong><strong>$GOPATH/src/github.com/git-user/chapter8/cli/example2</strong></pre>
+<p>Now, from the <kbd>example2</kbd> directory, run the built tool by passing the flag and its arguments:</p>
+<pre><strong>./main --save=yes Albert 89 85 97</strong><br/><br/><strong>2017/09/02 21:02:02 Person: Albert</strong><br/><strong>2017/09/02 21:02:02 marks [89 85 97]</strong><br/><strong>2017/09/02 21:02:02 Saving to the database [Albert 89 85 97]</strong></pre>
+<p>If we don't give a flag, the default is <kbd>save=no</kbd>:</p>
+<pre><strong>./main Albert 89 85 97</strong><br/><br/><strong>2017/09/02 21:02:59 Person: Albert</strong><br/><strong>2017/09/02 21:02:59 marks [89 85 97]</strong><br/><strong>2017/09/02 21:02:59 Skipping saving to the database</strong></pre>
+<p>So far, everything looks good. But how can we make the command-line tool display help text when a user needs it? The <kbd>cli</kbd> library creates a nice help section for the given app. If you type in any of these commands, some help text will be auto-generated:</p>
+<ul>
+<li><span><kbd>./storeMarks -h</kbd> </span></li>
+<li><span><kbd>./storeMarks -help</kbd> </span></li>
+<li><kbd><span>./storeMarks --help</span></kbd></li>
+<li><kbd>./storeMarks help</kbd></li>
+</ul>
+<p><span>A nice help section appears, like the one shown in the following code, which shows version details and available flags (global options), commands, and arguments:</span></p>
+<pre><strong>NAME:</strong><br/><strong>   storeMarks - A new cli application</strong><br/><br/><strong>USAGE:</strong><br/><strong>   storeMarks [global options] command [command options] [arguments...]</strong><br/><br/><strong>VERSION:</strong><br/><strong>   1.0</strong><br/><br/><strong>COMMANDS:</strong><br/><strong>     help, h Shows a list of commands or help for one command</strong><br/><br/><strong>GLOBAL OPTIONS:</strong><br/><strong>   --save value Should save to database (yes/no) (default: "no")</strong><br/><strong>   --help, -h show help</strong><br/><strong>   --version, -v print the version</strong></pre>
+<p>The <kbd>cli</kbd> package simplifies client application development. It is much faster and intuitive than the internal <kbd>flag</kbd> package.</p>
+<div class="packt_tip">
+<div>Command-line tools are binaries that are generated after building the program. They need to be run with the options. It is like any system program and not related to the Go compiler anymore. Make sure you build them for the target architecture where you want to run them.</div>
+</div>
+<p>We can use the <kbd>flag</kbd> package or <kbd>cli</kbd> to build a REST API client. However, for advanced applications, we might need a robust library with rich features. In the next section, we'll explore such a library called <kbd>cobra</kbd>, which is used to create command-line tools.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Cobra, an advanced CLI library</h1>
+                </header>
+            
+            <article>
+                
+<p>Like <kbd>cli</kbd>, <kbd>cobra</kbd> is a package for writing client binaries but takes a different approach. In cobra, we have to create separate commands and use them in our main app. We can install <kbd>cobra</kbd> using dep. Let's create our cobra project repository:</p>
+<pre><strong>mkdir -p $GOPATH/src/github.com/git-user/chapter8/cobraCLI<br/></strong></pre>
+<p>Now, let's create another directory called <kbd>cmd</kbd> in the project for defining commands. In cobra apps, there will be a root command. This can have multiple subcommands. We can implement the same example we used for the flag package. Input the name and age from the command line using cobra.</p>
+<p>Let's define a root command:</p>
+<pre>var rootCmd = &amp;cobra.Command{<br/>    Use:   "details",<br/>    Short: "This project takes student information",<br/>    Long:  `A long string about description`,<br/>    Args:  cobra.MinimumNArgs(1),<br/>    Run: func(cmd *cobra.Command, args []string) {<br/>        name := cmd.PersistentFlags().Lookup("name").Value<br/>        age := cmd.PersistentFlags().Lookup("age").Value<br/>        log.Printf("Hello %s (%s years), Welcome to the command line<br/>         world", name, age)<br/>    },<br/>}</pre>
+<p>This creates a command with "details" as a command. It has few properties, such as <kbd>Use</kbd>, <kbd>Short</kbd>, <kbd>Long</kbd>, <kbd>Args</kbd> and, <kbd>Run</kbd>. See the following table to find their exact meaning:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td><strong>Parameter</strong></td>
+<td><strong>Meaning</strong></td>
+</tr>
+<tr>
+<td><kbd>Use</kbd></td>
+<td>Name of the command</td>
+</tr>
+<tr>
+<td><kbd>Short</kbd></td>
+<td>Short description</td>
+</tr>
+<tr>
+<td><kbd>Long</kbd></td>
+<td>Long description</td>
+</tr>
+<tr>
+<td><kbd>Args</kbd></td>
+<td>Number of arguments expected</td>
+</tr>
+<tr>
+<td><kbd>Run</kbd></td>
+<td>Process inputs after collection</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>In the <kbd>Run</kbd> command, we are expecting two arguments: <kbd>name</kbd> and <kbd>age</kbd>. However, in order to collect them, we have to define them. Where can we define them? Cobra asks the developer to define them in a special function called <kbd>Execute</kbd>:</p>
+<pre>// Execute is Cobra logic start point<br/>func Execute() {<br/>    rootCmd.PersistentFlags().StringP("name", "n", "stranger", "Name of<br/>     the student")<br/>    rootCmd.PersistentFlags().IntP("age", "a", 25, "Age of the student")<br/><br/>    if err := rootCmd.Execute(); err != nil {<br/>        fmt.Println(err)<br/>        os.Exit(1)<br/>    }<br/>}</pre>
+<p>We need to use the previously defined root command to attach the flags. <kbd>PersistentFlags</kbd> has various types that can be used to collect flags. Now, create the main program and import this command:</p>
+<pre><strong>touch $GOPATH/src/github.com/git-user/chapter8/cobraCLI/main.go</strong></pre>
+<p>Now, in this file, you can import the command and call the <kbd>Execute</kbd> function:</p>
+<pre>package main<br/><br/>import "github.com/git-user/chapter8/cobraExample/cmd"<br/><br/>func main() {<br/>    cmd.Execute()<br/>}</pre>
+<p>That's it. We have a client application that can be used to collect the name and age of the student. When we build this, it generates a binary:</p>
+<pre><strong>go build $GOPATH/src/github.com/git-user/chapter8/cobraCLI</strong></pre>
+<p>Now, we can run that binary as a client tool:</p>
+<pre><strong>./cobraExample details -n Albert -a 23</strong></pre>
+<p>It prints a log to the console:</p>
+<pre><strong>Hello Albert (23 years), Welcome to the command line world</strong></pre>
+<p>We can also pass flags in a different order:</p>
+<pre><strong>./cobraExample details --age=23 --name=Albert</strong></pre>
+<p>We can also create many subcommands on top of this command and do a lot more. This is just a basic example. We will look at an advanced example in the next section, where you will implement the same with cobra.</p>
+<p>Later in this chapter, we'll discuss creating REST clients in Go. Before that, you should know how to make HTTP requests from a Go program. Although this is possible with Go's built-in <kbd>net/http</kbd> package, we need a more intuitive package. In the next section, we'll look at <kbd>grequests</kbd>, a similar package to Python's <kbd>Requests</kbd> for making HTTP requests.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">grequests a REST API package for Go</h1>
+                </header>
+            
+            <article>
+                
+<p>The developers who worked on Python know about the <kbd>Requests</kbd> library. It is a clean, short library that is not included in the standard library of Python.</p>
+<p>The Go <kbd>grequests</kbd> package is inspired by <kbd>Requests</kbd>. It provides a simple set of functions, using which we can make API requests such as <kbd>GET</kbd>, <kbd>POST</kbd>, <kbd>PUT</kbd>, and <kbd>DELETE</kbd> from our Go code. Using <kbd>grequests</kbd> allows us to encapsulate the in-built HTTP request and response.</p>
+<p>Create the project directory and install <kbd>grequests</kbd> using the <kbd>dep</kbd> tool:</p>
+<pre><strong>mkdir -p $GOPATH/src/github.com/git-user/chapter8/requestExample/<br/>touch </strong><strong>$GOPATH/src/github.com/git-user/chapter8/requestExample/<br/>basicRequest.go</strong></pre>
+<p>To install the <kbd>grequests</kbd> package for Go, run the following <kbd>dep</kbd> command:</p>
+<pre><strong>dep init<br/>dep ensure --add github.com/levigross/grequests</strong></pre>
+<p>Now, let's write a basic program illustrating the use of the <kbd>grequests</kbd> library to make a <kbd>GET</kbd> request to a REST API. It uses the <kbd>Get</kbd> method from the <kbd>grequests</kbd> library:</p>
+<pre>package main
+
+import (
+  "github.com/levigross/grequests"
+  "log"
+)
+
+func main() {
+  resp, err := grequests.Get("http://httpbin.org/get", nil)
+  // You can modify the request by passing an optional<br/>  // RequestOptions struct
+  if err != nil {
+    log.Fatalln("Unable to make request: ", err)
+  }
+  log.Println(resp.String())
+}</pre>
+<p>The <kbd>grequests</kbd> package contains methods for performing all REST actions. The preceding program uses the <kbd>Get</kbd> function from the package. It takes two function arguments. The first one is the URL of the API, while the second one is the request parameters object. Since we are not passing any request parameters, the second argument is <kbd>nil</kbd> here. <kbd>resp</kbd> is returned from the request, and it has a function called <kbd>String()</kbd> that returns the response body:</p>
+<pre><strong>go run requestExample/basicRequest.go</strong></pre>
+<p>The output is the JSON response that's returned by <kbd>httpbin</kbd>:</p>
+<pre>{<br/>  "args": {},<br/>  "headers": {<br/>    "Accept-Encoding": "gzip",<br/>    "Connection": "close",<br/>    "Host": "httpbin.org",<br/>    "User-Agent": "GRequests/0.10"<br/>  },<br/>  "origin": "116.75.82.9",<br/>  "url": "http://httpbin.org/get"<br/>}</pre>
+<p>Here, we understood how to use <kbd>grequests</kbd>. However, to leverage its power, we should be aware of its API (functions).</p>
+<p>In the next section, we'll look at the <kbd>grequests</kbd> library in more detail. We'll learn how request parameters and response properties are configured.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">API overview of grequests</h1>
+                </header>
+            
+            <article>
+                
+<p>The most important thing to explore in <kbd>grequests</kbd> is not the HTTP functions, but the <kbd>RequestOptions</kbd> struct. It is a very big struct that holds various kinds of information regarding the type of API method being used. If the REST method is <kbd>GET</kbd>, <kbd>RequestOptions</kbd> holds the <kbd>Params</kbd> property. If the method is a <kbd>POST</kbd>, the struct will have a <kbd>Data</kbd> property. Whenever we make a request to a URL endpoint, we get a response back. Let's look at the structure of the response. From the official documentation, the response looks like this:</p>
+<pre><span class="pl-k">type</span> <span class="pl-v">Response</span> <span class="pl-k">struct</span> {
+    <span class="pl-v">Ok</span> <span class="pl-k">bool</span>
+    <span class="pl-v">Error</span> <span class="pl-k">error</span>
+    <span class="pl-v">RawResponse</span> *http.<span class="pl-smi">Response</span>
+    <span class="pl-v">StatusCode</span> <span class="pl-k">int</span>
+    <span class="pl-v">Header</span> http.<span class="pl-smi">Header</span>
+}</pre>
+<p>The <kbd>Ok</kbd> property of the response holds information about whether a request was successful or not. If something went wrong, an error will be found in the <kbd>Error</kbd> property. <kbd>RawResponse</kbd> is the Go HTTP response that will be used by other functions of the <kbd>grequests</kbd> response. <kbd>StatusCode</kbd> and <kbd>Header</kbd> store the status codes of the response and header details, respectively. There are a few functions in <kbd>Response</kbd> that are useful</p>
+<ul>
+<li><kbd>Response.JSON()</kbd></li>
+<li><kbd>Response.XML()</kbd></li>
+<li><kbd>Response.String()</kbd></li>
+<li><kbd>Response.Bytes()</kbd></li>
+</ul>
+<p>The data from the response can be filled into a generic map by the preceding functions. Let's take a look at an example, that is <kbd>requestExample/jsonRequest.go</kbd>:</p>
+<pre>package main
+
+import (
+  "github.com/levigross/grequests"
+  "log"
+)
+
+func main() {
+  resp, err := grequests.Get("http://httpbin.org/get", nil)
+  // You can modify the request by passing an optional<br/>  // RequestOptions struct
+  if err != nil {
+    log.Fatalln("Unable to make request: ", err)
+  }
+  var returnData map[string]interface{}
+  resp.JSON(&amp;returnData)
+  log.Println(returnData)
+
+}</pre>
+<p>Here, we declared an interface to hold the JSON values. Then, we populated <kbd>returnData</kbd> (empty interface) using the <kbd>resp.JSON</kbd> function. This program prints the map instead of plain JSON.</p>
+<div class="packt_infobox">You can find out about all the available options by looking at the project documentation: <a href="https://godoc.org/github.com/levigross/grequests">https://godoc.org/github.com/levigross/grequests</a>.</div>
+<p>In the next section, we'll understand how GitHub API version 3 works and use our knowledge of command-line arguments to develop a client that fetches useful information from the GitHub API.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Getting comfortable with the GitHub REST API</h1>
+                </header>
+            
+            <article>
+                
+<p>GitHub provides a well-written, easy to consume REST API. It opens up the data about users, repositories, repository statistics, and so on to the clients through well-formed API. The current stable version is v3. The API documentation can be found at <a href="https://developer.github.com/v3/">https://developer.github.com/v3/</a>. The root endpoint of the API is <kbd>https://api.github.com</kbd>.</p>
+<p>All GitHub API routes will be appended to this root endpoint. Let's learn how to make a few queries and get data. For an unauthenticated client, the rate limit is 60/hour, whereas, for clients who are passing <kbd>client_id</kbd> (we can get it from their GitHub account console), it is 5,000/hour.</p>
+<p>If you have a GitHub account (if not, it is highly recommended that you create one), you can find the access tokens in the <span class="packt_screen">Your Profile</span> | <span class="packt_screen">Personal Access Tokens</span> section or by visiting <a href="https://github.com/settings/tokens" target="_blank">https://github.com/settings/tokens</a>. Create a new access token using the <span class="packt_screen">Generate new token</span> button. You'll be asked for various permissions for different resources. Tick the <kbd>repo</kbd> and <kbd>gist</kbd> options. A new personal token string will be generated for you. Save it somewhere safe and private. The token that was <span>generated can now be used to access the GitHub API (for a longer rate limit).</span></p>
+<p>The next step is to export that access token as an environment variable, <strong><kbd>GITHUB_TOKEN</kbd></strong>. You can set it using the <kbd>export</kbd> command, like so:</p>
+<pre><strong>export GITHUB_TOKEN=YOUR_GITHUB_ACCESS_TOKEN</strong></pre>
+<p><kbd>YOUR_GITHUB_ACCESS_TOKEN</kbd> is what was generated and saved from the GitHub account. You can also add the preceding export command to your <strong><kbd>~/.bashrc</kbd></strong> file to make it persistent from the next shell launch.</p>
+<p>Let's write a program for fetching all the repositories of a user:</p>
+<ol>
+<li>Create a new directory and program, like so:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>mkdir -p $GOPATH/src/github.com/git-user/chapter8/githubAPI<br/></strong><strong>touch $GOPATH/src/github.com/git-user/chapter8/githubAPI/main.go</strong><strong> <br/></strong></pre>
+<p style="padding-left: 60px">We should use this logic to make a <kbd>GET</kbd> request from a Go program. This program fetches repository information from the GitHub API.</p>
+<ol start="2">
+<li>Create a struct that will hold the repository's information. Let's call it <kbd>Repo</kbd>. We will also define an environment variable that will fetch <kbd>GITHUB_TOKEN</kbd>. Now, we can create request options from that token. For GitHub to authenticate the origin of the <kbd>GET</kbd> request, we should pass an argument called <kbd>Auth</kbd> to the <kbd>RequestOptions</kbd> struct. This can be seen in the following code block:</li>
+</ol>
+<pre style="padding-left: 60px">var GITHUB_TOKEN = os.Getenv("GITHUB_TOKEN")<br/>var requestOptions = &amp;grequests.RequestOptions{Auth: []string{GITHUB_TOKEN, "x-oauth-basic"}}<br/><br/>type Repo struct {<br/>    ID int `json:"id"`<br/>    Name string `json:"name"`<br/>    FullName string  `json:"full_name"`<br/>    Forks int `json:"forks"`<br/>    Private bool `json:"private"`<br/>}</pre>
+<ol start="3">
+<li>Now, define a function handler that takes a URL as input and returns the GitHub API <kbd>Response</kbd>. It makes a simple GET request to the given URL location. We use the <kbd>grequests</kbd> package to make API calls to GitHub:</li>
+</ol>
+<pre style="padding-left: 60px">func getStats(url string) *grequests.Response{<br/>    resp, err := grequests.Get(url, requestOptions)<br/>    // You can modify the request by passing an optional RequestOptions struct<br/>    if err != nil {<br/>        log.Fatalln("Unable to make request: ", err)<br/>    }<br/>    return resp<br/>}</pre>
+<ol start="4">
+<li>Now, define the main block, which passes a GitHub link to the preceding function and stores the response in the <kbd>Repo</kbd> struct:</li>
+</ol>
+<pre style="padding-left: 60px">package main
+
+import (
+  "github.com/levigross/grequests"
+  "log"
+  "os"
+)
+
+func main() {
+  var repos []Repo
+  var repoUrl = "https://api.github.com/users/torvalds/repos"
+  resp := getStats(repoUrl)
+  resp.JSON(&amp;repos)
+  log.Println(repos)
+}</pre>
+<p style="padding-left: 60px"><kbd>Response</kbd> consists of multiple repositories, so we have to load the response JSON into an array of <kbd>Repo</kbd>.</p>
+<ol start="5">
+<li>If you run the preceding program, you will receive the following output:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>go run $GOPATH/src/github.com/git-user/chapter8/githubAPI/main.go<br/></strong><strong><br/>2019/07/03 17:59:41 [{79171906 libdc-for-dirk torvalds/libdc-for-dirk 10 false} {2325298 linux torvalds/linux 18274 false} {78665021 subsurface-for-dirk torvalds/subsurface-for-dirk 16 false} {86106493 test-tlb torvalds/test-tlb 25 false}]</strong></pre>
+<p>The preceding program illustrates how we can query the GitHub API and load that data into our custom struct called <kbd>Repo</kbd>. The JSON that's returned contains many fields, but for simplicity's sake, we are just picking a few important fields.</p>
+<p>So far, we've seen how to make HTTP requests to the GitHub API. In the next section, we'll create a client that makes HTTP requests to the GitHub API based on user commands.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a CLI tool as an API client for the GitHub REST API</h1>
+                </header>
+            
+            <article>
+                
+<p>After looking at this example, we'll be able to easily access the GitHub API from our Go client. We can combine both of the techniques we've learned about in this chapter to come up with a command-line tool that consumes the GitHub API. Let's create a new c<span>ommand-line application that does the following:</span></p>
+<ul>
+<li>Provides options to get repository details by username</li>
+<li>Uploads a file to GitHub gist (text snippets) with a given description</li>
+<li>Authenticates using a personal access token</li>
+</ul>
+<p>We'll use the <kbd>cli</kbd> package and <kbd>grequests</kbd> to build this tool. You can re-implement the same example in cobra too.</p>
+<div class="packt_infobox">Gist are snippets provided by GitHub that store text content. For more details, visit <a href="https://gist.github.com">https://gist.github.com</a>.</div>
+<p>Create a directory called <kbd>gitTool</kbd> in this chapter's directory and add the <kbd>main</kbd> file to it, like so:</p>
+<pre><strong>mkdir -p $GOPATH/src/github.com/git-user/chapter8/gitTool</strong><br/><strong>touch $GOPATH/src/github.com/git-user/chapter8/gitTool/main.go</strong></pre>
+<p>First, let's define the main block with a few <kbd>cli</kbd> commands so that we can input commands for repository details and gist upload actions. Here, we're using <kbd>app</kbd> from the <kbd>cli</kbd> package and creating <kbd>Commands</kbd>. We're defining two commands here:</p>
+<pre>func main() {<br/>    app := cli.NewApp()<br/>    // define command for our client<br/>    app.Commands = []cli.Command{<br/>        {<br/>            Name:    "fetch",<br/>            Aliases: []string{"f"},<br/>            Usage:   "Fetch the repo details with user. [Usage]: githubAPI<br/>             fetch user",<br/>            Action: func(c *cli.Context) error {<br/>                if c.NArg() &gt; 0 {<br/>                    // Github API Logic<br/>                    var repos []Repo<br/>                    user := c.Args()[0]<br/>                    var repoUrl = fmt.Sprintf("https://api.github.com/<br/>                     users/%s/repos", user)<br/>                    resp := getStats(repoUrl)<br/>                    resp.JSON(&amp;repos)<br/>                    log.Println(repos)<br/>                } else {<br/>                    log.Println("Please give a username. See -h to<br/>                     see help")<br/>                }<br/>                return nil<br/>            },<br/>        },<br/>        {<br/>            Name:    "create",<br/>            Aliases: []string{"c"},<br/>            Usage:   "Creates a gist from the given text.<br/>             [Usage]: githubAPI name 'description' sample.txt",<br/>            Action: func(c *cli.Context) error {<br/>                if c.NArg() &gt; 1 {<br/>                    // Github API Logic<br/>                    args := c.Args()<br/>                    var postUrl = "https://api.github.com/gists"<br/>                    resp := createGist(postUrl, args)<br/>                    log.Println(resp.String())<br/>                } else {<br/>                    log.Println("Please give sufficient arguments.<br/>                     See -h to see help")<br/>                }<br/>                return nil<br/>            },<br/>        },<br/>    }<br/><br/>    app.Version = "1.0"<br/>    app.Run(os.Args)<br/>}</pre>
+<p>As you can see, <kbd>getStats</kbd> and <kbd>createGist</kbd> are the functions that are used for actual API calls. We'll define these next, but, before we do, we should prepare a few data structures that hold information about the following:</p>
+<ul>
+<li>The repository</li>
+<li>The file to upload as a gist</li>
+<li>Gist on GitHub (list of files)</li>
+</ul>
+<p><span><span>Now, we need to create three structs that hold the preceding information, as follows:<br/></span></span></p>
+<pre>// Struct for holding response of repositories fetch API<br/>type Repo struct {<br/>    ID       int    `json:"id"`<br/>    Name     string `json:"name"`<br/>    FullName string `json:"full_name"`<br/>    Forks    int    `json:"forks"`<br/>    Private  bool   `json:"private"`<br/>}<br/><br/>// Structs for modelling JSON body in create Gist<br/>type File struct {<br/>    Content string `json:"content"`<br/>}<br/><br/>type Gist struct {<br/>    Description string          `json:"description"`<br/>    Public      bool            `json:"public"`<br/>    Files       map[string]File `json:"files"`<br/>}</pre>
+<p>Now, create a request option that builds a header and uses GitHub tokens from environment variables:</p>
+<pre>var GITHUB_TOKEN = os.Getenv("GITHUB_TOKEN")<br/>var requestOptions = &amp;grequests.RequestOptions{Auth: []string{GITHUB_TOKEN, "x-oauth-basic"}}</pre>
+<p>Now, it's time to write the <kbd>getStats</kbd> and <kbd>createGist</kbd> functions. Let's code <kbd>getStats</kbd> first:</p>
+<pre>// Fetches the repos for the given Github users<br/>func getStats(url string) *grequests.Response {<br/>    resp, err := grequests.Get(url, requestOptions)<br/>    // you can modify the request by passing an optional<br/>    // RequestOptions struct<br/>    if err != nil {<br/>        log.Fatalln("Unable to make request: ", err)<br/>    }<br/>    return resp<br/>}</pre>
+<p>This function makes a <kbd>GET</kbd> request and returns the response object. The code is simple and is a generic GET request.</p>
+<p>Now, let's look at <kbd>createGist</kbd>. Here, we have to do more. A gist contains multiple files. Due to this, we need to do the following in our program:</p>
+<ol>
+<li>Get the list of files from command-line arguments.</li>
+<li>Read the file content and store it in a map of files with the filename as the key and content as the value.</li>
+<li>Convert this map into JSON.</li>
+<li>Make a <kbd>POST</kbd> request to the Gist API with the preceding JSON as the body.</li>
+</ol>
+<p><span><span>We have to make a <kbd>POST</kbd> request to the Gist API. The <kbd>createGist</kbd> function takes a URL string and other arguments. The function should return the response of the <kbd>POST</kbd> request:</span></span></p>
+<pre>// Reads the files provided and creates Gist on github<br/>func createGist(url string, args []string) *grequests.Response {<br/>    // get first two arguments<br/>    description := args[0]<br/>    // remaining arguments are file names with path<br/>    var fileContents = make(map[string]File)<br/>    for i := 1; i &lt; len(args); i++ {<br/>        dat, err := ioutil.ReadFile(args[i])<br/>        if err != nil {<br/>            log.Println("Please check the filenames. Absolute path<br/>             (or) same directory are allowed")<br/>            return nil<br/>        }<br/>        var file File<br/>        file.Content = string(dat)<br/>        fileContents[args[i]] = file<br/>    }<br/>    var gist = Gist{Description: description, Public: true,<br/>     Files: fileContents}<br/>    var postBody, _ = json.Marshal(gist)<br/>    var requestOptions_copy = requestOptions<br/>    // Add data to JSON field<br/>    requestOptions_copy.JSON = string(postBody)<br/>    // make a Post request to Github<br/>    resp, err := grequests.Post(url, requestOptions_copy)<br/>    if err != nil {<br/>        log.Println("Create request failed for Github API")<br/>    }<br/>    return resp<br/>}</pre>
+<p>We are using <kbd>grequests.Post</kbd> to pass files to GitHub's Gist API. It returns <kbd>Status: 201 Created</kbd> on successful creation with gist details in the response body.</p>
+<p>Now, let's build the command-line tool:</p>
+<pre><strong>go build </strong><strong>$GOPATH/src/github.com/git-user/chapter8/gitTool</strong></pre>
+<p>This creates a binary in the same directory. If we type in <kbd>./gitTool -h</kbd>, it shows us the following:</p>
+<pre><strong>NAME:</strong><br/><strong>   gitTool - A new cli application</strong><br/><br/><strong>USAGE:</strong><br/><strong>   gitTool [global options] command [command options] [arguments...]</strong><br/><br/><strong>VERSION:</strong><br/><strong>   1.0</strong><br/><br/><strong>COMMANDS:</strong><br/><strong>     fetch, f Fetch the repo details with user. [Usage]: goTool fetch user</strong><br/><strong>     create, c Creates a gist from the given text. [Usage]: goTool name<br/>     'description' sample.txt</strong><br/><strong>     help, h Shows a list of commands or help for one command</strong><br/><br/><strong>GLOBAL OPTIONS:</strong><br/><strong>   --help, -h show help</strong><br/><strong>   --version, -v print the version</strong></pre>
+<p>If you take a look at the help commands, you'll see two commands, <kbd>fetch</kbd> and <kbd>create</kbd>. The <kbd>fetch</kbd> command fetches the repositories of a given user, while the <kbd>create</kbd> command creates a <kbd>gist</kbd> with the supplied files. Let's create two sample files in the same directory of the program to test the <kbd>create</kbd> command:</p>
+<pre><strong>echo 'I am sample1 file text' &gt; githubAPI/sample1.txt</strong><br/><strong>echo 'I am sample2 file text' &gt; githubAPI/sample2.txt</strong></pre>
+<p>Run the tool with the first command:</p>
+<pre><strong>./gitTool f torvalds</strong></pre>
+<p>This returns all the repositories that belong to the great Linus Torvalds. The log message prints the struct that was filled:</p>
+<pre><strong>[{79171906 libdc-for-dirk torvalds/libdc-for-dirk 10 false} {2325298 linux torvalds/linux 18310 false} {78665021 subsurface-for-dirk torvalds/subsurface-for-dirk 16 false} {86106493 test-tlb torvalds/test-tlb 25 false}]</strong></pre>
+<p>Now, let's check the second command. This creates the <kbd>gist</kbd> with the given description and a set of files as arguments:</p>
+<pre><strong>./gitTool c "I am doing well" sample1.txt sample2.tx</strong>t</pre>
+<p>It returns JSON details about the created gist. It is a very lengthy JSON, so the output has been skipped here. Now, if you open your <a href="https://gist.github.com/" target="_blank">gist.github.com</a> account, you will see the created <kbd>gist</kbd>:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/ba9cac57-bc13-4037-b122-ed603ce99890.png" style="width:45.67em;height:23.08em;"/></p>
+<p>Remember, the GitHub <kbd>gists</kbd> API expects JSON data as a body in the following format:</p>
+<pre>{<br/>  "description": "the description for this gist",<br/> "public": true,<br/> "files": {<br/> "file1.txt": {<br/> "content": "String file contents"<br/>    }<br/>  }<br/>}</pre>
+<div class="packt_tip">For any Go program to read and comprehend quickly, follow the <kbd>main</kbd> function and then step into the other functions. By doing this, we can read the code from the whole application.</div>
+<p>As an exercise, build a command-line tool for the preceding requirements in <kbd>cobra</kbd>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using Redis to cache the API data</h1>
+                </header>
+            
+            <article>
+                
+<p><strong>Redis</strong> is an in-memory database that can store key/value pairs. It best suits the use case of storing heavy read-intensive data. For example, news agencies such as the BBC and The Guardian show the latest news articles on their dashboard. Their traffic is high and, if documents are to be fetched from the database, they have to maintain a huge cluster of databases at all times.</p>
+<p>Since the given set of news articles does not change (for hours), an agency can maintain a cache of articles. When the first customer visits the page, a copy is pulled from the DB, placed in the Redis cache, and then sent to the browser. Then, for another customer, the news agency server reads content from Redis instead of hitting the DB. Since Redis runs in the primary memory, latency is minimal. As a result, the customer sees faster page loads. The benchmarks on the web can tell us more about how efficiently a site can optimize its contents.</p>
+<p>What if data is no longer relevant in Redis? (For example, the agency updated its top stories.) Redis provides a way to expire the <kbd>keys:values</kbd> stored in it. We can run a scheduler that updates Redis whenever the expiration time has passed.</p>
+<p>Similarly, we can cache the third-party API responses for the given request (<kbd>GET</kbd>). We need to do this because third-party systems such as GitHub have a rate limit (telling us to be conservative). For a given <kbd>GET URL</kbd>, we can store the <kbd>URL</kbd> as a key and the <kbd>Response</kbd> as a value. Whenever the same request is given within the next time (before key expiration), just pull the response out of Redis instead of hitting the GitHub servers.</p>
+<p>This method is applicable to our REST API, too. The most frequent and unchanged REST API responses can be cached in order to reduce the load on the primary database.</p>
+<p>There is a wonderful library available for Go that can talk to Redis. It can be found at <a href="https://github.com/go-redis/redis" target="_blank">https://github.com/go-redis/redis</a>. It is a well-known library that many developers recommend. The following diagram illustrates this concept very well:</p>
+<div class="CDPAlignCenter CDPAlign packt_figref"><img src="assets/8fd94758-390c-4550-a156-ec17f046aa32.jpg" style="width:31.00em;height:14.00em;"/></div>
+<p>One caveat here is the expiration of the API. A real-time API should not be cached because of its dynamic nature. Caching brings performance optimization to our plate, as well as a few headaches regarding data syncing.</p>
+<div class="packt_infobox">Be careful while caching. Always implement a robust cache-busting method. There are many better practices available globally. Please go through them to get an understanding of the various architectures.</div>
+<p>We'll discuss Redis in more detail in the next chapter, where we'll discuss strategies that can be used to develop asynchronous APIs.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>We started this chapter with understanding client software: how a software client works and how we can create a few. We saw the basics of writing a command-line application. <kbd>cli</kbd> is a third-party package that allows us to create beautiful command-line applications. After installing it, we learned how to collect command-line arguments through the tool. We also explored commands and flags in our CLI application. Next, we looked into <kbd>grequest</kbd><kbd>s</kbd>, a package similar to Python requests that's used to make API requests from Go code. We learned how to make <kbd>GET</kbd>, <kbd>POST</kbd>, and other requests from the client programs. We looked at a fresh package called <kbd>cobra</kbd> for creating commands/sub-commands.</p>
+<p>Then, we explored the GitHub API and how to fetch details about repositories. With the knowledge of both concepts, we developed a client that lists the repositories for a given user and also creates a <kbd>gist</kbd> (a set of text snippets on GitHub). Finally, we introduced the Redis architecture and how caching can help us handle the rate-limited API.</p>
+<p>In the next chapter, we'll discuss strategies for building asynchronous APIs with the help of queuing and caching.</p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

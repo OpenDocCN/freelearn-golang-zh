@@ -1,0 +1,468 @@
+<html><head></head><body>
+		<div id="_idContainer022">
+			<h1 id="_idParaDest-113" class="chapter-number"><a id="_idTextAnchor113"/>7</h1>
+			<h1 id="_idParaDest-114"><a id="_idTextAnchor114"/>Recursion</h1>
+			<p>In this chapter, we are going to talk about recursion. This is a topic that all programmers encounter sooner or later, as it’s not exclusive to the functional paradigm. Any language in which you can express function calls allows you to express functions that are recursive in nature. For many, it is not a topic that is difficult to understand at first. In functional programming languages such as Haskell, recursion takes <span class="No-Break">center stage.</span></p>
+			<p>As such, this chapter is dedicated to understanding exactly how recursion works, including what the performance implications are of doing so, and what the limits of recursion are in Go. We’ll also take a look at some handy constructs for dealing with recursion using functions as <span class="No-Break">first-class citizens.</span></p>
+			<p>In this chapter, we will cover these <span class="No-Break">main topics:</span></p>
+			<ul>
+				<li>What <span class="No-Break">recursion means</span></li>
+				<li>Why use <span class="No-Break">recursive functions?</span></li>
+				<li>When and how to use <span class="No-Break">recursive functions</span></li>
+				<li>Leveraging functions as first-class citizens to write <span class="No-Break">recursive functions</span></li>
+				<li>Understanding the limitations of recursive functions <span class="No-Break">in Go</span></li>
+				<li>Understanding Tail-Recursion and <span class="No-Break">compiler optimizations</span></li>
+			</ul>
+			<p>What we will learn in this chapter will set us up for success when talking about the Continuation-Passing style and fluent programming in <span class="No-Break">later chapters.</span></p>
+			<h1 id="_idParaDest-115"><a id="_idTextAnchor115"/>Technical requirements</h1>
+			<p>For this chapter, you should use any version of Go at or above 1.18. All the code can be found on GitHub <span class="No-Break">at </span><a href="https://github.com/PacktPublishing/Functional-Programming-in-Go./tree/main/Chapter7"><span class="No-Break">https://github.com/PacktPublishing/Functional-Programming-in-Go./tree/main/Chapter7</span></a><span class="No-Break">.</span></p>
+			<h1 id="_idParaDest-116"><a id="_idTextAnchor116"/>What is recursion?</h1>
+			<p>Simply put, a recursive function is a function that calls itself. In practice, this means that the following <a id="_idIndexMarker307"/>function is an example of a <span class="No-Break">recursive function:</span></p>
+			<pre class="source-code">
+func recursive() {
+    recursive()
+}</pre>
+			<p>In this example, if the user would call the function “recursive,” all it would do would call itself ad infinitum. Effectively, this is an infinite loop and not the most useful function. To make recursive functions useful, we can extend our definition of a recursive function a bit further <a id="_idIndexMarker308"/>by setting up <span class="No-Break">two rules:</span></p>
+			<ul>
+				<li>A function must have a condition on which to call <span class="No-Break">itself (recurse)</span></li>
+				<li>A function must have a condition on which it returns <em class="italic">without</em> <span class="No-Break">calling itself</span></li>
+			</ul>
+			<p>The first condition just states that given a function, <strong class="source-inline">X</strong>, at some point in the function’s body, <strong class="source-inline">X</strong> will be called again. The second condition is that there exists a case for which the function, <strong class="source-inline">X</strong>, returns from the function without calling itself. This second condition is often called the <em class="italic">base case</em> of the <span class="No-Break">recursive function.</span></p>
+			<p>To understand what this looks like, let’s implement a classical mathematical operation that lends itself well to recursion, namely the factorial function. The factorial function is defined as a function that, given an input, <em class="italic">N</em>, multiplies all the numbers of <em class="italic">N</em> down to 1; <span class="No-Break">for example:</span></p>
+			<pre class="source-code">
+Fact(5) = 5 * 4 * 3 * 2 * 1</pre>
+			<p>To see why this is a recursive function, we can show that the result of calling <strong class="source-inline">Fact(5)</strong> is the result of calling 5 multiplied by the result of <strong class="source-inline">Fact(4)</strong>. Thus, if we write this out, we will get <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+Fact(5) = 5 * Fact(4) = 5 * 24 = 120
+Fact(4) = 4 * Fact(3) = 4 * 6 = 24
+Fact(3) = 3 * Fact(2) = 3 * 2 = 6
+Fact(2) = 2 * Fact(1) = 2 * 1 = 2
+Fact(1) = 1 * Fact(0) = 1 * 1
+Fact(0) = 1</pre>
+			<p>Notice that in this example, the factorial of 0 is simply 1. This is defined as our base case; when a value of 0 is passed to our function, we simply return the integer value 1. However, in all other input cases, we are multiplying the input number with the output of calling the factorial function <span class="No-Break">with </span><span class="No-Break"><strong class="source-inline">input-1</strong></span><span class="No-Break">.</span></p>
+			<p>If we turn <a id="_idIndexMarker309"/>this into Go code, we will get <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+func main() {
+    fmt.Println(Fact(5))
+}
+func Fact(input int) int {
+    if input == 0 {
+        return 1
+    }
+    return input * Fact(input-1)
+}</pre>
+			<p>If this is the first time you’ve seen recursion in a while, it may take you a few minutes to wrap your head around what is happening here. One way to think about this is that each function call to <strong class="source-inline">Fact</strong> pushes a function onto our stack. When all functions are pushed to the stack, they are evaluated from top to bottom, and each lower level of the stack can use the result from what came <span class="No-Break">above it:</span></p>
+			<div>
+				<div id="_idContainer019" class="IMG---Figure">
+					<img src="image/Figure_7.1_B18771.jpg" alt="Figure 7.1: Recursive function calls and stack allocation"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 7.1: Recursive function calls and stack allocation</p>
+			<p>Thinking about <a id="_idIndexMarker310"/>recursion in this stack-based way will help us understand the examples and pitfalls of recursion later in this chapter. But before we get to that, let’s look at when you might want to opt for writing a recursive function instead of an iterative one and why functional languages typically <span class="No-Break">favor recursion.</span></p>
+			<h1 id="_idParaDest-117"><a id="_idTextAnchor117"/>Why do functional languages favor recursion?</h1>
+			<p>Before we discuss when to use recursive functions in Go, let’s answer the question of why functional <a id="_idIndexMarker311"/>languages seem to prefer recursion <a id="_idIndexMarker312"/>rather than <strong class="source-inline">for</strong> loops. The best answer for this is that recursion is inherently purer than iterative solutions. Although each program that can be expressed recursively can also be expressed iteratively, iterative solutions need to maintain more state than <span class="No-Break">recursive solutions.</span></p>
+			<p>Our simple factorial example highlights this when we write an <span class="No-Break">iterative implementation:</span></p>
+			<pre class="source-code">
+func factorial(n int) int {
+    result := 1
+    for i := 1; i &lt;= n; i++ {
+        result = result * i
+    }
+    return result
+}</pre>
+			<p>In this factorial implementation, we are mutating the “result” in each iteration of the <strong class="source-inline">for</strong> loop. It is a well-contained mutation as it does not escape the function itself, but it’s a mutating state, nonetheless. Meanwhile, our pure recursive example never mutates the state. Rather than mutating the state, it returns a <strong class="bold">new</strong> value by combining an input parameter with the output of a <span class="No-Break">function call:</span></p>
+			<pre class="source-code">
+return input * Fact(input-1)</pre>
+			<p>As a general rule, recursion allows us to create new functions with copied states, make changes <a id="_idIndexMarker313"/>to the copies, and return the result, all without <a id="_idIndexMarker314"/>mutating a value in the recursive call itself. This means that changes to the program state are contained within each <span class="No-Break">stack frame.</span></p>
+			<p class="callout-heading">Recursive state changes in Go</p>
+			<p class="callout">In Go and other non-pure languages, it is possible to mutate the state in recursive function calls. In such languages, recursion does not guarantee the immutability of the state but it does make it easier to write <span class="No-Break">immutable implementations.</span></p>
+			<h1 id="_idParaDest-118"><a id="_idTextAnchor118"/>When to use recursive functions</h1>
+			<p>To understand when to use a recursive function, we have to talk about the main trade-offs between <a id="_idIndexMarker315"/>iterative and recursive functions. But before we get to that, let’s start by saying that anything that can be implemented iteratively can also be implemented recursively. As such, each function that has a <strong class="source-inline">for</strong> statement in Go can be replaced by an equivalent function that uses a recursive function call in place of the <span class="No-Break"><strong class="source-inline">for</strong></span><span class="No-Break"> loop.</span></p>
+			<p>However, we might not always want to do so. The two main disadvantages of recursive functions are that they typically have greater time and space requirements. Calling a function multiple times creates multiple stack frames. These stack frames use up part of the working memory of our programs. Typically, each frame will contain a copy of the data from the frame below it (in a recursive function), which means that in the earlier Factorial example, each function call uses a similar amount of memory as the function that came before it. However, all these stack frames, at some point, are alive at the same time. A recursive call stack does not pop the stack until the final recursive call is completed. Hence, in <span class="No-Break"><em class="italic">Figure 7</em></span><em class="italic">.1</em>, we can see that all stacks are added on top of each other, and are <a id="_idIndexMarker316"/>then evaluated from top to bottom (<strong class="bold">Last-In, First-Out</strong>, or <strong class="bold">LIFO</strong>). Had we written the same function iteratively, we would only have had one function on the <span class="No-Break">call stack.</span></p>
+			<p>The second limitation of recursive functions is that they are typically slower than their iterative counterparts. This is mostly because function calls are expensive operations as far as programming language features go. In light of what we have just learned about the call stack, this makes sense. Each function call has to copy over memory to a new location, perform the core algorithm, and then copy it all over again for the next <span class="No-Break">recursive call.</span></p>
+			<p>So, why would we <a id="_idIndexMarker317"/>want to still use recursive functions? Well, although these limitations are important, our main goal is to achieve code readability and maintainability. Recursion, once mastered, can make programs not only easier to write but also easier to understand. Problems that involve traversing over graphs or trees easily lend themselves to recursive functions (as these data structures are recursive data structures themselves). An overarching theme of this book is that we’ll trade off performance for the convenience of both you, the programmer, and later readers of <span class="No-Break">the code.</span></p>
+			<p>As a side note, in languages such as Haskell, writing recursive functions involves less syntax overhead than in Go – especially when combined with a concept known as <em class="italic">pattern matching</em>. Without diverging too much from the core content of this chapter, let’s quickly look at the factorial implementation <span class="No-Break">in Haskell:</span></p>
+			<pre class="source-code">
+factorial :: Integral -&gt; Integral
+factorial 0 = 1
+factorial n = n * factorial (n-1)</pre>
+			<p>The preceding snippet is a full implementation of the Factorial function. Notice that it reads almost like a more mathematical description of the problem. This makes writing the recursive solution more appealing. In addition, Haskell also performs compiler-level optimizations for handling recursive functions. We’ll briefly look at one such optimization, Tail-Call optimization, later in <span class="No-Break">this chapter.</span></p>
+			<h2 id="_idParaDest-119"><a id="_idTextAnchor119"/>Iterating over trees</h2>
+			<p>To demonstrate the preceding assumption that some code is easier to write recursively rather than <a id="_idIndexMarker318"/>functionally, let’s take a look at an example of iterating over a tree. Trees are <a id="_idIndexMarker319"/>recursive data structures, and as such should lend themselves to this implementation. For simplicity, let’s assume we have a tree that stores integers; the actual values don’t matter as much. We’ll construct a tree that looks <span class="No-Break">like this:</span></p>
+			<p class="IMG---Figure"> </p>
+			<div>
+				<div id="_idContainer020" class="IMG---Figure">
+					<img src="image/Figure_7.2_B18771.jpg" alt="Figure 7.2: Example of a (binary) tree"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 7.2: Example of a (binary) tree</p>
+			<p>The actual values of each node don’t matter, but let’s say we want to find the sum of all nodes. In plain English, what we have to do is get the value of each node. Then, for each node, we need to figure out if it has children. If so, we add the value of the child to our running sum. Next, for all of those children, we figure out if they have children, and if so, also add their values to our running sum. We do this until we have seen all <span class="No-Break">the nodes.</span></p>
+			<p>To demonstrate this, let’s create a data structure that represents our tree. The type declaration itself is straightforward: we have a node that contains a value, and each node has a pointer to a left and right child. These children are <span class="No-Break">optionally present:</span></p>
+			<pre class="source-code">
+type node struct {
+        value int
+        left  *node
+        right *node
+}</pre>
+			<p>With this struct set up, let’s also introduce an actual tree on which we can demonstrate our example functions later in this chapter. We can create this as a package-level object in a <strong class="source-inline">var</strong> block. We’ll model the tree shown in <span class="No-Break"><em class="italic">Figure 7</em></span><span class="No-Break"><em class="italic">.2</em></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+var (
+        ExampleTree = &amp;node{
+                value: 1,
+                left: &amp;node{
+                        value: 2,
+                        left: &amp;node{
+                                value: 3,
+                        },
+                        right: &amp;node{
+                                value: 4,
+                        },
+                },
+                right: &amp;node{
+                        value: 5,
+                },
+        }
+)</pre>
+			<p>Before we write <a id="_idIndexMarker320"/>this as a recursive solution, let’s write this as an iterative solution using a normal <span class="No-Break"><strong class="source-inline">for</strong></span><span class="No-Break"> loop.</span></p>
+			<h3>Iteratively solving tree problems using a for loop</h3>
+			<p>We need to <a id="_idIndexMarker321"/>introduce some additional <a id="_idIndexMarker322"/>data structures before we can make this work. The data structure that we will use here is a <strong class="source-inline">Queue</strong>. For each node that we visit, we will add the node’s value to our sum. For each child of the node, we will add the child to our <strong class="source-inline">Queue</strong>. We will keep doing this until our <strong class="source-inline">Queue</strong> is empty. As a starting value, we will add the root of our tree to our <strong class="source-inline">Queue</strong> to kickstart the <span class="No-Break">entire process.</span></p>
+			<p>One important disclaimer is that, at the time of writing, Go does not ship with an easy-to-use, out-of-the-box queue implementation. However, Go does include buffered channels out of the box. We can use buffered channels to get queue-like behavior, which is what we will be doing to demonstrate this. The main properties to get queue-like behavior are <span class="No-Break">as follows:</span></p>
+			<ul>
+				<li>Being able to push an element to <span class="No-Break">the queue</span></li>
+				<li>Being able to pop (remove) an element from the queue in <span class="No-Break">LIFO style</span></li>
+			</ul>
+			<p>You could <a id="_idIndexMarker323"/>use a slice to get this behavior, but even that requires some overhead for managing the slice and it’s not the most <a id="_idIndexMarker324"/>performant implementation. A real queue would offer constant-time addition and removal. For that matter, perhaps buffered channels are doing this in an optimized way under the hood, but further exploration of that is outside the scope of this book. One necessary assumption we have to make, however, is that we know the size of our <span class="No-Break">queue beforehand.</span></p>
+			<p>In a real-world scenario, this is often not the case. You could pass a best-effort estimation for the queue size to the buffered channel, but this seems error-prone. For didactic purposes and not to distract from the essence of the algorithm, we will accept those assumptions for now. With this disclaimer out of the way, let’s learn how to implement a function to get the sum of all the nodes in a <span class="No-Break">tree iteratively:</span></p>
+			<pre class="source-code">
+func sumIterative(root *node) int {
+        queue := make(chan *node, 10)
+        queue &lt;- root
+        var sum int
+        for {
+                select {
+                case node := &lt;-queue:
+                        sum += node.value
+                        if node.left != nil {
+                                queue &lt;- node.left
+                        }
+                        if node.right != nil {
+                                queue &lt;- node.right
+                        }
+                default:
+                        return sum
+                }
+        }
+}</pre>
+			<p>In this example, we are adding a bit of additional overhead since we are managing our queue <a id="_idIndexMarker325"/>behavior using buffered channels. However, the core algorithm is the same. You could imagine saving some lines of code <a id="_idIndexMarker326"/>by not having a <strong class="source-inline">select</strong> block when using a real queue <span class="No-Break">implementation though.</span></p>
+			<p>Next up, let’s take a look at how we can solve this <span class="No-Break">problem recursively.</span></p>
+			<h3>Recursively solving tree problems</h3>
+			<p>When thinking about this problem recursively, it becomes much clearer and easier <span class="No-Break">to implement.</span></p>
+			<p>Remember <a id="_idIndexMarker327"/>from our factorial example that we are adding calls to our stack frame until we encounter a base case for which we can return a value without calling the function itself. The base case for this implementation is an absent node (nil pointer). Such a node will return a value of 0 as there is no sum to be made. For each other node, we return the sum of its value, along with the sum of values for all children. Visualizing this like a stack, we are adding frames to our stack from bottom to top, but evaluating from top to bottom, aggregating the sum as we <span class="No-Break">go along:</span></p>
+			<pre class="source-code">
+func sumRecursive(node *node) int {
+        if node == nil {
+                return 0
+        }
+        return node.value + sumRecursive(node.left) +
+            sumRecursive(node.right)
+}</pre>
+			<p>This recursive code is one way to solve this problem without too much overhead. It is a more readable version of the iterative solution, and our code is closer to our intention. How does the recursive solution relate to what we have learned about functional programming <span class="No-Break">so far?</span></p>
+			<p>In functional programming languages, you want to tell the computer <em class="italic">what</em> to solve instead of <em class="italic">how</em> to solve it. When you are writing loops manually, you are firmly in the domain of the how rather than the what of a given problem. In addition, our recursive solution is not <a id="_idIndexMarker328"/>mutating state anywhere, which brings us closer to an ideal function in the world of <span class="No-Break">functional programming.</span></p>
+			<p class="callout-heading">Functional languages and loops</p>
+			<p class="callout">While recursion is preferred in functional languages, many do offer constructs for creating manual loops as well. That said, they often offer compiler optimizations for recursive functions, which makes them an even more attractive option to <span class="No-Break">solve problems.</span></p>
+			<h1 id="_idParaDest-120"><a id="_idTextAnchor120"/>Recursion and functions as first-class citizens</h1>
+			<p>What we have seen so far in this chapter can be applied to any language that has function calls, even in <a id="_idIndexMarker329"/>languages that stick more firmly to the object-oriented domain. In this <a id="_idIndexMarker330"/>section, we’ll learn how to leverage some of the concepts of functional and multi-paradigm languages that make recursion easier to write <span class="No-Break">and manage.</span></p>
+			<p>One of the most useful features I’ve found is to combine recursion with closures. To give an example of when this comes in handy, imagine working recursively on a data structure and having to keep some state tracked. Rather than tracking the state at the package level, or complicating <a id="_idIndexMarker331"/>the recursive function to keep the state tracked in the recursing functions, <em class="italic">we can create an outer function that is not recursive and then use a recursive inner function</em>. Let’s demonstrate this with an example to clear up some <span class="No-Break">potential confusion.</span></p>
+			<p>Using the same <a id="_idIndexMarker332"/>tree as in the previous example, let’s write a function to find the maximum value of a node in the tree. To achieve this, we need a way to track what the maximum value is, which we’ve seen so far. One option to achieve this is by tracking the state in a global variable outside of our recursive function. This is messy but would work. For example, the following code traverses the tree and uses a global variable to track what the maximum encountered value is <span class="No-Break">as follows:</span></p>
+			<pre class="source-code">
+var maximum = 0
+func MaxGlobalVariable(node *node) {
+        if node == nil {
+                return
+        }
+        if node.value &gt; maximum {
+                maximum = node.value
+        }
+        MaxGlobalVariable(node.left)
+        MaxGlobalVariable(node.right)
+}
+func main() {
+        maximum = int(math.MinInt)
+        MaxGlobalVariable(ExampleTree)
+        fmt.Println(maximum)
+}</pre>
+			<p>The preceding code is not the ideal solution. First of all, using global variables to track any state should be discouraged. It would cause major headaches when writing multithreaded code, and if you’d forget to reset the global variable before a run of the recursive function. The outcome would be unreliable, even for <span class="No-Break">single-threaded runs.</span></p>
+			<p>Another much better <a id="_idIndexMarker333"/>approach is to track the current maximum value as part of each recursive call. This is achieved by extending the function signature so that it includes the integer value that we are tracking, as shown in the <span class="No-Break">following code:</span></p>
+			<pre class="source-code">
+func.maxInline(node *node,
+    maxValue int) int {
+        if node == nil {
+                return maxValue
+        }
+        if node.value &gt; maxValue {
+                maxValue = node.value
+        }
+        maxLeft := maxInline(node.left, maxValue)
+        maxRight := maxInline(node.right, maxValue)
+        if maxLeft &gt; maxRight {
+                return maxLeft
+        }
+        return maxRight
+}</pre>
+			<p>Here, we are tracking the maximum value in the <strong class="source-inline">maxValue</strong> variable, which is passed in each recursive call. Then, in each call, we are continuing the recursive call downwards with the maximum value between <strong class="source-inline">node.value</strong> and <strong class="source-inline">maxValue</strong>. We end the calls by comparing the left and right-hand sides of the tree and returning the max of <span class="No-Break">both sides.</span></p>
+			<p>This is probably the cleanest way of writing the recursive function itself if we ignore what the code of the caller looks like. If we want to call the <strong class="source-inline">maxInline</strong> function, our calling functions will look <span class="No-Break">like this:</span></p>
+			<pre class="source-code">
+func main() {
+        fmt.Println(maxInline(ExampleTree, 0))
+}</pre>
+			<p>In the function call to <strong class="source-inline">maxInline</strong>, we are effectively leaking an implementation detail to the caller. The caller has <a id="_idIndexMarker334"/>to pass the initial starting value to our recursive function. This is rather messy, and for more complex functions, we can’t necessarily expect the caller to know what the appropriate value is. Ideally, we don’t leak such state details to our callers. Traditional object-oriented languages solve this problem by exposing a public non-recursive function that calls a private recursive function with the state appended. Modeling this in Go, we get <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+func main() {
+        fmt.Println(MaxInline(ExampleTree))
+}
+func MaxInline(root *node) int {
+        return maxInline(root, 0)
+}
+func maxInline(node *node, maxValue int) int {
+        if node == nil {
+                return maxValue
+        }
+        if node.value &gt; maxValue {
+                maxValue = node.value
+        }
+        maxLeft := maxInline(node.left, maxValue)
+        maxRight := maxInline(node.right, maxValue)
+        if maxLeft &gt; maxRight {
+                return maxLeft
+        }
+        return maxRight
+}</pre>
+			<p>Here, we have created a public <strong class="source-inline">MaxInline</strong> function that does not expose the internal mechanism for <strong class="source-inline">maxInline</strong>. The caller only needs to provide the root node to the public function. This function will then call the private <strong class="source-inline">maxInline</strong> function with the appropriate starting state. This pattern is incredibly common in object-oriented languages, and if those languages don’t support first-class functions, this is the right way to go <span class="No-Break">about it.</span></p>
+			<p>However, in Go, we can do better. The main issue with the preceding approach is that you are still cluttering <a id="_idIndexMarker335"/>the package-private space with a function anyone working in the package can use. This might be desired behavior, but not always. One way to work around this is by encapsulating the recursive function <em class="italic">within</em> the non-recursive function. In this way, we can track the state inside the non-recursive function, which is accessible to the recursive <span class="No-Break">inner function.</span></p>
+			<p>The following implementation does <span class="No-Break">exactly that:</span></p>
+			<pre class="source-code">
+func Max(root *node) int {
+        currentMax := math.MinInt
+        var inner func(node *node)
+        inner = func(node *node) {
+                if node == nil {
+                        return
+                }
+                if node.value &gt; currentMax {
+                        currentMax = node.value
+                }
+                inner(node.left)
+                inner(node.right)
+        }
+        inner(root)
+        return currentMax
+}</pre>
+			<p>Let’s take a look <a id="_idIndexMarker336"/>at what is happening here. First, note that our <strong class="source-inline">Max</strong> function is not recursive itself. This allows us to perform some operations that we know will only happen once per call to <strong class="source-inline">Max</strong>. For example, this is a great place to log activity, add metrics for performance, or add some state, as we are doing here. In our case, we’re creating a variable called <strong class="source-inline">currentMax</strong>. This variable will keep track of what the maximum value is that <span class="No-Break">we’ve encountered.</span></p>
+			<p>Next, we are creating a variable called <strong class="source-inline">inner</strong> of the <strong class="source-inline">func(node *node)</strong> type. This is an important step. We’re not creating the function in-line immediately; first, we need to set up the variable without an implementation attached to it. The reason why we are doing this is so that we can refer to the <strong class="source-inline">inner</strong> variable inside an <span class="No-Break">anonymous function.</span></p>
+			<p>The next step is to instantiate this <strong class="source-inline">inner</strong> function. If we tie that block together, we <span class="No-Break">get this:</span></p>
+			<pre class="source-code">
+var inner func(node *node)
+inner = func(node *node) {
+        if node == nil {
+                return
+        }
+        if node.value &gt; currentMax {
+                currentMax = node.value
+        }
+        inner(node.left)
+        inner(node.right)
+}</pre>
+			<p>This shows how we are calling <strong class="source-inline">inner(node.left)</strong> and <strong class="source-inline">inner(node.right)</strong> from within the <strong class="source-inline">inner</strong> function itself. This would not work if we did not define the function first without instantiating. In other words, the following code would <span class="No-Break">not work:</span></p>
+			<pre class="source-code">
+inner := func(node *node) {
+   if node == nil {
+      return
+   }
+   if node.value &gt; currentMax {
+      currentMax = node.value
+   }
+   inner(node.left)
+   inner(node.right)
+}</pre>
+			<p>It’s a seemingly small change, but it would break our function. After all, how could we refer to <strong class="source-inline">inner</strong> if the compiler hadn’t yet compiled the function that you are trying <span class="No-Break">to create?</span></p>
+			<p>The last step of our <a id="_idIndexMarker337"/>code is to call the inner recursive <span class="No-Break">function itself:</span></p>
+			<pre class="source-code">
+inner(root)</pre>
+			<p>In this example, we have seen how using functions as first-class citizens can help us write recursive code. But there are performance implications of doing so. We’ll explore this in the <span class="No-Break">next section.</span></p>
+			<h1 id="_idParaDest-121"><a id="_idTextAnchor121"/>Limits of recursive functions</h1>
+			<p>Recursive functions have a performance penalty. When creating a recursive function call, we are <a id="_idIndexMarker338"/>copying over the state from one function stack to the next. This involves copying a lot of data into our working memory, but additional computational overhead is required to make the function call itself happen. The main limitation of solving problems recursively, at least in Go, is that we will eventually run out of space to make the recursive call happen. The other limitation is that a recursive solution is often slower than an <span class="No-Break">iterative one.</span></p>
+			<h2 id="_idParaDest-122"><a id="_idTextAnchor122"/>Measuring the performance of recursive versus iterative solutions</h2>
+			<p>Before we look at the implications for the space our programs are using during recursive function calls, let’s compare the performance of recursive and iterative solutions that fit within our <a id="_idIndexMarker339"/>working memory. To demonstrate this, we will use the same iterative and recursive solution to the <a id="_idIndexMarker340"/>factorial problem that we saw at the start of <span class="No-Break">this chapter:</span></p>
+			<pre class="source-code">
+package pkg
+func IterativeFact(n int) int {
+        result := 1
+        for i := 2; i &lt;= n; i++ {
+                result *= i
+        }
+        return result
+}
+func RecursiveFact(n int) int {
+        if n == 0 {
+                return 1
+        }
+        return n * RecursiveFact(n-1)
+}</pre>
+			<p>To test both functions, we can use the benchmarking features of Go, which we explored in earlier chapters. The benchmark setup for both the iterative and recursive approach <span class="No-Break">is straightforward:</span></p>
+			<pre class="source-code">
+package pkg
+import "testing"
+func BenchmarkIterative100(b *testing.B) {
+        for n := 0; n &lt; b.N; n++ {
+                IterativeFact(10)
+        }
+}
+func BenchmarkRecursive100(b *testing.B) {
+        for n := 0; n &lt; b.N; n++ {
+                RecursiveFact(10)
+        }
+}</pre>
+			<p>To benchmark the functions, we are going to generate the result of <strong class="source-inline">Factorial(10)</strong>. This is <a id="_idIndexMarker341"/>a pretty low number <a id="_idIndexMarker342"/>as it takes only 10 steps to derive the answer. Yet, the performance implications are clear. The average of multiple runs is <span class="No-Break">as follows:</span></p>
+			<table id="table001-2" class="No-Table-Style _idGenTablePara-1">
+				<colgroup>
+					<col/>
+					<col/>
+				</colgroup>
+				<tbody>
+					<tr class="No-Table-Style">
+						<td class="No-Table-Style">
+							<p><span class="No-Break">Function</span></p>
+						</td>
+						<td class="No-Table-Style">
+							<p><span class="No-Break">ns/op</span></p>
+						</td>
+					</tr>
+					<tr class="No-Table-Style">
+						<td class="No-Table-Style">
+							<p><span class="No-Break">Iterative</span></p>
+						</td>
+						<td class="No-Table-Style">
+							<p><span class="No-Break">8.2</span></p>
+						</td>
+					</tr>
+					<tr class="No-Table-Style">
+						<td class="No-Table-Style">
+							<p><span class="No-Break">Recursive</span></p>
+						</td>
+						<td class="No-Table-Style">
+							<p><span class="No-Break">24.8</span></p>
+						</td>
+					</tr>
+				</tbody>
+			</table>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Table 7.1: Performance of iterative versus recursive functions in ns/op</p>
+			<p>As we can see, each iterative function needed about 1/4th the time to complete compared to the recursive function. The following graph shows the runtime of each function in ns/op for different inputs to the <span class="No-Break">factorial function:</span></p>
+			<div>
+				<div id="_idContainer021" class="IMG---Figure">
+					<img src="image/Figure_7.3_B18771.jpg" alt="Figure 7.3: Iterative (bottom) versus recursive (top) runtime in ns/op"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 7.3: Iterative (bottom) versus recursive (top) runtime in ns/op</p>
+			<p>The <a id="_idIndexMarker343"/>preceding graph <a id="_idIndexMarker344"/>shows that not only are recursive functions typically slower than their iterative counterparts, but they become slower in a more drastic way than the iterative solution. Keep these performance considerations in mind when opting to write <span class="No-Break">recursive functions.</span></p>
+			<p class="callout-heading">Note on benchmarking</p>
+			<p class="callout">These results were obtained using an Amazon Web Services EC2 instance (<strong class="source-inline">t2.micro</strong>) running Amazon Linux. The actual values of these results are machine-dependent. Running these benchmarks on a different machine will not necessarily give different results, but the general trend should remain the same. Running the benchmarks on the same <strong class="source-inline">t2.micro</strong> instance can still cause variations in <span class="No-Break">the outcome.</span></p>
+			<h2 id="_idParaDest-123"><a id="_idTextAnchor123"/>Space limitation of recursive functions</h2>
+			<p>Apart from <a id="_idIndexMarker345"/>being slower in a typical scenario, recursive functions suffer from another drawback: each function called to a recursive function adds another frame to our stack. All the data from the current iteration is copied over and passed on to the new function. Recall from <span class="No-Break"><em class="italic">Figure 7</em></span><em class="italic">.1</em> that these stacks are added on top of each other in a <strong class="bold">LIFO </strong>fashion. Once our stack cannot grow any further, the program will halt. The good news is that in Go, this limit is relatively large and might not pose immediate practical problems. On a modern 64-bit machine, this stack can hold up to 1 GB of data, while on 32-bit machines, the limit is <span class="No-Break">250 MB.</span></p>
+			<p>In practice, the limits will eventually get hit. Let’s take a look at the <span class="No-Break">following example:</span></p>
+			<pre class="source-code">
+func main() {
+        infiniteCount(0)
+}
+func infiniteCount(i int) {
+        if i%1000 == 0 {
+                fmt.Println(i)
+        }
+        infiniteCount(i + 1)
+}</pre>
+			<p>If we were <a id="_idIndexMarker346"/>to run this function on a 32-bit machine, the tail end of the output would look <span class="No-Break">like this:</span></p>
+			<pre class="source-code">
+1861000
+1862000
+1863000
+1864000
+runtime: goroutine stack exceeds 262144000-byte limit
+runtime: sp=0xc008080380 stack=[0xc008080000, 0xc010080000]
+fatal error: stack overflow
+runtime stack:
+runtime.throw({0x496535?, 0x50e900?})
+        /usr/lib/golang/src/runtime/panic.go:992 +0x71
+runtime.newstack()
+        /usr/lib/golang/src/runtime/stack.go:1101 +0x5cc
+runtime.morestack()
+        /usr/lib/golang/src/runtime/asm_amd64.s:547 +0x8b</pre>
+			<p>Hence, after about 1.8 million iterations, our program will crash. The actual limit depends on how large each stack frame is. For recursive functions that are more complex and manage more internal state, this limit will be lower. But what can we do to avoid hitting this limit? In Go, there is no way to completely avoid this limit when dealing with <a id="_idIndexMarker347"/>recursive functions. However, we can adjust the limit (although the 1 GB limit on a 64-bit machine should <span class="No-Break">be plenty).</span></p>
+			<p>To alter the limit, we can use the <strong class="source-inline">debug.SetMaxStack(bytes)</strong> function. To demonstrate this, let’s alter the limits of a 32-bit machine to be twice the <span class="No-Break">default size:</span></p>
+			<pre class="source-code">
+func main() {
+        debug.SetMaxStack(262144000 * 2)
+        infiniteCount(0)
+}
+func infiniteCount(i int) {
+        if i%1000 == 0 {
+                fmt.Println(i)
+        }
+        infiniteCount(i + 1)
+}</pre>
+			<p>Now, the function can go on much longer before running out of <span class="No-Break">stack space:</span></p>
+			<pre class="source-code">
+3724000
+3725000
+3726000
+3727000
+3728000
+runtime: goroutine stack exceeds 524288000-byte limit
+runtime: sp=0xc010080388 stack=[0xc010080000, 0xc020080000]
+fatal error: stack overflow
+runtime stack:
+runtime.throw({0x496535?, 0x50e900?})
+        /usr/lib/golang/src/runtime/panic.go:992 +0x71
+runtime.newstack()
+        /usr/lib/golang/src/runtime/stack.go:1101 +0x5cc
+runtime.morestack()
+        /usr/lib/golang/src/runtime/asm_amd64.s:547 +0x8b</pre>
+			<p>As we can tell, we could <a id="_idIndexMarker348"/>complete about 3.7 million iterations now before running into the limits of a 500 MB stack. While the 250 MB limit on a 32-bit machine is not extensive, for most practical applications, the 1-GB limit on a 64-bit machine should <span class="No-Break">be sufficient.</span></p>
+			<h2 id="_idParaDest-124"><a id="_idTextAnchor124"/>Tail recursion as a solution to stack limitations</h2>
+			<p>Considering these limitations of recursive functions, it might seem strange that functional <a id="_idIndexMarker349"/>languages prefer recursion over iteration. Often, these languages, such as Haskell, only have <a id="_idIndexMarker350"/>recursion to work with, and they mock iterative functions. In this section, we will briefly look at how languages such as Haskell make <span class="No-Break">recursion work.</span></p>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">The important thing to note here is that this is not possible in Go at the time <span class="No-Break">of writing.</span></p>
+			<p>The technique <a id="_idIndexMarker351"/>some functional languages use is called <strong class="bold">tail-call optimization</strong>. Even non-functional languages might offer this – JavaScript is a notable example. This is a compiler (or interpreter) optimization whereby a recursive function call is made without allocating a new stack frame. Recall that the main drawback of recursive functions is the fact that they can run out of stack space – hence, if we solve that problem, we can have <span class="No-Break">infinite recursion.</span></p>
+			<p>The <a id="_idIndexMarker352"/>compiler does need <a id="_idIndexMarker353"/>some help from the programmer to make this work. We’ll demonstrate the examples with Go, but keep in mind that so far in Go, the compiler performs no optimization and as such we would still overflow the <span class="No-Break">stack eventually.</span></p>
+			<h3>Rewriting a recursive function into a tail-call recursive function</h3>
+			<p>The key difference between a tail-call recursive function and a normal recursive function is that <a id="_idIndexMarker354"/>in the tail-call variant, each <a id="_idIndexMarker355"/>stack frame is independent of the others. To show this, let’s examine the factorial <span class="No-Break">function again:</span></p>
+			<pre class="source-code">
+func Fact(input int) int {
+    if input == 0 {
+        return 1
+    }
+    return input * Fact(input-1)
+}</pre>
+			<p>In the last line of this function, we are returning <strong class="source-inline">input * Fact(input – 1)</strong>. This effectively ties the result of each call to the result of the subsequent call. To evaluate the multiplication, we’d first have to run the <strong class="source-inline">Fact</strong> function one level deeper. We could rewrite this function to avoid this and make each stack frame independent of <span class="No-Break">the next.</span></p>
+			<p>To do this, let’s leverage our functions as first-class citizens again. We’ll create an outer function called <strong class="source-inline">tailCallFactorial</strong> that is non-recursive, which, in turn, calls an inner function called <strong class="source-inline">factorial</strong>, which <span class="No-Break">is recursive.</span></p>
+			<p>To write this function recursively and decouple each stack frame, we’ll make two changes. First, we’ll use a counter that counts down from <strong class="source-inline">input</strong> to 0. This is equivalent to the <strong class="source-inline">for i := n; i &gt; 0; i—</strong> <strong class="source-inline">for</strong> loop. Next, we’ll also keep aggregating the result of each multiplication. We will do this by performing multiplication on the input arguments of the next frame and passing on the <span class="No-Break">multiplied values:</span></p>
+			<pre class="source-code">
+func tailCallFactorial(n int) int {
+    var factorial func(counter, result int) int
+    factorial = func(counter, result int) int {
+        if counter == 0 {
+            return result
+        }
+        return factorial(counter-1, result*counter)
+    }
+    return factorial(n, 1)
+}</pre>
+			<p>The <a id="_idIndexMarker356"/>key line of code that <a id="_idIndexMarker357"/>makes this function tail-call recursive is <span class="No-Break">as follows:</span></p>
+			<pre class="source-code">
+return factorial(counter-1, result*counter)</pre>
+			<p>With this simple change, each stack frame can be evaluated separately. And some compilers detect that the current stack frame can be de-allocated as soon as the next frame is called. This is a high-level overview of what tail-call optimization is, but keep in mind that Go does not perform such compiler optimizations at the time <span class="No-Break">of writing.</span></p>
+			<h1 id="_idParaDest-125"><a id="_idTextAnchor125"/>Summary</h1>
+			<p>In this chapter, we saw why recursion is a critical part of functional programming languages. We looked into how recursive functions make it easier to enforce function purity and immutability. Next, we saw how functions as first-class citizens can make it easier to manage the state of our recursive function calls. We did this by creating outer non-recursive functions that leverage an inner recursive function to perform <span class="No-Break">the calculations.</span></p>
+			<p>After, we looked into the performance concerns of recursive and iterative solutions. Here, we saw that recursive solutions are often slower than their iterative counterparts and that eventually, recursive functions run out of memory to operate with, causing our programs to halt (even though this would take a very long time on a <span class="No-Break">64-bit machine).</span></p>
+			<p>Finally, we looked at Tail-Call optimization and Tail-Call recursive functions. Tail-Call optimization is a practical compiler optimization that many languages, such as Haskell and JavaScript, support to work around the limitations of recursive functions. Crucially, we have seen that Go does not support Tail-Call optimization, even if we write Tail-Call <span class="No-Break">recursive functions.</span></p>
+			<p>In the next chapter, we will look at declarative and fluent programming. We’ll leverage recursion to write programs in a <span class="No-Break">continuation-passing style.</span></p>
+		</div>
+	</body></html>

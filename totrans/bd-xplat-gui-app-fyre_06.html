@@ -1,0 +1,445 @@
+<html><head></head><body>
+		<div id="_idContainer049">
+			<h1 id="_idParaDest-88"><em class="italic"><a id="_idTextAnchor089"/>Chapter 4</em>: Layout and File Handling</h1>
+			<p>In the previous chapter, we learned how the main drawing aspects of the Fyne toolkit are organized and how an application can work directly with <strong class="source-inline">CanvasObject</strong> items on a window canvas. This was sufficient information to set up a small game, but once applications add the presentation of lots of information or require user input and workflows, they typically require more complex user interface designs. In this chapter, we look at how an application user interface is structured, covering the following:</p>
+			<ul>
+				<li>Arranging a <strong class="source-inline">Container</strong> item using built-in layout algorithms</li>
+				<li>Creating custom layout algorithms</li>
+				<li>Handling files in a way that works across all platforms, desktop, and mobile</li>
+			</ul>
+			<p>With this knowledge, we will build an application for browsing photographs. Let's get started!</p>
+			<h1 id="_idParaDest-89"><a id="_idTextAnchor090"/>Technical requirements</h1>
+			<p>This chapter has the same requirements as <a href="B16820_03_Final_JM_ePub.xhtml#_idTextAnchor066"><em class="italic">Chapter 3</em></a>, <em class="italic">Windows, Canvas, and Drawing</em>, which is to have the Fyne toolkit installed. For more information, please refer to the previous chapter.</p>
+			<p>The full source code for this chapter can be found at <a href="https://github.com/PacktPublishing/Building-Cross-Platform-GUI-Applications-with-Fyne/tree/master/Chapter04">https://github.com/PacktPublishing/Building-Cross-Platform-GUI-Applications-with-Fyne/tree/master/Chapter04</a>.</p>
+			<h1 id="_idParaDest-90"><a id="_idTextAnchor091"/>Laying out containers</h1>
+			<p>As we<a id="_idIndexMarker165"/> saw in the previous chapter, a Fyne canvas is made up of <strong class="source-inline">CanvasObject</strong>, <strong class="source-inline">Container</strong>, and <strong class="source-inline">Widget</strong> items (although <strong class="source-inline">Container</strong> and <strong class="source-inline">Widget</strong> items are both <strong class="source-inline">CanvasObject</strong> items as well!). To be able to display multiple elements, we must use the <strong class="source-inline">Container</strong> type, which groups a number of <strong class="source-inline">CanvasObject</strong> items (which can also be <strong class="source-inline">Widget</strong> items or additional <strong class="source-inline">Container</strong> items). To manage the size and position of each item inside a container, we use an implementation of <strong class="source-inline">Layout</strong>, which is passed to the container at creation using the <strong class="source-inline">container.New(layout, items)</strong> constructor function.</p>
+			<p>There are many <a id="_idIndexMarker166"/>ways that an application may want to lay out its components and in this section we will explore the different ways that can be achieved. Layouts are not always required, however, and so first we will look at when you might not need to use a layout and how to handle size and placement manually instead.</p>
+			<h2 id="_idParaDest-91"><a id="_idTextAnchor092"/>Manual layout</h2>
+			<p>Before we explore layout algorithms, it is possible to manage a container without the use of a layout—this is called <strong class="bold">manual layout</strong> and is <a id="_idIndexMarker167"/>done using <strong class="source-inline">container.NewWithoutLayout(items)</strong>.</p>
+			<p>When using a container <a id="_idIndexMarker168"/>without a layout, the developer must position and size all elements within the container manually, using the <strong class="source-inline">Move()</strong> and <strong class="source-inline">Resize()</strong> methods. In this mode, the developer is responsible for adapting the positions and sizes to the current size of the container.</p>
+			<p>Let's take a look at the following code:</p>
+			<p class="source-code">square := canvas.NewRectangle(color.Black)</p>
+			<p class="source-code">circle := canvas.NewCircle(color.Transparent)</p>
+			<p class="source-code">circle.StrokeColor = &amp;color.Gray{128}</p>
+			<p class="source-code">circle.StrokeWidth = 5</p>
+			<p class="source-code">box := container.NewWithoutLayout()(square, circle)</p>
+			<p class="source-code">square.Move(fyne.NewPos(10, 10))</p>
+			<p class="source-code">square.Resize(fyne.NewSize(90, 90))</p>
+			<p class="source-code">circle.Move(fyne.NewPos(70, 70))</p>
+			<p class="source-code">circle.Resize(fyne.NewSize(120, 120))</p>
+			<p class="source-code">box.Resize(fyne.NewSize(200, 200))</p>
+			<p>The code we just saw sets up a <strong class="source-inline">Rectangle</strong> item and a <strong class="source-inline">Circle</strong> item inside a container, resizes them to be around half their size, and then positions them to have a small amount of overlap. You can see from the following figure that the elements are drawn in the order that they are passed to the container: </p>
+			<div>
+				<div id="_idContainer032" class="IMG---Figure">
+					<img src="image/Figure_4.1_B16820.jpg" alt="Figure 4.1 – Manual layout in a container&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.1 – Manual layout in a container</p>
+			<p>Once set, these sizes and <a id="_idIndexMarker169"/>positions will not change unless we add more code to modify their<a id="_idIndexMarker170"/> positions.</p>
+			<p class="callout-heading">Important note</p>
+			<p class="callout">Note that there is no resized event published, so if you want to automatically adjust when the container is resized, you should consider building a custom layout, described under <em class="italic">Providing a custom layout</em> later in this chapter.</p>
+			<h2 id="_idParaDest-92"><a id="_idTextAnchor093"/>Using a layout manager</h2>
+			<p>In essence, a layout manager <a id="_idIndexMarker171"/>is the same as the manual move and resize code we just saw, with the difference that it operates on a list of <strong class="source-inline">CanvasObject</strong> items (those that are the children of <strong class="source-inline">Container</strong>). A layout manager has two responsibilities:</p>
+			<ul>
+				<li>To control the size and position of each element</li>
+				<li>To determine the minimum size that the container should accept</li>
+			</ul>
+			<p>When a <strong class="source-inline">Container</strong> item is resized, the layout that it is using will be asked to reposition all the child components. A layout algorithm may choose to scale elements according to the new size or to reposition the elements. Alternatively, it may decide to flow elements or adapt the layout according to whether the available space is taller or wider. In this way, setting a layout on a container can provide a responsive user interface based on screen size or even device orientation.</p>
+			<p>When we lay out interface components, it is common to wish to separate elements by inserting some clear space. This is called <em class="italic">padding</em> and in Fyne, you can find the standard padding size using the <strong class="source-inline">theme.Padding()</strong>function. You can find more about the <strong class="source-inline">theme</strong> package in <a href="B16820_05_Final_JM_ePub.xhtml#_idTextAnchor119"><em class="italic">Chapter 5</em></a>, <em class="italic">Widget Library and Themes</em>. The standard layouts listed in the next section all include the standard padding between elements. Note that typically, a container <a id="_idIndexMarker172"/>layout will not use padding on the outside edge as that will be provided by the parent container, or the window canvas for top-level containers.</p>
+			<p>Containers using a layout can be created using the <strong class="source-inline">container.New</strong> function:</p>
+			<p class="source-code">container.New(layout, items)</p>
+			<p>When using a container with a layout, it is not usually required to call <strong class="source-inline">Resize</strong> as we did before because it will be initially sized to at least the minimum size.</p>
+			<h2 id="_idParaDest-93"><a id="_idTextAnchor094"/>Hidden objects</h2>
+			<p>One additional consideration when selecting a layout, or writing layout code yourself, is that objects may not <a id="_idIndexMarker173"/>always be visible. A <strong class="source-inline">CanvasObject</strong> item may be hidden for two reasons:</p>
+			<ul>
+				<li>A developer called <strong class="source-inline">Hide()</strong> on that object.</li>
+				<li>It is inside a <strong class="source-inline">Container</strong> item that has similarly had <strong class="source-inline">Hide()</strong> invoked.</li>
+			</ul>
+			<p>Typically, a layout algorithm will skip hidden elements when calculating the minimum size or laying out elements. Each of the standard layouts we will see next will skip hidden elements rather than leaving empty space where those items would otherwise have appeared.</p>
+			<p>We have seen how layouts work in arranging the components of an application. To make building complex user interfaces as simple as possible, there are standard layouts available that cover most common user interface arrangements.</p>
+			<h1 id="_idParaDest-94"><a id="_idTextAnchor095"/>Standard layouts</h1>
+			<p>As there are many standard layout<a id="_idIndexMarker174"/> algorithms, the Fyne toolkit includes a collection of standard implementations in the <strong class="source-inline">layout</strong> package. By importing this package, you can apply these layouts to any <strong class="source-inline">Container</strong> in your application:</p>
+			<p class="source-code">import "fyne.io/fyne/layout"</p>
+			<p>Each of the layouts is examined <a id="_idIndexMarker175"/>in detail in this section. Although a container can only have a single layout, there is no limit to the number of containers you can have nested inside each other, and so we look at combining different layouts at the end of this section.</p>
+			<h2 id="_idParaDest-95"><a id="_idTextAnchor096"/>MaxLayout</h2>
+			<p><strong class="bold">MaxLayout</strong> (or <strong class="bold">maximum layout</strong>) is the <a id="_idIndexMarker176"/>simplest of all the built-in layout algorithms. Its purpose is to ensure<a id="_idIndexMarker177"/> that all child elements of a container take up the full space of that container:</p>
+			<div>
+				<div id="_idContainer033" class="IMG---Figure">
+					<img src="image/max-light_4.2.jpg" alt="Figure 4.2 – MaxLayout in a container&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.2 – MaxLayout in a container</p>
+			<p>This is most commonly used to align one element over another, such as a text item over a background color rectangle. When using this layout, it is important to list the container elements in the correct order; each will be drawn over the other, and so the last item in the list will be drawn on top:</p>
+			<p class="source-code">myContainer := container.New(layout.NewMaxLayout(), …)</p>
+			<h2 id="_idParaDest-96"><a id="_idTextAnchor097"/>CenterLayout</h2>
+			<p><strong class="bold">CenterLayout</strong> can be<a id="_idIndexMarker178"/> helpful when <a id="_idIndexMarker179"/>an item of a specified minimum size should be centered within the available space, both horizontally and vertically:</p>
+			<div>
+				<div id="_idContainer034" class="IMG---Figure">
+					<img src="image/Figure_4.3_B16820.jpg" alt="Figure 4.3 – CenterLayout adding space around items&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.3 – CenterLayout adding space around items</p>
+			<p>As with <strong class="source-inline">MaxLayout</strong>, each element <a id="_idIndexMarker180"/>within the container will be drawn on top of<a id="_idIndexMarker181"/> the previous one, but the size will be set as the minimum for each of the elements instead of filling the available space:</p>
+			<p class="source-code">myContainer := container.New(layout.NewCenterLayout(), …)</p>
+			<h2 id="_idParaDest-97"><a id="_idTextAnchor098"/>PaddedLayout</h2>
+			<p><strong class="bold">PaddedLayout</strong> helps<a id="_idIndexMarker182"/> when you wish<a id="_idIndexMarker183"/> to inset content by the theme-defined padding value. The content element will be centered in the container by the standard padding on all sides, as shown in the following figure:</p>
+			<div>
+				<div id="_idContainer035" class="IMG---Figure">
+					<img src="image/padded-light_4.4.jpg" alt="Figure 4.4 – PaddedLayout adding a small space around items&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.4 – PaddedLayout adding a small space around items</p>
+			<p>As with <strong class="source-inline">MaxLayout</strong>, each element within the container will be drawn on top of the previous one, all with the same size, but in this case slightly smaller than the container:</p>
+			<p class="source-code">myContainer := container.New(layout.NewPaddedLayout(), …) </p>
+			<h2 id="_idParaDest-98"><a id="_idTextAnchor099"/>BoxLayout</h2>
+			<p>The box layout has<a id="_idIndexMarker184"/> two varieties, <strong class="source-inline">HBoxLayout</strong> (horizontal—for arranging items in a row) and <strong class="source-inline">VBoxLayout</strong> (vertical—for arranging items in a list). Each of the box layouts follows a <a id="_idIndexMarker185"/>similar algorithm: it creates a linear flow of elements where they are packed (horizontally or vertically) while maintaining a consistent height or width.</p>
+			<p>Items listed in a horizontal box will have the width set to each item's minimum, but will share the same height, which is the maximum of all the elements' minimum height:</p>
+			<div>
+				<div id="_idContainer036" class="IMG---Figure">
+					<img src="image/Figure_4.5_B16820.jpg" alt="Figure 4.5 – HBoxLayout aligning three elements in a row &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.5 – HBoxLayout aligning three elements in a row </p>
+			<p>Items in a vertical box all have the same width (the largest of all the minimum widths), while shrinking to each element's minimum height:</p>
+			<div>
+				<div id="_idContainer037" class="IMG---Figure">
+					<img src="image/Figure_4.6_B16820.jpg" alt="Figure 4.6 – VBoxLayout stacking elements in a column&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.6 – VBoxLayout stacking elements in a column</p>
+			<p>This approach allows items of differing sizes to appear uniform without wasting any space in the container. The syntax for each of these is as follows:</p>
+			<p class="source-code">myContainer := container.New(layout.NewHBoxLayout(), …)</p>
+			<p class="source-code">myContainer := container.New(layout.NewVBoxLayout(), …)</p>
+			<h2 id="_idParaDest-99"><a id="_idTextAnchor100"/>FormLayout</h2>
+			<p><strong class="bold">FormLayout</strong> is used<a id="_idIndexMarker186"/> by the form widget, but it can be useful on its own when you wish to label<a id="_idIndexMarker187"/> items in a container. There should be an even number of elements added; the first of each pair will be on the left, being as narrow as the component allows. The remaining horizontal space will be taken up by the second of each pair:</p>
+			<div>
+				<div id="_idContainer038" class="IMG---Figure">
+					<img src="image/form-light_4.7.jpg" alt="Figure 4.7 – FormLayout pairing items for labeling&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.7 – FormLayout pairing items for labeling</p>
+			<p>Here's an example of using <strong class="source-inline">FormLayout</strong> (assuming an even number of parameters to be added):</p>
+			<p class="source-code">myContainer := container.New(layout.NewFormLayout(), …) </p>
+			<h2 id="_idParaDest-100"><a id="_idTextAnchor101"/>GridLayout</h2>
+			<p>The basic <strong class="bold">GridLayout</strong> is <a id="_idIndexMarker188"/>designed to divide a container into as many equal spaces as the number of <a id="_idIndexMarker189"/>child elements in the container.</p>
+			<p>For a container with two columns and three child items, a second row will be created but not completely filled:</p>
+			<div>
+				<div id="_idContainer039" class="IMG---Figure">
+					<img src="image/Figure_4.8_B16820.jpg" alt="Figure 4.8 – Three elements in a two-column GridLayout&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.8 – Three elements in a two-column GridLayout</p>
+			<p>When creating a grid layout, the developer will specify the number of columns or rows to use, and the items will be arranged accordingly. At the end of each row or column, the layout will wrap and create a new one. The number of rows (or columns) will depend upon the number of elements. For example, let's take the following illustration: </p>
+			<p class="source-code">myContainer := container.New(layout.NewGridLayoutWithColumns(2), …)</p>
+			<p class="source-code">myContainer := container.New(layout.NewGridLayoutWithRows(2), …)</p>
+			<p>The grid layout has an additional <a id="_idIndexMarker190"/>mode that can help to adapt to different output devices. It is common on mobile devices to show items in a single column when held in portrait or a single row in landscape orientation. To enable this, use <strong class="source-inline">NewAdaptiveGridLayout</strong>; the <a id="_idIndexMarker191"/>parameter to this constructor represents the number of rows you wish to have in vertical arrangement or columns when horizontal. This layout will rearrange its <strong class="source-inline">Container</strong> when a mobile device is rotated, as seen here:</p>
+			<p class="source-code">myContainer := container.New(layout.NewAdaptiveGridLayout(3), …)</p>
+			<h2 id="_idParaDest-101"><a id="_idTextAnchor102"/>GridWrapLayout</h2>
+			<p>Another variant of<a id="_idIndexMarker192"/> using a grid<a id="_idIndexMarker193"/> is when you would like elements to automatically flow to new rows as a container is resized (for example, a file manager or list of image thumbnails). For this scenario, Fyne provides a grid wrap layout. In a wrapped grid in which every child element will be resized to the specified size, they will then be arranged in a row until the next item does not fit, at which point a new row will be created for further elements. </p>
+			<p>For example, here is a grid wrap container that is wider than three items of the specified size:</p>
+			<div>
+				<div id="_idContainer040" class="IMG---Figure">
+					<img src="image/Figure_4.9_B16820.jpg" alt="Figure 4.9 – Fixed elements in GridWrapLayout&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.9 – Fixed elements in GridWrapLayout</p>
+			<p class="callout-heading">GridWrapLayout and MinSize</p>
+			<p class="callout">It is important to note that this layout, unlike all the others, will not check each item's <strong class="source-inline">MinSize</strong>. The developer should thus be careful to ensure that it is large enough, or that elements included will truncate their elements (such as text) to avoid overflow. </p>
+			<p>Here is an <a id="_idIndexMarker194"/>example using <a id="_idIndexMarker195"/>a grid wrap layout:</p>
+			<p class="source-code">myContainer := container.New(layout.NewGridWrapLayout(fyne.      	    NewSize(120, 120), …)</p>
+			<h2 id="_idParaDest-102"><a id="_idTextAnchor103"/>BorderLayout</h2>
+			<p>The most commonly used layout<a id="_idIndexMarker196"/> in arranging an application is probably <strong class="bold">BorderLayout</strong>. This layout <a id="_idIndexMarker197"/>algorithm will arrange specified elements at the top, bottom, left, and right edges of a container. The top and bottom items will be resized to their minimum height but stretched horizontally, and items on the left and right will be squashed to their minimum width and expanded vertically. Any elements in the container that are not specified as belonging to one of the edges will be sized to fill the available space inside the borders. This is commonly used to position toolbars at the top, footers at the bottom, and file lists on the left. Any edges you wish to leave blank should have nil instead:</p>
+			<div>
+				<div id="_idContainer041" class="IMG---Figure">
+					<img src="image/Figure_4.10_B16820.jpg" alt="Figure 4.10 – BorderLayout with top and left areas set&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.10 – BorderLayout with top and left areas set</p>
+			<p class="callout-heading">BorderLayout parameters</p>
+			<p class="callout">Note that for <strong class="source-inline">BorderLayout</strong>, some elements must be specified twice—the layout parameters specify where an element should be positioned, but the list of items to the container control what will be visible. If you find an item not appearing, be sure that it is specified in both places.</p>
+			<p>The following code <a id="_idIndexMarker198"/>shows how to set up a border container with <strong class="source-inline">header</strong> at the top <a id="_idIndexMarker199"/>and <strong class="source-inline">files</strong> positioned to the left of <strong class="source-inline">content</strong>:</p>
+			<p class="source-code">myContainer := container.New(layout.NewBorderLayout(header,      	    nil, files, nil), header, files, content)</p>
+			<h2 id="_idParaDest-103"><a id="_idTextAnchor104"/>Combining layouts</h2>
+			<p>To build more complicated <a id="_idIndexMarker200"/>application structures, it will be necessary to use multiple layouts within your user interface. As each container has a single layout, we achieve this by nesting different containers. This can be done as many times as required. For example, take a look at the following figure:</p>
+			<div>
+				<div id="_idContainer042" class="IMG---Figure">
+					<img src="image/Figure_4.11_B16820.jpg" alt="Figure 4.11 – Multiple containers with different layouts&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.11 – Multiple containers with different layouts</p>
+			<p>For the previous illustration, we have used a container with <strong class="source-inline">VBoxLayout</strong> for the left panel, <strong class="source-inline">HBoxLayout</strong> for the<a id="_idIndexMarker201"/> top, and <strong class="source-inline">GridWrapLayout</strong> for the central container, all inside <strong class="source-inline">BorderLayout</strong>, as follows:</p>
+			<p class="source-code">top := container.New(layout.NewHBoxLayout(), ...)</p>
+			<p class="source-code">left := container.New(layout.NewVBoxLayout(), ...)</p>
+			<p class="source-code">content := container.New(layout.NewGridWrapLayout(fyne.     	    NewSize(40, 40)), ...)</p>
+			<p class="source-code">combined := container.New(layout.NewBorderLayout(top, nil,     	    left, nil), top, left, content)</p>
+			<h2 id="_idParaDest-104"><a id="_idTextAnchor105"/>Using the container package</h2>
+			<p>All of the preceding examples use <a id="_idIndexMarker202"/>a built-in <strong class="source-inline">Layout</strong> type to configure the contents of <strong class="source-inline">fyne.Container</strong>. To help manage more complex layout configurations (we will see more in <a href="B16820_05_Final_JM_ePub.xhtml#_idTextAnchor119"><em class="italic">Chapter 5</em></a>, <em class="italic">Widget Library and Themes</em>), there are many helpful constructor functions in the <strong class="source-inline">container</strong> package. For example, instead of <strong class="source-inline">container.New(layout.NewBorderLayout(…)…)</strong> we could use <strong class="source-inline">container.NewBorder(...)</strong>, which can lead to clearer code.</p>
+			<p>Providing a custom layout</p>
+			<p>If the <a id="_idIndexMarker203"/>standard layouts, or a combination of them, do not accommodate the needs of your user interface, it is possible to build a custom layout and pass that into a container instead.</p>
+			<p>Any type that implements the <strong class="source-inline">fyne.Layout</strong> interface can be used as a <strong class="source-inline">Container</strong> layout. This interface has just two methods that need to be implemented, as shown here:</p>
+			<p class="source-code">// Layout defines how CanvasObjects may be laid out in a      // specified Size.</p>
+			<p class="source-code">type Layout interface {</p>
+			<p class="source-code">    // Layout will manipulate the listed CanvasObjects Size     	    // and Position to fit within the specified size.</p>
+			<p class="source-code">    Layout([]CanvasObject, Size)</p>
+			<p class="source-code">    // MinSize calculates the smallest size that will fit the   	    // listed</p>
+			<p class="source-code">    // CanvasObjects using this Layout algorithm.</p>
+			<p class="source-code">    MinSize(objects []CanvasObject) Size</p>
+			<p class="source-code">}</p>
+			<p>As you can see, this interface codifies the earlier description that a layout manager will need to determine the minimum size of a container as well as handling the positioning of each element in a container. As the contents of a container can change from time to time, it is possible that the slice of <strong class="source-inline">CanvasObject</strong> elements passed to <strong class="source-inline">Layout</strong> or <strong class="source-inline">MinSize</strong> may change. Hence, a custom layout should avoid caching references to individual elements. In certain <a id="_idIndexMarker204"/>situations (such as <strong class="source-inline">BorderLayout</strong>, which we saw earlier), the layout may explicitly hold an object reference. If your layout works in this way, it is important to remember that the item may not exist within the slice of objects to lay out.</p>
+			<p>Most layouts should also skip hidden elements when calculating the minimum size or layout. There are some exceptions, however, particularly if elements are likely to be shown and hidden regularly. For example, a tab-based layout that shows only one content element at a time could cause windows to expand if hidden elements are larger than the ones that are currently visible. In this situation, it will be good for the user if layouts consider hidden elements in the <strong class="source-inline">MinSize</strong> code, even if they are not positioned in <strong class="source-inline">Layout</strong>.</p>
+			<p>We shall create a short example of writing a custom layout:</p>
+			<ol>
+				<li>This type, named <strong class="source-inline">diagonal</strong>, will position items of a container in a diagonal line from the <a id="_idIndexMarker205"/>top left down to the bottom right. We first implement <strong class="source-inline">MinSize()</strong> to return the sum of all visible objects (so that there is space to display them all in a diagonal line):<p class="source-code">type diagonal struct{}</p><p class="source-code">func (d *diagonal) MinSize(items []fyne.CanvasObject) fyne.Size {</p><p class="source-code">    total := fyne.NewSize(0, 0)</p><p class="source-code">    for _, obj := range items {</p><p class="source-code">        if !obj.Visible() {</p><p class="source-code">            continue</p><p class="source-code">        }</p><p class="source-code">        </p><p class="source-code">        total = total.Add(obj.MinSize())</p><p class="source-code">    }</p><p class="source-code">    return total</p><p class="source-code">}</p></li>
+				<li>We then add the <strong class="source-inline">Layout()</strong> method, which is responsible for actually positioning each object. In this version, we simply declare a <strong class="source-inline">topLeft</strong> variable and position each visible object, adding to the value each time we have positioned and sized an element:<p class="source-code">func (d *diagonal) Layout(items []fyne.CanvasObject, size fyne.Size) {</p><p class="source-code">     topLeft := fyne.NewPos(0, 0)</p><p class="source-code">     for _, obj := range items {</p><p class="source-code">         if !obj.Visible() {</p><p class="source-code">             continue</p><p class="source-code">         }</p><p class="source-code">         size := obj.MinSize()</p><p class="source-code">         obj.Move(topLeft)</p><p class="source-code">         obj.Resize(size)</p><p class="source-code">         topLeft = topLeft.Add(fyne.NewPos(size.Width,</p><p class="source-code">             size.Height))</p><p class="source-code">     }</p><p class="source-code">}</p></li>
+				<li>To apply this<a id="_idIndexMarker206"/> layout to a container, you would simply use the following:<p class="source-code">item1 := canvas.NewRectangle(color.Black)</p><p class="source-code">item1.SetMinSize(fyne.NewSize(35, 35))</p><p class="source-code">item2 := canvas.NewRectangle(&amp;color.Gray{128})</p><p class="source-code">item2.SetMinSize(fyne.NewSize(35, 35))</p><p class="source-code">item3 := canvas.NewRectangle(color.Black)</p><p class="source-code">item3.SetMinSize(fyne.NewSize(35, 35))</p><p class="source-code">myContainer := container.New(&amp;diagonal{}, item1, item2,      	    item3)</p></li>
+			</ol>
+			<p>Here's what we get:</p>
+			<div>
+				<div id="_idContainer043" class="IMG---Figure">
+					<img src="image/Figure_4.12_B16820.jpg" alt="Figure 4.12 – Simple diagonal layout&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.12 – Simple diagonal layout</p>
+			<p>The example we saw sets<a id="_idIndexMarker207"/> up a static layout. The minimum size set for each item sets up the minimum size for <strong class="source-inline">Container</strong>, which no longer expands. An improved version of this layout would calculate the amount of extra space (the difference between the container's <strong class="source-inline">MinSize()</strong> and the <strong class="source-inline">size</strong> argument passed into the <strong class="source-inline">Layout()</strong> function). An updated version of the <strong class="source-inline">Layout()</strong> function looks like this:</p>
+			<p class="source-code">func (d *diagonal) Layout(items []fyne.CanvasObject, size fyne.Size) {</p>
+			<p class="source-code">    topLeft := fyne.NewPos(0, 0)</p>
+			<p class="source-code">    visibleCount := 0</p>
+			<p class="source-code">    for _, obj := range items {</p>
+			<p class="source-code">        if !obj.Visible() {</p>
+			<p class="source-code">            continue</p>
+			<p class="source-code">        }</p>
+			<p class="source-code">        visibleCount++</p>
+			<p class="source-code">     }</p>
+			<p class="source-code">     min := d.MinSize(items)</p>
+			<p class="source-code">     extraX := (size.Width - min.Width)/visibleCount</p>
+			<p class="source-code">     extraY := (size.Height - min.Height)/visibleCount</p>
+			<p class="source-code">     for _, obj := range items {</p>
+			<p class="source-code">         if !obj.Visible() {</p>
+			<p class="source-code">             continue</p>
+			<p class="source-code">         }</p>
+			<p class="source-code">         size := obj.MinSize()</p>
+			<p class="source-code">         size = size.Add(fyne.NewSize(extraX, extraY))</p>
+			<p class="source-code">         obj.Move(topLeft)</p>
+			<p class="source-code">         obj.Resize(size)</p>
+			<p class="source-code">         topLeft = topLeft.Add(fyne.NewPos(size.Width, </p>
+			<p class="source-code">            size.Height))</p>
+			<p class="source-code">     }</p>
+			<p class="source-code">}</p>
+			<p>Here's what we get after running the code:</p>
+			<div>
+				<div id="_idContainer044" class="IMG---Figure">
+					<img src="image/Figure_4.13_B16820.jpg" alt="Figure 4.13 – Diagonal layout expanding to fill space&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.13 – Diagonal layout expanding to fill space</p>
+			<p>With this more<a id="_idIndexMarker208"/> advanced code, we no longer need to control the container with a minimum size for all items (though items would normally have a minimum size). In fact, we could just resize the container (or the app window) instead, as follows:</p>
+			<p class="source-code">item1 := canvas.NewRectangle(color.Black)</p>
+			<p class="source-code">item2 := canvas.NewRectangle(&amp;color.Gray{128})</p>
+			<p class="source-code">item3 := canvas.NewRectangle(color.Black)</p>
+			<p class="source-code">myContainer := canvas.New(&amp;diagonal{}, item1, item2, item3)</p>
+			<p class="source-code">myContainer.Resize(fyne.NewSize(120, 120))</p>
+			<p>Now that we have explored the basics of how to lay out an application, we can start to look at bringing this together in a real application. The example that we will explore is an image browsing app that will lay out images and their metadata. However, before we can do this, we need to learn about file handling in a cross-platform context. If app developers assume users will have a filesystem or structure that matches their development system, it may not work on other devices, so understanding how to do this well is essential for ensuring that apps work well across all devices.</p>
+			<h1 id="_idParaDest-105"><a id="_idTextAnchor106"/>Cross-platform file handling</h1>
+			<p>The Go standard library has <a id="_idIndexMarker209"/>excellent support for file handling across its supported platforms. The <strong class="source-inline">os</strong> package allows access to the filesystem (files and directories) and utility packages such as <strong class="source-inline">filepath</strong> that help to parse and manage locations using the current operating system's semantics. While these operations are likely useful on most devices, they do not extend as well to non-desktop devices where a traditional filesystem is not what the end user is presented with.</p>
+			<p>Consider mobile devices, for example. Both iOS and Android have a traditional filesystem internally, but the filesystem is not completely available to the device user, nor is it the only source of file data. An application will typically only have access to its own sandbox directory—reading and writing files outside of this space is not permitted—and on iOS, you may even need to request special permissions before accessing it. In addition to that, users now expect to be able to open data from other sources. For example, a file-sharing application such as Dropbox could provide a source of files that a user may wish to pass into your application, but this data is not accessible using standard file handling.</p>
+			<p>For these reasons, the Fyne toolkit includes a simple storage abstraction that allows your application to handle data from any source, while managing permissions and security considerations for you. This interaction uses the concept of a <strong class="bold">URI</strong> to replace traditional file paths, allowing apps to operate without direct access to files and directories.</p>
+			<h2 id="_idParaDest-106"><a id="_idTextAnchor107"/>URI</h2>
+			<p>At the core of the file handling abstraction is <strong class="source-inline">fyne.URI</strong> (here <strong class="bold">URI</strong> stands for <strong class="bold">Uniform Resource Identifier</strong>). A<a id="_idIndexMarker210"/> URI will be familiar to most computer users as it looks exactly like a web URL, with the small difference that it does not always start with <strong class="source-inline">http:// </strong>or <strong class="source-inline">https://</strong>. A URI may represent a filesystem object (where it would start with <strong class="source-inline">file://</strong>), a data stream from another app (where it may begin <strong class="source-inline">content://</strong>), or a remote resource (such as <strong class="source-inline">sftp://</strong> for a Secure File Transfer Protocol connection).</p>
+			<p>Like the <strong class="source-inline">os.File</strong> type, <strong class="source-inline">fyne.URI</strong> is a reference to a resource, though it does not keep that resource open, so it may be passed around your application without issues. The underlying string representation of this URI can be accessed using the <strong class="source-inline">String()</strong> method. Use this if you wish to store the URI reference for later use, for example, in a configuration file or database. If you have a URI string representation, the original URI object can be accessed using utilities in the <strong class="source-inline">storage</strong> package, as follows:</p>
+			<p class="source-code">uriString := "file:///home/user/file.txt"</p>
+			<p class="source-code">myUri := storage.NewURI(uriString)</p>
+			<h2 id="_idParaDest-107"><a id="_idTextAnchor108"/>Reading and writing</h2>
+			<p>Accessing files<a id="_idIndexMarker211"/> when you are not certain where they are stored is a little more complicated than the traditional <strong class="source-inline">os.Open()</strong>; however, the Fyne <strong class="source-inline">storage</strong> package provides functionality <a id="_idIndexMarker212"/>to handle this. The two main functions for data access are <strong class="source-inline">OpenFileFromURI</strong> and <strong class="source-inline">SaveFileToURI</strong>, as shown in this excerpt from the package:</p>
+			<p class="source-code">// OpenFileFromURI loads a file read stream from a resource 	// identifier.</p>
+			<p class="source-code">func OpenFileFromURI(uri fyne.URI) (fyne.URIReadCloser, error) {</p>
+			<p class="source-code">     return fyne.CurrentApp().Driver().FileReaderForURI(uri)</p>
+			<p class="source-code">}</p>
+			<p class="source-code">// SaveFileToURI loads a file write stream to a resource      // identifier.</p>
+			<p class="source-code">func SaveFileToURI(uri fyne.URI) (fyne.URIWriteCloser, error) {</p>
+			<p class="source-code">     return fyne.CurrentApp().Driver().FileWriterForURI(uri)</p>
+			<p class="source-code">}</p>
+			<p>Each of these functions take a URI (as described in the preceding code) for the location and returns <strong class="source-inline">URIReadCloser</strong> or <strong class="source-inline">URIWriteCloser</strong> on success and <strong class="source-inline">error</strong> if the operation failed.</p>
+			<p>As suggested by their names, these return types implement <strong class="source-inline">io.ReadCloser</strong> and <strong class="source-inline">io.WriteCloser</strong> with the addition of a <strong class="source-inline">URI()</strong> function to query the original resource identifier. You may not recognize these <strong class="source-inline">io</strong> interfaces, but you will have used them through <strong class="source-inline">os.File</strong>. This similarity means that you can use <strong class="source-inline">URIReadCloser</strong> in many places where you would have passed a file for a read operation, or <strong class="source-inline">URIWriteCloser</strong> if you were writing data.</p>
+			<p>If you are processing the <a id="_idIndexMarker213"/>read or write operations yourself, it is important to remember to<a id="_idIndexMarker214"/> call <strong class="source-inline">Close()</strong> upon completion (as with any <strong class="source-inline">io.Closer</strong> stream). This is most commonly ensured by calling <strong class="source-inline">defer reader.Close()</strong> after checking for any error. The following code shows a simple example of reading a file from a URI:</p>
+			<p class="source-code">    uri := storage.NewURI("file:///home/user/file.txt")</p>
+			<p class="source-code">    read, err := storage.OpenFileFromURI(uri)</p>
+			<p class="source-code">    if err != nil {</p>
+			<p class="source-code">        log.Println("Unable to open file \""+uri.               	            String()+"\"", err)</p>
+			<p class="source-code">        return</p>
+			<p class="source-code">    }</p>
+			<p class="source-code">    defer read.Close()</p>
+			<p class="source-code">    data, err := ioutil.ReadAll(read)</p>
+			<p class="source-code">    if err != nil {</p>
+			<p class="source-code">        log.Println("Unable to read text", err)</p>
+			<p class="source-code">        return</p>
+			<p class="source-code">    }</p>
+			<p class="source-code">    log.Println("Loaded data:", string(data))</p>
+			<h2 id="_idParaDest-108"><a id="_idTextAnchor109"/>User file selection</h2>
+			<p>The most common way<a id="_idIndexMarker215"/> for an application to open a file, at least initially, would be to prompt the user to choose the file they wish to open. The standard file-open dialog is available to provide this feature. An application can call <strong class="source-inline">dialog.ShowFileOpen</strong>, which will ask the user to select a file (with optional file filters). The chosen file will be returned through a callback function as <strong class="source-inline">URIReadCloser</strong>, as described earlier. If you wish to store a reference to the chosen file, you can use the <strong class="source-inline">URI()</strong> method to return the identifier. The following code shows this in action:</p>
+			<p class="source-code">dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {</p>
+			<p class="source-code">    if err != nil { // there was an error - tell user</p>
+			<p class="source-code">        dialog.ShowError(err, win)</p>
+			<p class="source-code">        return</p>
+			<p class="source-code">    }</p>
+			<p class="source-code">    if reader == nil { // user cancelled</p>
+			<p class="source-code">        return</p>
+			<p class="source-code">    }</p>
+			<p class="source-code">    // we have a URIReadCloser - handle reading the file</p>
+			<p class="source-code">    // (remember to call Close())</p>
+			<p class="source-code">    fileOpened(reader)</p>
+			<p class="source-code">}, win)</p>
+			<p>Similarly, there is <strong class="source-inline">dialog.ShowFileSave</strong> to start a file-write workflow such as the common <em class="italic">Save As</em> feature. For <a id="_idIndexMarker216"/>more information on the dialog package, see the <em class="italic">Dialogs</em> section in <a href="B16820_05_Final_JM_ePub.xhtml#_idTextAnchor119"><em class="italic">Chapter 5</em></a>, <em class="italic">Widget Library and Themes</em>.</p>
+			<h2 id="_idParaDest-109"><a id="_idTextAnchor110"/>ListableURI</h2>
+			<p>In some applications, it may be<a id="_idIndexMarker217"/> necessary to open a resource that contains other resources (just like a directory of files). For these situations, there is another type, <strong class="source-inline">fyne.ListableURI</strong>, which provides a <strong class="source-inline">List()</strong> method that returns a slice of <strong class="source-inline">URI</strong> items. This can be used in combination with <strong class="source-inline">dialog.ShowDirectoryOpen</strong>, which will return the user's selected location as <strong class="source-inline">ListableURI</strong>.</p>
+			<p>Let's take a look at an example:</p>
+			<p class="source-code">dialog.ShowFolderOpen(func(dir fyne.ListableURI, err error) {</p>
+			<p class="source-code">    if err != nil { // there was an error - tell user</p>
+			<p class="source-code">        dialog.ShowError(err, win)</p>
+			<p class="source-code">        return</p>
+			<p class="source-code">    }</p>
+			<p class="source-code">    if dir == nil { // user cancelled</p>
+			<p class="source-code">        return</p>
+			<p class="source-code">    }</p>
+			<p class="source-code">    log.Println("Listing dir", dir.Name())</p>
+			<p class="source-code">    for _, item := range dir.List() {</p>
+			<p class="source-code">        log.Println("Item name", item.Name())</p>
+			<p class="source-code">    }</p>
+			<p class="source-code">}, win)</p>
+			<p>As you can see in this example, once<a id="_idIndexMarker218"/> the user has made their selection, <strong class="source-inline">ListableURI</strong> is passed to our code. We can then iterate through the URI of each item inside the directory or collection using <strong class="source-inline">range List()</strong>. If you already have the name of a directory, then you can use <strong class="source-inline">storage.ListerForURI(storage.NewFileURI(dirPath))</strong>.</p>
+			<p>Let's put layouts and file handling into action. We will now build a simple image browsing application using all that we've seen till now.</p>
+			<h1 id="_idParaDest-110"><a id="_idTextAnchor111"/>Implementing an image browser application</h1>
+			<p>This application will load a <a id="_idIndexMarker219"/>directory that contains some images, provide a summary of the content in a status bar at the bottom of the window, and use most of the space to show each image. The images will be loaded as thumbnails (smaller versions of the images) and we will display the image information under each thumbnail.</p>
+			<h2 id="_idParaDest-111"><a id="_idTextAnchor112"/>Creating the layout</h2>
+			<p>To start this example, we <a id="_idIndexMarker220"/>will create the layout of the application and the image items that will display in the central grid. Let's understand each of these actions in detail:</p>
+			<ol>
+				<li value="1">First, we set up the image items. We wish to have the image name underneath the image. While this could be positioned manually, the items will be more responsive to changes in size if we use <strong class="source-inline">BorderLayout</strong>. We will create a <strong class="source-inline">canvas.Text</strong> element in the <strong class="source-inline">bottom</strong> position and use <strong class="source-inline">canvas.Rectangle</strong> to represent the image that we will load later:<p class="source-code">func makeImageItem() fyne.CanvasObject {</p><p class="source-code">     label := canvas.NewText("label", color.Gray{128})</p><p class="source-code">     label.Alignment = fyne.TextAlignCenter</p><p class="source-code">     img := canvas.NewRectangle(color.Black)</p><p class="source-code">     return container.NewBorder(nil, label, nil, nil,</p><p class="source-code">         img)</p><p class="source-code">}</p></li>
+				<li>For the main application, we need to create the grid to contain image thumbnails as well as the status panel, which will be positioned later on. For the image grid, we will use <strong class="source-inline">GridWrapLayout</strong>. This version of a grid layout sizes all elements to a specified size and as the available space increases, the number of visible items will also increase. In this case, the user could increase the window size to see more images.</li>
+				<li>As we have not yet loaded the directory, we will fake the number of items (hardcoded to three by iterating over <strong class="source-inline">{1, 2, 3}</strong>). We create a list of items, calling <strong class="source-inline">makeImageItem</strong> for each one. This list is then passed to <strong class="source-inline">NewGridWrap</strong> after the <strong class="source-inline">size</strong> parameter (which is the size used for each item—a behavior specific to the grid wrap layout):<p class="source-code">func makeImageGrid() fyne.CanvasObject {</p><p class="source-code">     items := []fyne.CanvasObject{}</p><p class="source-code">     for range []int{1, 2, 3} {</p><p class="source-code">         img := makeImageItem()</p><p class="source-code">         items = append(items, img)</p><p class="source-code">     }</p><p class="source-code">     cellSize := fyne.NewSize(160, 120)</p><p class="source-code">     return container.NewGridWrap(cellSize, items...)</p><p class="source-code">}</p></li>
+				<li>To start, we will <a id="_idIndexMarker221"/>just create a text placeholder for the status for the purpose of laying out the app:<p class="source-code">func makeStatus() fyne.CanvasObject {</p><p class="source-code">     return canvas.NewText("status", color.Gray{128})</p><p class="source-code">}</p></li>
+				<li>And finally, we <a id="_idIndexMarker222"/>will create a new container once again using <strong class="source-inline">BorderLayout</strong> to arrange the status bar beneath the rest of the content. By placing the image grid in the central space of <strong class="source-inline">BorderLayout</strong>, it will fill any available space as desired:<p class="source-code">func makeUI() fyne.CanvasObject {</p><p class="source-code">     	status := makeStatus()</p><p class="source-code">     content := makeImageGrid()</p><p class="source-code">     return container.NewBorder(nil, status, nil, nil,</p><p class="source-code">         content)</p><p class="source-code">}</p></li>
+				<li>To complete the application, we just need a short <strong class="source-inline">main()</strong> function that loads the Fyne application and creates a window, and we will resize it to larger than the minimum size so that the image grid layout will expand to multiple columns:<p class="source-code">func main() {</p><p class="source-code">     a := app.New()</p><p class="source-code">     w := a.NewWindow("Image Browser")</p><p class="source-code">     w.SetContent(makeUI())</p><p class="source-code">     w.Resize(fyne.NewSize(480, 360))</p><p class="source-code">     w.ShowAndRun()</p><p class="source-code">}</p></li>
+				<li>All we have to do now is run the combined code: <p class="source-code"><strong class="bold">Chapter04/example$ go run main.go</strong></p></li>
+				<li>Running this will <a id="_idIndexMarker223"/>show the following window, ready for some real data and images to be loaded:</li>
+			</ol>
+			<div>
+				<div id="_idContainer045" class="IMG---Figure">
+					<img src="image/Figure_4.14_B16820.jpg" alt="Figure 4.14 – The basic layout of our photos app&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.14 – The basic layout of our photos app</p>
+			<h2 id="_idParaDest-112"><a id="_idTextAnchor113"/>Listing a directory</h2>
+			<p>Before we can load images, we need to <a id="_idIndexMarker224"/>establish which directory we are loading when the application starts. Let's take a look at the steps to do just that:</p>
+			<ol>
+				<li value="1">From the <strong class="source-inline">main()</strong> function, we will call a new <strong class="source-inline">startDirectory</strong> (that parses the app flags or falls back to the current working directory) and pass this into the <strong class="source-inline">makeUI()</strong> function. The directory path is converted to <strong class="source-inline">ListableURI</strong> by calling <strong class="source-inline">ListerForURI</strong> and <strong class="source-inline">NewFileURI:</strong><p class="source-code">func startDirectory() fyne.ListableURI {</p><p class="source-code">     flag.Parse()</p><p class="source-code">     if len(flag.Args()) &lt; 1 {</p><p class="source-code">         cwd, _ := os.Getwd()</p><p class="source-code">         list, _ := storage.ListerForURI(</p><p class="source-code">             storage.NewFileURI(cwd))</p><p class="source-code">         return list</p><p class="source-code">     }</p><p class="source-code">    	dir, err := filepath.Abs(flag.Arg(0))</p><p class="source-code">     if errr != nil {</p><p class="source-code">         log.Println("Could not find directory", dir</p><p class="source-code">         cwd, _ := os.Getwd</p><p class="source-code">         list, _ := storage.ListerForURI(</p><p class="source-code">             storage.NewFileURI(cwd))</p><p class="source-code">         return list</p><p class="source-code">     }</p><p class="source-code">     list, _ := storage.ListerForURI(storage.NewURI(dir))￼   </p><p class="source-code">     return list</p><p class="source-code">}</p></li>
+				<li>Once <strong class="source-inline">ListableURI</strong> is passed into <strong class="source-inline">makeUI</strong>, we can use this <strong class="source-inline">dir.List()</strong> and filter it for image <a id="_idIndexMarker225"/>files before ranging over the URIs. A new function, <strong class="source-inline">filterImages</strong>, will take the directory list and return a slice of image URIs. To do this, a small <strong class="source-inline">isImage()</strong> function will help to filter:<p class="source-code">func isImage(file fyne.URI) bool {</p><p class="source-code">     ext := strings.ToLower(file.Extension())</p><p class="source-code">     return ext == ".png" || ext == ".jpg" ||</p><p class="source-code">         ext == ".jpeg" || ext == ".gif"</p><p class="source-code">}</p><p class="source-code">func filterImages(files []fyne.URI) []fyne.URI {</p><p class="source-code">     images := []fyne.URI{}</p><p class="source-code">     for _, file := range files {</p><p class="source-code">         if isImage(file) {</p><p class="source-code">             images = append(images, file)</p><p class="source-code">         }</p><p class="source-code">     }</p><p class="source-code">     return images</p><p class="source-code">}</p></li>
+				<li>With a slice<a id="_idIndexMarker226"/> of <strong class="source-inline">fyne.URI</strong> representing the images, we can update the status and image grid creation functions as well as updating the image label to use <strong class="source-inline">URI.Name()</strong> under each image placeholder:<p class="source-code">func makeImageGrid(images []fyne.URI) fyne.CanvasObject {</p><p class="source-code">     items := []fyne.CanvasObject{}</p><p class="source-code">     for range images {</p><p class="source-code">         img := makeImageItem()</p><p class="source-code">         items = append(items, img)</p><p class="source-code">     }</p><p class="source-code">     cellSize := fyne.NewSize(160, 120)</p><p class="source-code">     return container.NewGridWrap(cellSize, items...)</p><p class="source-code">}</p><p class="source-code">func makeStatus(dir fyne.ListableURI, images []fyne.URI) fyne.CanvasObject {</p><p class="source-code">     status := fmt.Sprintf("Directory %s, %d items",</p><p class="source-code">         dir.Name(), len(images))</p><p class="source-code">     return canvas.NewText(status, color.Gray{128})</p><p class="source-code">}</p><p class="source-code">func makeUI(dir fyne.ListableURI) fyne.CanvasObject {</p><p class="source-code">     list, err := dir.List()</p><p class="source-code">     if err != nil { </p><p class="source-code">         log.Println("Error listing directory", err)</p><p class="source-code">     }</p><p class="source-code">     images := filterImages(list)</p><p class="source-code">     status := makeStatus(dir, images)</p><p class="source-code">     content := makeImageGrid(images)</p><p class="source-code">     return container.NewBorder(</p><p class="source-code">         (nil, status, nil, nil, content)</p><p class="source-code">}</p></li>
+			</ol>
+			<h2 id="_idParaDest-113"><a id="_idTextAnchor114"/>Loading the images</h2>
+			<p>Let's now look at the steps to load <a id="_idIndexMarker227"/>images into our application:</p>
+			<ol>
+				<li value="1">To start with, we create a simple image load method that accepts a URI and returns <strong class="source-inline">*canvas.Image</strong>. The new <strong class="source-inline">loadImage</strong> function will then be used instead of the placeholder rectangle:<p class="source-code">func loadImage(u fyne.URI) fyne.CanvasObject {</p><p class="source-code">     read, err := storage.OpenFileFromURI(u)</p><p class="source-code">     if err != nil {</p><p class="source-code">          log.Println("Error opening image", err)</p><p class="source-code">          return canvas.NewRectangle(color.Black)</p><p class="source-code">     }</p><p class="source-code">     res, err :=</p><p class="source-code">        storage.LoadResourceFromURI(read.URI())</p><p class="source-code">     if err != nil {</p><p class="source-code">        log.Println("Error reading image", err)</p><p class="source-code">        return canvas.NewRectangle(color.Black)</p><p class="source-code">     }</p><p class="source-code">     img := canvas.NewImageFromResource(res)</p><p class="source-code">     img.FillMode = canvas.ImageFillContain</p><p class="source-code">     return img</p><p class="source-code">}</p></li>
+				<li>The <strong class="source-inline">makeImage</strong> function should be updated to pass the <strong class="source-inline">URI</strong> item as follows:<p class="source-code">func makeImageItem(u fyne.URI) fyne.CanvasObject {</p></li>
+				<li>Then the line that creates the image inside the <strong class="source-inline">makeImageItem</strong> function as a rectangle can be replaced with the image created:<p class="source-code">img := loadImage(u)</p></li>
+				<li>In the <strong class="source-inline">loadImage</strong> function, before returning <strong class="source-inline">canvas.Image</strong>, we changed <strong class="source-inline">FillMode</strong> from the default (<strong class="source-inline">canvas.ImageFillStretch</strong>) to <strong class="source-inline">canvas.ImageFillContain</strong> so that the image aspect ratio will be respected and <a id="_idIndexMarker228"/>the images will fit within the available space:</li>
+			</ol>
+			<div>
+				<div id="_idContainer046" class="IMG---Figure">
+					<img src="image/Figure_4.15_B16820.jpg" alt="Figure 4.15 – Images and names loaded into the layout&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.15 – Images and names loaded into the layout</p>
+			<p>This code works as expected, as we can see in the figure, but it can be slow. We are loading the images before continuing with the user interface load. This does not make for a good user experience, so let's improve this situation by using background image loading.</p>
+			<h2 id="_idParaDest-114"><a id="_idTextAnchor115"/>Loading the app faster</h2>
+			<p>To avoid image<a id="_idIndexMarker229"/> sizes slowing down the loading of our user interface, we need to complete the construction of the application UI before the images load. This is called asynchronous (or background) loading and can be powerful if your app needs to use large amounts of resources.</p>
+			<p>The easiest way to load all the images in the background would be to start many goroutines. But, when displaying a large directory, that could become very slow indeed. Instead, we will use a single image load goroutine that will process one image at a time. (As an exercise, if you are feeling adventurous, you could expand this to process eight or more images at a time.)</p>
+			<p>Let's now take a look at how to do this:</p>
+			<ol>
+				<li value="1">To track the image loads, we will create a new type called <strong class="source-inline">bgImageLoad</strong> that will reference the URI of the image to load and the <strong class="source-inline">*canvas.Image</strong> item that it should be loaded into. We additionally need to create a channel (we'll name it <strong class="source-inline">loads</strong>) that will enqueue the items to load. We buffer this at <strong class="source-inline">1024</strong> items, which represents a large directory—an implementation to handle unbounded numbers of files might need us to be a little smarter:<p class="source-code">type bgImageLoad struct {</p><p class="source-code">    uri fyne.URI</p><p class="source-code">    img *canvas.Image</p><p class="source-code">}</p><p class="source-code">var loads = make(chan bgImageLoad, 1024)</p></li>
+				<li>When loading images<a id="_idIndexMarker230"/> in this updated version, we will create an empty Fyne <strong class="source-inline">*canvas.Image</strong> that will later have the image loaded. We then queue the details of this image <strong class="source-inline">URI</strong>, for loading once the goroutine is able to process it:<p class="source-code">func loadImage(u fyne.URI) fyne.CanvasObject {</p><p class="source-code">     img := canvas.NewImageFromResource(nil)</p><p class="source-code">     img.FillMode = canvas.ImageFillContain</p><p class="source-code">     loads &lt;- bgImageLoad{u, img}</p><p class="source-code">     return img</p><p class="source-code">}</p></li>
+				<li>We move the image load code to a new <strong class="source-inline">doLoadImage</strong> function that will run in the background. In this version, we want to do all of the slow parts of image loading; so, we load and decode the image, convert it to a Go in-memory image to display, and leave the user interface much more responsive to updates, resizing, and so on.<p>The new<a id="_idIndexMarker231"/> function, <strong class="source-inline">doLoadImages</strong>, will range over all the items being added to the channel and call <strong class="source-inline">doLoadImage</strong> to load them one at a time. The image load code will refresh the image <strong class="source-inline">CanvasObject</strong> after loading the raw data, so each item appears as it is loaded:</p><p class="source-code">func doLoadImage(u fyne.URI, img *canvas.Image) {</p><p class="source-code">     read, err := storage.OpenFileFromURI(u)</p><p class="source-code">     if err != nil {</p><p class="source-code">         log.Println("Error opening image", err)</p><p class="source-code">         return</p><p class="source-code">     }</p><p class="source-code">     defer read.Close()</p><p class="source-code">     raw, _, err := image.Decode(read)</p><p class="source-code">     if err != nil {</p><p class="source-code">         log.Println("Error decoding image", err)</p><p class="source-code">         return</p><p class="source-code">     }</p><p class="source-code">     img.Image = scaleImage(raw)</p><p class="source-code">     img.Refresh()</p><p class="source-code">}</p><p class="source-code">func doLoadImages() {</p><p class="source-code">     for load := range loads {</p><p class="source-code">         doLoadImage(load.uri, load.img)</p><p class="source-code">     }</p><p class="source-code">}</p></li>
+				<li>To make sure that the images are loaded, we launch <strong class="source-inline">doLoadImages</strong> as a goroutine within the <strong class="source-inline">main()</strong> function:<p class="source-code">func main() {</p><p class="source-code">...</p><p class="source-code">     go doLoadImages()</p><p class="source-code">     w.ShowAndRun()</p><p class="source-code">}</p></li>
+				<li>Finally, in the preceding code, we referenced <strong class="source-inline">scaleImage</strong>. This means that each image we display is a smaller version of the full-sized image. This is necessary when the directory we browse contains very large images. The toolkit will attempt to paint very large images quite small, which can be very slow. Instead, we<a id="_idIndexMarker232"/> reduce the size of our images to fit inside the space available in each grid cell. We used larger numbers (twice the cell size) so that high-density displays still give a good-looking result.</li>
+				<li>The following code snippet makes use of the helpful <strong class="source-inline">github.com/nfnt/resize</strong> package to scale images. Although the <strong class="source-inline">image</strong> package in Go is often helpful, it does not contain efficient scaling routines. We use this library and request <strong class="source-inline">Lanczos3</strong> interpolation, which provides a balance between speed and quality when downscaling images:<p class="source-code">func scaleImage(img image.Image) image.Image {</p><p class="source-code">     return resize.Thumbnail(320, 240, img,</p><p class="source-code">        resize.Lanczos3)</p><p class="source-code">}</p><p>The <strong class="source-inline">resize.Thumbnail</strong> function creates a smaller image that fits within the stated size, which is ideal for our purpose so we can avoid worrying about aspect ratios and calculations.</p></li>
+			</ol>
+			<p>Using the updated code will create a quick-to-load and responsive user interface for even large directories containing very large images. There we have it: resizing, which could have been slow when using full-sized images, is now much faster!</p>
+			<h2 id="_idParaDest-115"><a id="_idTextAnchor116"/>Creating a custom layout for the image elements</h2>
+			<p>The space taken up by <a id="_idIndexMarker233"/>labels in this example could be a bit wasted, so let's make a custom layout that writes the text over the bottom edge of each image. We will use a semi-transparent background to make the text more readable and a small gradient to blend from the text background to the image.</p>
+			<p>To build a custom layout, we need to define a type (<strong class="source-inline">itemLayout</strong> in this case) that implements the <strong class="source-inline">MinSize</strong> and <strong class="source-inline">Layout</strong> functions from the <strong class="source-inline">fyne.Layout</strong> interface. As the background, gradient, and<a id="_idIndexMarker234"/> text all have special positions, we will save a reference to these canvas objects so that they can be arranged later:</p>
+			<p class="source-code">type itemLayout struct {</p>
+			<p class="source-code">     bg, text, gradient fyne.CanvasObject</p>
+			<p class="source-code">}</p>
+			<p class="source-code">func (i *itemLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {</p>
+			<p class="source-code">     return fyne.NewSize(160, 120)</p>
+			<p class="source-code">}</p>
+			<p class="source-code">func (i *itemLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {</p>
+			<p class="source-code">     textHeight := float32(22)</p>
+			<p class="source-code">     for _, o := range objs {</p>
+			<p class="source-code">         if o == i.text {</p>
+			<p class="source-code">             o.Move(fyne.NewPos(0, size.Height-textHeight))</p>
+			<p class="source-code">             o.Resize(fyne.NewSize(size.Width, textHeight))</p>
+			<p class="source-code">         } else if o == i.bg {</p>
+			<p class="source-code">             o.Move(fyne.NewPos(0, size.Height-textHeight))</p>
+			<p class="source-code">             o.Resize(fyne.NewSize(size.Width, textHeight))</p>
+			<p class="source-code">         } else if o == i.gradient {</p>
+			<p class="source-code">             o.Move(fyne.NewPos(0, size.Height-                	                 (textHeight*1.5)))</p>
+			<p class="source-code">             o.Resize(fyne.NewSize(size.Width, textHeight/2))</p>
+			<p class="source-code">         } else {</p>
+			<p class="source-code">             o.Move(fyne.NewPos(0, 0))</p>
+			<p class="source-code">             o.Resize(size)</p>
+			<p class="source-code">         }</p>
+			<p class="source-code">     }</p>
+			<p class="source-code">}</p>
+			<p>This code will ensure that each of the elements of our container is positioned in the correct place. <strong class="source-inline">text</strong> and <strong class="source-inline">bg</strong> are bottom aligned with <strong class="source-inline">gradient</strong> positioned above the text background. Any other element (in this case, our image thumbnail) will be positioned at the fill size that the layout is asked to fill.</p>
+			<p>To use this layout, we update the <strong class="source-inline">makeImageItem</strong> function to use <strong class="source-inline">&amp;itemLayout</strong> as the container layout. Into this constructor, we pass a new <strong class="source-inline">canvas.Rectangle</strong> and <strong class="source-inline">canvas.Gradient</strong> to be used for the effect described previously. It is important to pass the image before the text background and pass the text element last to <strong class="source-inline">NewContainerWithLayout</strong>, as this<a id="_idIndexMarker235"/> sets up the order that these elements will be drawn:</p>
+			<p class="source-code">func makeImageItem(u fyne.URI) fyne.CanvasObject {</p>
+			<p class="source-code">     label := canvas.NewText(u.Name(), color.Gray{128})</p>
+			<p class="source-code">     label.Alignment = fyne.TextAlignCenter</p>
+			<p class="source-code">     bgColor := &amp;color.NRGBA{R: 255, G: 255, B: 255, A: 224}</p>
+			<p class="source-code">     bg := canvas.NewRectangle(bgColor)</p>
+			<p class="source-code">     fade := canvas.NewLinearGradient(color.Transparent,         	         bgColor, 0)</p>
+			<p class="source-code">     return container.New(</p>
+			<p class="source-code">         &amp;itemLayout{text: label, bg: bg, gradient: fade},</p>
+			<p class="source-code">         loadImage(u), bg, fade, label)</p>
+			<p class="source-code">}</p>
+			<p>With these changes, we can run the code once more and see how our new layout makes each image preview larger in the same amount of space, while giving the application a little flair:</p>
+			<div>
+				<div id="_idContainer047" class="IMG---Figure">
+					<img src="image/Figure_4.16_B16820.jpg" alt="Figure 4.16 – Custom layout for images and their labels&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.16 – Custom layout for images and their labels</p>
+			<p>Last of all, you may<a id="_idIndexMarker236"/> have noticed that directories with many images will force the window to expand, and so you may want to add scrolling to the grid container. To do so, we will use one of the helpers from the container package mentioned earlier, adding <strong class="source-inline">container.Scroll</strong> around the image grid container. It just requires replacing the <strong class="source-inline">content</strong> creation line of the <strong class="source-inline">makeUI</strong> function with this:</p>
+			<p class="source-code">content := container.NewScroll(makeImageGrid(images))</p>
+			<h2 id="_idParaDest-116"><a id="_idTextAnchor117"/>Changing a directory</h2>
+			<p>In addition to loading <a id="_idIndexMarker237"/>a specified directory, we may wish to allow users to open a different directory once the application is open. To add this functionality, we will use the <strong class="source-inline">SetMainMenu</strong> function on <strong class="source-inline">Window</strong>, which sets up a structure to populate a menu bar.</p>
+			<p>Using the <strong class="source-inline">NewMainMenu</strong>, <strong class="source-inline">NewMenu</strong>, and <strong class="source-inline">NewMenuItem</strong> helper functions in the <strong class="source-inline">fyne</strong> package, we set up a structure that defines the <strong class="bold">File</strong> | <strong class="bold">Open Directory…</strong> menu and will call <strong class="source-inline">chooseDirectory</strong> when clicked (we also pass in the current window so we can show a dialog from that function). The following code gets added to the <strong class="source-inline">main()</strong> function just before <strong class="source-inline">Window.ShowAndRun()</strong>:</p>
+			<p class="source-code">w.SetMainMenu(fyne.NewMainMenu(fyne.NewMenu("File",</p>
+			<p class="source-code">    fyne.NewMenuItem("Open Directory...", func() {</p>
+			<p class="source-code">        chooseDirectory(w)</p>
+			<p class="source-code">    }))))</p>
+			<p>To support this menu <a id="_idIndexMarker238"/>operation, we need to create the <strong class="source-inline">chooseDirectory</strong> function. This will call <strong class="source-inline">dialog.ShowDirectoryOpen</strong>, which asks the user to select a directory on their computer. This functions much like the <strong class="source-inline">ShowFileOpen</strong> call we explored before, with the exception that the parameter returned in the callback is <strong class="source-inline">ListableURI</strong> instead of <strong class="source-inline">URIReadCloser</strong>. Using this parameter (after checking for any error), we can call <strong class="source-inline">makeUI</strong> with this new location and update our whole application's user interface:</p>
+			<p class="source-code">func chooseDirectory(w fyne.Window) {</p>
+			<p class="source-code">     dialog.ShowFolderOpen(func(dir fyne.ListableURI, err      	     error) {</p>
+			<p class="source-code">         if err != nil {</p>
+			<p class="source-code">             dialog.ShowError(err, w)</p>
+			<p class="source-code">             return</p>
+			<p class="source-code">         }</p>
+			<p class="source-code">         w.SetContent(makeUI(dir)) // this re-loads our         	                                   // application</p>
+			<p class="source-code">     }, w)</p>
+			<p class="source-code">}</p>
+			<p>If we were building a more complex application, then simply calling <strong class="source-inline">Window.SetContent</strong> would not be the most efficient approach. In that situation, we would save a reference to the main <strong class="source-inline">fyne.Container</strong> and update just the image grid instead of the entire application. However, the final version of our application should look like the following screenshot:</p>
+			<p class="figure-caption"> </p>
+			<div>
+				<div id="_idContainer048" class="IMG---Figure">
+					<img src="image/Figure_4.17_B16820.jpg" alt="Figure 4.17 – Adding a main menu&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 4.17 – Adding a main menu</p>
+			<p>Note that when<a id="_idIndexMarker239"/> running on macOS, the default behavior is to show menus in the desktop menu bar—this can be overridden using the <strong class="source-inline">no_native_menus</strong> build tag, as follows:</p>
+			<p class="source-code">$ go run -tags no_native_menus main.go Images/Desktop</p>
+			<h1 id="_idParaDest-117"><a id="_idTextAnchor118"/>Summary</h1>
+			<p>This chapter stepped through the details of how layouts work, the details of all the built-in layouts in the toolkit, and when to use them. We also saw how simple it is to combine multiple layouts and created our own custom layout to add a bit of flair to our image browsing application.</p>
+			<p>We also explored how to adapt file handling code to work across all platforms using the <strong class="source-inline">URI</strong> and <strong class="source-inline">ListableURI</strong> types. Using this knowledge, our image browsing application is now compatible with all desktop and mobile platforms. With this knowledge of how to lay out applications and avoid assumptions about a traditional filesystem, you can now ensure that your apps will function correctly on any supported platforms, mobile, desktop, and beyond.</p>
+			<p>While we have created a complete application using just canvas primitives and layouts, it is possible to build much more complex applications using the <strong class="source-inline">widget</strong> package, which we will look at in the next chapter.</p>
+		</div>
+	</body></html>

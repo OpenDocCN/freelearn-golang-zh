@@ -1,0 +1,902 @@
+<html><head></head><body>
+<div id="_idContainer023">
+<h1 class="chapter-number" id="_idParaDest-133"><a id="_idTextAnchor423"/><span class="koboSpan" id="kobo.1.1">7</span></h1>
+<h1 id="_idParaDest-134"><a id="_idTextAnchor424"/><span class="koboSpan" id="kobo.2.1">Out-of-the-Box Features</span></h1>
+<p><span class="koboSpan" id="kobo.3.1">Since writing production-ready APIs is more complicated than sending requests and receiving responses, gRPC has a lot more to offer than the simple communication patterns we saw. </span><span class="koboSpan" id="kobo.3.2">In this chapter, we are going to see the most important features that we can use in order to make our APIs robust, efficient, </span><span class="No-Break"><span class="koboSpan" id="kobo.4.1">and secure.</span></span></p>
+<p><span class="koboSpan" id="kobo.5.1">In this chapter, we are going to cover the </span><span class="No-Break"><span class="koboSpan" id="kobo.6.1">following topics:</span></span></p>
+<ul>
+<li><span class="koboSpan" id="kobo.7.1">Dealing with errors, cancellation, </span><span class="No-Break"><span class="koboSpan" id="kobo.8.1">and deadlines</span></span></li>
+<li><span class="koboSpan" id="kobo.9.1">Sending </span><span class="No-Break"><span class="koboSpan" id="kobo.10.1">HTTP headers</span></span></li>
+<li><span class="koboSpan" id="kobo.11.1">Encrypting data over </span><span class="No-Break"><span class="koboSpan" id="kobo.12.1">the wire</span></span></li>
+<li><span class="koboSpan" id="kobo.13.1">Providing extra logic </span><span class="No-Break"><span class="koboSpan" id="kobo.14.1">with interceptors</span></span></li>
+<li><span class="koboSpan" id="kobo.15.1">Balancing requests to </span><span class="No-Break"><span class="koboSpan" id="kobo.16.1">different servers</span></span></li>
+</ul>
+<p><span class="koboSpan" id="kobo.17.1">By the end of the chapter, we will have learned about the most important features that come right out of the box when we </span><span class="No-Break"><span class="koboSpan" id="kobo.18.1">use gRPC.</span></span></p>
+<h1 id="_idParaDest-135"><a id="_idTextAnchor425"/><span class="koboSpan" id="kobo.19.1">Technical requirements</span></h1>
+<p><span class="koboSpan" id="kobo.20.1">For this chapter, you will find the relevant code in the folder called </span><strong class="source-inline"><span class="koboSpan" id="kobo.21.1">chapter7</span></strong><span class="koboSpan" id="kobo.22.1"> in the accompanying GitHub </span><span class="No-Break"><span class="koboSpan" id="kobo.23.1">repository (</span></span><a href="https://github.com/PacktPublishing/gRPC-Go-for-Professionals/tree/main/chapter7"><span class="No-Break"><span class="koboSpan" id="kobo.24.1">https://github.com/PacktPublishing/gRPC-Go-for-Professionals/tree/main/chapter7</span></span></a><span class="No-Break"><span class="koboSpan" id="kobo.25.1">).</span></span></p>
+<p><span class="koboSpan" id="kobo.26.1">In the last section, I will use Kubernetes to show client-side load balancing. </span><span class="koboSpan" id="kobo.26.2">I assume that you already have Docker installed and a Kubernetes cluster. </span><span class="koboSpan" id="kobo.26.3">This can be done any way you want, but I provide a Kind (</span><a href="https://kind.sigs.k8s.io/"><span class="koboSpan" id="kobo.27.1">https://kind.sigs.k8s.io/</span></a><span class="koboSpan" id="kobo.28.1">) configuration to spin up a cluster easily and locally. </span><span class="koboSpan" id="kobo.28.2">This configuration is situated under the </span><strong class="source-inline"><span class="koboSpan" id="kobo.29.1">k8s</span></strong><span class="koboSpan" id="kobo.30.1"> folder of </span><strong class="source-inline"><span class="koboSpan" id="kobo.31.1">chapter7</span></strong><span class="koboSpan" id="kobo.32.1"> and in the file called </span><strong class="source-inline"><span class="koboSpan" id="kobo.33.1">kind.yaml</span></strong><span class="koboSpan" id="kobo.34.1">. </span><span class="koboSpan" id="kobo.34.2">Once Kind is installed, you can use it </span><span class="No-Break"><span class="koboSpan" id="kobo.35.1">like so:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.36.1">
+$ kind create cluster --config k8s/kind.yaml</span></pre>
+<p><span class="koboSpan" id="kobo.37.1">And you can dispose of it by running the </span><span class="No-Break"><span class="koboSpan" id="kobo.38.1">following command:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.39.1">
+$ kind delete cluster</span></pre>
+<h1 id="_idParaDest-136"><a id="_idTextAnchor426"/><span class="koboSpan" id="kobo.40.1">Handling errors</span></h1>
+<p><span class="koboSpan" id="kobo.41.1">Up until now, we have not discussed potential errors</span><a id="_idIndexMarker311"/><span class="koboSpan" id="kobo.42.1"> that could appear within or outside of the business logic. </span><span class="koboSpan" id="kobo.42.2">This is obviously not great for a production-ready API, so we are going to see how to solve them. </span><span class="koboSpan" id="kobo.42.3">In this section, we are going to concentrate our efforts on the RPC endpoint </span><span class="No-Break"><span class="koboSpan" id="kobo.43.1">called </span></span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.44.1">AddTask</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.45.1">.</span></span></p>
+<p><span class="koboSpan" id="kobo.46.1">Before starting to code, we need to understand how errors work in gRPC, but this should not be hard because they are pretty</span><a id="_idTextAnchor427"/><span class="koboSpan" id="kobo.47.1"> similar to what we are used to in </span><span class="No-Break"><span class="koboSpan" id="kobo.48.1">REST APIs.</span></span></p>
+<p><span class="koboSpan" id="kobo.49.1">Errors are returned with the help of a wrapper struct called </span><strong class="source-inline"><span class="koboSpan" id="kobo.50.1">Status</span></strong><span class="koboSpan" id="kobo.51.1">. </span><span class="koboSpan" id="kobo.51.2">This struct can be built in multiple ways but the ones we are interested in this section are </span><span class="No-Break"><span class="koboSpan" id="kobo.52.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.53.1">
+func</span><a id="_idTextAnchor428"/><span class="koboSpan" id="kobo.54.1"> Error(c codes.Code, msg string) error
+func Errorf(c codes.Code, format string, a ..</span><a id="_idTextAnchor429"/><span class="koboSpan" id="kobo.55.1">.interface{}) error</span></pre>
+<p><span class="koboSpan" id="kobo.56.1">They both take a message for the error and an error code. </span><span class="koboSpan" id="kobo.56.2">Let us focus on the codes since the messages are just strings describing the error. </span><span class="koboSpan" id="kobo.56.3">The status codes are predefined codes that are consistent across the different implementations of gRPC. </span><span class="koboSpan" id="kobo.56.4">It is</span><a id="_idTextAnchor430"/><span class="koboSpan" id="kobo.57.1"> similar to the HTTP codes such as </span><strong class="source-inline"><span class="koboSpan" id="kobo.58.1">404</span></strong><span class="koboSpan" id="kobo.59.1"> and </span><strong class="source-inline"><span class="koboSpan" id="kobo.60.1">500</span></strong><span class="koboSpan" id="kobo.61.1">, but the main difference is that they have more descriptive names and that they are much fewer codes than in HTTP (16 </span><span class="No-Break"><span class="koboSpan" id="kobo.62.1">in total).</span></span></p>
+<p><span class="koboSpan" id="kobo.63.1">To see all these codes, you can head to the gRPC Go documentation (</span><a href="https://pkg.go.dev/google.golang.org/grpc/codes#Code"><span class="koboSpan" id="kobo.64.1">https://pkg.go.dev/google.golang.org/grpc/codes#Code</span></a><span class="koboSpan" id="kobo.65.1">). </span><span class="koboSpan" id="kobo.65.2">It contains good explanations for each of the errors and it is less ambiguous than HTTP codes, so do not be afraid. </span><span class="koboSpan" id="kobo.65.3">For this section though, we are interested in two </span><span class="No-Break"><span class="koboSpan" id="kobo.66.1">common errors:</span></span></p>
+<ul>
+<li><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.67.1">InvalidArgument</span></strong></span></li>
+<li><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.68.1">Internal</span></strong></span></li>
+</ul>
+<p><span class="koboSpan" id="kobo.69.1">The first one indicates that the client has specified an argument that is not correct for the proper functioning of the endpoint. </span><span class="koboSpan" id="kobo.69.2">The second indicates that an expected property of the system </span><span class="No-Break"><span class="koboSpan" id="kobo.70.1">is broken.</span></span></p>
+<p><strong class="source-inline"><span class="koboSpan" id="kobo.71.1">InvalidArgument</span></strong><span class="koboSpan" id="kobo.72.1"> is perfect for validating inputs. </span><span class="koboSpan" id="kobo.72.2">We are going to use that in </span><strong class="source-inline"><span class="koboSpan" id="kobo.73.1">AddTask</span></strong><span class="koboSpan" id="kobo.74.1"> to make sure that the description of a </span><strong class="source-inline"><span class="koboSpan" id="kobo.75.1">Task</span></strong><span class="koboSpan" id="kobo.76.1"> is not empty (a task without a description is useless) and that a due date</span><a id="_idIndexMarker312"/><span class="koboSpan" id="kobo.77.1"> is specified and not in the past. </span><span class="koboSpan" id="kobo.77.2">Note that we make the due date required, but if you wanted to make it optional, we could just check if the </span><strong class="source-inline"><span class="koboSpan" id="kobo.78.1">DueDate</span></strong><span class="koboSpan" id="kobo.79.1"> property in the reques</span><a id="_idTextAnchor431"/><span class="koboSpan" id="kobo.80.1">t was </span><strong class="source-inline"><span class="koboSpan" id="kobo.81.1">nil</span></strong><span class="koboSpan" id="kobo.82.1"> and </span><span class="No-Break"><span class="koboSpan" id="kobo.83.1">act accordingly:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.84.1">
+import (
+  //...
+</span><span class="koboSpan" id="kobo.84.2">  "google.golang.org/grpc/codes"
+  "google.golang.org/grpc/status"
+}
+func (s *server) AddTask(_ context.Context, in *pb.AddTaskRequest)
+(*pb.AddTaskResponse, error) {
+  if len(in.Description) == 0 {
+    return nil, status.Error(
+      codes.InvalidArgument,
+      "expected a task description, got an empty string",
+    )
+  }
+  if in.DueDate.AsTim</span><a id="_idTextAnchor432"/><span class="koboSpan" id="kobo.85.1">e().Before(time.No</span><a id="_idTextAnchor433"/><span class="koboSpan" id="kobo.86.1">w().UTC()) {
+    return nil, status.Error(
+      codes.InvalidArgument,
+      "expected a task due_date that is in the future",
+    )
+  }
+  //...
+</span><span class="koboSpan" id="kobo.86.2">}</span></pre>
+<p><span class="koboSpan" id="kobo.87.1">These checks will make sure that we have only useful tasks in our database, and that our due dates are in </span><span class="No-Break"><span class="koboSpan" id="kobo.88.1">the future.</span></span></p>
+<p><span class="koboSpan" id="kobo.89.1">Finally, we have another error</span><a id="_idIndexMarker313"/><span class="koboSpan" id="kobo.90.1"> that could come from the </span><strong class="source-inline"><span class="koboSpan" id="kobo.91.1">addTask</span></strong><span class="koboSpan" id="kobo.92.1"> function, which would be an error relayed from the database. </span><span class="koboSpan" id="kobo.92.2">We could do extensive checks to create more precise error codes depending on each database error, but in our case, for simplicity, we are simply going to say that any database error is an </span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.93.1">Internal</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.94.1"> error.</span></span></p>
+<p><span class="koboSpan" id="kobo.95.1">We are going to get the potential error from the </span><strong class="source-inline"><span class="koboSpan" id="kobo.96.1">addTask</span></strong><span class="koboSpan" id="kobo.97.1"> function and do somethi</span><a id="_idTextAnchor434"/><span class="koboSpan" id="kobo.98.1">ng similar to what we did for our </span><strong class="source-inline"><span class="koboSpan" id="kobo.99.1">InvalidArgument</span></strong><span class="koboSpan" id="kobo.100.1">, but this time, it will be an </span><strong class="source-inline"><span class="koboSpan" id="kobo.101.1">Internal</span></strong><span class="koboSpan" id="kobo.102.1"> code, and we are going to use the </span><strong class="source-inline"><span class="koboSpan" id="kobo.103.1">Errorf</span></strong><span class="koboSpan" id="kobo.104.1"> function to relay the details of </span><span class="No-Break"><span class="koboSpan" id="kobo.105.1">the error:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.106.1">
+func (s *server) AddTask(_ context.Context, in *pb.AddTaskRequest) (*pb.AddTaskResponse, error) {
+  //...
+</span><span class="koboSpan" id="kobo.106.2">  i</span><a id="_idTextAnchor435"/><span class="koboSpan" id="kobo.107.1">d, err := s.d.addTask(in.Description,
+  in.DueDate.AsTime())
+  </span><a id="_idTextAnchor436"/><span class="koboSpan" id="kobo.108.1">if err </span><a id="_idTextAnchor437"/><span class="koboSpan" id="kobo.109.1">!= nil {
+    return nil, status.Errorf(
+      codes.Internal,
+    </span><a id="_idTextAnchor438"/><span class="koboSpan" id="kobo.110.1">  "unexpected error: %s",
+      err.Error(),
+    )
+  }
+  //...
+</span><span class="koboSpan" id="kobo.110.2">}</span></pre>
+<p><span class="koboSpan" id="kobo.111.1">Now, we are done with the server side. </span><span class="koboSpan" id="kobo.111.2">We can switch to the client side – if you didn’t notice before, we are already “handling” errors in </span><strong class="source-inline"><span class="koboSpan" id="kobo.112.1">addTask</span></strong><span class="koboSpan" id="kobo.113.1">. </span><span class="koboSpan" id="kobo.113.2">We have the </span><span class="No-Break"><span class="koboSpan" id="kobo.114.1">following lines:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.115.1">
+re</span><a id="_idTextAnchor439"/><span class="koboSpan" id="kobo.116.1">s, err := c.AddTask(context.Background(), req)
+</span><a id="_idTextAnchor440"/><span class="koboSpan" id="kobo.117.1">if err </span><a id="_idTextAnchor441"/><span class="koboSpan" id="kobo.118.1">!= nil {
+  panic(err)
+}</span></pre>
+<p><span class="koboSpan" id="kobo.119.1">Of course, clients might do fancier</span><a id="_idIndexMarker314"/><span class="koboSpan" id="kobo.120.1"> error handling or even recovery, but our goal for now is to see that our server errors are correctly propagated to the client. </span><span class="koboSpan" id="kobo.120.2">To test the </span><strong class="source-inline"><span class="koboSpan" id="kobo.121.1">InvalidArgument</span></strong><span class="koboSpan" id="kobo.122.1"> error, we can simply try to add a </span><strong class="source-inline"><span class="koboSpan" id="kobo.123.1">Task</span></strong><span class="koboSpan" id="kobo.124.1"> without a description. </span><span class="koboSpan" id="kobo.124.2">At the end of </span><strong class="source-inline"><span class="koboSpan" id="kobo.125.1">main</span></strong><span class="koboSpan" id="kobo.126.1">, we can add </span><span class="No-Break"><span class="koboSpan" id="kobo.127.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.128.1">
+import (
+  //...
+</span><span class="koboSpan" id="kobo.128.2">  "google.golang.org/grpc/codes"
+  "google.golang.org/grpc/status"
+)
+f</span><a id="_idTextAnchor442"/><span class="koboSpan" id="kobo.129.1">unc main() {
+  //...
+</span><span class="koboSpan" id="kobo.129.2">  fmt.Println("-------ERROR-------")
+  addTask(c, "", dueDate)
+  fmt.Println("-------------------")
+}</span></pre>
+<p><span class="koboSpan" id="kobo.130.1">Then, we run </span><span class="No-Break"><span class="koboSpan" id="kobo.131.1">our server:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.132.1">$</span><a id="_idTextAnchor443"/><span class="koboSpan" id="kobo.133.1"> go run ./server 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.134.1">
+listening at 0.0.0.0:50051</span></pre>
+<p><span class="koboSpan" id="kobo.135.1">And our client should return the </span><span class="No-Break"><span class="koboSpan" id="kobo.136.1">expected error:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.137.1">$</span><a id="_idTextAnchor444"/><span class="koboSpan" id="kobo.138.1"> go run ./client 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.139.1">
+-------ERROR-------
+panic: rpc error: code = </span><strong class="bold"><span class="koboSpan" id="kobo.140.1">InvalidArgument</span></strong><span class="koboSpan" id="kobo.141.1"> desc = </span><strong class="bold"><span class="koboSpan" id="kobo.142.1">expected a task description, got an empty string</span></strong></pre>
+<p><span class="koboSpan" id="kobo.143.1">Then, we can check the due</span><a id="_idIndexMarker315"/><span class="koboSpan" id="kobo.144.1"> date error by providing a </span><strong class="source-inline"><span class="koboSpan" id="kobo.145.1">Time</span></strong><span class="koboSpan" id="kobo.146.1"> instance that is in </span><span class="No-Break"><span class="koboSpan" id="kobo.147.1">the past:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.148.1">
+fmt.Println("-------ERROR-------")
+// addTask(c, "", dueDate)
+addTask(c, "not empty", time</span><a id="_idTextAnchor445"/><span class="koboSpan" id="kobo.149.1">.Now().Add(-5 * time.Second))
+fmt.Println("-------------------")</span></pre>
+<p><span class="koboSpan" id="kobo.150.1">We should get </span><span class="No-Break"><span class="koboSpan" id="kobo.151.1">the following:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><a id="_idTextAnchor446"/><span class="koboSpan" id="kobo.152.1">$ go run ./client 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.153.1">
+-------ERROR-------
+panic: rpc error: code = </span><strong class="bold"><span class="koboSpan" id="kobo.154.1">InvalidArgument</span></strong><span class="koboSpan" id="kobo.155.1"> desc = </span><strong class="bold"><span class="koboSpan" id="kobo.156.1">expected a task due_</span></strong>
+<strong class="bold"><span class="koboSpan" id="kobo.157.1">date that is in the future</span></strong></pre>
+<p><span class="koboSpan" id="kobo.158.1">And finally, we are not going to show the </span><strong class="source-inline"><span class="koboSpan" id="kobo.159.1">Internal</span></strong><span class="koboSpan" id="kobo.160.1"> error because this would make us create a fake error in the in-memory database, but understand that it will return </span><span class="No-Break"><span class="koboSpan" id="kobo.161.1">the following:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><a id="_idTextAnchor447"/><span class="koboSpan" id="kobo.162.1">$ go run ./client 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.163.1">
+-------ERROR-------
+panic: rpc error: code = </span><strong class="bold"><span class="koboSpan" id="kobo.164.1">Internal</span></strong><span class="koboSpan" id="kobo.165.1"> desc = </span><strong class="bold"><span class="koboSpan" id="kobo.166.1">unexpected error: &lt;AN_ERROR_</span></strong>
+<strong class="bold"><span class="koboSpan" id="kobo.167.1">MESSAGE&gt;</span></strong></pre>
+<p><span class="koboSpan" id="kobo.168.1">Before finishing this section, it is important to also understand how we can check the typ</span><a id="_idTextAnchor448"/><span class="koboSpan" id="kobo.169.1">e of an error and act accordingly. </span><span class="koboSpan" id="kobo.169.2">We are goin</span><a id="_idTextAnchor449"/><span class="koboSpan" id="kobo.170.1">g to basically panic but with more readable messages. </span><span class="koboSpan" id="kobo.170.2">For example, imagine the situation in which we have the </span><span class="No-Break"><span class="koboSpan" id="kobo.171.1">following code:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.172.1">
+rpc error: code = InvalidArgument desc = expected a task due_date that
+is in the future</span></pre>
+<p><span class="koboSpan" id="kobo.173.1">Instead, we are going to </span><span class="No-Break"><span class="koboSpan" id="kobo.174.1">print this:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.175.1">
+InvalidArgument: expected a task due_date that is in the future</span></pre>
+<p><span class="koboSpan" id="kobo.176.1">To do that, we are going to modify </span><strong class="source-inline"><span class="koboSpan" id="kobo.177.1">addTask</span></strong><span class="koboSpan" id="kobo.178.1"> such that if there is an error, we will try to convert it into a status with the </span><strong class="source-inline"><span class="koboSpan" id="kobo.179.1">FromError</span></strong><span class="koboSpan" id="kobo.180.1"> function – if the conversion is done correctly, we will print</span><a id="_idIndexMarker316"/><span class="koboSpan" id="kobo.181.1"> the error code and the error message, and if it did not convert into a status, we will just panic </span><span class="No-Break"><span class="koboSpan" id="kobo.182.1">as before:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.183.1">
+func addTask(c pb.TodoServiceClient, description string, dueDate time.
+</span><span class="koboSpan" id="kobo.183.2">  Time) uint64 {
+  //...
+</span><span class="koboSpan" id="kobo.183.3">  res, err := c.AddTask(context.Background(), req)
+</span><a id="_idTextAnchor450"/><span class="koboSpan" id="kobo.184.1">
+  if e</span><a id="_idTextAnchor451"/><span class="koboSpan" id="kobo.185.1">rr != nil {
+    </span><a id="_idTextAnchor452"/><span class="koboSpan" id="kobo.186.1">if s, ok := status.</span><strong class="bold"><span class="koboSpan" id="kobo.187.1">FromError</span></strong><span class="koboSpan" id="kobo.188.1">(err); </span><strong class="bold"><span class="koboSpan" id="kobo.189.1">ok</span></strong><span class="koboSpan" id="kobo.190.1"> {
+      switch s.Code() {
+      case </span><strong class="bold"><span class="koboSpan" id="kobo.191.1">codes.InvalidArgument, codes.Internal</span></strong><span class="koboSpan" id="kobo.192.1">:
+        log.Fatalf("%s: %s", s.Code(), s.Message())
+      default:
+        log.Fatal(s)
+      }
+    } else {
+      panic(err)
+    }
+  }
+  //...
+</span><span class="koboSpan" id="kobo.192.2">}</span></pre>
+<p><span class="koboSpan" id="kobo.193.1">And now, after running the client</span><a id="_idIndexMarker317"/><span class="koboSpan" id="kobo.194.1"> with one of the errors we defined earlier, we can get </span><span class="No-Break"><span class="koboSpan" id="kobo.195.1">the following</span><a id="_idTextAnchor453"/><span class="koboSpan" id="kobo.196.1">:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.197.1">$ go run ./client 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.198.1">
+-------ERROR-------
+InvalidArgument: expected a task due_date that is in the future</span></pre>
+<h2 id="_idParaDest-137"><a id="_idTextAnchor454"/><span class="koboSpan" id="kobo.199.1">Bazel</span></h2>
+<p class="callout-heading"><span class="koboSpan" id="kobo.200.1">Important note</span></p>
+<p class="callout"><span class="koboSpan" id="kobo.201.1">The commands presented here are needed every time you update the imports related to gRPC. </span><span class="koboSpan" id="kobo.201.2">For the sake of simplicity, we show it only once in this chapter and we assume you will be able to do it in the </span><span class="No-Break"><span class="koboSpan" id="kobo.202.1">other sections.</span></span></p>
+<p><span class="koboSpan" id="kobo.203.1">As we are going to add more dependencies</span><a id="_idIndexMarker318"/><span class="koboSpan" id="kobo.204.1"> throughout this chapter, we will need to update our </span><strong class="source-inline"><span class="koboSpan" id="kobo.205.1">BUILD</span></strong><span class="koboSpan" id="kobo.206.1"> files. </span><span class="koboSpan" id="kobo.206.2">If we try</span><a id="_idIndexMarker319"/><span class="koboSpan" id="kobo.207.1"> to run the server with Bazel, right now, we will get an error that says </span><span class="No-Break"><span class="koboSpan" id="kobo.208.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.209.1">
+No dependencies were provide</span><a id="_idTextAnchor455"/><span class="koboSpan" id="kobo.210.1">d.
+</span><span class="koboSpan" id="kobo.210.2">Check that imports in Go sources match importpath attributes in deps.</span></pre>
+<p><span class="koboSpan" id="kobo.211.1">To solve this problem, we can just run the </span><strong class="source-inline"><span class="koboSpan" id="kobo.212.1">gazelle</span></strong><span class="koboSpan" id="kobo.213.1"> command, </span><span class="No-Break"><span class="koboSpan" id="kobo.214.1">like so:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.215.1">
+$ ba</span><a id="_idTextAnchor456"/><span class="koboSpan" id="kobo.216.1">zel run //:gazelle</span></pre>
+<p><span class="koboSpan" id="kobo.217.1">And then, we will be able to run the server and </span><span class="No-Break"><span class="koboSpan" id="kobo.218.1">client correctly:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.219.1">$ bazel run //server:server 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.220.1">
+listening at 0.0.0.0:50051
+</span><strong class="bold"><span class="koboSpan" id="kobo.221.1">$ bazel run //client:client 0.0.0.0:50051</span></strong></pre>
+<p><span class="koboSpan" id="kobo.222.1">To conclude, we saw that we can create an error on the server side with the </span><strong class="source-inline"><span class="koboSpan" id="kobo.223.1">Error</span></strong><span class="koboSpan" id="kobo.224.1"> and </span><strong class="source-inline"><span class="koboSpan" id="kobo.225.1">Errorf</span></strong><span class="koboSpan" id="kobo.226.1"> functions from the </span><strong class="source-inline"><span class="koboSpan" id="kobo.227.1">status</span></strong><span class="koboSpan" id="kobo.228.1"> package. </span><span class="koboSpan" id="kobo.228.2">We have multiple error codes that we can choose from. </span><span class="koboSpan" id="kobo.228.3">We only saw two, but they</span><a id="_idIndexMarker320"/><span class="koboSpan" id="kobo.229.1"> are common ones. </span><span class="koboSpan" id="kobo.229.2">And finally, on the client side, we saw</span><a id="_idIndexMarker321"/><span class="koboSpan" id="kobo.230.1"> that we can act accordingly depending on the error code by transforming a Golang error into a Status and writing conditions based on the </span><span class="No-Break"><span class="koboSpan" id="kobo.231.1">status code.</span></span></p>
+<h1 id="_idParaDest-138"><a id="_idTextAnchor457"/><span class="koboSpan" id="kobo.232.1">Canceling a call</span></h1>
+<p><span class="koboSpan" id="kobo.233.1">When you want to stop a call depending</span><a id="_idIndexMarker322"/><span class="koboSpan" id="kobo.234.1"> on certain conditions or interrupt a long-lived stream, gRPC provides you with cancellation functions that you can execute at </span><span class="No-Break"><span class="koboSpan" id="kobo.235.1">any time.</span></span></p>
+<p><span class="koboSpan" id="kobo.236.1">If you have worked with Go on any distributed system code or API </span><a id="_idTextAnchor458"/><span class="koboSpan" id="kobo.237.1">before, you probably saw a type called </span><strong class="source-inline"><span class="koboSpan" id="kobo.238.1">context</span></strong><span class="koboSpan" id="kobo.239.1">. </span><span class="koboSpan" id="kobo.239.2">This is the idiomatic way to provide request-scoped information and signal across the API’s actors, and this is an important piece </span><span class="No-Break"><span class="koboSpan" id="kobo.240.1">of gRPC.</span></span></p>
+<p><span class="koboSpan" id="kobo.241.1">If you did not pay attention, up until now, we used </span><strong class="source-inline"><span class="koboSpan" id="kobo.242.1">context.Background()</span></strong><span class="koboSpan" id="kobo.243.1"> every time we made a request. </span><span class="koboSpan" id="kobo.243.2">In the Golang documentation, this is described as returning “</span><em class="italic"><span class="koboSpan" id="kobo.244.1">a non-nil, empty Context. </span><span class="koboSpan" id="kobo.244.2">It is never cancelled, has no values, and has</span><a id="_idTextAnchor459"/><span class="koboSpan" id="kobo.245.1"> no deadline</span></em><span class="koboSpan" id="kobo.246.1">.” </span><span class="koboSpan" id="kobo.246.2">As you can guess, this alone is not suitable for production-ready APIs for the </span><span class="No-Break"><span class="koboSpan" id="kobo.247.1">following reasons:</span></span></p>
+<ul>
+<li><span class="koboSpan" id="kobo.248.1">What if the user wants to kill the </span><span class="No-Break"><span class="koboSpan" id="kobo.249.1">request early?</span></span></li>
+<li><span class="koboSpan" id="kobo.250.1">What if the API call </span><span class="No-Break"><span class="koboSpan" id="kobo.251.1">never returns?</span></span></li>
+<li><span class="koboSpan" id="kobo.252.1">What if we need the server to be aware of glo</span><a id="_idTextAnchor460"/><span class="koboSpan" id="kobo.253.1">bal values (e.g., an </span><span class="No-Break"><span class="koboSpan" id="kobo.254.1">authentication token)?</span></span></li>
+</ul>
+<p><span class="koboSpan" id="kobo.255.1">In this section, let us focus on the first question, and in the next two sections, we will answer </span><span class="No-Break"><span class="koboSpan" id="kobo.256.1">the others.</span></span></p>
+<p><span class="koboSpan" id="kobo.257.1">To gain the ability to cancel a call, we will be using the </span><strong class="source-inline"><span class="koboSpan" id="kobo.258.1">WithCancel</span></strong><span class="koboSpan" id="kobo.259.1"> function from the </span><strong class="source-inline"><span class="koboSpan" id="kobo.260.1">context</span></strong><span class="koboSpan" id="kobo.261.1"> package (</span><a href="https://pkg.go.dev/context#WithCancel"><span class="koboSpan" id="kobo.262.1">https://pkg.go.dev/context#WithCancel</span></a><span class="koboSpan" id="kobo.263.1">). </span><span class="koboSpan" id="kobo.263.2">This function will return the constructed</span><a id="_idIndexMarker323"/><span class="koboSpan" id="kobo.264.1"> context and a </span><strong class="source-inline"><span class="koboSpan" id="kobo.265.1">cancel</span></strong><span class="koboSpan" id="kobo.266.1"> function that we can execute to interrupt the call made with the context. </span><span class="koboSpan" id="kobo.266.2">So, now, instead of only using </span><strong class="source-inline"><span class="koboSpan" id="kobo.267.1">context.Background()</span></strong><span class="koboSpan" id="kobo.268.1">, we will create a context </span><span class="No-Break"><span class="koboSpan" id="kobo.269.1">l</span><a id="_idTextAnchor461"/><span class="koboSpan" id="kobo.270.1">ike so:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.271.1">
+ctx, cancel := context.WithCancel(context.Backgro</span><a id="_idTextAnchor462"/><span class="koboSpan" id="kobo.272.1">und())
+defer cancel()</span></pre>
+<p><span class="koboSpan" id="kobo.273.1">Notice that this is important to call the </span><strong class="source-inline"><span class="koboSpan" id="kobo.274.1">cancel</span></strong><span class="koboSpan" id="kobo.275.1"> function at the end of the function to release the resources associated with the context. </span><span class="koboSpan" id="kobo.275.2">To make sure that the function is called, we can use a </span><strong class="source-inline"><span class="koboSpan" id="kobo.276.1">defer</span></strong><span class="koboSpan" id="kobo.277.1">. </span><span class="koboSpan" id="kobo.277.2">However, this does not mean we cannot call the function before the end of </span><span class="No-Break"><span class="koboSpan" id="kobo.278.1">the function.</span></span></p>
+<p><span class="koboSpan" id="kobo.279.1">As an example, we will create</span><a id="_idIndexMarker324"/><span class="koboSpan" id="kobo.280.1"> a fictional requirement. </span><span class="koboSpan" id="kobo.280.2">It is fictional because we are going to improve/remove the code we will write in this section in the following ones. </span><span class="koboSpan" id="kobo.280.3">The fictional requirement is to cancel a </span><strong class="source-inline"><span class="koboSpan" id="kobo.281.1">ListTasks</span></strong><span class="koboSpan" id="kobo.282.1"> call once we get an overdue </span><strong class="source-inline"><span class="koboSpan" id="kobo.283.1">Task</span></strong><span class="koboSpan" id="kobo.284.1">. </span><span class="koboSpan" id="kobo.284.2">We can agree that it does not make sense in terms of features but regardless, this section’s goal is to try to cancel </span><span class="No-Break"><span class="koboSpan" id="kobo.285.1">a call.</span></span></p>
+<p><span class="koboSpan" id="kobo.286.1">To implement such a feature, we will create the context with the </span><strong class="source-inline"><span class="koboSpan" id="kobo.287.1">WithCancel</span></strong><span class="koboSpan" id="kobo.288.1"> function, pass this context to the </span><strong class="source-inline"><span class="koboSpan" id="kobo.289.1">ListTasks</span></strong><span class="koboSpan" id="kobo.290.1"> API endpoint, and finally, we are going to add another </span><strong class="source-inline"><span class="koboSpan" id="kobo.291.1">if</span></strong><span class="koboSpan" id="kobo.292.1"> in the reading loop checking whether there is an </span><strong class="source-inline"><span class="koboSpan" id="kobo.293.1">overdue</span></strong><span class="koboSpan" id="kobo.294.1">. </span><span class="koboSpan" id="kobo.294.2">If this is the case, we will call the </span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.295.1">can</span><a id="_idTextAnchor463"/><span class="koboSpan" id="kobo.296.1">cel</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.297.1"> function:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.298.1">
+func printTasks(c pb.TodoServi</span><a id="_idTextAnchor464"/><span class="koboSpan" id="kobo.299.1">ceCli</span><a id="_idTextAnchor465"/><span class="koboSpan" id="kobo.300.1">ent) {
+  ctx, cancel := context.</span><strong class="bold"><span class="koboSpan" id="kobo.301.1">WithCancel</span></strong><span class="koboSpan" id="kobo.302.1">(context.Backgrou</span><a id="_idTextAnchor466"/><span class="koboSpan" id="kobo.303.1">nd())
+  defer cancel()
+  //</span><a id="_idTextAnchor467"/><span class="koboSpan" id="kobo.304.1">...
+</span><span class="koboSpan" id="kobo.304.2">  stream, err := c.ListTasks(</span><strong class="bold"><span class="koboSpan" id="kobo.305.1">ctx</span></strong><span class="koboSpan" id="kobo.306.1">, req)
+  //...
+</span><span class="koboSpan" id="kobo.306.2">  for {
+    //...
+</span><span class="koboSpan" id="kobo.306.3">    if res.Overdue {
+      log.Printf("CANCEL c</span><a id="_idTextAnchor468"/><span class="koboSpan" id="kobo.307.1">alled")
+</span><strong class="bold"><span class="koboSpan" id="kobo.308.1">      cancel()</span></strong><span class="koboSpan" id="kobo.309.1">
+    }
+    fmt.Println(res.Task.String(), "overdue: ",
+    res.Overdue)
+  }
+}</span></pre>
+<p><span class="koboSpan" id="kobo.310.1">Note that we could be breaking instead of calling the </span><strong class="source-inline"><span class="koboSpan" id="kobo.311.1">cancel</span></strong><span class="koboSpan" id="kobo.312.1"> function direc</span><a id="_idTextAnchor469"/><span class="koboSpan" id="kobo.313.1">tly. </span><span class="koboSpan" id="kobo.313.2">Then the </span><strong class="source-inline"><span class="koboSpan" id="kobo.314.1">defer</span></strong> <strong class="source-inline"><span class="koboSpan" id="kobo.315.1">cancel()</span></strong><span class="koboSpan" id="kobo.316.1"> would kick in and the server would stop working. </span><span class="koboSpan" id="kobo.316.2">However, I decided to directly call </span><strong class="source-inline"><span class="koboSpan" id="kobo.317.1">cancel</span></strong><span class="koboSpan" id="kobo.318.1"> and let the client-side loop run because I want to show you that we will receive an error when canceling </span><span class="No-Break"><span class="koboSpan" id="kobo.319.1">a call.</span></span></p>
+<p><span class="koboSpan" id="kobo.320.1">Now, we need to be aware that </span><strong class="source-inline"><span class="koboSpan" id="kobo.321.1">cancel</span></strong><span class="koboSpan" id="kobo.322.1"> takes time to propagate over the network and thus the server might continue to run without us knowing. </span><span class="koboSpan" id="kobo.322.2">To inspect what the server is sending, we are simply going to print the </span><strong class="source-inline"><span class="koboSpan" id="kobo.323.1">Task</span></strong><span class="koboSpan" id="kobo.324.1"> on the terminal before sending it to </span><span class="No-Break"><span class="koboSpan" id="kobo.325.1">the client:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.326.1">
+func (s *server) ListTasks(req *pb.ListTasksRequest, stream
+  pb.TodoService_ListTasksServer) error {
+  return s.d.g</span><a id="_idTextAnchor470"/><span class="koboSpan" id="kobo.327.1">etTasks(func(t interface{}) error {
+    //...
+</span><span class="koboSpan" id="kobo.327.2">    log.Pri</span><a id="_idTextAnchor471"/><span class="koboSpan" id="kobo.328.1">ntln(task)
+    overdu</span><a id="_idTextAnchor472"/><span class="koboSpan" id="kobo.329.1">e := //...
+</span><span class="koboSpan" id="kobo.329.2">    err := stream.Send(&amp;pb.ListTasksResponse{
+      //...
+</span><span class="koboSpan" id="kobo.329.3">    </span><a id="_idTextAnchor473"/><span class="koboSpan" id="kobo.330.1">})
+    return err
+  })
+}</span></pre>
+<p><span class="koboSpan" id="kobo.331.1">And finally, I want to mention</span><a id="_idIndexMarker325"/><span class="koboSpan" id="kobo.332.1"> that we do not need to add any code in the client’s </span><strong class="source-inline"><span class="koboSpan" id="kobo.333.1">main</span></strong><span class="koboSpan" id="kobo.334.1"> and this is because we already saw that we have tasks that are overdue when we run the current </span><strong class="source-inline"><span class="koboSpan" id="kobo.335.1">main</span></strong><span class="koboSpan" id="kobo.336.1"> code. </span><span class="koboSpan" id="kobo.336.2">The first overdue should appear in the </span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.337.1">update</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.338.1"> section:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.339.1">
+fmt.Println("-------UPDATE------")</span><a id="_idTextAnchor474"/><span class="koboSpan" id="kobo.340.1">
+updateTasks(c, []*pb.UpdateTasksRequest{
+</span><strong class="bold"><span class="koboSpan" id="kobo.341.1">  {Id: id1, Description: "A better name for the task"},</span></strong><span class="koboSpan" id="kobo.342.1">
+  //...
+</span><span class="koboSpan" id="kobo.342.2">}...</span><a id="_idTextAnchor475"/><span class="koboSpan" id="kobo.343.1">)
+printTasks(c, nil)
+fmt.Println("-------------------")</span></pre>
+<p><span class="koboSpan" id="kobo.344.1">This is because, if you remember, we updated the </span><strong class="source-inline"><span class="koboSpan" id="kobo.345.1">Id</span></strong><span class="koboSpan" id="kobo.346.1"> value and the description of that </span><strong class="source-inline"><span class="koboSpan" id="kobo.347.1">Task</span></strong><span class="koboSpan" id="kobo.348.1"> and we set the rest of the properties of </span><strong class="source-inline"><span class="koboSpan" id="kobo.349.1">Task</span></strong><span class="koboSpan" id="kobo.350.1"> to the default values. </span><a id="_idTextAnchor476"/><span class="koboSpan" id="kobo.351.1">This means that </span><strong class="source-inline"><span class="koboSpan" id="kobo.352.1">Done</span></strong><span class="koboSpan" id="kobo.353.1"> will be set to </span><strong class="source-inline"><span class="koboSpan" id="kobo.354.1">false</span></strong><span class="koboSpan" id="kobo.355.1"> and </span><strong class="source-inline"><span class="koboSpan" id="kobo.356.1">DueDate</span></strong><span class="koboSpan" id="kobo.357.1"> to an empty </span><span class="No-Break"><span class="koboSpan" id="kobo.358.1">time object.</span></span></p>
+<p><span class="koboSpan" id="kobo.359.1">Now, we can run the serve</span><a id="_idTextAnchor477"/><span class="koboSpan" id="kobo.360.1">r </span><span class="No-Break"><span class="koboSpan" id="kobo.361.1">like so:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.362.1">$ go run ./server 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.363.1">
+listening at 0.0.0.0:50051</span></pre>
+<p><span class="koboSpan" id="kobo.364.1">Then, we run </span><span class="No-Break"><span class="koboSpan" id="kobo.365.1">the client:</span></span></p>
+<p class="callout-heading"><span class="koboSpan" id="kobo.366.1">Important note</span></p>
+<p class="callout"><span class="koboSpan" id="kobo.367.1">Before running the following code, make sure that you have commented the function calls that panic. </span><span class="koboSpan" id="kobo.367.2">This includes the two </span><strong class="source-inline"><span class="koboSpan" id="kobo.368.1">addTask</span></strong><span class="koboSpan" id="kobo.369.1"> that we added in the </span><span class="No-Break"><span class="koboSpan" id="kobo.370.1">previous</span><a id="_idTextAnchor478"/><span class="koboSpan" id="kobo.371.1"> section.</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.372.1">
+$ go run ./client 0.0.0.0:50051</span></pre>
+<p><span class="koboSpan" id="kobo.373.1">You should notice, on the client side, that everything runs correctly and that nothing was canceled even if the </span><strong class="source-inline"><span class="koboSpan" id="kobo.374.1">update</span></strong><span class="koboSpan" id="kobo.375.1"> section contains the </span><span class="No-Break"><span class="koboSpan" id="kobo.376.1">following message:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.377.1">
+CANCEL called.</span></pre>
+<p><span class="koboSpan" id="kobo.378.1">The reason for this is that, the server does not know that the call has been canceled. </span><span class="koboSpan" id="kobo.378.2">To solve this problem, we can make the </span><span class="No-Break"><span class="koboSpan" id="kobo.379.1">server cancel-aware.</span></span></p>
+<p><span class="koboSpan" id="kobo.380.1">To do that, we need to check the context’s </span><strong class="source-inline"><span class="koboSpan" id="kobo.381.1">Done</span></strong><span class="koboSpan" id="kobo.382.1"> channel. </span><span class="koboSpan" id="kobo.382.2">This channel will be closed when the cancel is propagated to the server and, in the cancel example, the context will have an error equal to </span><strong class="source-inline"><span class="koboSpan" id="kobo.383.1">context.Canceled</span></strong><span class="koboSpan" id="kobo.384.1">. </span><span class="koboSpan" id="kobo.384.2">When we have this event, we know that the server needs to return and effectively stop working on the rest of </span><span class="No-Break"><span class="koboSpan" id="kobo.385.1">the requests:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.386.1">
+func (s *server) ListTasks(req *pb.ListTasksRequest, stream
+  pb.TodoService_ListTasksServer) error {
+  </span><strong class="bold"><span class="koboSpan" id="kobo.387.1">ctx := stream.Context()</span></strong><span class="koboSpan" id="kobo.388.1">
+  return s.d</span><a id="_idTextAnchor479"/><span class="koboSpan" id="kobo.389.1">.getTasks(func(t interface{}) error {
+    select {
+    case </span><strong class="bold"><span class="koboSpan" id="kobo.390.1">&lt;-ctx.Done()</span></strong><span class="koboSpan" id="kobo.391.1">:
+      switch </span><strong class="bold"><span class="koboSpan" id="kobo.392.1">ctx.Err()</span></strong><span class="koboSpan" id="kobo.393.1"> {
+      case </span><strong class="bold"><span class="koboSpan" id="kobo.394.1">context.Canceled</span></strong><span class="koboSpan" id="kobo.395.1">:
+        log.Printf("request canceled: %s", ctx.Err())
+      default:
+      }
+      return </span><strong class="bold"><span class="koboSpan" id="kobo.396.1">ctx.Err()</span></strong><span class="koboSpan" id="kobo.397.1">
+    /// </span><strong class="bold"><span class="koboSpan" id="kobo.398.1">TODO: replace following case by 'default:' on production APIs.</span></strong><span class="koboSpan" id="kobo.399.1">
+    case </span><strong class="bold"><span class="koboSpan" id="kobo.400.1">&lt;-time.After(1 * time.Millisecond)</span></strong><span class="koboSpan" id="kobo.401.1">:
+    }
+    //...
+</span><span class="koboSpan" id="kobo.401.2">  })
+}</span></pre>
+<p><span class="koboSpan" id="kobo.402.1">There are a couple of things to note before running </span><span class="No-Break"><span class="koboSpan" id="kobo.403.1">this code.</span></span></p>
+<p><span class="koboSpan" id="kobo.404.1">The first one is that, when dealing with </span><strong class="source-inline"><span class="koboSpan" id="kobo.405.1">stream</span></strong><span class="koboSpan" id="kobo.406.1">, we can get the cont</span><a id="_idTextAnchor480"/><span class="koboSpan" id="kobo.407.1">ext by using the </span><strong class="source-inline"><span class="koboSpan" id="kobo.408.1">Context()</span></strong><span class="koboSpan" id="kobo.409.1"> function available in the generated stream type (in our </span><span class="No-Break"><span class="koboSpan" id="kobo.410.1">case, </span></span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.411.1">pb.TodoService_ListTasksServer</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.412.1">).</span></span></p>
+<p><span class="koboSpan" id="kobo.413.1">And secondly, note that we are intentionally </span><a id="_idIndexMarker326"/><span class="koboSpan" id="kobo.414.1">sleeping 1 millisecond per call of the closure. </span><span class="koboSpan" id="kobo.414.2">This would not happen in production; we would have a default branch instead. </span><span class="koboSpan" id="kobo.414.3">This is done so that the server has time to notice the cancellation. </span><span class="koboSpan" id="kobo.414.4">Note that this number is arbitrary; it is the smallest amount of time for me to notice the cancel error on my machine. </span><span class="koboSpan" id="kobo.414.5">You might need to make it larger, or you can make </span><span class="No-Break"><span class="koboSpan" id="kobo.415.1">it smaller.</span></span></p>
+<p><span class="koboSpan" id="kobo.416.1">Now, we can run the ser</span><a id="_idTextAnchor481"/><span class="koboSpan" id="kobo.417.1">ver </span><span class="No-Break"><span class="koboSpan" id="kobo.418.1">like so:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.419.1">$ go run ./server 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.420.1">
+listening at 0.0.0.0:50051</span></pre>
+<p><span class="koboSpan" id="kobo.421.1">Then, we can run</span><a id="_idTextAnchor482"/> <span class="No-Break"><span class="koboSpan" id="kobo.422.1">the client:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.423.1">$ go run ./client 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.424.1">
+//...
+</span><span class="koboSpan" id="kobo.424.2">CANCEL called
+id:1 description:"A better name for the task" due_date:{} overdue:  true
+unexpected error: rpc error: code = Canceled desc = context canceled</span></pre>
+<p><span class="koboSpan" id="kobo.425.1">Finally, you should also notice that on the server side, you get the </span><span class="No-Break"><span class="koboSpan" id="kobo.426.1">following message:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.427.1">
+request canceled: context canceled</span></pre>
+<p><span class="koboSpan" id="kobo.428.1">To conclude, we saw how we can use </span><strong class="source-inline"><span class="koboSpan" id="kobo.429.1">context.WithCancel()</span></strong><span class="koboSpan" id="kobo.430.1"> to create a cancellable context. </span><span class="koboSpan" id="kobo.430.2">We also saw</span><a id="_idIndexMarker327"/><span class="koboSpan" id="kobo.431.1"> that this function returns a </span><strong class="source-inline"><span class="koboSpan" id="kobo.432.1">cancel</span></strong><span class="koboSpan" id="kobo.433.1"> function, which we need to call at the end of the scope to release the resources attached to the context, but we can also call it earlier to cancel depending on some condition. </span><span class="koboSpan" id="kobo.433.2">And finally, we saw that we can make the server cancel-aware so that it does not execute more work </span><span class="No-Break"><span class="koboSpan" id="kobo.434.1">than needed.</span></span></p>
+<h1 id="_idParaDest-139"><a id="_idTextAnchor483"/><span class="koboSpan" id="kobo.435.1">Specifying deadlines</span></h1>
+<p><span class="koboSpan" id="kobo.436.1">Deadlines are the most important</span><a id="_idIndexMarker328"/><span class="koboSpan" id="kobo.437.1"> thing when we are dealing with asynchronous communication. </span><span class="koboSpan" id="kobo.437.2">This is because a call could never return due to network or other problems. </span><span class="koboSpan" id="kobo.437.3">That is why Google recommends</span><a id="_idIndexMarker329"/><span class="koboSpan" id="kobo.438.1"> that we set a deadline for each of our RPC calls. </span><span class="koboSpan" id="kobo.438.2">Fortunately for us, this is as easy as canceling </span><span class="No-Break"><span class="koboSpan" id="kobo.439.1">a call.</span></span></p>
+<p><span class="koboSpan" id="kobo.440.1">The first thing that we need to do, on the client side, is to create a context. </span><span class="koboSpan" id="kobo.440.2">This is similar to the </span><strong class="source-inline"><span class="koboSpan" id="kobo.441.1">WithCancel</span></strong><span class="koboSpan" id="kobo.442.1"> function, but this time, we will use </span><strong class="source-inline"><span class="koboSpan" id="kobo.443.1">WithTimeout</span></strong><span class="koboSpan" id="kobo.444.1">. </span><span class="koboSpan" id="kobo.444.2">It takes a parent context like </span><strong class="source-inline"><span class="koboSpan" id="kobo.445.1">WithCancel</span></strong><span class="koboSpan" id="kobo.446.1"> but on top of that, it takes a </span><strong class="source-inline"><span class="koboSpan" id="kobo.447.1">Time</span></strong><span class="koboSpan" id="kobo.448.1"> instance representing the maximum amount of time for which we are willing to wait for a </span><span class="No-Break"><span class="koboSpan" id="kobo.449.1">server answer.</span></span></p>
+<p><span class="koboSpan" id="kobo.450.1">Instead of </span><strong class="source-inline"><span class="koboSpan" id="kobo.451.1">WithCancel</span></strong><span class="koboSpan" id="kobo.452.1"> in </span><strong class="source-inline"><span class="koboSpan" id="kobo.453.1">printTasks</span></strong><span class="koboSpan" id="kobo.454.1">, we are now going to have the </span><span class="No-Break"><span class="koboSpan" id="kobo.455.1">fol</span><a id="_idTextAnchor484"/><span class="koboSpan" id="kobo.456.1">lowing context:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.457.1">
+ctx, cancel := context.WithTimeout(context.Background(), </span><strong class="bold"><span class="koboSpan" id="kobo.458.1">1*tim</span><a id="_idTextAnchor485"/><span class="koboSpan" id="kobo.459.1">e.Millisecond</span></strong><span class="koboSpan" id="kobo.460.1">)
+defer cancel()</span></pre>
+<p><span class="koboSpan" id="kobo.461.1">Obviously, a timeout of 1 millis</span><a id="_idTextAnchor486"/><span class="koboSpan" id="kobo.462.1">econd is way too low to let the server answer, but this is done on purpose so that we can get a </span><strong class="source-inline"><span class="koboSpan" id="kobo.463.1">DeadlineExceeded</span></strong><span class="koboSpan" id="kobo.464.1"> error. </span><span class="koboSpan" id="kobo.464.2">In real-life scenarios, we would need to set the timeout depending on the requirements set for the service. </span><span class="koboSpan" id="kobo.464.3">This is very much dependent on your use case and the service’s job, so you will need to experiment and track the average amount of time in which your server </span><span class="No-Break"><span class="koboSpan" id="kobo.465.1">will respond.</span></span></p>
+<p><span class="koboSpan" id="kobo.466.1">That is everything we need to make</span><a id="_idIndexMarker330"/><span class="koboSpan" id="kobo.467.1"> a deadline in gRPC. </span><span class="koboSpan" id="kobo.467.2">We can now</span><a id="_idTextAnchor487"/><span class="koboSpan" id="kobo.468.1"> run </span><span class="No-Break"><span class="koboSpan" id="kobo.469.1">our server:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.470.1">$ go run ./server 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.471.1">
+listening at 0.0.0.0:50051</span></pre>
+<p><span class="koboSpan" id="kobo.472.1">Then, we can</span><a id="_idTextAnchor488"/><span class="koboSpan" id="kobo.473.1"> run </span><span class="No-Break"><span class="koboSpan" id="kobo.474.1">the client:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.475.1">$ go run ./client 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.476.1">
+//...
+</span><span class="koboSpan" id="kobo.476.2">unexpected error: rpc error: code = DeadlineExceeded desc = context
+  deadline exceeded</span></pre>
+<p><span class="koboSpan" id="kobo.477.1">We can see that the first </span><strong class="source-inline"><span class="koboSpan" id="kobo.478.1">ListTasks</span></strong><span class="koboSpan" id="kobo.479.1">, as </span><span class="No-Break"><span class="koboSpan" id="kobo.480.1">expected, failed.</span></span></p>
+<p><span class="koboSpan" id="kobo.481.1">Now, while this is all you need to set deadlines up, you can also make the server aware of the </span><strong class="source-inline"><span class="koboSpan" id="kobo.482.1">DeadlineExceeded</span></strong><span class="koboSpan" id="kobo.483.1"> error. </span><span class="koboSpan" id="kobo.483.2">Even if this is technically already done because we are returning </span><strong class="source-inline"><span class="koboSpan" id="kobo.484.1">ctx.Err()</span></strong><span class="koboSpan" id="kobo.485.1"> when the </span><strong class="source-inline"><span class="koboSpan" id="kobo.486.1">Done</span></strong><span class="koboSpan" id="kobo.487.1"> channel closes, we still want to print a message saying that the deadline has </span><span class="No-Break"><span class="koboSpan" id="kobo.488.1">been exceeded.</span></span></p>
+<p><span class="koboSpan" id="kobo.489.1">To do so, this is like the </span><strong class="source-inline"><span class="koboSpan" id="kobo.490.1">Canceled</span></strong><span class="koboSpan" id="kobo.491.1"> error, but this time, we are going to add a </span><strong class="source-inline"><span class="koboSpan" id="kobo.492.1">DeadlineExceeded</span></strong><span class="koboSpan" id="kobo.493.1"> branch in the </span><strong class="source-inline"><span class="koboSpan" id="kobo.494.1">switch</span></strong> <span class="No-Break"><span class="koboSpan" id="kobo.495.1">on </span></span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.496.1">ctx.Err()</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.497.1">:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.498.1">
+func (s *server) ListTasks(req *pb.ListTasksRequest, stream
+  pb.TodoService_ListTasksServer) error {
+  ctx := stream.Context()
+  retur</span><a id="_idTextAnchor489"/><span class="koboSpan" id="kobo.499.1">n s.d.getTasks(func(t interface{}) error {
+    select {
+    case &lt;-ctx.Done():
+      switch ctx.Err() {
+      //...
+</span><span class="koboSpan" id="kobo.499.2">      case </span><strong class="bold"><span class="koboSpan" id="kobo.500.1">context.DeadlineExceeded</span></strong><span class="koboSpan" id="kobo.501.1">:
+        log.Printf("request deadline exceeded: %s",
+        ctx.Err())
+      }
+      return ctx.Err()
+    //...
+</span><span class="koboSpan" id="kobo.501.2">  }
+  //...
+</span><span class="koboSpan" id="kobo.501.3">}</span></pre>
+<p><span class="koboSpan" id="kobo.502.1">And if we rerun our server and client, we now should have the following message on the terminal running </span><span class="No-Break"><span class="koboSpan" id="kobo.503.1">the server:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.504.1">
+request deadline exceeded: context deadline exceeded</span></pre>
+<p><span class="koboSpan" id="kobo.505.1">To conclude, we saw that, similarly to </span><strong class="source-inline"><span class="koboSpan" id="kobo.506.1">WithCancel</span></strong><span class="koboSpan" id="kobo.507.1">, w</span><a id="_idTextAnchor490"/><span class="koboSpan" id="kobo.508.1">e can use </span><strong class="source-inline"><span class="koboSpan" id="kobo.509.1">WithTimeout</span></strong><span class="koboSpan" id="kobo.510.1"> in order to create a deadline</span><a id="_idIndexMarker331"/><span class="koboSpan" id="kobo.511.1"> for a call. </span><span class="koboSpan" id="kobo.511.2">It is recommended to always set a deadline since we might never get an answer back from the server. </span><span class="koboSpan" id="kobo.511.3">And finally, we also saw how to make the server deadline-aware so that it does not work more </span><span class="No-Break"><span class="koboSpan" id="kobo.512.1">than needed.</span></span></p>
+<h1 id="_idParaDest-140"><a id="_idTextAnchor491"/><span class="koboSpan" id="kobo.513.1">Sending metadata</span></h1>
+<p><span class="koboSpan" id="kobo.514.1">Another feature that builds</span><a id="_idIndexMarker332"/><span class="koboSpan" id="kobo.515.1"> upon contexts is the possibility to pass metadata through calls. </span><span class="koboSpan" id="kobo.515.2">In gRPC, these metadata can be HTTP headers or HTTP trailers. </span><span class="koboSpan" id="kobo.515.3">They are both a list of key-value pairs that are used for many purposes such as passing authentication tokens and digital signatures, data integrity, and so on. </span><span class="koboSpan" id="kobo.515.4">In this section, we are mostly going to focus on sending metadata through headers. </span><span class="koboSpan" id="kobo.515.5">Trailers are simply headers that are sent after a message and not before. </span><span class="koboSpan" id="kobo.515.6">They are less used by developers but are used by gRPC to implement streaming interfaces. </span><span class="koboSpan" id="kobo.515.7">Anyway, if you are interested, you can</span><a id="_idIndexMarker333"/><span class="koboSpan" id="kobo.516.1"> look at the </span><strong class="source-inline"><span class="koboSpan" id="kobo.517.1">grpc.SetTrailer</span></strong> <span class="No-Break"><span class="koboSpan" id="kobo.518.1">function (</span></span><a href="https://pkg.go.dev/google.golang.org/grpc#SetTrailer"><span class="No-Break"><span class="koboSpan" id="kobo.519.1">https://pkg.go.dev/google.golang.org/grpc#SetTrailer</span></span></a><span class="No-Break"><span class="koboSpan" id="kobo.520.1">).</span></span></p>
+<p><span class="koboSpan" id="kobo.521.1">Our use case will be to pass an auth token to the </span><strong class="source-inline"><span class="koboSpan" id="kobo.522.1">UpdateTasks</span></strong><span class="koboSpan" id="kobo.523.1"> RPC endpoint, and after checking it, we will decide to either update the task or return an </span><strong class="source-inline"><span class="koboSpan" id="kobo.524.1">Unauthenticated</span></strong><span class="koboSpan" id="kobo.525.1"> error. </span><span class="koboSpan" id="kobo.525.2">Obviously, we are not going to deal with how to generate the </span><strong class="source-inline"><span class="koboSpan" id="kobo.526.1">auth</span></strong><span class="koboSpan" id="kobo.527.1"> token because this is an implementation detail, but we are going to simply have </span><strong class="source-inline"><span class="koboSpan" id="kobo.528.1">authd</span></strong><span class="koboSpan" id="kobo.529.1"> as the right token and everything else will be </span><span class="No-Break"><span class="koboSpan" id="kobo.530.1">considered incorrect.</span></span></p>
+<p><span class="koboSpan" id="kobo.531.1">Let us start from the server </span><a id="_idIndexMarker334"/><span class="koboSpan" id="kobo.532.1">side. </span><span class="koboSpan" id="kobo.532.2">The server is receiving the data from the context; thus, we are going to use the </span><strong class="source-inline"><span class="koboSpan" id="kobo.533.1">FromIncomingContext</span></strong><span class="koboSpan" id="kobo.534.1"> function from the </span><strong class="source-inline"><span class="koboSpan" id="kobo.535.1">metadata</span></strong><span class="koboSpan" id="kobo.536.1"> package in gRPC. </span><span class="koboSpan" id="kobo.536.2">This will return a map and whether there is some metadata or not. </span><span class="koboSpan" id="kobo.536.3">In </span><strong class="source-inline"><span class="koboSpan" id="kobo.537.1">UpdateTasks</span></strong><span class="koboSpan" id="kobo.538.1">, we can do </span><span class="No-Break"><span class="koboSpan" id="kobo.539.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.540.1">
+func (s *server) UpdateTasks(stream pb.TodoService_UpdateTasksServer) error {
+  ctx </span><a id="_idTextAnchor492"/><span class="koboSpan" id="kobo.541.1">:= stream.Context()
+  md, _ := metadata.FromIncomingContext(ctx)
+  //...
+</span><span class="koboSpan" id="kobo.541.2">}</span></pre>
+<p><span class="koboSpan" id="kobo.542.1">We can now check whether the auth token</span><a id="_idIndexMarker335"/><span class="koboSpan" id="kobo.543.1"> was provided. </span><span class="koboSpan" id="kobo.543.2">To do that, this is a simple usage of the Golang map. </span><span class="koboSpan" id="kobo.543.3">We try to access the </span><strong class="source-inline"><span class="koboSpan" id="kobo.544.1">auth_token</span></strong><span class="koboSpan" id="kobo.545.1"> element in the </span><strong class="source-inline"><span class="koboSpan" id="kobo.546.1">md</span></strong><span class="koboSpan" id="kobo.547.1"> map. </span><span class="koboSpan" id="kobo.547.2">It will return values and a Boolean saying whether the key is in the map or not. </span><span class="koboSpan" id="kobo.547.3">If it is, we are going to check that there is only one value and that th</span><a id="_idTextAnchor493"/><span class="koboSpan" id="kobo.548.1">is value is equal to </span><strong class="source-inline"><span class="koboSpan" id="kobo.549.1">"authd"</span></strong><span class="koboSpan" id="kobo.550.1">. </span><span class="koboSpan" id="kobo.550.2">And if it is not, we will return an </span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.551.1">Unauthenticated</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.552.1"> error:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.553.1">
+func (s *server) UpdateTasks(stream pb.TodoService_UpdateTasksServer) error {
+  ctx</span><a id="_idTextAnchor494"/><span class="koboSpan" id="kobo.554.1"> := stream.Context()
+  md, _ := metadata.</span><a id="_idTextAnchor495"/><span class="koboSpan" id="kobo.555.1">FromIncomingContext(ctx)
+  if t, ok := md["auth_token"]; ok {
+</span><a id="_idTextAnchor496"/><span class="koboSpan" id="kobo.556.1">    switch {
+    case len(t) != 1:
+      return status.Errorf(
+        </span><strong class="bold"><span class="koboSpan" id="kobo.557.1">codes.InvalidArgument</span></strong><span class="koboSpan" id="kobo.558.1">,
+        "auth_token should contain only </span><a id="_idTextAnchor497"/><span class="koboSpan" id="kobo.559.1">1 v</span><a id="_idTextAnchor498"/><span class="koboSpan" id="kobo.560.1">alue",
+      )
+    case t[0] != "authd":
+      return status.Errorf(
+        </span><strong class="bold"><span class="koboSpan" id="kobo.561.1">codes</span><a id="_idTextAnchor499"/><span class="koboSpan" id="kobo.562.1">.Unauthenticated</span></strong><span class="koboSpan" id="kobo.563.1">,
+        "incorrect auth_token",
+      )
+    }
+  } else {
+    return status.Errorf(
+      </span><strong class="bold"><span class="koboSpan" id="kobo.564.1">cod</span><a id="_idTextAnchor500"/><span class="koboSpan" id="kobo.565.1">es.Unauthenticated</span></strong><span class="koboSpan" id="kobo.566.1">,
+      "failed to get auth_token",
+    )
+  }
+  //...
+</span><span class="koboSpan" id="kobo.566.2">}</span></pre>
+<p><span class="koboSpan" id="kobo.567.1">That is all for the server; we return an error if there is no metadata, if there is metadata but no </span><strong class="source-inline"><span class="koboSpan" id="kobo.568.1">auth_token</span></strong><span class="koboSpan" id="kobo.569.1">, if there is an </span><strong class="source-inline"><span class="koboSpan" id="kobo.570.1">auth_token</span></strong><span class="koboSpan" id="kobo.571.1"> with multiple values, and if the </span><strong class="source-inline"><span class="koboSpan" id="kobo.572.1">auth_token</span></strong><span class="koboSpan" id="kobo.573.1"> val</span><a id="_idTextAnchor501"/><span class="koboSpan" id="kobo.574.1">ue is different </span><span class="No-Break"><span class="koboSpan" id="kobo.575.1">from </span></span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.576.1">"authd"</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.577.1">.</span></span></p>
+<p><span class="koboSpan" id="kobo.578.1">We can now go to the client</span><a id="_idIndexMarker336"/><span class="koboSpan" id="kobo.579.1"> to send the appropriate header. </span><span class="koboSpan" id="kobo.579.2">This can be done with another function from the </span><strong class="source-inline"><span class="koboSpan" id="kobo.580.1">metadata</span></strong><span class="koboSpan" id="kobo.581.1"> package called </span><strong class="source-inline"><span class="koboSpan" id="kobo.582.1">AppendToOutgoingContext</span></strong><span class="koboSpan" id="kobo.583.1">. </span><span class="koboSpan" id="kobo.583.2">We know that we already have a context created before calling the endpoint, so we are just going to append </span><strong class="source-inline"><span class="koboSpan" id="kobo.584.1">auth_token</span></strong><span class="koboSpan" id="kobo.585.1"> to it. </span><span class="koboSpan" id="kobo.585.2">This is as easy as </span><span class="No-Break"><span class="koboSpan" id="kobo.586.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.587.1">
+func updateTasks(c pb.TodoServiceClient, reqs ...*pb.
+</span><span class="koboSpan" id="kobo.587.2">  UpdateTasksRequest) {
+  ctx := context.Background()
+  ctx = metadata.AppendToOutgoingContext(ctx, "auth</span><a id="_idTextAnchor502"/><span class="koboSpan" id="kobo.588.1">_token", "authd")
+  stream, err := c.UpdateTasks(ctx)
+  //...
+</span><span class="koboSpan" id="kobo.588.2">}</span></pre>
+<p><span class="koboSpan" id="kobo.589.1">We override the context that we created with a new context containing the key value pair. </span><span class="koboSpan" id="kobo.589.2">Note that the key-value pairs can be interleaved. </span><span class="koboSpan" id="kobo.589.3">This means that we can have </span><span class="No-Break"><span class="koboSpan" id="kobo.590.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.591.1">
+metadata.AppendToOutgoingContext(ctx, K1, V1, K2, V2, ...)</span></pre>
+<p><span class="koboSpan" id="kobo.592.1">Here, </span><strong class="source-inline"><span class="koboSpan" id="kobo.593.1">K</span></strong><span class="koboSpan" id="kobo.594.1"> stands for key, and </span><strong class="source-inline"><span class="koboSpan" id="kobo.595.1">V</span></strong><span class="koboSpan" id="kobo.596.1"> stands </span><span class="No-Break"><span class="koboSpan" id="kobo.597.1">for value.</span></span></p>
+<p><span class="koboSpan" id="kobo.598.1">We c</span><a id="_idTextAnchor503"/><span class="koboSpan" id="kobo.599.1">an now run </span><span class="No-Break"><span class="koboSpan" id="kobo.600.1">the server:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.601.1">$ go run ./server 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.602.1">
+listening at 0.0.0.0:50051</span></pre>
+<p><span class="koboSpan" id="kobo.603.1">And t</span><a id="_idTextAnchor504"/><span class="koboSpan" id="kobo.604.1">hen we run </span><span class="No-Break"><span class="koboSpan" id="kobo.605.1">the client:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.606.1">$ go run ./client 0.0.0.0:50051</span></strong></pre>
+<p><span class="koboSpan" id="kobo.607.1">And everything should go well. </span><span class="koboSpan" id="kobo.607.2">However, if you set a value for </span><strong class="source-inline"><span class="koboSpan" id="kobo.608.1">auth</span><a id="_idTextAnchor505"/><span class="koboSpan" id="kobo.609.1">_token</span></strong><span class="koboSpan" id="kobo.610.1"> different from </span><strong class="source-inline"><span class="koboSpan" id="kobo.611.1">"authd"</span></strong><span class="koboSpan" id="kobo.612.1">, you should get the </span><span class="No-Break"><span class="koboSpan" id="kobo.613.1">following message:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.614.1">
+unexpected error: rpc error: code = </span><strong class="bold"><span class="koboSpan" id="kobo.615.1">Unauthenticated</span></strong><span class="koboSpan" id="kobo.616.1"> desc = </span><strong class="bold"><span class="koboSpan" id="kobo.617.1">incorrect</span></strong>
+<strong class="bold"><span class="koboSpan" id="kobo.618.1">auth_token</span></strong></pre>
+<p><span class="koboSpan" id="kobo.619.1">If you do not set the </span><strong class="source-inline"><span class="koboSpan" id="kobo.620.1">auth_token</span></strong><span class="koboSpan" id="kobo.621.1"> header, you will </span><span class="No-Break"><span class="koboSpan" id="kobo.622.1">see this:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.623.1">
+unexpected error: rpc error: code = Unauthenticated desc = </span><strong class="bold"><span class="koboSpan" id="kobo.624.1">failed to</span></strong>
+<strong class="bold"><span class="koboSpan" id="kobo.625.1">get auth_token</span></strong></pre>
+<p><span class="koboSpan" id="kobo.626.1">And imagine you set multiple values to </span><strong class="source-inline"><span class="koboSpan" id="kobo.627.1">auth_token</span></strong><span class="koboSpan" id="kobo.628.1">, </span><span class="No-Break"><span class="koboSpan" id="kobo.629.1">like so:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.630.1">
+ctx = metadata.AppendToOutgoingContext(ctx, "auth_token", "authd", 
+"auth_token", "authd")</span></pre>
+<p><span class="koboSpan" id="kobo.631.1">You should get the </span><span class="No-Break"><span class="koboSpan" id="kobo.632.1">following error:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.633.1">
+unexpected error: rpc error: code = InvalidArgument desc = </span><strong class="bold"><span class="koboSpan" id="kobo.634.1">auth_token</span></strong>
+<strong class="bold"><span class="koboSpan" id="kobo.635.1">should contain only 1 value</span></strong></pre>
+<p><span class="koboSpan" id="kobo.636.1">To conclude, we saw how to get metadata</span><a id="_idIndexMarker337"/><span class="koboSpan" id="kobo.637.1"> from a context with the </span><strong class="source-inline"><span class="koboSpan" id="kobo.638.1">metadata.FromIncomingContext</span></strong><span class="koboSpan" id="kobo.639.1"> function and all the possible errors that can arise when </span><a id="_idTextAnchor506"/><span class="koboSpan" id="kobo.640.1">we do so. </span><span class="koboSpan" id="kobo.640.2">We also saw how to actually send metadata from the client by appending a key-value pair to a context with the </span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.641.1">metadata.AppendToOutgoingContext</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.642.1"> function.</span></span></p>
+<h1 id="_idParaDest-141"><a id="_idTextAnchor507"/><span class="koboSpan" id="kobo.643.1">External logic with interceptors</span></h1>
+<p><span class="koboSpan" id="kobo.644.1">While some headers might be applicabl</span><a id="_idTextAnchor508"/><span class="koboSpan" id="kobo.645.1">e</span><a id="_idIndexMarker338"/><span class="koboSpan" id="kobo.646.1"> to only one endpoint, most often, we want to be able to apply the same logic across different endpoints. </span><span class="koboSpan" id="kobo.646.2">In the case of the </span><strong class="source-inline"><span class="koboSpan" id="kobo.647.1">auth_token</span></strong><span class="koboSpan" id="kobo.648.1"> header, if we have multiple routes that can only be called when the user is logged in, we do not want to repeat all the checks we did in the previous section. </span><span class="koboSpan" id="kobo.648.2">It bloats the code; it is not maintainable; and it might distract developers when finding the heart of the endpoint. </span><span class="koboSpan" id="kobo.648.3">This is why we will use an authentication interceptor. </span><span class="koboSpan" id="kobo.648.4">We will extract that authentication logic and it will be called before each call in </span><span class="No-Break"><span class="koboSpan" id="kobo.649.1">the API.</span></span></p>
+<p><span class="koboSpan" id="kobo.650.1">Our interceptors will be called </span><strong class="source-inline"><span class="koboSpan" id="kobo.651.1">authInterceptor</span></strong><span class="koboSpan" id="kobo.652.1">. </span><span class="koboSpan" id="kobo.652.2">The interceptor on the server side will simply do all the checks we did in the previous section, and then if everything goes well, the execution of the endpoint will be launched. </span><span class="koboSpan" id="kobo.652.3">Otherwise, the interceptor will return the error and the endpoint will not </span><span class="No-Break"><span class="koboSpan" id="kobo.653.1">be called.</span></span></p>
+<p><span class="koboSpan" id="kobo.654.1">To define a server side interceptor, we</span><a id="_idIndexMarker339"/><span class="koboSpan" id="kobo.655.1"> have two possibilities. </span><span class="koboSpan" id="kobo.655.2">The first one is used when we w</span><a id="_idTextAnchor509"/><span class="koboSpan" id="kobo.656.1">ork with a unary RPC endpoint (e.g., </span><strong class="source-inline"><span class="koboSpan" id="kobo.657.1">AddTasks</span></strong><span class="koboSpan" id="kobo.658.1">). </span><span class="koboSpan" id="kobo.658.2">The interceptor function will look like </span><span class="No-Break"><span class="koboSpan" id="kobo.659.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.660.1">
+func unaryInterc</span><a id="_idTextAnchor510"/><span class="koboSpan" id="kobo.661.1">eptor(</span><strong class="bold"><span class="koboSpan" id="kobo.662.1">ctx</span></strong><span class="koboSpan" id="kobo.663.1"> context.Context, </span><strong class="bold"><span class="koboSpan" id="kobo.664.1">req</span></strong><span class="koboSpan" id="kobo.665.1"> interface{}, info
+*grpc.UnaryServerInf</span><a id="_idTextAnchor511"/><span class="koboSpan" id="kobo.666.1">o, </span><strong class="bold"><span class="koboSpan" id="kobo.667.1">handler</span></strong><span class="koboSpan" id="kobo.668.1"> grpc.UnaryHandler) (interface{}, error)</span></pre>
+<p><span class="koboSpan" id="kobo.669.1">And then we have interceptors working on streams. </span><span class="koboSpan" id="kobo.669.2">They look like </span><span class="No-Break"><span class="koboSpan" id="kobo.670.1">the followi</span><a id="_idTextAnchor512"/><span class="koboSpan" id="kobo.671.1">ng:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.672.1">
+func streamInterceptor(srv interface{}, </span><strong class="bold"><span class="koboSpan" id="kobo.673.1">ss</span></strong><span class="koboSpan" id="kobo.674.1"> grpc.ServerStream, info
+*grpc.StreamServerInfo, </span><strong class="bold"><span class="koboSpan" id="kobo.675.1">handler</span></strong><span class="koboSpan" id="kobo.676.1"> grpc.</span><a id="_idTextAnchor513"/><span class="koboSpan" id="kobo.677.1">StreamHandler) error</span></pre>
+<p><span class="koboSpan" id="kobo.678.1">They look very similar. </span><span class="koboSpan" id="kobo.678.2">The main difference is the parameters’ type. </span><span class="koboSpan" id="kobo.678.3">Now, we are not going to use all the parameters</span><a id="_idIndexMarker340"/><span class="koboSpan" id="kobo.679.1"> for our use case, so I will encourage you to check the documentation (</span><a href="https://pkg.go.dev/google.golang.org/grpc"><span class="koboSpan" id="kobo.680.1">https://pkg.go.dev/google.golang.org/grpc</span></a><span class="koboSpan" id="kobo.681.1">) for </span><strong class="source-inline"><span class="koboSpan" id="kobo.682.1">UnaryServerInterceptor</span></strong><span class="koboSpan" id="kobo.683.1"> and </span><strong class="source-inline"><span class="koboSpan" id="kobo.684.1">StreamServerInterceptor</span></strong><span class="koboSpan" id="kobo.685.1">, and play </span><span class="No-Break"><span class="koboSpan" id="kobo.686.1">with them.</span></span></p>
+<p><span class="koboSpan" id="kobo.687.1">Let us start with the unary interceptor that will be used by </span><strong class="source-inline"><span class="koboSpan" id="kobo.688.1">AddTasks</span></strong><span class="koboSpan" id="kobo.689.1">. </span><span class="koboSpan" id="kobo.689.2">We will first extract the check into a function that will be shared across the interceptors. </span><span class="koboSpan" id="kobo.689.3">In a file called </span><strong class="source-inline"><span class="koboSpan" id="kobo.690.1">interceptors.go</span></strong><span class="koboSpan" id="kobo.691.1">, we can write </span><span class="No-Break"><span class="koboSpan" id="kobo.692.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.693.1">
+import (
+  "context"
+  "google.golang.org/grpc"
+  "google.golang.org/grpc/codes"
+  "google.golang.org/grpc/metadata"
+  "google.golang.org/grpc/status"
+)
+const authTokenKey string = "auth_token"
+const authTokenValue string = "authd"
+func validateAuthToken(ctx</span><a id="_idTextAnchor514"/><span class="koboSpan" id="kobo.694.1"> context.Context) error {
+  md, _ := metad</span><a id="_idTextAnchor515"/><span class="koboSpan" id="kobo.695.1">ata.FromIncomingContext(ctx)
+  if t, ok := md[authTokenKey]; </span><a id="_idTextAnchor516"/><span class="koboSpan" id="kobo.696.1">ok {
+    switch {
+    case len(t) != 1:
+      return status.Errorf(
+        codes.InvalidArgument,
+        fmt.Sprintf("%s should contain only 1 value", authTokenKey),
+     )
+    case t[0] != authTokenValue:
+      return status.Errorf(
+        codes.Unauthenticated,
+        fmt.Sprintf("incorrect %s", authTokenKey),
+      )
+    }
+  } else {
+    return status.Errorf(
+      codes.Unauthenticated,
+      fmt.Sprintf("failed to get %s", authTokenKey),
+    )
+  }
+  return nil
+}</span></pre>
+<p><span class="koboSpan" id="kobo.697.1">There is nothing different</span><a id="_idIndexMarker341"/><span class="koboSpan" id="kobo.698.1"> from what we did directly in </span><strong class="source-inline"><span class="koboSpan" id="kobo.699.1">UpdateTasks</span></strong><span class="koboSpan" id="kobo.700.1">. </span><span class="koboSpan" id="kobo.700.2">But now, writing our interceptor is simple. </span><span class="koboSpan" id="kobo.700.3">We will just call the </span><strong class="source-inline"><span class="koboSpan" id="kobo.701.1">validateAuthToken</span></strong><span class="koboSpan" id="kobo.702.1"> function and check for errors. </span><span class="koboSpan" id="kobo.702.2">If there is one, we will return it directly. </span><span class="koboSpan" id="kobo.702.3">And if there is not, we are going to call the </span><strong class="source-inline"><span class="koboSpan" id="kobo.703.1">handler</span></strong><span class="koboSpan" id="kobo.704.1"> function, which effectively calls </span><span class="No-Break"><span class="koboSpan" id="kobo.705.1">the endpoint:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.706.1">
+func unaryAuthInterceptor(ctx context.Context, req interface{}, info
+*grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+  if err := </span><strong class="bold"><span class="koboSpan" id="kobo.707.1">validateAuthToken</span></strong><span class="koboSpan" id="kobo.708.1">(ctx); err != nil {
+    return nil, err
+  }
+  return </span><strong class="bold"><span class="koboSpan" id="kobo.709.1">handler</span></strong><span class="koboSpan" id="kobo.710.1">(ctx, req)
+}</span></pre>
+<p><span class="koboSpan" id="kobo.711.1">We can do the same for streams. </span><span class="koboSpan" id="kobo.711.2">The only thing that will change is the arguments of the handler and how we get </span><span class="No-Break"><span class="koboSpan" id="kobo.712.1">the context:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.713.1">
+func streamAuthInterceptor(srv interface{}, ss grpc.ServerStream, info
+*grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+  if err := validateAuthToken(</span><strong class="bold"><span class="koboSpan" id="kobo.714.1">ss.Context()</span></strong><span class="koboSpan" id="kobo.715.1">); err != nil {
+    return err
+  }
+  return handler(</span><strong class="bold"><span class="koboSpan" id="kobo.716.1">srv, ss</span></strong><span class="koboSpan" id="kobo.717.1">)
+}</span></pre>
+<p><span class="koboSpan" id="kobo.718.1">Now, you might be thinking that we have functions but nobody to call them. </span><span class="koboSpan" id="kobo.718.2">And you are entirely right. </span><span class="koboSpan" id="kobo.718.3">We need to register these interceptors so that our server knows that they exist. </span><span class="koboSpan" id="kobo.718.4">This is done in </span><strong class="source-inline"><span class="koboSpan" id="kobo.719.1">server/main.go</span></strong><span class="koboSpan" id="kobo.720.1"> where we can add the interceptors as options to the gRPC server. </span><span class="koboSpan" id="kobo.720.2">Right now, we create the server </span><span class="No-Break"><span class="koboSpan" id="kobo.721.1">like so:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.722.1">
+var opts []grpc.ServerOption
+s := grpc.NewServer(opts...)</span></pre>
+<p><span class="koboSpan" id="kobo.723.1">And to add the interceptors, we can</span><a id="_idIndexMarker342"/><span class="koboSpan" id="kobo.724.1"> simp</span><a id="_idTextAnchor517"/><span class="koboSpan" id="kobo.725.1">ly add them to the </span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.726.1">opts</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.727.1"> variable:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.728.1">
+opts := []grpc.ServerOption{
+  grpc.UnaryInterceptor(unaryAuthInterceptor),
+  grpc.StreamInterceptor(streamAuthInterceptor),
+}</span></pre>
+<p><span class="koboSpan" id="kobo.729.1">We can now run </span><span class="No-Break"><span class="koboSpan" id="kobo.730.1">the server:</span></span></p>
+<p class="callout-heading"><span class="koboSpan" id="kobo.731.1">Important note</span></p>
+<p class="callout"><span class="koboSpan" id="kobo.732.1">Before running the server, you can delete the whole authentication logic in the </span><strong class="source-inline"><span class="koboSpan" id="kobo.733.1">UpdateTasks</span></strong><span class="koboSpan" id="kobo.734.1"> function in </span><strong class="source-inline"><span class="koboSpan" id="kobo.735.1">server/impl.go</span></strong><span class="koboSpan" id="kobo.736.1">. </span><span class="koboSpan" id="kobo.736.2">This is not needed anymore since the interceptors will authentic</span><a id="_idTextAnchor518"/><span class="koboSpan" id="kobo.737.1">ate </span><span class="No-Break"><span class="koboSpan" id="kobo.738.1">requests automatically.</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.739.1">$ go run ./server 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.740.1">
+listening at 0.0.0.0:50051</span></pre>
+<p><a id="_idTextAnchor519"/><span class="koboSpan" id="kobo.741.1">Then, we can run </span><span class="No-Break"><span class="koboSpan" id="kobo.742.1">the client:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.743.1">$ go run ./client 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.744.1">
+--------ADD--------
+rpc error: code = Unauthenticated desc = failed to get auth_token
+exit status 1</span></pre>
+<p><span class="koboSpan" id="kobo.745.1">As expected, we get an error because we never added the </span><strong class="source-inline"><span class="koboSpan" id="kobo.746.1">auth_token</span></strong><span class="koboSpan" id="kobo.747.1"> header in the </span><strong class="source-inline"><span class="koboSpan" id="kobo.748.1">addTask</span></strong><span class="koboSpan" id="kobo.749.1"> function on the </span><span class="No-Break"><span class="koboSpan" id="kobo.750.1">client side.</span></span></p>
+<p><span class="koboSpan" id="kobo.751.1">Obviously, we do not want to add the header</span><a id="_idIndexMarker343"/><span class="koboSpan" id="kobo.752.1"> to all our calls by hand. </span><span class="koboSpan" id="kobo.752.2">We will create a client-side interceptor that will add it for us before proceeding to send the request. </span><span class="koboSpan" id="kobo.752.3">On the client side, we have two ways of defining an interceptor. </span><span class="koboSpan" id="kobo.752.4">For the unary calls, we have </span><span class="No-Break"><span class="koboSpan" id="kobo.753.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.754.1">
+func unaryInterceptor(</span><strong class="bold"><span class="koboSpan" id="kobo.755.1">ctx</span></strong><span class="koboSpan" id="kobo.756.1"> c</span><a id="_idTextAnchor520"/><span class="koboSpan" id="kobo.757.1">ontext.Context, met</span><a id="_idTextAnchor521"/><span class="koboSpan" id="kobo.758.1">hod string, req
+interface{}, reply interface{}, cc *grpc.ClientConn, </span><strong class="bold"><span class="koboSpan" id="kobo.759.1">invoker</span></strong><span class="koboSpan" id="kobo.760.1"> grpc.
+</span><span class="koboSpan" id="kobo.760.2">UnaryInvoker, opts ...grpc.CallOption) error</span></pre>
+<p><span class="koboSpan" id="kobo.761.1">And for streams, we </span><span class="No-Break"><span class="koboSpan" id="kobo.762.1">have this:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.763.1">
+func streamInterceptor(</span><strong class="bold"><span class="koboSpan" id="kobo.764.1">ctx</span></strong><span class="koboSpan" id="kobo.765.1"> context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, </span><strong class="bold"><span class="koboSpan" id="kobo.766.1">streamer</span></strong><span class="koboSpan" id="kobo.767.1"> grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error)</span></pre>
+<p><span class="koboSpan" id="kobo.768.1">As you can see, there are many more parameters on this side. </span><span class="koboSpan" id="kobo.768.2">And, while most parameters are not important for our use case, I encourage you to check the documentation (</span><a href="https://pkg.go.dev/google.golang.org/grpc"><span class="koboSpan" id="kobo.769.1">https://pkg.go.dev/google.golang.org/grpc</span></a><span class="koboSpan" id="kobo.770.1">) for </span><strong class="source-inline"><span class="koboSpan" id="kobo.771.1">UnaryClientInterceptor</span></strong><span class="koboSpan" id="kobo.772.1"> and </span><strong class="source-inline"><span class="koboSpan" id="kobo.773.1">StreamClientInterceptor</span></strong><span class="koboSpan" id="kobo.774.1">, and play around </span><span class="No-Break"><span class="koboSpan" id="kobo.775.1">with them.</span></span></p>
+<p><span class="koboSpan" id="kobo.776.1">In the client-side interceptors, we are going to simply create a new context and append the metadata before calling the endpoint. </span><span class="koboSpan" id="kobo.776.2">We do not even need to create a separate function to share the logic since this is as simple as calling the </span><strong class="source-inline"><span class="koboSpan" id="kobo.777.1">AppendToOutgoingContext</span></strong><span class="koboSpan" id="kobo.778.1"> function that we </span><span class="No-Break"><span class="koboSpan" id="kobo.779.1">saw earlier.</span></span></p>
+<p><span class="koboSpan" id="kobo.780.1">In </span><strong class="source-inline"><span class="koboSpan" id="kobo.781.1">client/interceptors.go</span></strong><span class="koboSpan" id="kobo.782.1">, we can write </span><span class="No-Break"><span class="koboSpan" id="kobo.783.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.784.1">
+import (
+  "context"
+  "google.golang.org/grpc"
+  "google.golang.org/grpc/metadata"
+)
+const authTokenKey string = "auth_token"
+const authTokenValue string = "authd"
+func unaryAuthInterceptor(ctx context.</span><a id="_idTextAnchor522"/><span class="koboSpan" id="kobo.785.1">Context, method string, req,
+  reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker,
+    opts ...grpc.CallOption) error {
+  ctx = metadata.AppendToOutgoingContext(ct</span><a id="_idTextAnchor523"/><span class="koboSpan" id="kobo.786.1">x, auth</span><a id="_idTextAnchor524"/><span class="koboSpan" id="kobo.787.1">TokenKey,
+      authTokenValue)
+  err := invoker(ctx, method, </span><a id="_idTextAnchor525"/><span class="koboSpan" id="kobo.788.1">req, reply, cc, opts...)
+  return err
+}
+func streamAuthInterceptor(ctx context.Context, desc *grpc.StreamDesc,
+  cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts     ...grpc.CallOption) (grpc.ClientStream, error) {
+  ctx = metadata.AppendToOutgoingContext(ctx, </span><a id="_idTextAnchor526"/><span class="koboSpan" id="kobo.789.1">authTok</span><a id="_idTextAnchor527"/><span class="koboSpan" id="kobo.790.1">enKey,      authTokenValue)
+  s, err := streamer(ctx</span><a id="_idTextAnchor528"/><span class="koboSpan" id="kobo.791.1">, desc,</span><a id="_idTextAnchor529"/><span class="koboSpan" id="kobo.792.1"> cc, method, opts...)
+  if err != nil {
+    return nil, err
+  }
+  return s, nil
+}</span></pre>
+<p><span class="koboSpan" id="kobo.793.1">And finally, as in the server, we also need</span><a id="_idIndexMarker344"/><span class="koboSpan" id="kobo.794.1"> to register these interceptors. </span><span class="koboSpan" id="kobo.794.2">This time, these interceptors will be registered by adding </span><strong class="source-inline"><span class="koboSpan" id="kobo.795.1">DialOptions</span></strong><span class="koboSpan" id="kobo.796.1"> to the </span><strong class="source-inline"><span class="koboSpan" id="kobo.797.1">Dial</span></strong><span class="koboSpan" id="kobo.798.1"> function we use in </span><strong class="source-inline"><span class="koboSpan" id="kobo.799.1">main</span></strong><span class="koboSpan" id="kobo.800.1">. </span><span class="koboSpan" id="kobo.800.2">Right n</span><a id="_idTextAnchor530"/><span class="koboSpan" id="kobo.801.1">ow, you should have </span><span class="No-Break"><span class="koboSpan" id="kobo.802.1">something like:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.803.1">
+opts := []grpc.DialOption{
+  grpc.WithTransportCredentials(</span><a id="_idTextAnchor531"/><span class="koboSpan" id="kobo.804.1">insecure.NewCredentials()),
+}</span></pre>
+<p><span class="koboSpan" id="kobo.805.1">We ca</span><a id="_idTextAnchor532"/><span class="koboSpan" id="kobo.806.1">n now add the interceptors </span><span class="No-Break"><span class="koboSpan" id="kobo.807.1">like so:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.808.1">
+opts := []grpc.DialOption{
+  //...
+</span><span class="koboSpan" id="kobo.808.2">  grpc.WithUnaryInterceptor(unaryAuthInterceptor),
+  grpc.WithStreamInterceptor(streamAuthInterceptor),
+}</span></pre>
+<p><span class="koboSpan" id="kobo.809.1">As they are regi</span><a id="_idTextAnchor533"/><span class="koboSpan" id="kobo.810.1">stered, we can run </span><span class="No-Break"><span class="koboSpan" id="kobo.811.1">our server:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.812.1">$ go run ./server 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.813.1">
+listening at 0.0.0.0:50051</span></pre>
+<p><span class="koboSpan" id="kobo.814.1">Then, we can run </span><span class="No-Break"><span class="koboSpan" id="kobo.815.1">the client:</span></span></p>
+<p class="callout-heading"><span class="koboSpan" id="kobo.816.1">Important note</span></p>
+<p class="callout"><span class="koboSpan" id="kobo.817.1">Before running the client, you can delete the call to </span><strong class="source-inline"><span class="koboSpan" id="kobo.818.1">AppendToOutgoingContext</span></strong><span class="koboSpan" id="kobo.819.1"> present in </span><strong class="source-inline"><span class="koboSpan" id="kobo.820.1">updateTask</span></strong><span class="koboSpan" id="kobo.821.1"> in the </span><strong class="source-inline"><span class="koboSpan" id="kobo.822.1">client/main.go</span></strong><span class="koboSpan" id="kobo.823.1"> file. </span><span class="koboSpan" id="kobo.823.2">This is not needed anymore since the intercept</span><a id="_idTextAnchor534"/><span class="koboSpan" id="kobo.824.1">ors will do </span><span class="No-Break"><span class="koboSpan" id="kobo.825.1">it automatically.</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.826.1">
+$ go run ./client 0.0.0.0:50051</span></pre>
+<p><span class="koboSpan" id="kobo.827.1">And all the calls should now go through without </span><span class="No-Break"><span class="koboSpan" id="kobo.828.1">any errors.</span></span></p>
+<p><span class="koboSpan" id="kobo.829.1">To conclude, in this section, we saw </span><a id="_idIndexMarker345"/><span class="koboSpan" id="kobo.830.1">that we can write unary and stream interceptors on both the server and client sides. </span><span class="koboSpan" id="kobo.830.2">The goal of these interceptors is to automatically do some repetitive work across multiple endpoints. </span><span class="koboSpan" id="kobo.830.3">In our example, we automated the adding and checking of the </span><strong class="source-inline"><span class="koboSpan" id="kobo.831.1">auth_token</span></strong><span class="koboSpan" id="kobo.832.1"> header </span><span class="No-Break"><span class="koboSpan" id="kobo.833.1">for authentication.</span></span></p>
+<h1 id="_idParaDest-142"><a id="_idTextAnchor535"/><span class="koboSpan" id="kobo.834.1">Compressing the payload</span></h1>
+<p><span class="koboSpan" id="kobo.835.1">While Protobuf serializes data</span><a id="_idIndexMarker346"/><span class="koboSpan" id="kobo.836.1"> into binary and this involves much smaller payloads than text data, we can apply compression on top of the binary. </span><span class="koboSpan" id="kobo.836.2">gRPC provides</span><a id="_idIndexMarker347"/><span class="koboSpan" id="kobo.837.1"> us with the gzip Compressor (</span><a href="https://pkg.go.dev/google.golang.org/grpc/encoding/gzip"><span class="koboSpan" id="kobo.838.1">https://pkg.go.dev/google.golang.org/grpc/encoding/gzip</span></a><span class="koboSpan" id="kobo.839.1">) and for more advanced use cases, lets</span><a id="_idIndexMarker348"/><span class="koboSpan" id="kobo.840.1"> us write our own </span><span class="No-Break"><span class="koboSpan" id="kobo.841.1">Compressor (</span></span><a href="https://pkg.go.dev/google.golang.org/grpc/encoding"><span class="No-Break"><span class="koboSpan" id="kobo.842.1">https://pkg.go.dev/google.golang.org/grpc/encoding</span></span></a><span class="No-Break"><span class="koboSpan" id="kobo.843.1">).</span></span></p>
+<p><span class="koboSpan" id="kobo.844.1">Now, before diving into how to use the gzip Compressor, it is important to understand that lossless compression might result in a bigger payload size. </span><span class="koboSpan" id="kobo.844.2">If your payload does not contain repetitive data, which is what gzip detects and compresses, you will send more bytes than needed. </span><span class="koboSpan" id="kobo.844.3">So, you will need to experiment with a typical payload and see how gzip affects </span><span class="No-Break"><span class="koboSpan" id="kobo.845.1">its size.</span></span></p>
+<p><span class="koboSpan" id="kobo.846.1">To show an example of that, I included in the </span><strong class="source-inline"><span class="koboSpan" id="kobo.847.1">helpers</span></strong><span class="koboSpan" id="kobo.848.1"> folder a file called </span><strong class="source-inline"><span class="koboSpan" id="kobo.849.1">gzip.go</span></strong><span class="koboSpan" id="kobo.850.1">, which contains a helper function called </span><strong class="source-inline"><span class="koboSpan" id="kobo.851.1">compressedSize</span></strong><span class="koboSpan" id="kobo.852.1">. </span><span class="koboSpan" id="kobo.852.2">This function returns the original size of the serialized data and its size after </span><span class="No-Break"><span class="koboSpan" id="kobo.853.1">gzip compression:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.854.1">
+func co</span><a id="_idTextAnchor536"/><span class="koboSpan" id="kobo.855.1">mpressedSize[M protoreflect.ProtoMessage](msg M) (int, int) {
+  var b bytes.Buffer
+  gz := gzip.N</span><a id="_idTextAnchor537"/><span class="koboSpan" id="kobo.856.1">ewWriter(&amp;b)
+  out, err:= proto.Marshal(msg)
+  if err != nil {
+    log.Fatal(</span><a id="_idTextAnchor538"/><span class="koboSpan" id="kobo.857.1">err)
+  }
+  if _,</span><a id="_idTextAnchor539"/><span class="koboSpan" id="kobo.858.1"> err := gz.Write(out); er</span><a id="_idTextAnchor540"/><span class="koboSpan" id="kobo.859.1">r != nil {
+    log.</span><a id="_idTextAnchor541"/><span class="koboSpan" id="kobo.860.1">Fatal(err)
+  }
+  if err := gz.Close(); err != nil {
+    log.Fatal(err)
+  }
+  return </span><strong class="bold"><span class="koboSpan" id="kobo.861.1">len(out), len(b.Bytes())</span></strong><span class="koboSpan" id="kobo.862.1">
+}</span></pre>
+<p><span class="koboSpan" id="kobo.863.1">As this is a generic function, we can use</span><a id="_idIndexMarker349"/><span class="koboSpan" id="kobo.864.1"> it with any message. </span><span class="koboSpan" id="kobo.864.2">We can start with a message that would not be suitable to compress: </span><strong class="source-inline"><span class="koboSpan" id="kobo.865.1">Int32Value</span></strong><span class="koboSpan" id="kobo.866.1">. </span><span class="koboSpan" id="kobo.866.2">So, in the </span><strong class="source-inline"><span class="koboSpan" id="kobo.867.1">main</span></strong><span class="koboSpan" id="kobo.868.1"> function of the file, we are going to create an instance of </span><strong class="source-inline"><span class="koboSpan" id="kobo.869.1">Int32Value</span></strong><span class="koboSpan" id="kobo.870.1">, pass it through the </span><strong class="source-inline"><span class="koboSpan" id="kobo.871.1">compressedSize</span></strong><span class="koboSpan" id="kobo.872.1"> function, and we are going to print both the original and the </span><span class="No-Break"><span class="koboSpan" id="kobo.873.1">new size:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.874.1">
+func </span><a id="_idTextAnchor542"/><span class="koboSpan" id="kobo.875.1">main() </span><a id="_idTextAnchor543"/><span class="koboSpan" id="kobo.876.1">{
+  var data int32 = 268_435_456
+  i32 := &amp;wrappersp</span><a id="_idTextAnchor544"/><span class="koboSpan" id="kobo.877.1">b.Int32Value{
+    Value: data,
+  }
+  o, c := compressedSize(i32)
+  fmt.Printf("original: %d\ncompressed: %d\n", o, c)
+}</span></pre>
+<p><span class="koboSpan" id="kobo.878.1">And if we run this, we should get </span><span class="No-Break"><span class="koboSpan" id="kobo.879.1">the following:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.880.1">$ go run gzip.go</span></strong><span class="koboSpan" id="kobo.881.1">
+original: 6
+compressed: 30</span></pre>
+<p><span class="koboSpan" id="kobo.882.1">The compressed payload</span><a id="_idIndexMarker350"/><span class="koboSpan" id="kobo.883.1"> is five ti</span><a id="_idTextAnchor545"/><span class="koboSpan" id="kobo.884.1">mes bigger than the original one. </span><span class="koboSpan" id="kobo.884.2">That is definitely something to avoid in production. </span><span class="koboSpan" id="kobo.884.3">Now obviously, most of the time, we do not send such simple messages, so let us see a more concrete example. </span><span class="koboSpan" id="kobo.884.4">We are going to use the </span><strong class="source-inline"><span class="koboSpan" id="kobo.885.1">Task</span></strong><span class="koboSpan" id="kobo.886.1"> message that we defined earlier in </span><span class="No-Break"><span class="koboSpan" id="kobo.887.1">the book:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.888.1">
+syntax = "proto3";
+package todo;
+import "google/protobuf/timestamp.proto";
+option go_package = "github.com/PacktPublishing/gRPC-Go-for-Professionals/helpers/proto";
+message Task {
+  uint64 id = 1;
+  string description = 2;
+  bool done = 3;
+  google.protobuf.Timestamp due_date = 4;
+}</span></pre>
+<p><span class="koboSpan" id="kobo.889.1">Then, we can compile it with the </span><span class="No-Break"><span class="koboSpan" id="kobo.890.1">following command:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.891.1">
+$ protoc --go_out=. </span><span class="koboSpan" id="kobo.891.2">\
+         --go_opt=module=github.com/PacktPublishing/
+                 gRPC-Go-for-Professionals/helpers \
+         proto/todo.proto</span></pre>
+<p><span class="koboSpan" id="kobo.892.1">And after that, we can now create</span><a id="_idIndexMarker351"/><span class="koboSpan" id="kobo.893.1"> an instance of </span><strong class="source-inline"><span class="koboSpan" id="kobo.894.1">Task</span></strong><span class="koboSpan" id="kobo.895.1"> and pass it the </span><strong class="source-inline"><span class="koboSpan" id="kobo.896.1">compressedSize</span></strong><span class="koboSpan" id="kobo.897.1"> funct</span><a id="_idTextAnchor546"/><span class="koboSpan" id="kobo.898.1">ion to see </span><a id="_idTextAnchor547"/><span class="koboSpan" id="kobo.899.1">the result </span><span class="No-Break"><span class="koboSpan" id="kobo.900.1">of compression:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.901.1">
+func main() {
+  task := &amp;pb.Task{
+    Id: 1,
+    Description: "This is a ta</span><a id="_idTextAnchor548"/><span class="koboSpan" id="kobo.902.1">sk",
+    DueDate: timestamppb.New(time.Now(</span><a id="_idTextAnchor549"/><span class="koboSpan" id="kobo.903.1">).Add(5 * 24 *
+    time.Hour)),
+  }
+  o, c := compressedSize(task)
+  fmt.Printf("original: %d\ncompressed: %d\n", o, c)
+}</span></pre>
+<p><span class="koboSpan" id="kobo.904.1">And if we run it, we should get the </span><span class="No-Break"><span class="koboSpan" id="kobo.905.1">following sizes:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.906.1">$ go run gzip.go</span></strong><span class="koboSpan" id="kobo.907.1">
+original: 32
+compressed: 57</span></pre>
+<p><span class="koboSpan" id="kobo.908.1">This is better than the previous example, but this is still not efficient since we are sending more bytes than needed. </span><span class="koboSpan" id="kobo.908.2">So, in the cases we saw previously, it would not make sense to use </span><span class="No-Break"><span class="koboSpan" id="kobo.909.1">gzip compression.</span></span></p>
+<p><span class="koboSpan" id="kobo.910.1">Lastly, let us see an example of when compression is useful. </span><span class="koboSpan" id="kobo.910.2">Let us say that most of our </span><strong class="source-inline"><span class="koboSpan" id="kobo.911.1">Task</span></strong><span class="koboSpan" id="kobo.912.1"> instances have long</span><a id="_idIndexMarker352"/><span class="koboSpan" id="kobo.913.1"> descriptions. </span><span class="koboSpan" id="kobo.913.2">Fo</span><a id="_idTextAnchor550"/><span class="koboSpan" id="kobo.914.1">r example, we could have something </span><span class="No-Break"><span class="koboSpan" id="kobo.915.1">like so:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.916.1">
+task := &amp;pb.Task{
+  //...
+</span><span class="koboSpan" id="kobo.916.2">  Description: `This is a task that is quite long and requires a lot
+  of work.
+</span><span class="koboSpan" id="kobo.916.3">  We are not sure we can finish it</span><a id="_idTextAnchor551"/><span class="koboSpan" id="kobo.917.1"> even after 5 days.
+</span><span class="koboSpan" id="kobo.917.2">  So</span><a id="_idTextAnchor552"/><span class="koboSpan" id="kobo.918.1">me planning will be needed and a meeting is required.`,
+  //...
+</span><span class="koboSpan" id="kobo.918.2">}</span></pre>
+<p><span class="koboSpan" id="kobo.919.1">Then, running the </span><strong class="source-inline"><span class="koboSpan" id="kobo.920.1">compressedSize</span></strong><span class="koboSpan" id="kobo.921.1"> function will give us the </span><span class="No-Break"><span class="koboSpan" id="kobo.922.1">following sizes:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.923.1">$ go run gzip.go</span></strong><span class="koboSpan" id="kobo.924.1">
+original: 192
+compressed: 183</span></pre>
+<p><span class="koboSpan" id="kobo.925.1">The lesson here is that we need to know our data before enabling gzip compression in gRPC. </span><span class="koboSpan" id="kobo.925.2">Now, let us see how to </span><span class="No-Break"><span class="koboSpan" id="kobo.926.1">enable it.</span></span></p>
+<p><span class="koboSpan" id="kobo.927.1">On the server side (</span><strong class="source-inline"><span class="koboSpan" id="kobo.928.1">server/main.go</span></strong><span class="koboSpan" id="kobo.929.1">), this is as easy as adding the </span><span class="No-Break"><span class="koboSpan" id="kobo.930.1">following import:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.931.1">
+_ "google.golang.org/grpc/encoding/gzip"</span><a id="_idTextAnchor553"/></pre>
+<p><span class="koboSpan" id="kobo.932.1">Notice that we add an underscore before it in order to avoid getting an error from the compiler saying that we are not using </span><span class="No-Break"><span class="koboSpan" id="kobo.933.1">the import.</span></span></p>
+<p><span class="koboSpan" id="kobo.934.1">That is all for the server. </span><span class="koboSpan" id="kobo.934.2">On the client side, there is a little bit more code, but this is also simple. </span><span class="koboSpan" id="kobo.934.3">We can enable compression on all the RPC endpoints by adding </span><strong class="source-inline"><span class="koboSpan" id="kobo.935.1">DialOption</span></strong><span class="koboSpan" id="kobo.936.1"> or we can enable</span><a id="_idIndexMarker353"/><span class="koboSpan" id="kobo.937.1"> it for a single endpoint by adding </span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.938.1">CallOption</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.939.1"> (</span></span><a href="https://pkg.go.dev/google.golang.org/grpc#CallOption"><span class="No-Break"><span class="koboSpan" id="kobo.940.1">https://pkg.go.dev/google.golang.org/grpc#CallOption</span></span></a><span class="No-Break"><span class="koboSpan" id="kobo.941.1">).</span></span></p>
+<p><span class="koboSpan" id="kobo.942.1">For the first option, we can simp</span><a id="_idTextAnchor554"/><span class="koboSpan" id="kobo.943.1">ly add </span><span class="No-Break"><span class="koboSpan" id="kobo.944.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.945.1">
+opts := []grpc.DialOption{
+  //...
+</span><span class="koboSpan" id="kobo.945.2">  grpc.WithDefaultCallOptions(</span><strong class="bold"><span class="koboSpan" id="kobo.946.1">grpc.UseCompres</span></strong><span class="koboSpan" id="kobo.947.1">
+  </span><strong class="bold"><span class="koboSpan" id="kobo.948.1">sor(gzip.Name)</span></strong><span class="koboSpan" id="kobo.949.1">)
+}</span></pre>
+<p><span class="koboSpan" id="kobo.950.1">gzip adds the same import as the one in the server without the </span><span class="No-Break"><span class="koboSpan" id="kobo.951.1">preceding underscore.</span></span></p>
+<p><span class="koboSpan" id="kobo.952.1">And for adding compression per call, we can add </span><strong class="source-inline"><span class="koboSpan" id="kobo.953.1">CallOption</span></strong><span class="koboSpan" id="kobo.954.1">. </span><span class="koboSpan" id="kobo.954.2">If we wanted to add gzip compression to </span><strong class="source-inline"><span class="koboSpan" id="kobo.955.1">AddT</span><a id="_idTextAnchor555"/><span class="koboSpan" id="kobo.956.1">ask</span></strong><span class="koboSpan" id="kobo.957.1"> calls, we would have </span><span class="No-Break"><span class="koboSpan" id="kobo.958.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.959.1">
+res, err := c.AddTask(context.Background(), req, </span><strong class="bold"><span class="koboSpan" id="kobo.960.1">grpc.UseCompressor(gzip.Name)</span></strong><span class="koboSpan" id="kobo.961.1">)</span></pre>
+<p><span class="koboSpan" id="kobo.962.1">To conclude, we saw</span><a id="_idIndexMarker354"/><span class="koboSpan" id="kobo.963.1"> that always adding compression is not a good idea and we should only add it after testing it on our data. </span><span class="koboSpan" id="kobo.963.2">Then, we saw how we can register the gzip compressor on the server and client. </span><span class="koboSpan" id="kobo.963.3">And finally, we saw that we can enable compression globally or </span><span class="No-Break"><span class="koboSpan" id="kobo.964.1">per call.</span></span></p>
+<h1 id="_idParaDest-143"><a id="_idTextAnchor556"/><span class="koboSpan" id="kobo.965.1">Securing connections</span></h1>
+<p><span class="koboSpan" id="kobo.966.1">Up until now, we have not made </span><a id="_idIndexMarker355"/><span class="koboSpan" id="kobo.967.1">our connections secure – we used insecure credentials. </span><span class="koboSpan" id="kobo.967.2">In gRPC, we can use TLS, mTLS, and ATLS connections. </span><span class="koboSpan" id="kobo.967.3">The first uses a one-way authentication where the client can verify the server’s identity. </span><span class="koboSpan" id="kobo.967.4">The second one is a two-way communication where the server verifies the client’s identity and the client verifies the server’s. </span><span class="koboSpan" id="kobo.967.5">And finally, ATLS is similar to TLS but designed and optimized for </span><span class="No-Break"><span class="koboSpan" id="kobo.968.1">Google’s use.</span></span></p>
+<p><span class="koboSpan" id="kobo.969.1">mTLS and ATLS are worth exploring if you are working on smaller-scale communication or working with Google Cloud, respectively. </span><span class="koboSpan" id="kobo.969.2">If you are interested in mTLS, you should check the mTLS folder in the </span><strong class="source-inline"><span class="koboSpan" id="kobo.970.1">grpc-go</span></strong><span class="koboSpan" id="kobo.971.1"> GitHub repository: </span><a href="https://github.com/grpc/grpc-go/tree/master/examples/features/encryption/mTLS"><span class="koboSpan" id="kobo.972.1">https://github.com/grpc/grpc-go/tree/master/examples/features/encryption/mTLS</span></a><span class="koboSpan" id="kobo.973.1">. </span><span class="koboSpan" id="kobo.973.2">And if you want to use ATLS, check out this link: </span><a href="https://grpc.io/docs/languages/go/alts/"><span class="koboSpan" id="kobo.974.1">https://grpc.io/docs/languages/go/alts/</span></a><span class="koboSpan" id="kobo.975.1">. </span><span class="koboSpan" id="kobo.975.2">However, in our case, we are going to see the most frequently</span><a id="_idIndexMarker356"/><span class="koboSpan" id="kobo.976.1"> used form of encryption, which </span><span class="No-Break"><span class="koboSpan" id="kobo.977.1">is TLS.</span></span></p>
+<p><span class="koboSpan" id="kobo.978.1">To do so, we are going to need to create some self-signed certificates. </span><span class="koboSpan" id="kobo.978.2">Obviously, in production, these certificates will be automatically created with something such as Let’s Encrypt. </span><span class="koboSpan" id="kobo.978.3">However, once these certificates are available, the overall settings are </span><span class="No-Break"><span class="koboSpan" id="kobo.979.1">the same.</span></span></p>
+<p><span class="koboSpan" id="kobo.980.1">Now, for the sake of simplicity, we are going</span><a id="_idIndexMarker357"/><span class="koboSpan" id="kobo.981.1"> to download these certificates from the examples in the </span><strong class="source-inline"><span class="koboSpan" id="kobo.982.1">grpc-go</span></strong><span class="koboSpan" id="kobo.983.1"> repository. </span><span class="koboSpan" id="kobo.983.2">These certificates can also be found in the </span><strong class="source-inline"><span class="koboSpan" id="kobo.984.1">certs</span></strong><span class="koboSpan" id="kobo.985.1"> directory under the </span><strong class="source-inline"><span class="koboSpan" id="kobo.986.1">chapter7</span></strong><span class="koboSpan" id="kobo.987.1"> folder. </span><span class="koboSpan" id="kobo.987.2">We first need to get the server certificate and </span><span class="No-Break"><span class="koboSpan" id="kobo.988.1">its key:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.989.1">
+$ curl https://raw.githubusercontent.com/grpc/grpc-go/master/examples/
+data/x509/server_cert.pem --output server_cert.pem
+$ curl https://raw.githubusercontent.com/grpc/grpc-go/master/examples/
+data/x509/server_key.pem --output server_key.pem</span></pre>
+<p><span class="koboSpan" id="kobo.990.1">And then</span><a id="_idIndexMarker358"/><span class="koboSpan" id="kobo.991.1"> we need to get the </span><strong class="bold"><span class="koboSpan" id="kobo.992.1">Certificate Authority</span></strong><span class="koboSpan" id="kobo.993.1"> (</span><span class="No-Break"><strong class="bold"><span class="koboSpan" id="kobo.994.1">CA</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.995.1">) certificate:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.996.1">
+$ curl https://raw.githubusercontent.com/grpc/grpc-go/master/examples/
+data/x509/ca_cert.pem --output ca_cert.pem</span></pre>
+<p><span class="koboSpan" id="kobo.997.1">Now, we can start with the server. </span><span class="koboSpan" id="kobo.997.2">We will add the credentials as </span><strong class="source-inline"><span class="koboSpan" id="kobo.998.1">ServerOption</span></strong><span class="koboSpan" id="kobo.999.1"> because we want all our calls to be encrypted. </span><span class="koboSpan" id="kobo.999.2">To create the credentials, we can use a function called </span><strong class="source-inline"><span class="koboSpan" id="kobo.1000.1">NewServerTLSFromFile</span></strong><span class="koboSpan" id="kobo.1001.1"> from gRPC’s </span><strong class="source-inline"><span class="koboSpan" id="kobo.1002.1">credential</span></strong><span class="koboSpan" id="kobo.1003.1"> package. </span><span class="koboSpan" id="kobo.1003.2">It reads two files</span><a id="_idTextAnchor557"/><span class="koboSpan" id="kobo.1004.1">, the server certificate a</span><a id="_idTextAnchor558"/><span class="koboSpan" id="kobo.1005.1">nd the </span><span class="No-Break"><span class="koboSpan" id="kobo.1006.1">server key:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1007.1">
+func main() {
+  //...
+</span><span class="koboSpan" id="kobo.1007.2">  creds, err := credentials.NewServerTLSFrom
+  File(</span><strong class="bold"><span class="koboSpan" id="kobo.1008.1">"./certs</span><a id="_idTextAnchor559"/><span class="koboSpan" id="kobo.1009.1">/server</span><a id="_idTextAnchor560"/><span class="koboSpan" id="kobo.1010.1">_cert.pem", "./certs/server_key.pem")</span></strong><span class="koboSpan" id="kobo.1011.1">
+  if err != nil {
+    log.Fata</span><a id="_idTextAnchor561"/><span class="koboSpan" id="kobo.1012.1">lf("failed to create credentials: %v", err)
+  }
+}</span></pre>
+<p><span class="koboSpan" id="kobo.1013.1">And once this is created, we can use the </span><strong class="source-inline"><span class="koboSpan" id="kobo.1014.1">g</span><a id="_idTextAnchor562"/><span class="koboSpan" id="kobo.1015.1">rpc.Creds</span></strong><span class="koboSpan" id="kobo.1016.1"> function, which creates </span><span class="No-Break"><span class="koboSpan" id="kobo.1017.1">a </span></span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.1018.1">ServerOption</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.1019.1">:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1020.1">
+opts := []grpc.ServerOption{
+  grpc.Creds(creds),
+  //...
+</span><span class="koboSpan" id="kobo.1020.2">}</span></pre>
+<p><span class="koboSpan" id="kobo.1021.1">Let’s see wha</span><a id="_idTextAnchor563"/><span class="koboSpan" id="kobo.1022.1">t happens when we now try to run </span><span class="No-Break"><span class="koboSpan" id="kobo.1023.1">the server:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.1024.1">$ go run ./server 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.1025.1">
+listenin</span><a id="_idTextAnchor564"/><span class="koboSpan" id="kobo.1026.1">g at 0.0.0.0:50051</span></pre>
+<p><span class="koboSpan" id="kobo.1027.1">Then, we run </span><span class="No-Break"><span class="koboSpan" id="kobo.1028.1">the client:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.1029.1">$ go run ./client 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.1030.1">
+--------ADD--------
+rpc error: code = Unavailable desc = connection error: desc = "error
+reading server preface: EOF"</span></pre>
+<p><span class="koboSpan" id="kobo.1031.1">We get an error that basically</span><a id="_idIndexMarker359"/><span class="koboSpan" id="kobo.1032.1"> tells us that the client was not able to connect to the server. </span><span class="koboSpan" id="kobo.1032.2">To solve this, we need to go to the client side and create the </span><strong class="source-inline"><span class="koboSpan" id="kobo.1033.1">DialOption</span></strong><span class="koboSpan" id="kobo.1034.1"> for </span><span class="No-Break"><span class="koboSpan" id="kobo.1035.1">the credentials.</span></span></p>
+<p><span class="koboSpan" id="kobo.1036.1">This time, we will use the </span><strong class="source-inline"><span class="koboSpan" id="kobo.1037.1">NewClientTLSFromFile</span></strong><span class="koboSpan" id="kobo.1038.1"> function, which takes the CA certificate. </span><span class="koboSpan" id="kobo.1038.2">For testing purposes, we will add the host URL as a second argument (the certificate domain is *.test.example.com). </span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1039.1">
+creds, err := credentials.NewClientTLSFromFi</span><a id="_idTextAnchor565"/><span class="koboSpan" id="kobo.1040.1">le("</span><strong class="bold"><span class="koboSpan" id="kobo.1041.1">./certs/ca_cert.pem</span></strong><span class="koboSpan" id="kobo.1042.1">",
+  </span><strong class="bold"><span class="koboSpan" id="kobo.1043.1">"x.test.example.com"</span></strong><span class="koboSpan" id="kobo.1044.1">)
+if err != nil {
+  log.Fatalf("failed to load credentials: %v", err)
+}</span></pre>
+<p><span class="koboSpan" id="kobo.1045.1">And to add the credentials, we use a function called W</span><strong class="source-inline"><span class="koboSpan" id="kobo.1046.1">it</span><a id="_idTextAnchor566"/><span class="koboSpan" id="kobo.1047.1">hTransportCredentials</span></strong><span class="koboSpan" id="kobo.1048.1">, which creates </span><span class="No-Break"><span class="koboSpan" id="kobo.1049.1">a </span></span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.1050.1">DialOption</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.1051.1">.</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1052.1">
+opts := []grpc.DialOption{
+  grpc.WithTransportCredentials(creds),
+  //grpc.WithTransportCredentials(insecure.NewCredentials())
+  //...
+</span><span class="koboSpan" id="kobo.1052.2">}</span></pre>
+<p><span class="koboSpan" id="kobo.1053.1">Note that we remove the insecure credentials since we now want to encrypt </span><span class="No-Break"><span class="koboSpan" id="kobo.1054.1">th</span><a id="_idTextAnchor567"/><span class="koboSpan" id="kobo.1055.1">e communication.</span></span></p>
+<p><span class="koboSpan" id="kobo.1056.1">Let us now rerun </span><span class="No-Break"><span class="koboSpan" id="kobo.1057.1">the server:</span></span></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.1058.1">$ go run ./server 0.0.0.0:50051</span></strong><span class="koboSpan" id="kobo.1059.1">
+listening at 0.0.0.</span><a id="_idTextAnchor568"/><span class="koboSpan" id="kobo.1060.1">0:50051</span></pre>
+<p><span class="koboSpan" id="kobo.1061.1">Then, we do the same for </span><span class="No-Break"><span class="koboSpan" id="kobo.1062.1">the client:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1063.1">
+$ go run ./client 0.0.0.0:50051</span></pre>
+<p><span class="koboSpan" id="kobo.1064.1">Everything goes well – we should</span><a id="_idIndexMarker360"/><span class="koboSpan" id="kobo.1065.1"> pass through all the calls that we passed pr</span><a id="_idTextAnchor569"/><span class="koboSpan" id="kobo.1066.1">eviously but now our</span><a id="_idTextAnchor570"/><span class="koboSpan" id="kobo.1067.1"> communication </span><span class="No-Break"><span class="koboSpan" id="kobo.1068.1">is secure.</span></span></p>
+<h2 id="_idParaDest-144"><a id="_idTextAnchor571"/><span class="koboSpan" id="kobo.1069.1">Bazel</span></h2>
+<p><span class="koboSpan" id="kobo.1070.1">In order to run the code we wrote</span><a id="_idIndexMarker361"/><span class="koboSpan" id="kobo.1071.1"> in this section with Bazel, we need to include </span><a id="_idIndexMarker362"/><span class="koboSpan" id="kobo.1072.1">the certificate files in our </span><strong class="source-inline"><span class="koboSpan" id="kobo.1073.1">BUILD</span></strong><span class="koboSpan" id="kobo.1074.1"> files. </span><span class="koboSpan" id="kobo.1074.2">This can be done by exporting them and adding them as </span><strong class="source-inline"><span class="koboSpan" id="kobo.1075.1">data</span></strong><span class="koboSpan" id="kobo.1076.1"> to the </span><strong class="source-inline"><span class="koboSpan" id="kobo.1077.1">server_lib</span></strong><span class="koboSpan" id="kobo.1078.1"> and </span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.1079.1">client_lib</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.1080.1"> targets.</span></span></p>
+<p><span class="koboSpan" id="kobo.1081.1">To export the files, we need to create a </span><strong class="source-inline"><span class="koboSpan" id="kobo.1082.1">BUILD.bazel</span></strong><span class="koboSpan" id="kobo.1083.1"> file in the </span><strong class="source-inline"><span class="koboSpan" id="kobo.1084.1">certs</span></strong><span class="koboSpan" id="kobo.1085.1"> folder that contains </span><span class="No-Break"><span class="koboSpan" id="kobo.1086.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1087.1">
+exports_files([
+  "server_cert.pem",
+  "server_key.pem",
+  "ca_cert.pem"
+])</span></pre>
+<p><span class="koboSpan" id="kobo.1088.1">Then, in the server </span><strong class="source-inline"><span class="koboSpan" id="kobo.1089.1">BUILD</span></strong><span class="koboSpan" id="kobo.1090.1"> file, we can now add a dependency on </span><strong class="source-inline"><span class="koboSpan" id="kobo.1091.1">server_cert</span></strong><span class="koboSpan" id="kobo.1092.1"> and </span><strong class="source-inline"><span class="koboSpan" id="kobo.1093.1">server_key</span></strong><span class="koboSpan" id="kobo.1094.1"> like so (</span><span class="No-Break"><span class="koboSpan" id="kobo.1095.1">in </span></span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.1096.1">server/BUILD.bazel</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.1097.1">):</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1098.1">
+go_library(
+  name = "server_lib",
+  //...
+</span><span class="koboSpan" id="kobo.1098.2">  data = [
+    "//certs:server_cert.pem",
+    "//certs:server_key.pem",
+  ],
+  //...
+</span><span class="koboSpan" id="kobo.1098.3">)</span></pre>
+<p><span class="koboSpan" id="kobo.1099.1">And finally, we can add the dependency to </span><strong class="source-inline"><span class="koboSpan" id="kobo.1100.1">ca_cert</span></strong><span class="koboSpan" id="kobo.1101.1"> in the client like so (</span><span class="No-Break"><span class="koboSpan" id="kobo.1102.1">in </span></span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.1103.1">client/BUILD.bazel</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.1104.1">):</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1105.1">
+go_library(
+  name = "client_lib",
+  //...
+</span><span class="koboSpan" id="kobo.1105.2">  data = [
+    "//certs:ca_cert.pem",
+  ],
+  //...
+</span><span class="koboSpan" id="kobo.1105.3">)</span></pre>
+<p><span class="koboSpan" id="kobo.1106.1">You should now be able to run the server and the client correctly with Bazel as we showed in the </span><span class="No-Break"><span class="koboSpan" id="kobo.1107.1">previous chapters.</span></span></p>
+<p><span class="koboSpan" id="kobo.1108.1">To conclude, we saw that we need to have</span><a id="_idIndexMarker363"/><span class="koboSpan" id="kobo.1109.1"> a server certificate and a server key file to create</span><a id="_idIndexMarker364"/><span class="koboSpan" id="kobo.1110.1"> a connection on the server side, and we need to have a CA certificate on the client side. </span><span class="koboSpan" id="kobo.1110.2">We also worked with self-signed certificates but in production, these certificates should be generated for us. </span><span class="koboSpan" id="kobo.1110.3">And finally, we saw how to create </span><strong class="source-inline"><span class="koboSpan" id="kobo.1111.1">ServerOption</span></strong><span class="koboSpan" id="kobo.1112.1"> and </span><strong class="source-inline"><span class="koboSpan" id="kobo.1113.1">DialOption</span></strong><span class="koboSpan" id="kobo.1114.1"> to enable TLS </span><span class="No-Break"><span class="koboSpan" id="kobo.1115.1">in gRPC.</span></span></p>
+<h1 id="_idParaDest-145"><a id="_idTextAnchor572"/><span class="koboSpan" id="kobo.1116.1">Distributing requests with load balancing</span></h1>
+<p><span class="koboSpan" id="kobo.1117.1">Load balancing in general</span><a id="_idIndexMarker365"/><span class="koboSpan" id="kobo.1118.1"> is a complex topic. </span><span class="koboSpan" id="kobo.1118.2">There are many ways of implementing it. </span><span class="koboSpan" id="kobo.1118.3">gRPC provides, by default, client-side load balancing. </span><span class="koboSpan" id="kobo.1118.4">This is a less popular choice than look-aside</span><a id="_idIndexMarker366"/><span class="koboSpan" id="kobo.1119.1"> or proxy load-balancing because</span><a id="_idIndexMarker367"/><span class="koboSpan" id="kobo.1120.1"> it involves “knowing” all the servers’ addresses and having complex logic in the client, but it has the advantage of directly talking to the servers and thus enables lower-latency communication. </span><span class="koboSpan" id="kobo.1120.2">If you want to know</span><a id="_idIndexMarker368"/><span class="koboSpan" id="kobo.1121.1"> more about how to choose the correct </span><a href="https://grpc.io/blog/grpc-load-balancing/"><span class="koboSpan" id="kobo.1122.1">load balancing for your use case, check t</span></a><span class="koboSpan" id="kobo.1123.1">his </span><span class="No-Break"><span class="koboSpan" id="kobo.1124.1">documentation: </span></span><a href="https://grpc.io/blog/grpc-load-balancing/"><span class="No-Break"><span class="koboSpan" id="kobo.1125.1">https://grpc.io/blog/grpc-load-balancing/</span></span></a><span class="No-Break"><span class="koboSpan" id="kobo.1126.1">.</span></span></p>
+<p><span class="koboSpan" id="kobo.1127.1">To see the power of client-side load balancing, we will deploy</span><a id="_idIndexMarker369"/><span class="koboSpan" id="kobo.1128.1"> three instances of our server to Kubernetes and let the client balance the load across them. </span><span class="koboSpan" id="kobo.1128.2">I created the Docker images beforehand so that we do not have to go through all of that here. </span><span class="koboSpan" id="kobo.1128.3">If you are interested in checking the Docker files, you can see them both in the </span><strong class="source-inline"><span class="koboSpan" id="kobo.1129.1">server</span></strong><span class="koboSpan" id="kobo.1130.1"> and </span><strong class="source-inline"><span class="koboSpan" id="kobo.1131.1">client</span></strong><span class="koboSpan" id="kobo.1132.1"> folders. </span><span class="koboSpan" id="kobo.1132.2">There are extensively documented. </span><span class="koboSpan" id="kobo.1132.3">Furthermore, I uploaded the images on Docker Hub so that we can pull them </span><span class="No-Break"><span class="koboSpan" id="kobo.1133.1">easily (</span></span><a href="https://hub.docker.com/r/clementjean/grpc-go-packt-book/tags"><span class="No-Break"><span class="koboSpan" id="kobo.1134.1">https://hub.docker.com/r/clementjean/grpc-go-packt-book/tags</span></span></a><span class="No-Break"><span class="koboSpan" id="kobo.1135.1">).</span></span></p>
+<p><span class="koboSpan" id="kobo.1136.1">Before deploying the server and client, let us see what we need to change in terms of code. </span><span class="koboSpan" id="kobo.1136.2">On the server side, we will simply print every request we receive. </span><span class="koboSpan" id="kobo.1136.3">This is done with an interceptor that looks like the following (</span><span class="No-Break"><span class="koboSpan" id="kobo.1137.1">in </span></span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.1138.1">server/interce</span><a id="_idTextAnchor573"/><span class="koboSpan" id="kobo.1139.1">ptors.go</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.1140.1">):</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1141.1">
+func unaryLogInterceptor(ctx context.Context, req interfac</span><a id="_idTextAnchor574"/><span class="koboSpan" id="kobo.1142.1">e{}, info
+*grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}</span><a id="_idTextAnchor575"/><span class="koboSpan" id="kobo.1143.1">, error) {
+  log.Println(info.FullMethod, "called")</span><a id="_idTextAnchor576"/><span class="koboSpan" id="kobo.1144.1">
+  return handler(ctx, req)
+}
+func streamLogInterceptor(srv interface{}, ss grpc.ServerStream, info
+  *grpc.StreamServerInfo, handler grpc.StreamHandle</span><a id="_idTextAnchor577"/><span class="koboSpan" id="kobo.1145.1">r) error {
+  log.Println(info.FullMethod, "called")
+  return handler(srv, ss)
+}</span></pre>
+<p><span class="koboSpan" id="kobo.1146.1">This simply prints which</span><a id="_idIndexMarker370"/><span class="koboSpan" id="kobo.1147.1"> method has been called and continues</span><a id="_idIndexMarker371"/> <span class="No-Break"><span class="koboSpan" id="kobo.1148.1">the execution.</span></span></p>
+<p><span class="koboSpan" id="kobo.1149.1">After that, these interceptors need to be registered in an Interceptor Chain. </span><span class="koboSpan" id="kobo.1149.2">This is because we already have our authentication Interceptor, and gRPC accepts only one call of </span><strong class="source-inline"><span class="koboSpan" id="kobo.1150.1">grpc.UnaryInterceptor</span></strong><span class="koboSpan" id="kobo.1151.1"> and </span><strong class="source-inline"><span class="koboSpan" id="kobo.1152.1">grpc.StreamInterceptor</span></strong><span class="koboSpan" id="kobo.1153.1">. </span><span class="koboSpan" id="kobo.1153.2">We can now merge, in </span><strong class="source-inline"><span class="koboSpan" id="kobo.1154.1">server</span></strong><span class="koboSpan" id="kobo.1155.1">/</span><strong class="source-inline"><span class="koboSpan" id="kobo.1156.1">main.go</span><a id="_idTextAnchor578"/></strong><span class="koboSpan" id="kobo.1157.1">, two Interceptors of the same type (unary or stream) </span><span class="No-Break"><span class="koboSpan" id="kobo.1158.1">like so:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1159.1">
+opts := []grpc.ServerOption{
+  //...
+</span><span class="koboSpan" id="kobo.1159.2">  </span><strong class="bold"><span class="koboSpan" id="kobo.1160.1">grpc.ChainUnaryInterceptor</span></strong><span class="koboSpan" id="kobo.1161.1">(unaryAuthInterceptor,
+  unaryLogInterceptor),
+  </span><strong class="bold"><span class="koboSpan" id="kobo.1162.1">grpc.ChainStreamInterceptor</span></strong><span class="koboSpan" id="kobo.1163.1">(streamAuthInterceptor,
+  streamLogInterceptor),
+}</span></pre>
+<p><span class="koboSpan" id="kobo.1164.1">That is all for the server side. </span><span class="koboSpan" id="kobo.1164.2">Let us now focus on the client. </span><span class="koboSpan" id="kobo.1164.3">We are going to add a </span><strong class="source-inline"><span class="koboSpan" id="kobo.1165.1">DialOption</span></strong><span class="koboSpan" id="kobo.1166.1"> with the </span><strong class="source-inline"><span class="koboSpan" id="kobo.1167.1">grpc.WithDefaultServiceConfig</span></strong><span class="koboSpan" id="kobo.1168.1"> function. </span><span class="koboSpan" id="kobo.1168.2">This takes a JSON string as a parameter, which represents a global client configuration for the service and its methods. </span><span class="koboSpan" id="kobo.1168.3">If you are interested in diving into</span><a href="https://github.com/grpc/grpc/blob/master/doc/service_config.md"><span class="koboSpan" id="kobo.1169.1"> the configuration, you can check the following </span><span class="No-Break"><span class="koboSpan" id="kobo.1170.1">documentation:</span></span></a><span class="No-Break"> </span><a href="https://github.com/grpc/grpc/blob/master/doc/service_config.md"><span class="No-Break"><span class="koboSpan" id="kobo.1171.1">https://github.com/grpc/grpc/blob/master/doc/service_config.md</span></span></a><span class="No-Break"><span class="koboSpan" id="kobo.1172.1">.</span></span></p>
+<p><span class="koboSpan" id="kobo.1173.1">For us, the configuration</span><a id="_idIndexMarker372"/><span class="koboSpan" id="kobo.1174.1"> will be simple; we will simply say</span><a id="_idIndexMarker373"/><span class="koboSpan" id="kobo.1175.1"> that our client should use the </span><strong class="source-inline"><span class="koboSpan" id="kobo.1176.1">round_robin</span></strong><span class="koboSpan" id="kobo.1177.1"> load-balancing policy. </span><span class="koboSpan" id="kobo.1177.2">The default policy is called </span><strong class="source-inline"><span class="koboSpan" id="kobo.1178.1">pick_first</span></strong><span class="koboSpan" id="kobo.1179.1">. </span><span class="koboSpan" id="kobo.1179.2">This is saying that the client will try to connect to all the available addresses (resolved by DNS), and once it can connect to one, it will send all the requests to that address. </span><strong class="source-inline"><span class="koboSpan" id="kobo.1180.1">round_robin</span></strong><span class="koboSpan" id="kobo.1181.1"> is different. </span><span class="koboSpan" id="kobo.1181.2">It will try to connect to all the addresses available. </span><span class="koboSpan" id="kobo.1181.3">And then, it will forward requests to each server in turn. </span></p>
+<p><span class="koboSpan" id="kobo.1182.1">To set up the </span><strong class="source-inline"><span class="koboSpan" id="kobo.1183.1">round_robin</span></strong><span class="koboSpan" id="kobo.1184.1"> balancing, </span><a id="_idTextAnchor579"/><span class="koboSpan" id="kobo.1185.1">we just need to add one </span><strong class="source-inline"><span class="koboSpan" id="kobo.1186.1">DialOption</span></strong><span class="koboSpan" id="kobo.1187.1"> in </span><strong class="source-inline"><span class="koboSpan" id="kobo.1188.1">client/main.go</span></strong><span class="koboSpan" id="kobo.1189.1">, </span><span class="No-Break"><span class="koboSpan" id="kobo.1190.1">like so:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1191.1">
+op</span><a id="_idTextAnchor580"/><span class="koboSpan" id="kobo.1192.1">ts := []grpc.DialOption{
+  //...
+</span><span class="koboSpan" id="kobo.1192.2">  grpc.Wi</span><a id="_idTextAnchor581"/><span class="koboSpan" id="kobo.1193.1">thDef</span><a id="_idTextAnchor582"/><span class="koboSpan" id="kobo.1194.1">aultServiceConfig(`{"loadBalancingConfig":
+  [{"round_robin":{}}]}`),
+}</span></pre>
+<p><span class="koboSpan" id="kobo.1195.1">Finally, one last thing to note is that the load balancing only works with the DNS scheme. </span><span class="koboSpan" id="kobo.1195.2">This means that we will chan</span><a id="_idTextAnchor583"/><span class="koboSpan" id="kobo.1196.1">ge the way we run our client. </span><span class="koboSpan" id="kobo.1196.2">Before, we had </span><span class="No-Break"><span class="koboSpan" id="kobo.1197.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1198.1">
+$ go run ./client 0.0.0.0:5005</span><a id="_idTextAnchor584"/><span class="koboSpan" id="kobo.1199.1">1</span></pre>
+<p><span class="koboSpan" id="kobo.1200.1">Now, we will need to prepend the </span><strong class="source-inline"><span class="koboSpan" id="kobo.1201.1">dns:///</span></strong><span class="koboSpan" id="kobo.1202.1"> scheme, </span><span class="No-Break"><span class="koboSpan" id="kobo.1203.1">like so:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1204.1">
+$ go run ./client dns:///$HOSTNAME:50051</span></pre>
+<p><span class="koboSpan" id="kobo.1205.1">Now, we are ready to talk about deploying</span><a id="_idIndexMarker374"/><span class="koboSpan" id="kobo.1206.1"> our application. </span><span class="koboSpan" id="kobo.1206.2">Let us start deploying</span><a id="_idIndexMarker375"/><span class="koboSpan" id="kobo.1207.1"> the server. </span><span class="koboSpan" id="kobo.1207.2">The first thing that we are going to need is a headless service. </span><span class="koboSpan" id="kobo.1207.3">This is done by setting </span><strong class="source-inline"><span class="koboSpan" id="kobo.1208.1">ClusterIP</span></strong><span class="koboSpan" id="kobo.1209.1"> to </span><strong class="source-inline"><span class="koboSpan" id="kobo.1210.1">None</span></strong><span class="koboSpan" id="kobo.1211.1">, which allows the client to find all the server instances through DNS. </span><span class="koboSpan" id="kobo.1211.2">Each of the server instances will have its own DNS A record, which indicates the IP of the instance. </span><span class="koboSpan" id="kobo.1211.3">On top of that, we are going to expose port </span><strong class="source-inline"><span class="koboSpan" id="kobo.1212.1">50051</span></strong><span class="koboSpan" id="kobo.1213.1"> to our server and make the selector equal to </span><strong class="source-inline"><span class="koboSpan" id="kobo.1214.1">todo-server</span></strong><span class="koboSpan" id="kobo.1215.1"> so that all the Pods with that selector will </span><span class="No-Break"><span class="koboSpan" id="kobo.1216.1">be exposed.</span></span></p>
+<p><span class="koboSpan" id="kobo.1217.1">Right now, in </span><strong class="source-inline"><span class="koboSpan" id="kobo.1218.1">k8s/server.yaml</span></strong><span class="koboSpan" id="kobo.1219.1">, we have </span><span class="No-Break"><span class="koboSpan" id="kobo.1220.1">the following:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1221.1">
+apiVersion: v1
+kind: Service
+metadata:
+  name: todo-server
+spec:
+  </span><strong class="bold"><span class="koboSpan" id="kobo.1222.1">clusterIP: None</span></strong><span class="koboSpan" id="kobo.1223.1">
+ports:
+  - name: grpc
+    </span><strong class="bold"><span class="koboSpan" id="kobo.1224.1">port: 50051</span></strong><span class="koboSpan" id="kobo.1225.1">
+  selector:
+    </span><strong class="bold"><span class="koboSpan" id="kobo.1226.1">app: todo-server</span></strong></pre>
+<p><span class="koboSpan" id="kobo.1227.1">After that, we are going to create a Deployment of 3 instances. </span><span class="koboSpan" id="kobo.1227.2">We are going to make sure that these Deployments have the right label for the service to find them and we are going to expose </span><span class="No-Break"><span class="koboSpan" id="kobo.1228.1">port </span></span><span class="No-Break"><strong class="source-inline"><span class="koboSpan" id="kobo.1229.1">50051</span></strong></span><span class="No-Break"><span class="koboSpan" id="kobo.1230.1">.</span></span></p>
+<p><span class="koboSpan" id="kobo.1231.1">We can now add the following after </span><span class="No-Break"><span class="koboSpan" id="kobo.1232.1">the service:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1233.1">
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-server
+  labels:
+    </span><strong class="bold"><span class="koboSpan" id="kobo.1234.1">app: todo-server</span></strong><span class="koboSpan" id="kobo.1235.1">
+spec:
+  replicas: </span><strong class="bold"><span class="koboSpan" id="kobo.1236.1">3</span></strong><span class="koboSpan" id="kobo.1237.1">
+  selector:
+    matchLabels:
+      </span><strong class="bold"><span class="koboSpan" id="kobo.1238.1">app: todo-server</span></strong><span class="koboSpan" id="kobo.1239.1">
+  template:
+    metadata:
+      labels:
+        </span><strong class="bold"><span class="koboSpan" id="kobo.1240.1">app: todo-server</span></strong><span class="koboSpan" id="kobo.1241.1">
+    spec:
+      containers:
+      - name: todo-server
+        image: clementjean/grpc-go-packt-book:server
+        ports:
+        - name: grpc
+          </span><strong class="bold"><span class="koboSpan" id="kobo.1242.1">containerPort: 50051</span></strong></pre>
+<p><span class="koboSpan" id="kobo.1243.1">We can now deploy</span><a id="_idIndexMarker376"/><span class="koboSpan" id="kobo.1244.1"> the server instances by using the </span><span class="No-Break"><span class="koboSpan" id="kobo.1245.1">following</span></span><span class="No-Break"><a id="_idIndexMarker377"/></span><span class="No-Break"><span class="koboSpan" id="kobo.1246.1"> command:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1247.1">
+$ kubectl apply -f k8s/server.yaml</span></pre>
+<p><span class="koboSpan" id="kobo.1248.1">And a little bit later, we should be have the following Pods (the names might </span><span class="No-Break"><span class="koboSpan" id="kobo.1249.1">be different):</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1250.1">
+$ kubectl get pods
+NAME                           READY   STATUS
+todo-server-85cf594fb6-tkqm9   1/1     Running
+todo-server-85cf594fb6-vff6q   1/1     Running
+todo-server-85cf594fb6-w4s6l   1/1     Running</span></pre>
+<p><span class="koboSpan" id="kobo.1251.1">Next, we need to create a Pod</span><a id="_idIndexMarker378"/><span class="koboSpan" id="kobo.1252.1"> for the client. </span><span class="koboSpan" id="kobo.1252.2">Normally, if the client</span><a id="_idIndexMarker379"/><span class="koboSpan" id="kobo.1253.1"> is not a microservice, we would not have to deploy it in Kubernetes. </span><span class="koboSpan" id="kobo.1253.2">However, since our client is a simple Go app, it would be easier to deploy it in a container to talk to our </span><span class="No-Break"><span class="koboSpan" id="kobo.1254.1">server instances.</span></span></p>
+<p><span class="koboSpan" id="kobo.1255.1">In </span><strong class="source-inline"><span class="koboSpan" id="kobo.1256.1">k8s/client.yaml</span></strong><span class="koboSpan" id="kobo.1257.1">, we have the following </span><span class="No-Break"><span class="koboSpan" id="kobo.1258.1">simple Pod:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1259.1">
+apiVersion: v1
+kind: Pod
+metadata:
+  name: todo-client
+spec:
+  containers:
+  - name: todo-client
+    image: clementjean/grpc-go-packt-book:client
+  restartPolicy: Never</span></pre>
+<p><span class="koboSpan" id="kobo.1260.1">We can now run the client by using the </span><span class="No-Break"><span class="koboSpan" id="kobo.1261.1">following command:</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1262.1">
+$ kubectl apply -f k8s/client.yaml</span></pre>
+<p><span class="koboSpan" id="kobo.1263.1">And after a few seconds, we should get a similar output (or error instead </span><span class="No-Break"><span class="koboSpan" id="kobo.1264.1">of completed):</span></span></p>
+<pre class="source-code"><span class="koboSpan" id="kobo.1265.1">
+$ kubectl get pods
+NAME                           READY   STATUS
+todo-client                    0/1     Completed</span></pre>
+<p><span class="koboSpan" id="kobo.1266.1">Now, the most important</span><a id="_idIndexMarker380"/><span class="koboSpan" id="kobo.1267.1"> thing is to see the actual effects </span><a id="_idIndexMarker381"/><span class="koboSpan" id="kobo.1268.1">of load-balancing. </span><span class="koboSpan" id="kobo.1268.2">To do that, we will take each server name and execute a </span><strong class="source-inline"><span class="koboSpan" id="kobo.1269.1">kubectl logs</span></strong><span class="koboSpan" id="kobo.1270.1"> command </span><span class="No-Break"><span class="koboSpan" id="kobo.1271.1">for each:</span></span><a id="_idTextAnchor585"/></p>
+<pre class="source-code">
+<strong class="bold"><span class="koboSpan" id="kobo.1272.1">$ kub</span><a id="_idTextAnchor586"/><span class="koboSpan" id="kobo.1273.1">ectl logs todo-server-85cf594fb6-t</span><a id="_idTextAnchor587"/><span class="koboSpan" id="kobo.1274.1">kqm9</span></strong><span class="koboSpan" id="kobo.1275.1">
+l</span><a id="_idTextAnchor588"/><span class="koboSpan" id="kobo.1276.1">istening at 0.0.0.0:50051
+/todo.v2.TodoService/UpdateTasks called
+/todo.v2.TodoService/ListTasks called
+</span><a id="_idTextAnchor589"/>
+<strong class="bold"><span class="koboSpan" id="kobo.1277.1">$ kub</span><a id="_idTextAnchor590"/><span class="koboSpan" id="kobo.1278.1">ectl logs todo-server-85cf594fb6-vff6q</span></strong><span class="koboSpan" id="kobo.1279.1">
+listening at 0.0.0.0:50051
+/todo.v2.TodoService/DeleteTasks called
+</span><a id="_idTextAnchor591"/>
+<strong class="bold"><span class="koboSpan" id="kobo.1280.1">$ kub</span><a id="_idTextAnchor592"/><span class="koboSpan" id="kobo.1281.1">ectl logs todo-server-85cf594f</span><a id="_idTextAnchor593"/><span class="koboSpan" id="kobo.1282.1">b6-w4s</span><a id="_idTextAnchor594"/><span class="koboSpan" id="kobo.1283.1">6l</span></strong><span class="koboSpan" id="kobo.1284.1">
+listening at 0.0.0.0:50051
+</span><a id="_idTextAnchor595"/><span class="koboSpan" id="kobo.1285.1">/todo.</span><a id="_idTextAnchor596"/><span class="koboSpan" id="kobo.1286.1">v2.TodoService/AddTask called
+</span><a id="_idTextAnchor597"/><span class="koboSpan" id="kobo.1287.1">/todo.</span><a id="_idTextAnchor598"/><span class="koboSpan" id="kobo.1288.1">v2.TodoService/AddTask called
+/t</span><a id="_idTextAnchor599"/><span class="koboSpan" id="kobo.1289.1">odo.v2</span><a id="_idTextAnchor600"/><span class="koboSpan" id="kobo.1290.1">.TodoService/AddTask called
+/todo.v2.TodoService/ListTasks called
+/todo.v2.TodoService/ListTasks called</span></pre>
+<p><span class="koboSpan" id="kobo.1291.1">Now, you might have different results, but you should be able to see that the load was distributed across the different instances. </span><span class="koboSpan" id="kobo.1291.2">One more thing to note is that, as we are not using a real database, the logs for the </span><strong class="source-inline"><span class="koboSpan" id="kobo.1292.1">todo-client</span></strong><span class="koboSpan" id="kobo.1293.1"> should not be correct. </span><span class="koboSpan" id="kobo.1293.2">This is because we might have a </span><strong class="source-inline"><span class="koboSpan" id="kobo.1294.1">Task</span></strong><span class="koboSpan" id="kobo.1295.1"> on server 1 and ask to list the </span><strong class="source-inline"><span class="koboSpan" id="kobo.1296.1">Task</span></strong><span class="koboSpan" id="kobo.1297.1"> for server 2, which does not know about the </span><strong class="source-inline"><span class="koboSpan" id="kobo.1298.1">Task</span></strong><span class="koboSpan" id="kobo.1299.1"> we want. </span><span class="koboSpan" id="kobo.1299.2">In production, we would use a real database, and that should </span><span class="No-Break"><span class="koboSpan" id="kobo.1300.1">not happen.</span></span></p>
+<p><span class="koboSpan" id="kobo.1301.1">To conclude, we saw that the default load-balancing policy is </span><strong class="source-inline"><span class="koboSpan" id="kobo.1302.1">pick_first</span></strong><span class="koboSpan" id="kobo.1303.1">, which attempts to connect to all the available addresses, in order, until it finds one that is reachable and sends all the requests to it. </span><span class="koboSpan" id="kobo.1303.2">Then, we used a </span><strong class="source-inline"><span class="koboSpan" id="kobo.1304.1">round_robin</span></strong><span class="koboSpan" id="kobo.1305.1"> load-balancing policy, which sends requests to each of the servers in turn. </span><span class="koboSpan" id="kobo.1305.2">And finally, we saw that setting</span><a id="_idIndexMarker382"/><span class="koboSpan" id="kobo.1306.1"> up client-side load-balancing is simple</span><a id="_idIndexMarker383"/><span class="koboSpan" id="kobo.1307.1"> in terms of gRPC code. </span><span class="koboSpan" id="kobo.1307.2">All the rest of the configuration is mostly some </span><span class="No-Break"><span class="koboSpan" id="kobo.1308.1">DevOps work.</span></span></p>
+<h1 id="_idParaDest-146"><a id="_idTextAnchor601"/><span class="koboSpan" id="kobo.1309.1">Summary</span></h1>
+<p><span class="koboSpan" id="kobo.1310.1">In this chapter, we saw the key features that we get out of the box when using gRPC. </span><span class="koboSpan" id="kobo.1310.2">We saw that we return errors with error codes and messages. </span><span class="koboSpan" id="kobo.1310.3">There are way fewer error codes in gRPC than in HTTP, which makes them </span><span class="No-Break"><span class="koboSpan" id="kobo.1311.1">less ambiguous.</span></span></p>
+<p><span class="koboSpan" id="kobo.1312.1">After that, we saw that we can use the context to make a call cancelable and specify deadlines. </span><span class="koboSpan" id="kobo.1312.2">These features are important for making reliable calls and making sure that if something goes wrong on the server side before returning, our client is not </span><span class="No-Break"><span class="koboSpan" id="kobo.1313.1">waiting indefinitely.</span></span></p>
+<p><span class="koboSpan" id="kobo.1314.1">With context and interceptors, we also saw that we can send metadata and use them to validate requests. </span><span class="koboSpan" id="kobo.1314.2">In our case, we checked for an authentication token every time a request was made. </span><span class="koboSpan" id="kobo.1314.3">On the client side, we saw that interceptors can automatically add the metadata for us. </span><span class="koboSpan" id="kobo.1314.4">This is especially useful for metadata that is shared across services </span><span class="No-Break"><span class="koboSpan" id="kobo.1315.1">and/or endpoints.</span></span></p>
+<p><span class="koboSpan" id="kobo.1316.1">Then, we saw how we can encrypt communication over the network. </span><span class="koboSpan" id="kobo.1316.2">We used TLS, as this is the most common way to do so. </span><span class="koboSpan" id="kobo.1316.3">We saw that, once we have our certificates, we can simply create a </span><strong class="source-inline"><span class="koboSpan" id="kobo.1317.1">ServerOption</span></strong><span class="koboSpan" id="kobo.1318.1"> and a </span><strong class="source-inline"><span class="koboSpan" id="kobo.1319.1">DialOption</span></strong><span class="koboSpan" id="kobo.1320.1"> to let the server and client know how to understand </span><span class="No-Break"><span class="koboSpan" id="kobo.1321.1">each other.</span></span></p>
+<p><span class="koboSpan" id="kobo.1322.1">After that, we saw how we can compress payloads. </span><span class="koboSpan" id="kobo.1322.2">And most importantly, we saw when this might be useful and when it </span><span class="No-Break"><span class="koboSpan" id="kobo.1323.1">is not.</span></span></p>
+<p><span class="koboSpan" id="kobo.1324.1">And finally, we used client-side load-balancing with a </span><strong class="source-inline"><span class="koboSpan" id="kobo.1325.1">round_robin</span></strong><span class="koboSpan" id="kobo.1326.1"> policy to distribute requests across different instances of </span><span class="No-Break"><span class="koboSpan" id="kobo.1327.1">our server.</span></span></p>
+<p><span class="koboSpan" id="kobo.1328.1">In the next chapter, we will see more essential features of the kind we saw in this chapter. </span><span class="koboSpan" id="kobo.1328.2">We are going to introduce the concept of middleware and see how to use different kinds of middleware to make our APIs </span><span class="No-Break"><span class="koboSpan" id="kobo.1329.1">more solid.</span></span></p>
+<h1 id="_idParaDest-147"><a id="_idTextAnchor602"/><span class="koboSpan" id="kobo.1330.1">Quiz</span></h1>
+<ol>
+<li><span class="koboSpan" id="kobo.1331.1">What is the context </span><span class="No-Break"><span class="koboSpan" id="kobo.1332.1">used for?</span></span><ol><li><span class="koboSpan" id="kobo.1333.1">Passing metadata between the client </span><span class="No-Break"><span class="koboSpan" id="kobo.1334.1">and server</span></span></li><li><span class="koboSpan" id="kobo.1335.1">Making </span><span class="No-Break"><span class="koboSpan" id="kobo.1336.1">calls cancelable</span></span></li><li><span class="koboSpan" id="kobo.1337.1">Specifying </span><span class="No-Break"><span class="koboSpan" id="kobo.1338.1">a timeout</span></span></li><li><span class="koboSpan" id="kobo.1339.1">All of </span><span class="No-Break"><span class="koboSpan" id="kobo.1340.1">the above</span></span></li></ol></li>
+<li><span class="koboSpan" id="kobo.1341.1">What is an interceptor </span><span class="No-Break"><span class="koboSpan" id="kobo.1342.1">used for?</span></span><ol><li><span class="koboSpan" id="kobo.1343.1">Sharing logic </span><span class="No-Break"><span class="koboSpan" id="kobo.1344.1">across endpoints</span></span></li><li><span class="koboSpan" id="kobo.1345.1">Intercepting </span><span class="No-Break"><span class="koboSpan" id="kobo.1346.1">malicious data</span></span></li></ol></li>
+<li><span class="koboSpan" id="kobo.1347.1">What is the potential problem of using compression </span><span class="No-Break"><span class="koboSpan" id="kobo.1348.1">in gRPC?</span></span><ol><li><span class="koboSpan" id="kobo.1349.1">There is </span><span class="No-Break"><span class="koboSpan" id="kobo.1350.1">no problem</span></span></li><li><span class="koboSpan" id="kobo.1351.1">There is the possibility that the payload </span><span class="No-Break"><span class="koboSpan" id="kobo.1352.1">gets corrupted</span></span></li><li><span class="koboSpan" id="kobo.1353.1">There is the possibility that the payload </span><span class="No-Break"><span class="koboSpan" id="kobo.1354.1">gets bigger</span></span></li></ol></li>
+</ol>
+<h1 id="_idParaDest-148"><a id="_idTextAnchor603"/><span class="koboSpan" id="kobo.1355.1">Answers</span></h1>
+<ol>
+<li value="1"><span class="koboSpan" id="kobo.1356.1">D</span></li>
+<li><span class="koboSpan" id="kobo.1357.1">A</span></li>
+<li><span class="koboSpan" id="kobo.1358.1">C</span></li>
+</ol>
+<h1 id="_idParaDest-149"><a id="_idTextAnchor604"/><span class="koboSpan" id="kobo.1359.1">Challenges</span></h1>
+<ul>
+<li><span class="koboSpan" id="kobo.1360.1">Implement more errors on the server side. </span><span class="koboSpan" id="kobo.1360.2">An example might be handling the errors coming out of </span><strong class="source-inline"><span class="koboSpan" id="kobo.1361.1">updateTask</span></strong><span class="koboSpan" id="kobo.1362.1"> and </span><strong class="source-inline"><span class="koboSpan" id="kobo.1363.1">deleteTasks</span></strong><span class="koboSpan" id="kobo.1364.1">, which are talking to </span><span class="No-Break"><span class="koboSpan" id="kobo.1365.1">the database.</span></span></li>
+<li><span class="koboSpan" id="kobo.1366.1">As deadlines can save time and resources, it is important to specify them. </span><span class="koboSpan" id="kobo.1366.2">Make all calls to our client have a deadline of </span><span class="No-Break"><span class="koboSpan" id="kobo.1367.1">200 milliseconds.</span></span></li>
+<li><span class="koboSpan" id="kobo.1368.1">Create a client-side Interceptor that logs the requests the </span><span class="No-Break"><span class="koboSpan" id="kobo.1369.1">client sends.</span></span></li>
+</ul>
+</div>
+</body></html>

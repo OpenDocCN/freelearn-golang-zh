@@ -1,0 +1,282 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer024">
+			<h1 id="_idParaDest-313" class="chapter-number"><a id="_idTextAnchor314"/>12</h1>
+			<h1 id="_idParaDest-314"><a id="_idTextAnchor315"/>Processes</h1>
+			<p>This chapter has recipes that show how to run external programs, how to interact with them, and how to terminate a process gracefully. There are some key points to keep in mind when dealing with <span class="No-Break">external processes:</span></p>
+			<ul>
+				<li>When you start an external process, it runs concurrently with <span class="No-Break">your program.</span></li>
+				<li>If you need to communicate with a child process, you have to use an interprocess communication mechanism, such <span class="No-Break">as pipes.</span></li>
+				<li>When you run a child process, its standard input and standard output streams appear to the parent process as independent concurrent streams. You cannot rely on the ordering of data you receive from <span class="No-Break">these streams.</span></li>
+			</ul>
+			<p>This section covers the following <span class="No-Break">main recipes:</span></p>
+			<ul>
+				<li>Running <span class="No-Break">external programs</span></li>
+				<li>Passing arguments to <span class="No-Break">a process</span></li>
+				<li>Processing output from a child process using <span class="No-Break">a pipe</span></li>
+				<li>Providing input to a <span class="No-Break">child process</span></li>
+				<li>Changing environment variables of a <span class="No-Break">child process</span></li>
+				<li>Graceful termination <span class="No-Break">using signals</span></li>
+			</ul>
+			<h1 id="_idParaDest-315"><a id="_idTextAnchor316"/>Running external programs</h1>
+			<p>There are<a id="_idIndexMarker464"/> many use cases where you want to execute an external program to perform a task. Usually, this is because performing the same task within your own program is not possible or not easy. For example, you may choose to execute several instances of an external image processing program to modify a group of images. Another use case is when you want to configure some device using programs provided by its manufacturer. This recipe includes several ways to execute <span class="No-Break">external programs.</span></p>
+			<h2 id="_idParaDest-316"><a id="_idTextAnchor317"/>How to do it...</h2>
+			<p>Use <strong class="source-inline">exec.Command</strong> or <strong class="source-inline">exec.CommandContext</strong> to run another program from your program. <strong class="source-inline">exec.Command</strong> is appropriate if you do not need to cancel (kill) the child process or <a id="_idIndexMarker465"/>impose a timeout. Otherwise, use <strong class="source-inline">exec.CommandContext</strong>, and cancel or time out the context to kill the <span class="No-Break">child process:</span></p>
+			<ol>
+				<li>Create the <strong class="source-inline">exec.Command</strong> (or <strong class="source-inline">exec.CommandContext</strong>) object using the name of the program and <span class="No-Break">its arguments:</span><ul><li>If you need to search the program in the platform’s executable commands path, do not include any <span class="No-Break">path separators</span></li><li>If you use path separators in the program name, it must be a path relative to <strong class="source-inline">exec.Command.Dir</strong>, or if <strong class="source-inline">exec.Command.Dir</strong> is empty, it must be a path relative to the current <span class="No-Break">working directory</span></li><li>Use an absolute path if you know where the <span class="No-Break">executable is</span></li></ul></li>
+				<li>Prepare the input and output streams to capture program output, or to send input via the standard <span class="No-Break">input stream.</span></li>
+				<li>Start <span class="No-Break">the program.</span></li>
+				<li>Wait for the program <span class="No-Break">to end.</span></li>
+			</ol>
+			<p>The following example builds a Go program using the <strong class="source-inline">go</strong> command under the <span class="No-Break"><strong class="source-inline">sub/</strong></span><span class="No-Break"> directory:</span></p>
+			<pre class="source-code">
+// Run "go build" to build the subprocess in the "sub" directory
+func buildProgram() {
+    // Create a Command with the executable and its arguments
+     cmd := exec.Command(
+       "go", "build", "-o", "subprocess", ".")
+    // Set the working directory
+     cmd.Dir = "sub"
+    // Collect the stdout and stderr as a combined output from the 
+    // process
+    // This will run the process, and wait for it to end
+     output, err := cmd.CombinedOutput()
+     if err != nil {
+          panic(err)
+     }
+     // The build command will not print anything if successful. So if
+     // there is any output, it is a failure.
+     if len(output) &gt; 0 {
+          panic(string(output))
+     }
+}</pre>			<p>The above<a id="_idIndexMarker466"/> example will collect the process output as a combined string. The standard output and standard error from the program will be returned as a single string, so you have no way of identifying what parts of the output string came from standard output and what parts from standard error. Make sure you can parse the <span class="No-Break">output correctly.</span></p>
+			<p class="callout-heading">Warning</p>
+			<p class="callout">The standard output and standard error streams of a process are independent concurrent streams. In general, there is no portable way to determine which stream produced output first. This may have serious implications. For example, suppose you executed a program that produces a stream of lines on stdout, but whenever it detects an error, it prints a message to standard error that is something like “<strong class="source-inline">last printed line has problems</strong>.” But when you read the error in your program, the last printed line may not have arrived in your <span class="No-Break">program yet.</span></p>
+			<p>The<a id="_idIndexMarker467"/> following program demonstrates the use of <strong class="source-inline">exec.CommandContext</strong> <span class="No-Break">and pipes:</span></p>
+			<pre class="source-code">
+// Run the program built by buildProgram function for 10ms, reading 
+// from the output
+// and error pipes concurrently
+func runSubProcessStreamingOutputs() {
+    // Create a context with timeout
+     ctx, cancel := context.WithTimeout(context.Background(), 10*time.
+     Millisecond)
+     defer cancel()
+    // Create the command that will timeout in 10ms
+     cmd := exec.CommandContext(ctx, "sub/subprocess")
+    // Pipe the output and error streams
+     stdout, err := cmd.StdoutPipe()
+     if err != nil {
+          panic(err)
+     }
+     stderr, err := cmd.StderrPipe()
+     if err != nil {
+          panic(err)
+     }
+     // Read from stderr from a separate goroutine
+     go func() {
+          io.Copy(os.Stderr, stderr)
+     }()
+    // Start running the program
+     err = cmd.Start()
+     if err != nil {
+          panic(err)
+     }
+    // Copy the stdout of the child program to our stdout
+     io.Copy(os.Stdout, stdout)
+    // Wait for the program to end
+     err = cmd.Wait()
+     if err != nil {
+          fmt.Println(err)
+     }
+}</pre>			<p>The previous example taps into the standard output and standard error outputs of the child process. Note that the program starts reading from the <strong class="source-inline">stderr</strong> stream before the program starts. That goroutine will block until the child process outputs an error or until the child <a id="_idIndexMarker468"/>process terminates, at which point, the <strong class="source-inline">stderr</strong> pipe will be closed and the goroutine will terminate. The part that reads from the standard output runs in the main goroutine, before <strong class="source-inline">cmd.Wait</strong>. This ordering is important. If the child process starts producing output on <strong class="source-inline">stdout</strong> but the parent program is not listening, the child process will block. Calling <strong class="source-inline">cmd.Wait</strong> at this point would create a deadlock, but the runtime cannot detect this as such because the parent program is reliant on the behavior of <span class="No-Break">the child.</span></p>
+			<p>You can assign the same stream to <strong class="source-inline">stdout</strong> and <strong class="source-inline">stderr</strong> of the child process, as <span class="No-Break">shown here:</span></p>
+			<pre class="source-code">
+// Run the build subprocess for 10 ms with combined output
+func runSubProcessCombinedOutput() {
+    // Create a context with timeout
+     ctx, cancel := context.WithTimeout(context.Background(), 10*time.
+     Millisecond)
+     defer cancel()
+    // Define the command with the context
+     cmd := exec.CommandContext(ctx, "sub/subprocess")
+    // Assign both stdout and stderr to the same stream. This is 
+    // equivalent to calling CombinedOutput
+     cmd.Stdout = os.Stdout
+     cmd.Stderr = os.Stdout
+    // Start the process
+     err := cmd.Start()
+     if err != nil {
+          panic(err)
+     }
+    // Wait until it ends. The output will be printed to our stdout
+     err = cmd.Wait()
+     if err != nil {
+          fmt.Println(err)
+     }
+}</pre>			<p>The <a id="_idIndexMarker469"/>preceding approach is similar to running the child process with <strong class="source-inline">CombinedOutput</strong>. Assigning <strong class="source-inline">cmd.Stdout</strong> and <strong class="source-inline">cmd.Stderr</strong> to the same stream has the same effect as combining both outputs of the <span class="No-Break">child process.</span></p>
+			<h1 id="_idParaDest-317"><a id="_idTextAnchor318"/>Passing arguments to a process</h1>
+			<p>The<a id="_idIndexMarker470"/> mechanics of passing arguments to a child process can be confusing. Shell environments parse and expand process arguments. For example, a <strong class="source-inline">*.txt</strong> argument is replaced by a list of filenames matching that pattern, and each of those filenames becomes a separate argument. This recipe talks about how to pass such arguments to child <span class="No-Break">processes correctly.</span></p>
+			<p>There are two options to pass arguments to a <span class="No-Break">child process.</span></p>
+			<h2 id="_idParaDest-318"><a id="_idTextAnchor319"/>Expanding arguments</h2>
+			<p>The first<a id="_idIndexMarker471"/> option is to perform the shell argument <span class="No-Break">processing manually.</span></p>
+			<h3>How to do it...</h3>
+			<p>To manually <a id="_idIndexMarker472"/>perform shell processing, follow <span class="No-Break">these steps:</span></p>
+			<ol>
+				<li>Remove shell-specific quoting from arguments, such as the <span class="No-Break">shell command:</span><ul><li>The <strong class="source-inline">./prog "test</strong> <strong class="source-inline">directory"</strong> shell command becomes <span class="No-Break"><strong class="source-inline">cmd:=exec.Command("./prog","test directory")</strong></span><span class="No-Break">.</span></li><li>The <strong class="source-inline">./prog dir1 "long dir name" '"quoted name"'</strong> Bash command becomes <strong class="source-inline">cmd:=exec.Command("./prog", "long dir name", "'\"quoted name\"'")</strong>. Note the Bash-specific treatment <span class="No-Break">of quotes.</span></li></ul></li>
+				<li>Expand the patterns. <strong class="source-inline">./prog *.txt</strong> becomes <strong class="source-inline">cmd:=exec.Command("./prog",listFiles("*.txt")...)</strong>, where <strong class="source-inline">listFiles</strong> is a function that returns a slice <span class="No-Break">of filenames.</span></li>
+			</ol>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">Passing a list of files separated by a space will pass them as a single argument. That is, <strong class="source-inline">cmd:=exec.Command("./prog","file1.txt file2.txt")</strong> will pass a single argument to the process, which is <span class="No-Break"><strong class="source-inline">file1.txt file2.txt</strong></span><span class="No-Break">.</span></p>
+			<ol>
+				<li value="3">Substitute the environment variables. <strong class="source-inline">/.prog $HOME</strong> becomes <strong class="source-inline">cmd:=exec.Command("./prog", os.Getenv("HOME"))</strong>. Running <strong class="source-inline">cmd:=exec.Command("./prog", "$HOME")</strong> will pass the string <strong class="source-inline">$HOME</strong> to the program, not its value from <span class="No-Break">the environment.</span></li>
+				<li>Finally, you have to manually process pipelines. That is, for a <strong class="source-inline">./prog &gt;output.txt</strong> shell command, you have to run <strong class="source-inline">cmd:=exec.Command("./prog")</strong>, create an <strong class="source-inline">output.txt</strong> file, and <span class="No-Break">set </span><span class="No-Break"><strong class="source-inline">cmd.Stdout=outputFile</strong></span><span class="No-Break">.</span></li>
+			</ol>
+			<h2 id="_idParaDest-319"><a id="_idTextAnchor320"/>Running the command via the shell</h2>
+			<p>The <a id="_idIndexMarker473"/>second option is to run the program via <span class="No-Break">a shell.</span></p>
+			<h3>How to do it...</h3>
+			<p>Use the <a id="_idIndexMarker474"/>platform-specific shell and its syntax to run <span class="No-Break">a command:</span></p>
+			<pre class="source-code">
+var cmd *exec.Cmd
+switch runtime.GOOS {
+case "windows":
+     cmd = exec.Command("cmd", "/C", "echo test&gt;test.txt")
+case "darwin": // Mac OS
+     cmd = exec.Command("/bin/sh", "-c", "echo test&gt;test.txt")
+case "linux": // Linux system, assuming there is bash
+     cmd = exec.Command("/bin/bash", "-c", "echo test&gt;test.txt")
+default: // Some other OS. Assume it has `sh`
+     cmd = exec.Command("/bin/sh", "-c", "echo test&gt;test.txt")
+}
+out, err := cmd.Output()</pre>			<p>This example selects <strong class="source-inline">cmd</strong> for Windows platforms, <strong class="source-inline">/bin/sh</strong> for Darwin (Mac), <strong class="source-inline">/bin/bash </strong>for Linux, and <strong class="source-inline">/bin/sh</strong> for anything else. The command passed to the shell contains a redirection, which is handled by the shell. The output of the command will be written <span class="No-Break">to </span><span class="No-Break"><strong class="source-inline">test.txt</strong></span><span class="No-Break">.</span></p>
+			<h1 id="_idParaDest-320"><a id="_idTextAnchor321"/>Processing output from a child process using a pipe</h1>
+			<p>Remember that the<a id="_idIndexMarker475"/> standard output and standard error streams of a process are concurrent streams. If the output generated by the child process is potentially unbounded, you can work with it in a separate goroutine. This recipe <span class="No-Break">shows how.</span></p>
+			<h2 id="_idParaDest-321"><a id="_idTextAnchor322"/>How to do it...</h2>
+			<p>A few words about pipes. A<a id="_idIndexMarker476"/> pipe is a stream-based analog of a Go channel. It is a <strong class="bold">first-in, first-out</strong> (<strong class="bold">FIFO</strong>) communication<a id="_idIndexMarker477"/> mechanism with two ends: a writer and a reader. The reader side blocks until the writer writes something, and the writer side blocks until the reader reads from it. When you are done <a id="_idIndexMarker478"/>with a pipe, you close the writer side, which also closes the reader side of the pipe. This happens when a child process terminates. If you close the reader side of a pipe and then write to it, the program will receive a signal and possibly terminate. This happens if the parent program terminates before the <span class="No-Break">child does.</span></p>
+			<ol>
+				<li>Create the command, and get <span class="No-Break">its </span><span class="No-Break"><strong class="source-inline">StdoutPipe</strong></span><span class="No-Break">:</span><pre class="source-code">
+ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+defer cancel()
+cmd := exec.CommandContext(ctx, "sub/subprocess")
+pipe, err := cmd.StdoutPipe()
+if err != nil {
+  panic(err)
+}</pre></li>				<li>Create a new goroutine and read from the stdout of the child process. Work with the output of the child process in <span class="No-Break">this goroutine:</span><pre class="source-code">
+// Read from the pipe in a separate goroutine
+go func() {
+  // Filter lines that contain "0"
+  scanner := bufio.NewScanner(pipe)
+  for scanner.Scan() {
+    line := scanner.Text()
+    if strings.Contains(line, "0")  {
+      fmt.Printf("Filtered line: %s\n", line)
+    }
+  }
+  if err := scanner.Err(); err != nil {
+    fmt.Println("Scanner error: %v", err)
+  }
+}()</pre></li>				<li>Start<a id="_idIndexMarker479"/> <span class="No-Break">the process:</span><pre class="source-code">
+err = cmd.Start()
+if err != nil {
+  panic(err)
+}</pre></li>				<li>Wait for the process <span class="No-Break">to end:</span><pre class="source-code">
+err = cmd.Wait()
+if err != nil {
+  fmt.Println(err)
+}</pre></li>			</ol>
+			<h1 id="_idParaDest-322"><a id="_idTextAnchor323"/>Providing input to a child process</h1>
+			<p>There are two methods <a id="_idIndexMarker480"/>you can use to provide input to a child process: set <strong class="source-inline">cmd.Stdin</strong> to a stream or use <strong class="source-inline">cmd.StdinPipe</strong> to obtain a writer to send the input to the <span class="No-Break">child process.</span></p>
+			<h2 id="_idParaDest-323"><a id="_idTextAnchor324"/>How to do it...</h2>
+			<ol>
+				<li>Create <span class="No-Break">the command:</span><pre class="source-code">
+// Run grep and search for a word
+cmd := exec.Command("grep", word)</pre></li>				<li>Provide the input to the process by setting the <span class="No-Break"><strong class="source-inline">Stdin</strong></span><span class="No-Break"> stream:</span><pre class="source-code">
+// Open a file
+input, err := os.Open("input.txt")
+if err != nil {
+  panic(err)
+}
+cmd.Stdin = input</pre></li>				<li>Run the program and wait for it <span class="No-Break">to end:</span><pre class="source-code">
+if err = cmd.Start(); err != nil {
+  panic(err)
+}
+if err = cmd.Wait(); err != nil {
+  panic(err)
+}</pre><p class="list-inset">Alternatively, you can provide a streaming input using <span class="No-Break">a pipe.</span></p></li>				<li>Create <span class="No-Break">the command:</span><pre class="source-code">
+// Run grep and search for a word
+cmd := exec.Command("grep", word)</pre></li>				<li>Get the <span class="No-Break">input pipe:</span><pre class="source-code">
+input, err:=cmd.StdinPipe()
+if err!=nil {
+  panic(err)
+}</pre></li>				<li>Send<a id="_idIndexMarker481"/> the input to the program through the pipe. When done, close <span class="No-Break">the pipe:</span><pre class="source-code">
+go func() {
+  // Defer close the pipe
+  defer input.Close()
+  // Open a file
+  file, err := os.Open("input.txt")
+  if err != nil {
+    panic(err)
+  }
+  defer file.Close()
+  io.Copy(input,file)
+}()</pre></li>				<li>Run the program and wait for it <span class="No-Break">to end:</span><pre class="source-code">
+if err = cmd.Start(); err != nil {
+  panic(err)
+}
+if err = cmd.Wait(); err != nil {
+  panic(err)
+}</pre></li>			</ol>
+			<h1 id="_idParaDest-324"><a id="_idTextAnchor325"/>Changing environment variables of a child process</h1>
+			<p>Environment variables <a id="_idIndexMarker482"/>are key-value pairs associated with a process. They are useful for passing information specific to the environment, such as the current user’s home directory, executable search path, configuration options, and more. In containerized deployments, environment variables are a convenient way to pass the credentials a <span class="No-Break">program needs.</span></p>
+			<p>The environment variables for a process are provided by its parent process, but once the process starts, a copy of those provided environment variables is assigned to the child process. Because of this, a parent process cannot change the environment variables of its child process after the child <span class="No-Break">starts running.</span></p>
+			<h2 id="_idParaDest-325"><a id="_idTextAnchor326"/>How to do it...</h2>
+			<ul>
+				<li>To use the same environment variables as the current process when launching a child process, set <strong class="source-inline">Command.Env</strong> to <strong class="source-inline">nil</strong>. That will copy the current process environment variables to <span class="No-Break">the child.</span></li>
+				<li>To start the child process using additional environment variables, append those new variables to the current <span class="No-Break">process variables:</span><pre class="source-code">
+// Run the server
+cmd:=exec.Command("./server")
+// Copy current process environment variables
+cmd.Env=os.Environ()
+// Append new environment variables
+// Set the authentication key as an environment variable
+// of the current process
+cmd.Env=append(cmd.Env,fmt.Sprintf("AUTH_KEY=%s", authkey))
+// Start the server process. Parent process environment is copied to
+cmd.Start()</pre></li>			</ul>
+			<h1 id="_idParaDest-326"><a id="_idTextAnchor327"/>Graceful termination using signals</h1>
+			<p>To gracefully <a id="_idIndexMarker483"/>terminate a program, you should do <span class="No-Break">the following:</span></p>
+			<ul>
+				<li>No longer accept <span class="No-Break">new requests</span></li>
+				<li>Finish any requests that are accepted but <span class="No-Break">not completed</span></li>
+				<li>Allow a certain amount of time for any long-running processes to finish, and terminate them if they cannot be completed in the <span class="No-Break">given time</span></li>
+			</ul>
+			<p>Graceful termination<a id="_idIndexMarker484"/> is especially important in cloud-based service development because most cloud services are ephemeral and they get replaced by new instances often. This recipe shows how it can <span class="No-Break">be done.</span></p>
+			<h2 id="_idParaDest-327"><a id="_idTextAnchor328"/>How to do it...</h2>
+			<ol>
+				<li>Handle interrupt and termination signals. An interrupt signal (<strong class="source-inline">SIGINT</strong>) is usually initiated by the user (for instance, by pressing <em class="italic">Ctrl</em> + <em class="italic">C</em>), and a termination signal (<strong class="source-inline">SIGTERM</strong>) is usually initiated by the host operating system, or for a containerized environment, the container <span class="No-Break">orchestration system.</span></li>
+				<li>Disable acceptance of any <span class="No-Break">new requests.</span></li>
+				<li>Wait for existing requests to complete with <span class="No-Break">a timeout</span></li>
+				<li>Terminate <span class="No-Break">the process.</span></li>
+			</ol>
+			<p>An example is shown next. This is a simple HTTP echo server. When the program starts, it creates a goroutine that listens to a channel responding to <strong class="source-inline">SIGINT</strong> and <strong class="source-inline">SIGTERM</strong> signals. When any one of these signals is received, it shuts down the server (which first disables the acceptance of new requests, and then waits for the existing requests to complete up to a timeout), which then terminates <span class="No-Break">the program:</span></p>
+			<pre class="source-code">
+func main() {
+  // Create a simple HTTP echo service
+  http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+    io.Copy(w, r.Body)
+  })
+  server := &amp;http.Server{Addr: ":8080"}
+  // Listen for SIGINT and SIGTERM signals
+  // Terminate the server with the signal
+  sigTerm := make(chan os.Signal, 1)
+  signal.Notify(sigTerm, syscall.SIGINT, syscall.SIGTERM)
+  go func() {
+    &lt;-sigTerm
+    // 5 second timeout for the server to shutdown
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.
+    Second)
+    defer cancel()
+    server.Shutdown(ctx)
+  }()
+  // Start the server. When the server shuts down, program will end
+  server.ListenAndServe()
+}</pre>		</div>
+	</div></div></body></html>

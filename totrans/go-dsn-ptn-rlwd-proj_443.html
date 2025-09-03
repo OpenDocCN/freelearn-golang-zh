@@ -1,0 +1,130 @@
+<html><head></head><body>
+<div class="book" title="Decorator design pattern">
+<div class="book" title="A real-life example - server middleware"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_7"><a id="ch04lvl2sec0102" class="calibre1"/>A real-life example - server middleware</h2></div></div></div><p class="calibre10">By now, you should have understood how the Decorator pattern works. Now we can try a more advanced example using the small HTTP server that we designed in the Adapter pattern section. You learned that an HTTP server can be created by using the <code class="email">http</code> package, and implementing the <code class="email">http.Handler</code> interface. This interface has only one method called <code class="email">ServeHTTP(http.ResponseWriter, http.Request)</code>. Can we use the Decorator pattern to add more functionality to a server? Of course!</p><p class="calibre10">We will add a couple of pieces to this server. First, we are going to log every connection made to it to the <code class="email">io.Writer</code> interface (for the sake of simplicity, we'll use the <code class="email">io.Writer</code> implementation of the <code class="email">os.Stdout</code> interface so that it outputs to the console). The second piece will add basic HTTP authentication to every request made to the server. If the authentication passes, a <code class="email">Hello Decorator!</code> message will appear. Finally, the user will be able to select the number of decoration items that he/she wants in the server, and the server will be structured and created at runtime.</p><div class="book" title="Starting with the common interface, http.Handler"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch04lvl3sec03" class="calibre1"/>Starting with the common interface, http.Handler</h3></div></div></div><p class="calibre10">We already have the common interface that we will decorate using nested types. We first need to create our core type, which is going to be the <code class="email">Handler</code> that returns the sentence <code class="email">Hello Decorator!</code>:</p><pre class="programlisting">type MyServer struct{} 
+ 
+func (m *MyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) { 
+  fmt.Fprintln(w, "Hello Decorator!") 
+} 
+</pre><p class="calibre10">This handler can be attributed to the <code class="email">http.Handle</code> method to define our first endpoint. Let's check this now by creating the package's <code class="email">main</code> function, and sending a <code class="email">GET</code> request to it:</p><pre class="programlisting">func main() { 
+  http.Handle("/", &amp;MyServer{}) 
+ 
+  log.Fatal(http.ListenAndServe(":8080", nil)) 
+} 
+</pre><p class="calibre10">Execute the server using the Terminal to execute the <code class="email">
+<span class="strong"><strong class="calibre2">go run main.go</strong></span>
+</code> command. Then, open a new Terminal to make the <code class="email">GET</code> request. We'll use the <code class="email">curl</code> command to make our requests:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ curl http://localhost:8080</strong></span>
+<span class="strong"><strong class="calibre2">Hello Decorator!</strong></span>
+</pre><p class="calibre10">We have crossed the first milestone of our decorated server. The next step is to decorate it with logging capabilities. To do so, we must implement the <code class="email">http.Handler</code> interface, in a new type, as follows:</p><pre class="programlisting">type LoggerServer struct { 
+  Handler   http.Handler 
+  LogWriter io.Writer 
+} 
+ 
+func (s *LoggerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) { 
+  fmt.Fprintf(s.LogWriter, "Request URI: %s\n", r.RequestURI) 
+  fmt.Fprintf(s.LogWriter, "Host: %s\n", r.Host) 
+  fmt.Fprintf(s.LogWriter, "Content Length: %d\n",  
+r.ContentLength) 
+  fmt.Fprintf(s.LogWriter, "Method: %s\n", r.Method)fmt.Fprintf(s.LogWriter, "--------------------------------\n") 
+ 
+  s.Handler.ServeHTTP(w, r) 
+} 
+</pre><p class="calibre10">We call this type <code class="email">LoggerServer</code>. As you can see, it stores not only a <code class="email">Handler</code>, but also <code class="email">io.Writer</code> to write the output of the log. Our implementation of the <code class="email">ServeHTTP</code> method prints the request URI, the host, the content length, and the used method <code class="email">io.Writer</code>. Once printing is finished, it calls the <code class="email">ServeHTTP</code> function of its inner <code class="email">Handler</code> field.</p><p class="calibre10">We can decorate <code class="email">MyServer</code> with this <code class="email">LoggerMiddleware</code>:</p><pre class="programlisting">func main() { 
+  http.Handle("/", &amp;LoggerServer{ 
+    LogWriter:os.Stdout, 
+    Handler:&amp;MyServer{}, 
+  }) 
+ 
+  log.Fatal(http.ListenAndServe(":8080", nil)) 
+} 
+</pre><p class="calibre10">Now run the <code class="email">
+<span class="strong"><strong class="calibre2">curl </strong></span>
+</code> command:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ curl http://localhost:8080</strong></span>
+<span class="strong"><strong class="calibre2">Hello Decorator!</strong></span>
+</pre><p class="calibre10">Our <span class="strong"><strong class="calibre2">curl</strong></span> command returns the same message, but if you look at the Terminal where you have run the Go application, you can see the logging:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ go run server_decorator.go</strong></span>
+<span class="strong"><strong class="calibre2">Request URI: /</strong></span>
+<span class="strong"><strong class="calibre2">Host: localhost:8080</strong></span>
+<span class="strong"><strong class="calibre2">Content Length: 0</strong></span>
+<span class="strong"><strong class="calibre2">Method: GET</strong></span>
+</pre><p class="calibre10">We have decorated <code class="email">MyServer</code> with logging capabilities without actually modifying it. Can we do the same with authentication? Of course! After logging the request, we will authenticate it by using <span class="strong"><strong class="calibre2">HTTP Basic Authentication</strong></span> as follows:</p><pre class="programlisting">type BasicAuthMiddleware struct { 
+  Handler  http.Handler 
+  User     string 
+  Password string 
+} 
+</pre><p class="calibre10">The <span class="strong"><strong class="calibre2">BasicAuthMiddleware</strong></span> middleware stores three fields--a handler to decorate like in the previous middlewares, a user, and a password, which will be the only authorization to access the contents on the server. The implementation of the <code class="email">decorating</code> method will proceed as follows:</p><pre class="programlisting">func (s *BasicAuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) { 
+  user, pass, ok := r.BasicAuth() 
+ 
+  if ok { 
+    if user == s.User &amp;&amp; pass == s.Password { 
+      s.Handler.ServeHTTP(w, r) 
+    } 
+    else { 
+      fmt.Fprintf(w, "User or password incorrect\n") 
+    } 
+  } 
+  else { 
+    fmt.Fprintln(w, "Error trying to retrieve data from Basic auth") 
+  } 
+} 
+</pre><p class="calibre10">In the preceding implementation, we use the <code class="email">BasicAuth</code> method from <code class="email">http.Request</code> to automatically retrieve the user and password from the request, plus an <code class="email">ok/ko</code> from the parsing action. Then we check whether the parsing is correct (returning a message to the requester if incorrect, and finishing the request). If no problems have been detected during parsing, we check whether the username and the password match with the ones stored in <code class="email">BasicAuthMiddleware</code>. If the credentials are valid, we shall call the decorated type (our server), but if the credentials aren't valid, we receive the <code class="email">User or password incorrect</code> message in return, and the request is finished.</p><p class="calibre10">Now, we need to provide the user with a way to choose among different types of servers. We will retrieve user input data in the main function. We'll have three options to choose from:</p><div class="book"><ul class="itemizedlist"><li class="listitem">Simple server</li><li class="listitem">Server with logging</li><li class="listitem">Server with logging and authentication</li></ul></div><p class="calibre10">We have to use the <code class="email">Fscanf</code> function to retrieve input from the user:</p><pre class="programlisting">func main() { 
+  fmt.Println("Enter the type number of server you want to launch from the  following:") 
+  fmt.Println("1.- Plain server") 
+  fmt.Println("2.- Server with logging") 
+  fmt.Println("3.- Server with logging and authentication") 
+ 
+  var selection int 
+  fmt.Fscanf(os.Stdin, "%d", &amp;selection) 
+} 
+</pre><p class="calibre10">The <code class="email">Fscanf</code> function needs an <code class="email">io.Reader </code> implementor as the first argument (which is going to be the input in the console), and it takes the server selected by the user from it. We'll pass <code class="email">os.Stdin</code> as the <code class="email">io.Reader</code> interface to retrieve user input. Then, we'll write the type of data it is going to parse. The <code class="email">%d</code> specifier refers to an integer number. Finally, we'll write memory direction to store the parsed input, in this case, the memory position of the <code class="email">selection</code> variable.</p><p class="calibre10">Once the user selects an option, we can take the basic server and decorate it at runtime, switching over to the selected option:</p><pre class="programlisting">   switch selection { 
+   case 1: 
+     mySuperServer = new(MyServer) 
+   case 2: 
+     mySuperServer = &amp;LoggerMiddleware{ 
+       Handler:   new(MyServer), 
+       LogWriter: os.Stdout, 
+     } 
+   case 3: 
+     var user, password string 
+ 
+     fmt.Println("Enter user and password separated by a space") 
+     fmt.Fscanf(os.Stdin, "%s %s", &amp;user, &amp;password) 
+ 
+     mySuperServer = &amp;LoggerMiddleware{ 
+     Handler: &amp;SimpleAuthMiddleware{ 
+       Handler:  new(MyServer), 
+       User:     user, 
+       Password: password, 
+     }, 
+     LogWriter: os.Stdout, 
+   } 
+   default: 
+   mySuperServer = new(MyServer) 
+ } 
+</pre><p class="calibre10">The first option will be handled by the default <code class="email">switch</code> option--a plain <code class="email">MyServer</code>. In the case of the second option, we decorate a plain server with logging. The third Option is a bit more developed--we ask the user for a username and a password using <code class="email">Fscanf</code> again. Note that you can scan more than one input, as we are doing to retrieve the user and the password. Then, we take the basic server, decorate it with authentication, and finally, with logging.</p><p class="calibre10">If you follow the indentation of the nested types of option three, the request passes through the logger, then the authentication middleware, and finally, the <code class="email">MyServer</code> argument if everything is okay. The requests will follow the same route.</p><p class="calibre10">The end of the main function takes the decorated handler, and launches the server on the <code class="email">8080</code> port:</p><pre class="programlisting">http.Handle("/", mySuperServer) 
+log.Fatal(http.ListenAndServe(":8080", nil)) 
+</pre><p class="calibre10">So, let's launch the server with the third option:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$go run server_decorator.go 
+Enter the server type number you want to launch from the following: 
+1.- Plain server 
+2.- Server with logging 
+3.- Server with logging and authentication 
+ 
+Enter user and password separated by a space 
+mario castro</strong></span>
+</pre><p class="calibre10">We will first test the plain server by choosing the first option. Run the server with the command <span class="strong"><strong class="calibre2">go run server_decorator.go</strong></span>, and select the first option. Then, in a different Terminal, run the basic request with curl, as follows:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ curl http://localhost:8080</strong></span>
+<span class="strong"><strong class="calibre2">Error trying to retrieve data from Basic auth</strong></span>
+</pre><p class="calibre10">Uh, oh! It doesn't give us access. We haven't passed any user and password, so it tells us that we cannot continue. Let's try with some random user and password:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ curl -u no:correct http://localhost:8080</strong></span>
+<span class="strong"><strong class="calibre2">User or password incorrect</strong></span>
+</pre><p class="calibre10">No access! We can also check in the Terminal where we launched the server and where every request is being logged:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">Request URI: /</strong></span>
+<span class="strong"><strong class="calibre2">Host: localhost:8080</strong></span>
+<span class="strong"><strong class="calibre2">Content Length: 0</strong></span>
+<span class="strong"><strong class="calibre2">Method: GET</strong></span>
+</pre><p class="calibre10">Finally, enter the correct username and password:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ curl -u packt:publishing http://localhost:8080</strong></span>
+<span class="strong"><strong class="calibre2">Hello Decorator!</strong></span>
+</pre><p class="calibre10">Here we are! Our request has also been logged, and the server has granted access to us. Now we can improve our server as much as we want by writing more middlewares to decorate the server's functionality.</p></div></div></div></body></html>

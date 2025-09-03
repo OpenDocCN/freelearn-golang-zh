@@ -1,0 +1,80 @@
+<html><head></head><body>
+<div class="book" title="Reading votes from Twitter">
+<div class="book" title="Authorization with Twitter"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_1"><a id="ch05lvl2sec0050" class="calibre1"/>Authorization with Twitter</h2></div></div></div><p class="calibre10">In order to use the streaming API, we will need authentication credentials from Twitter's Application Management console, much in the same way we did for our Gomniauth service providers in Chapter 3, <span class="strong"><em class="calibre11">Three Ways to Implement Profile Pictures</em></span>. Head over to <a class="calibre1" href="https://apps.twitter.com">https://apps.twitter.com</a> and create a new app called something like <code class="email">SocialPoll</code> (the names have to be unique, so you can have some fun here; the choice of name doesn't affect the code either way). When your app has been created, visit the <span class="strong"><strong class="calibre2">API Keys</strong></span> tab and locate the <span class="strong"><strong class="calibre2">Your access token</strong></span> section, where you need to create a new access token. After a short delay, refresh the page and note that you, in fact, have two sets of keys and secrets: an API key and a secret and an access token and the corresponding secret. Following good coding practices, we are going to set these values as environment variables so that our program can have access to them without us having to hardcode them in our source files. The keys we will use in this chapter are as follows:</p><div class="book"><ul class="itemizedlist"><li class="listitem"><code class="email">SP_TWITTER_KEY</code></li><li class="listitem"><code class="email">SP_TWITTER_SECRET</code></li><li class="listitem"><code class="email">SP_TWITTER_ACCESSTOKEN</code></li><li class="listitem"><code class="email">SP_TWITTER_ACCESSSECRET</code></li></ul></div><p class="calibre10">You may set the environment variables however you like, but since the app relies on them in order to work, creating a new file called <code class="email">setup.sh</code> (for bash shells) or <code class="email">setup.bat</code> (on Windows) is a good idea since you can check such files into your source code repository. Insert the following code in <code class="email">setup.sh</code> by copying the appropriate values from the Twitter app page:</p><pre class="programlisting">#!/bin/bash 
+export SP_TWITTER_KEY=yC2EDnaNrEhN5fd33g... 
+export SP_TWITTER_SECRET=6n0rToIpskCo1ob... 
+export SP_TWITTER_ACCESSTOKEN=2427-13677... 
+export SP_TWITTER_ACCESSSECRET=SpnZf336u... 
+</pre><p class="calibre10">On Windows, the code will look something like this:</p><pre class="programlisting">SET SP_TWITTER_KEY=yC2EDnaNrEhN5fd33g... 
+SET SP_TWITTER_SECRET=6n0rToIpskCo1ob... 
+SET SP_TWITTER_ACCESSTOKEN=2427-13677... 
+SET SP_TWITTER_ACCESSSECRET=SpnZf336u... 
+</pre><p class="calibre10">Run the file with the source or call commands to have the values set appropriately, or add them to your <code class="email">.bashrc</code> or <code class="email">C:\cmdauto.cmd</code> files to save you from running them every time you open a new terminal window.</p><p class="calibre10">If you're not sure how to do this, just search for <code class="email">Setting environment variables on Linux</code> or something similar, and the Internet will help you.</p><div class="book" title="Extracting the connection"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch05lvl3sec0019" class="calibre1"/>Extracting the connection</h3></div></div></div><p class="calibre10">The Twitter streaming API supports HTTP connections that stay open for a long time, and given the design of our solution, we are going to need to access the <code class="email">net.Conn</code> object in order to close it from outside of the goroutine in which requests occur. We can achieve this by providing our own <code class="email">dial</code> method to an <code class="email">http.Transport</code> object that we will create.</p><p class="calibre10">Create a new file called <code class="email">twitter.go</code> inside <code class="email">twittervotes</code> (which is where all things Twitter-related will live), and insert the following code:</p><pre class="programlisting">var conn net.Conn 
+func dial(netw, addr string) (net.Conn, error) { 
+  if conn != nil { 
+    conn.Close() 
+    conn = nil 
+  } 
+  netc, err := net.DialTimeout(netw, addr, 5*time.Second) 
+  if err != nil { 
+    return nil, err 
+  } 
+  conn = netc 
+  return netc, nil 
+} 
+</pre><p class="calibre10">Our bespoke <code class="email">dial</code> function first ensures that <code class="email">conn</code> is closed and then opens a new connection, keeping the <code class="email">conn</code> variable updated with the current connection. If a connection dies (Twitter's API will do this from time to time) or is closed by us, we can redial without worrying about zombie connections.</p><p class="calibre10">We will periodically close the connection ourselves and initiate a new one because we want to reload the options from the database at regular intervals. To do this, we need a function that closes the connection and also closes <code class="email">io.ReadCloser</code>, which we will use to read the body of the responses. Add the following code to <code class="email">twitter.go</code>:</p><pre class="programlisting">var reader io.ReadCloser 
+func closeConn() { 
+  if conn != nil { 
+    conn.Close() 
+  } 
+  if reader != nil { 
+    reader.Close() 
+  } 
+} 
+</pre><p class="calibre10">Now, we can call <code class="email">closeConn</code> at any time in order to break the ongoing connection with Twitter and tidy things up. In most cases, our code will load the options from the database again and open a new connection right away, but if we're shutting the program down (in response to a <span class="strong"><em class="calibre11">Ctrl + C</em></span> hit), then we can call <code class="email">closeConn</code> just before we exit.</p></div><div class="book" title="Reading environment variables"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch05lvl3sec0020" class="calibre1"/>Reading environment variables</h3></div></div></div><p class="calibre10">Next, we are going to write a function that will read the environment variables and set up the <code class="email">OAuth</code> objects we'll need in order to authenticate the requests. Add the following code to the <code class="email">twitter.go</code> file:</p><pre class="programlisting">var ( 
+  authClient *oauth.Client 
+  creds *oauth.Credentials 
+) 
+func setupTwitterAuth() { 
+  var ts struct { 
+    ConsumerKey    string `env:"SP_TWITTER_KEY,required"` 
+    ConsumerSecret string `env:"SP_TWITTER_SECRET,required"` 
+    AccessToken    string `env:"SP_TWITTER_ACCESSTOKEN,required"` 
+    AccessSecret   string `env:"SP_TWITTER_ACCESSSECRET,required"` 
+  } 
+  if err := envdecode.Decode(&amp;ts); err != nil { 
+    log.Fatalln(err) 
+  } 
+  creds = &amp;oauth.Credentials{ 
+    Token:  ts.AccessToken, 
+    Secret: ts.AccessSecret, 
+  } 
+  authClient = &amp;oauth.Client{ 
+    Credentials: oauth.Credentials{ 
+      Token:  ts.ConsumerKey, 
+      Secret: ts.ConsumerSecret, 
+    }, 
+  } 
+} 
+</pre><p class="calibre10">Here, we define a <code class="email">struct</code> type to store the environment variables that we need to authenticate with Twitter. Since we don't need to use the type elsewhere, we define it inline and create a variable called <code class="email">ts</code> of this anonymous type (that's why we have the somewhat unusual <code class="email">var ts struct...</code> code). We then use Joe Shaw's <code class="email">envdecode</code> package to pull in these environment variables for us. You will need to run <code class="email">go get github.com/joeshaw/envdecode</code> and also import the <code class="email">log</code> package. Our program will try to load appropriate values for all the fields marked <code class="email">required</code> and return an error if it fails to do so, which reminds people that the program won't work without Twitter credentials.</p><p class="calibre10">The strings inside the back ticks alongside each field in <code class="email">struct</code> are called tags and are available through a reflection interface, which is how <code class="email">envdecode</code> knows which variables to look for. We added the <code class="email">required</code> argument to this package, which indicates that it is an error for any of the environment variables to be missing (or empty).</p><p class="calibre10">Once we have the keys, we use them to create <code class="email">oauth.Credentials</code> and an <code class="email">oauth.Client</code> object from Gary Burd's <code class="email">go-oauth</code> package, which will allow us to authorize requests with Twitter.</p><p class="calibre10">Now that we have the ability to control the underlying connection and authorize requests, we are ready to write the code that will actually build the authorized request and return the response. In <code class="email">twitter.go</code>, add the following code:</p><pre class="programlisting">var ( 
+  authSetupOnce sync.Once 
+  httpClient    *http.Client 
+) 
+func makeRequest(req *http.Request, params url.Values) (*http.Response, error) { 
+  authSetupOnce.Do(func() { 
+    setupTwitterAuth() 
+    httpClient = &amp;http.Client{ 
+      Transport: &amp;http.Transport{ 
+        Dial: dial, 
+      }, 
+    } 
+  }) 
+  formEnc := params.Encode() 
+  req.Header.Set("Content-Type", "application/x-www-form- urlencoded") 
+  req.Header.Set("Content-Length", strconv.Itoa(len(formEnc))) 
+  req.Header.Set("Authorization",  authClient.AuthorizationHeader(creds, 
+  "POST",   
+  req.URL, params)) 
+  return httpClient.Do(req) 
+} 
+</pre><p class="calibre10">We use <code class="email">sync.Once</code> to ensure our initialization code gets run only once despite the number of times we call <code class="email">makeRequest</code>. After calling the <code class="email">setupTwitterAuth</code> method, we create a new <code class="email">http.Client</code> function using an <code class="email">http.Transport</code> function that uses our custom <code class="email">dial</code> method. We then set the appropriate headers required for authorization with Twitter by encoding the specified <code class="email">params</code> object that will contain the options we are querying for.</p></div></div></div></body></html>

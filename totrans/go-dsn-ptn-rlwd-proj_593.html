@@ -1,0 +1,77 @@
+<html><head></head><body>
+<div class="book" title="Future design pattern">
+<div class="book" title="Implementation"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_6"><a id="ch09lvl2sec0223" class="calibre1"/>Implementation</h2></div></div></div><p class="calibre10">According to our tests, the implementation must take a <code class="email">SuccessFunc</code>, a <code class="email">FailFunc</code>, and an <code class="email">ExecuteStringFunc</code> function in a chained fashion within the <code class="email">MaybeString</code> type and launches the <code class="email">ExecuteStringFunc</code> function asynchronously to call <code class="email">SuccessFunc</code> or <code class="email">FailFunc</code> functions according to the returned result of the <code class="email">ExecuteStringFunc</code> function.</p><p class="calibre10">The chain is implemented by storing the functions within the type and returning the pointer to the type. We are talking about our previously declared type methods, of course:</p><pre class="programlisting">type MaybeString struct { 
+  successFunc SuccessFunc 
+  failFunc    FailFunc 
+} 
+ 
+func (s *MaybeString) Success(f SuccessFunc) *MaybeString { 
+  s.successFunc = f 
+  return s 
+} 
+ 
+func (s *MaybeString) Fail(f FailFunc) *MaybeString { 
+  s.failFunc = f 
+  return s 
+} 
+</pre><p class="calibre10">We needed two fields to store the <code class="email">SuccessFunc</code> and <code class="email">FailFunc</code> functions, which are named the <code class="email">successFunc</code> and <code class="email">failFunc</code> fields respectively. This way, calls to the <code class="email">Success</code> and <code class="email">Fail</code> methods simply store their incoming functions to our new fields. They are simply setters that also return the pointer to the specific <code class="email">MaybeString</code> value. These type methods take a pointer to the <code class="email">MaybeString</code> structure, so don't forget to put "<code class="email">*</code>" on <code class="email">MaybeString</code> after the <code class="email">func</code> declaration.</p><p class="calibre10">Execute takes the <code class="email">ExecuteStringFunc</code> method and executes it asynchronously. This seems quite simple with a Goroutine, right?</p><pre class="programlisting">func (s *MaybeString) Execute(f ExecuteStringFunc) { 
+  go func(s *MaybeString) { 
+    str, err := f() 
+    if err != nil { 
+      s.failFunc(err) 
+    } else { 
+      s.successFunc(str) 
+    } 
+  }(s) 
+} 
+</pre><p class="calibre10">Looks quite simple because it is simple! We launch the Goroutine that executes the <code class="email">f</code> method (an <code class="email">ExecuteStringFunc</code>) and takes its result--maybe a string and maybe an error. If an error is present, we call the field <code class="email">failFunc</code> in our <code class="email">MaybeString</code> structure. If no error is present, we call the <code class="email">successFunc</code> field. We use a Goroutine to delegate a function execution and error handling so our Goroutine doesn't have to do it.</p><p class="calibre10">Let's run unit tests now:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go test -v .</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestStringOrError_Execute</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestStringOrError_Execute/Success_result</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestStringOrError_Execute/Failed_result</strong></span>
+<span class="strong"><strong class="calibre2">--- PASS: TestStringOrError_Execute (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">    --- PASS: TestStringOrError_Execute/Success_result (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">        future_test.go:21: Hello World!</strong></span>
+<span class="strong"><strong class="calibre2">    --- PASS: TestStringOrError_Execute/Failed_result (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">        future_test.go:49: Error ocurred</strong></span>
+<span class="strong"><strong class="calibre2">PASS</strong></span>
+<span class="strong"><strong class="calibre2">ok </strong></span>
+</pre><p class="calibre10">Great! Look how the execution time is now nearly zero, so our timeouts have not been executed (actually, they were executed, but the tests already finished and their result was already stated).</p><p class="calibre10">What's more, now we can use our <code class="email">MaybeString</code> type to asynchronously execute any type of function that accepts nothing and returns a string or an error. A function that accepts nothing seems a bit useless, right? But we can use closures to introduce a context into this type of function.</p><p class="calibre10">Let's write a <code class="email">setContext</code> function that takes a string as an argument and returns an <code class="email">ExecuteStringFunc</code> method that returns the previous argument with the suffix <code class="email">Closure!</code>:</p><pre class="programlisting">func setContext(msg string) ExecuteStringFunc { 
+  msg = fmt.Sprintf("%d Closure!\n", msg) 
+   
+  return func() (string, error){ 
+    return msg, nil 
+  } 
+} 
+</pre><p class="calibre10">So, we can write a new test that uses this closure:</p><pre class="programlisting">t.Run("Closure Success result", func(t *testing.T) { 
+    var wg sync.WaitGroup 
+    wg.Add(1) 
+    //Timeout! 
+    go timeout(t, &amp;wg) 
+ 
+    future.Success(func(s string) { 
+      t.Log(s) 
+      wg.Done() 
+    }).Fail(func(e error) { 
+      t.Fail() 
+      wg.Done() 
+    }) 
+    future.Execute(setContext("Hello")) 
+    wg.Wait() 
+  }) 
+</pre><p class="calibre10">The <code class="email">setContext</code> function returns an <code class="email">ExecuteStringFunc</code> method it can pass directly to the <code class="email">Execute</code> function. We call the <code class="email">setContext</code> function with an arbitrary text that we know will be returned.</p><p class="calibre10">Let's execute our tests again. Now everything has to go well!</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go test -v .</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestStringOrError_Execute</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestStringOrError_Execute/Success_result</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestStringOrError_Execute/Failed_result</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestStringOrError_Execute/Closure_Success_result</strong></span>
+<span class="strong"><strong class="calibre2">--- PASS: TestStringOrError_Execute (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">    --- PASS: TestStringOrError_Execute/Success_result (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">        future_test.go:21: Hello World!</strong></span>
+<span class="strong"><strong class="calibre2">    --- PASS: TestStringOrError_Execute/Failed_result (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">        future_test.go:49: Error ocurred</strong></span>
+<span class="strong"><strong class="calibre2">    --- PASS: TestStringOrError_Execute/Closure_Success_result (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">        future_test.go:69: Hello Closure!</strong></span>
+<span class="strong"><strong class="calibre2">PASS</strong></span>
+<span class="strong"><strong class="calibre2">ok</strong></span>
+</pre><p class="calibre10">It gave us an OK too. Closure test shows the behavior that we explained before. By taking a message <code class="email">"Hello"</code> and appending it with something else (<code class="email">"Closure!"</code>), we can change the context of the text we want to return. Now scale this to a HTTP <code class="email">GET</code> call, a call to a database, or anything you can imagine. It will just need to end by returning a string or an error. Remember, however, that everything within the <code class="email">setContext</code> function but outside of the anonymous function that we are returning is not concurrent, and will be executed asynchronously before calling execute, so we must try to put as much logic as possible within the anonymous function.</p></div></div></body></html>

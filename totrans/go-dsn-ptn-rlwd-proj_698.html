@@ -1,0 +1,77 @@
+<html><head></head><body>
+<div class="book" title="Reading votes from Twitter">
+<div class="book" title="Reading from Twitter"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_3"><a id="ch05lvl2sec0052" class="calibre1"/>Reading from Twitter</h2></div></div></div><p class="calibre10">Now we are able to load the options and make authorized requests to the Twitter API. We are ready to write the code that initiates the connection and continuously reads from the stream until either we call our <code class="email">closeConn</code> method or Twitter closes the connection for one reason or another. The structure contained in the stream is a complex one, containing all kinds of information about the tweet who made it and when and even what links or mentions of users occur in the body (refer to Twitter's API documentation for more details). However, we are only interested in the tweet text itself; so, don't worry about all the other noise and add the following structure to <code class="email">twitter.go</code>:</p><pre class="programlisting">type tweet struct { 
+  Text string 
+} 
+</pre><div class="informaltable" title="Tip"><h3 class="title2"><a id="tip81" class="calibre1"/>Tip</h3><p class="calibre10">This may feel incomplete, but think about how clear it makes our intentions to other programmers who might see our code: a tweet has some text, and that is all we care about.</p></div><p class="calibre10">Using this new structure, in <code class="email">twitter.go</code>, add the following <code class="email">readFromTwitter</code> function that takes a send only channel called <code class="email">votes</code>; this is how this function will inform the rest of our program that it has noticed a vote on Twitter:</p><pre class="programlisting">func readFromTwitter(votes chan&lt;- string) { 
+  options, err := loadOptions() 
+  if err != nil { 
+    log.Println("failed to load options:", err) 
+    return 
+  } 
+  u, err := url.Parse("https://stream.twitter.com/1.1/statuses
+  /filter.json") 
+  if err != nil { 
+    log.Println("creating filter request failed:", err) 
+    return 
+  } 
+  query := make(url.Values) 
+  query.Set("track", strings.Join(options, ",")) 
+  req, err := http.NewRequest("POST",u.String(),strings.NewReader
+  (query.Encode())) 
+  if err != nil { 
+    log.Println("creating filter request failed:", err) 
+    return 
+  } 
+  resp, err := makeRequest(req, query) 
+  if err != nil { 
+    log.Println("making request failed:", err) 
+    return 
+  } 
+  reader := resp.Body 
+  decoder := json.NewDecoder(reader) 
+  for { 
+    var t tweet 
+    if err := decoder.Decode(&amp;t); err != nil { 
+      break 
+    } 
+    for _, option := range options { 
+      if strings.Contains( 
+        strings.ToLower(t.Text), 
+        strings.ToLower(option), 
+      ) { 
+        log.Println("vote:", option) 
+        votes &lt;- option 
+      } 
+    } 
+  } 
+} 
+</pre><p class="calibre10">In the preceding code, after loading the options from all the polls data (by calling the <code class="email">loadOptions</code> function), we use <code class="email">url.Parse</code> to create a <code class="email">url.URL</code> object that describes the appropriate endpoint on Twitter. We build a <code class="email">url.Values</code> object called <code class="email">query</code> and set the options as a comma-separated list. As per the API, we make a new <code class="email">POST</code> request using the encoded <code class="email">url.Values</code> object as the body and pass it to <code class="email">makeRequest</code> along with the query object itself. If all is well, we make a new <code class="email">json.Decoder</code> from the body of the request and keep reading inside an infinite <code class="email">for</code> loop by calling the <code class="email">Decode</code> method. If there is an error (probably due to the connection being closed), we simply break the loop and exit the function. If there is a tweet to read, it will be decoded into the <code class="email">t</code> variable, which will give us access to the <code class="email">Text</code> property (the 140 characters of the tweet itself). We then iterate over all the possible options, and if the tweet has mentioned it, we send it on the <code class="email">votes</code> channel. This technique also allows a tweet to contain many votes at the same time, something you may or may not decide to change based on the rules of the election.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="note0082" class="calibre1"/>Note</h3><p class="calibre10">The <code class="email">votes</code> channel is send-only (which means we cannot receive on it), since it is of the <code class="email">chan&lt;- string</code> type. Think of the little arrow that tells us which way messages will flow: either into the channel (<code class="email">chan&lt;-</code>) or out of it (<code class="email">&lt;-chan</code>). This is a great way to express intent to other programmers or our future selves-it's clear that we never intend to read votes using our <code class="email">readFromTwitter</code> function; rather, we will only send them on that channel.</p></div><p class="calibre10">Terminating the program whenever <code class="email">Decode</code> returns an error doesn't provide a very robust solution. This is because the Twitter API documentation states that the connection will drop from time to time, and clients should consider this when consuming the services. And remember, we are going to terminate the connection periodically too, so we need to think about a way to reconnect once the connection is dropped.</p><div class="book" title="Signal channels"><div class="book"><div class="book"><div class="book"><h3 class="title2"><a id="ch05lvl3sec0021" class="calibre1"/>Signal channels</h3></div></div></div><p class="calibre10">A great use of channels in Go is to signal events between code running in different goroutines. We are going to see a real-world example of this when we write our next function.</p><p class="calibre10">The purpose of the function is to start a goroutine that continually calls the <code class="email">readFromTwitter</code> function (with the specified <code class="email">votes</code> channel to receive the votes on) until we signal that we want it to stop. And once it has stopped, we want to be notified through another signal channel. The return of the function will be a channel of<code class="email"> struct{}</code>: a signal channel.</p><p class="calibre10">Signal channels have some interesting properties that are worth taking a closer look at. Firstly, the type sent down the channels is an empty <code class="email">struct{}</code>, instances of which actually take up zero bytes, since it has no fields. So, <code class="email">struct{}{}</code> is a great memory-efficient option for signaling events. Some people use <code class="email">bool</code> types, which are also fine, although <code class="email">true</code> and <code class="email">false</code> both take up a byte of memory.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="note0083" class="calibre1"/>Note</h3><p class="calibre10">Head over to <a class="calibre1" href="http://play.golang.org">http://play.golang.org</a> and try this out for yourself.</p><p class="calibre10">The size of <code class="email">bool</code> is one:</p><pre class="programlisting">
+<code class="email">
+<code class="email">fmt.Println(reflect.TypeOf(true).Size()) = 1</code>
+</code>
+</pre><p class="calibre10">On the other hand, the size of <code class="email">struct{}{}</code> is zero:</p><pre class="programlisting">
+<code class="email">fmt.Println(reflect.TypeOf(struct{}{}).Size()) = 0</code>
+</pre></div><p class="calibre10">The signal channels also have a buffer size of 1, which means that execution will not get blocked until something reads the signal from the channel.</p><p class="calibre10">We are going to employ two signal channels in our code: one that we pass into our function that tells our goroutine that it should stop and another (provided by the function) that signals once the stopping is complete.</p><p class="calibre10">In <code class="email">twitter.go</code>, add the following function:</p><pre class="programlisting">func startTwitterStream(stopchan &lt;-chan struct{}, votes chan&lt;- string) &lt;-chan struct{} { 
+  stoppedchan := make(chan struct{}, 1) 
+  go func() { 
+    defer func() { 
+      stoppedchan &lt;- struct{}{} 
+    }() 
+    for { 
+      select { 
+      case &lt;-stopchan: 
+        log.Println("stopping Twitter...") 
+        return 
+      default: 
+        log.Println("Querying Twitter...") 
+        readFromTwitter(votes) 
+        log.Println("  (waiting)") 
+        time.Sleep(10 * time.Second) // wait before
+         reconnecting 
+      } 
+    } 
+  }() 
+  return stoppedchan 
+} 
+</pre><p class="calibre10">In the preceding code, the first argument, <code class="email">stopchan</code>, is a channel of type <code class="email">&lt;-chan struct{}</code>, a receive-only signal channel. It is this channel that, outside the code, will signal on, which will tell our goroutine to stop. Remember that it's receive-only inside this function; the actual channel itself will be capable of sending. The second argument is the <code class="email">votes</code> channel on which votes will be sent. The return type of our function is also a signal channel of type <code class="email">&lt;-chan struct{}</code>: a receive-only channel that we will use to indicate that we have stopped.</p><p class="calibre10">These channels are necessary because our function triggers its own goroutine and immediately returns; so without this, calling code would have no idea whether the spawned code was still running or not.</p><p class="calibre10">The first thing we do in the <code class="email">startTwitterStream</code> function is make our <code class="email">stoppedchan</code> argument, and defer the sending of <code class="email">struct{}{}</code> to indicate that we have finished when our function exits. Note that <code class="email">stoppedchan</code> is a normal channel, so even though it is returned as receive-only, we will be able to send it from within this function.</p><p class="calibre10">We then start an infinite <code class="email">for</code> loop in which we select from one of two channels. The first is <code class="email">stopchan</code> (the first argument), which would indicate that it was time to stop and return (thus triggering the deferred signaling on <code class="email">stoppedchan</code>). If that hasn't happened, we will call <code class="email">readFromTwitter</code> (passing in the <code class="email">votes</code> channel), which will go and load the options from the database and open the connection to Twitter.</p><p class="calibre10">When the Twitter connection dies, our code will return, where we sleep for 10 seconds using the <code class="email">time.Sleep</code> function. This is to give the Twitter API rest in case it closed the connection due to overuse. Once we've rested, we re-enter the loop and check on <code class="email">stopchan</code> again to see whether calling code wants us to stop or not.</p><p class="calibre10">To make this flow clear, we are logging out key statements that will not only help us debug our code, but also let us peek into the inner workings of this somewhat complicated mechanism.</p><div class="informaltable" title="Note"><h3 class="title2"><a id="note0084" class="calibre1"/>Note</h3><p class="calibre10">Signal channels are a great solution for simple cases where all code lives inside a single package. If you need to cross API boundaries, the context package is the recommended way to deal with deadlines, cancelation and, stopping since it was promoted to the standard library in Go 1.7.</p></div></div></div></div></body></html>

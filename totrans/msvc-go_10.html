@@ -1,0 +1,413 @@
+<html><head></head><body>
+		<div id="_idContainer038">
+			<h1 id="_idParaDest-138" class="chapter-number" lang="en-GB"><a id="_idTextAnchor139"/>10</h1>
+			<h1 id="_idParaDest-139" lang="en-GB"><a id="_idTextAnchor140"/>Reliability Overview</h1>
+			<p lang="en-GB">We have made a long journey through all previous chapters of this book and completed the part of the book dedicated to microservice development basics. So far, you have learned how to bootstrap microservices, write tests, set up service discovery, use synchronous and asynchronous communication between your microservices, and serialize the data between them using different formats, as well as how to deploy the services and verify that their APIs work.</p>
+			<p lang="en-GB">This chapter begins the third part of the book, dedicated to more advanced concepts of microservice development, including reliability, observability, maintainability, and scalability. In this chapter, we will cover some practical aspects of microservice development that are important for ensuring your services can operate well under many conditions, including failure scenarios, changes in network traffic, and unexpected service shutdowns.</p>
+			<p lang="en-GB">In this chapter, we will cover various techniques and processes that can help you increase the reliability of your services. We will cover the following topics:</p>
+			<ul>
+				<li lang="en-GB">Reliability basics</li>
+				<li lang="en-GB">Achieving reliability through automation</li>
+				<li lang="en-GB">Achieving reliability through development processes and culture</li>
+			</ul>
+			<p lang="en-GB">Let’s proceed to the first section of the chapter, which will help you to understand service reliability concepts better.</p>
+			<h1 id="_idParaDest-140" lang="en-GB"><a id="_idTextAnchor141"/>Technical requirements</h1>
+			<p lang="en-GB">To complete this chapter, you need Go 1.11+ or above.</p>
+			<p lang="en-GB">You can find the GitHub code for this chapter here: </p>
+			<p lang="en-GB"><a href="https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter10">https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter</a>10</p>
+			<h1 id="_idParaDest-141" lang="en-GB"><a id="_idTextAnchor142"/>Reliability basics</h1>
+			<p lang="en-GB">While <a id="_idIndexMarker434"/>implementing new applications, services, or features, engineers often focus first on meeting various system requirements, such as implementing specific application features. The initial result of such work is usually some working code that correctly performs its job, such as handling some data processing task or serving network requests as an API endpoint. We can say that such code initially performs well in isolation—the implemented code produces expected outputs for the inputs we provide.</p>
+			<p lang="en-GB">Things usually get more complex when we add more components to the system. Let’s take our movie service from <a href="B18865_02.xhtml#_idTextAnchor027"><em class="italic" lang="">Chapter 2</em></a> and assume that its API gets used by some external service that has millions of users. Our service can be implemented perfectly fine and produce the right results for various test inputs. Still, once we get requests from an external service, we may notice various issues. One of them is called <strong class="bold" lang="">denial of service</strong> (<strong class="bold" lang="">DoS</strong>)—an <a id="_idIndexMarker435"/>external service can overload our service by asking to process too many requests, to the extent that our service stops serving new requests. The outcome of such an issue can vary from minor system performance degradation to service crashes due to reaching CPU, file, or memory limits.</p>
+			<p lang="en-GB">DoS is just one of the examples of things that can go wrong in a microservice environment. Assume that you performed a fix that limits the number of incoming requests to your service, but the fix broke the services calling your API because they did not expect a sudden DoS on their requests. An alternative scenario is a change in a service API that introduces<a id="_idIndexMarker436"/> a <strong class="bold" lang="">backward-incompatible change</strong>. This change is incompatible with one or multiple previously released versions of callers of your service API. As a result, services calling your API could experience various negative effects, up to the point that they would be unable to process any requests.</p>
+			<p lang="en-GB">Let’s define the quality of a service that can be resilient in the face of unexpected failures as <strong class="bold" lang="">reliability</strong>—the<a id="_idIndexMarker437"/> quality of operating expectedly and having explicitly defined limitations. The last clause in our definition of reliability makes a big difference to its meaning—it’s not enough to perform a certain function well. It is equally important to be explicit about the service’s limitations and what happens when these limitations are breached. </p>
+			<p lang="en-GB">In our movie service example, we would need to be explicit about multiple things, such as the following:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">System throughput</strong>: How<a id="_idIndexMarker438"/> many requests the service can process (for example, maximal requests per second)</li>
+				<li lang="en-GB"><strong class="bold" lang="">Congestion policy</strong>: How <a id="_idIndexMarker439"/>we would handle scenarios when our service is overloaded</li>
+			</ul>
+			<p lang="en-GB">For example, if our service can’t process more than 100 simultaneous requests per service instance, we could explicitly state this in the documentation to our API and reject all extra incoming requests by returning a special error code, such as <strong class="source-inline" lang="">HTTP 429 Too Many Requests</strong>. Such indication of system limits and explicit communication of congestion issues would be a great step toward improving overall system reliability by making its behavior more deterministic and, hence, reliable. </p>
+			<p lang="en-GB">In general, achieving a high degree of reliability is a continuous process and requires constant improvements in the following three categories:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Prevention</strong>: An<a id="_idIndexMarker440"/> ability to prevent possible issues whenever possible</li>
+				<li lang="en-GB"><strong class="bold" lang="">Detection</strong>: An<a id="_idIndexMarker441"/> ability to detect possible issues as early as possible</li>
+				<li lang="en-GB"><strong class="bold" lang="">Mitigation</strong>: An <a id="_idIndexMarker442"/>ability to mitigate any issues as early as possible</li>
+			</ul>
+			<p lang="en-GB">Prevention, detection, and mitigation improvements can be made by performing two types of actions:</p>
+			<ul>
+				<li lang="en-GB">Automating service responses to various types of failures</li>
+				<li lang="en-GB">Changing and <a id="_idIndexMarker443"/>improving service development processes</li>
+			</ul>
+			<p lang="en-GB">We will divide the rest of the chapter into two sections, describing these two types of actions. Let’s proceed to the first section, covering the automation-related reliability work.</p>
+			<h1 id="_idParaDest-142" lang="en-GB"><a id="_idTextAnchor143"/>Achieving reliability through automation</h1>
+			<p lang="en-GB">In this section, we will talk about various automation techniques that can help you improve the reliability of your services.</p>
+			<p lang="en-GB">First, let’s get back to <a id="_idIndexMarker444"/>communication error handling, which we briefly covered earlier in <a href="B18865_05.xhtml#_idTextAnchor076"><em class="italic" lang="">Chapter 5</em></a>. Having the right communication error-handling logic in place is the first step toward achieving higher reliability of your services, so we will focus on multiple aspects of error handling that are equally important in microservice development.</p>
+			<h2 id="_idParaDest-143" lang="en-GB"><a id="_idTextAnchor144"/>Communication error handling</h2>
+			<p lang="en-GB">As we<a id="_idIndexMarker445"/> discussed in <a href="B18865_05.xhtml#_idTextAnchor076"><em class="italic" lang="">Chapter 5</em></a> of this <a id="_idIndexMarker446"/>book, when two components—such as a client and a server—communicate with each other, there are three possible resulting scenarios:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Successful response</strong>: The<a id="_idIndexMarker447"/> server receives and successfully processes a request.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Client error</strong>: An<a id="_idIndexMarker448"/> error occurs, and it is not caused by the server (for example, the client sends an invalid request).</li>
+				<li lang="en-GB"><strong class="bold" lang="">Server error</strong>: An <a id="_idIndexMarker449"/>error occurs, and it is caused by the server (for example, due to an application crash or an unexpected error on the server side).</li>
+			</ul>
+			<p lang="en-GB">From the perspective of a client, there are two different classes of errors:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Retriable errors</strong>: A <a id="_idIndexMarker450"/>client may retry the original request (for example, when a server is temporarily unavailable).</li>
+				<li lang="en-GB"><strong class="bold" lang="">Non-retriable errors</strong>: A <a id="_idIndexMarker451"/>client should not retry the request (for example, when the request itself is incorrect due to failing validation).</li>
+			</ul>
+			<p lang="en-GB">Differentiating between <a id="_idIndexMarker452"/>retriable and non-retriable errors is the responsibility of the client. However, it is a <a id="_idIndexMarker453"/>good practice to indicate this explicitly whenever possible. For example, a server can return specific codes, indicating the types of errors (such as <strong class="source-inline" lang="">HTTP 404 Not Found</strong>) so that a client can recognize retriable errors and perform retries. Differentiation between client and server errors also helps to ensure that requests are not retried for non-retriable errors. It is important from the server’s perspective because handling duplicate, invalid requests increases its load.</p>
+			<p lang="en-GB">Let’s illustrate how to handle retriable communication errors by implementing client request retries. Setting up automated responses to potential issues, such as communication errors, helps to make the system more resilient to transient failures, resulting in a better experience for all components in the system.</p>
+			<h3 lang="en-GB">Implementing request retries</h3>
+			<p lang="en-GB">Let’s illustrate <a id="_idIndexMarker454"/>how to implement<a id="_idIndexMarker455"/> request retries in microservice code. For this, let’s review the metadata gRPC gateway code we implemented earlier in <a href="B18865_05.xhtml#_idTextAnchor076"><em class="italic" lang="">Chapter 5</em></a>. The <strong class="source-inline" lang="">Get</strong> function includes the actual call to the <strong class="source-inline" lang="">metadata</strong> service:</p>
+			<pre class="source-code" lang="en-GB">
+    resp, err := client.GetMetadata(ctx, &amp;gen.GetMetadataRequest{MovieId: id})
+    if err != nil {
+        return nil, err
+    }</pre>
+			<p lang="en-GB">Let’s now look at the implementation of the <strong class="source-inline" lang="">GetMetadata</strong> endpoint in the metadata service gRPC handler. The <strong class="source-inline" lang="">GetMetadata</strong> function includes the following code:</p>
+			<pre class="source-code" lang="en-GB">
+func (h *Handler) GetMetadata(ctx context.Context, req *gen.GetMetadataRequest) (*gen.GetMetadataResponse, error) {
+    if req == nil || req.MovieId == "" {
+        return nil, status.Errorf(codes.InvalidArgument, "nil req or empty id")
+    }
+    m, err := h.ctrl.Get(ctx, req.MovieId)
+    if err != nil &amp;&amp; errors.Is(err, metadata.ErrNotFound) {
+        return nil, status.Errorf(codes.NotFound, err.Error())
+    } else if err != nil {
+        return nil, status.Errorf(codes.Internal, err.Error())
+    }
+    return &amp;gen.GetMetadataResponse{Metadata: model.MetadataToProto(m)}, nil
+}</pre>
+			<p lang="en-GB">As we can see, the implementation of the <strong class="source-inline" lang="">GetMetadata</strong> endpoint includes three error cases, each having its own gRPC error code:</p>
+			<ul>
+				<li lang="en-GB"><strong class="source-inline" lang="">InvalidArgument</strong>: The incoming request fails the validation.</li>
+				<li lang="en-GB"><strong class="source-inline" lang="">NotFound</strong>: The record with the provided identifier is not found.</li>
+				<li lang="en-GB"><strong class="source-inline" lang="">Internal</strong>: Internal server error.</li>
+			</ul>
+			<p lang="en-GB">The <strong class="source-inline" lang="">InvalidArgument</strong> and <strong class="source-inline" lang="">NotFound</strong> errors are non-retriable—there is no point in retrying requests failing validation or trying to retrieve records that are not found. <strong class="source-inline" lang="">Internal</strong> errors may indicate a wide range of issues, such as bugs in the service code, so we can’t certainly state that you should perform retries on them.</p>
+			<p lang="en-GB">There are, however, some <a id="_idIndexMarker456"/>other types of <a id="_idIndexMarker457"/>gRPC error codes that indicate potentially retriable errors. Let’s list some of them:</p>
+			<ul>
+				<li lang="en-GB"><strong class="source-inline" lang="">DeadlineExceeded</strong>: Indicates a problem with processing a request within the configured interval of time.</li>
+				<li lang="en-GB"><strong class="source-inline" lang="">ResourceExhausted</strong>: The service processing the request is exhausted. This can indicate a problem with a lack of available resources (for example, the CPU, memory, or disk reaching its limit) or the client reaching its quota for accessing the service (for example, when a service does not allow more than a certain number of parallel requests).</li>
+				<li lang="en-GB"><strong class="source-inline" lang="">Unavailable</strong>: The service is currently unavailable.</li>
+			</ul>
+			<p lang="en-GB">Let’s first implement some simple retry logic inside the metadata gRPC gateway by replacing the <strong class="source-inline" lang="">Get</strong> function with the following code:</p>
+			<pre class="source-code" lang="en-GB">
+// Get returns movie metadata by a movie id.
+func (g *Gateway) Get(ctx context.Context, id string) (*model.Metadata, error) {
+    conn, err := grpcutil.ServiceConnection(ctx, "metadata", g.registry)
+    if err != nil {
+        return nil, err
+    }
+    defer conn.Close()
+    client := gen.NewMetadataServiceClient(conn)
+    var resp *model.Metadata
+    const maxRetries = 5
+    for i := 0; i &lt; maxRetries; i++ {
+        resp, err = client.GetMetadata(ctx, &amp;gen.GetMetadataRequest{MovieId: id})
+        if err != nil {
+            if shouldRetry(err) {
+                continue
+            }
+            return nil, err
+        }
+        return model.MetadataFromProto(resp.Metadata), nil
+    }
+    return nil, err
+}</pre>
+			<p lang="en-GB">Add a <a id="_idIndexMarker458"/>function that should help <a id="_idIndexMarker459"/>us to check whether a communication error is retriable:</p>
+			<pre class="source-code" lang="en-GB">
+func shouldRetry(err error) bool {
+    e, ok := status.FromError(err)
+    if !ok {
+        return false
+    }
+    return e.Code() == codes.DeadlineExceeded || e.Code() == codes.ResourceExhausted || e.Code() == codes.Unavailable
+}</pre>
+			<p lang="en-GB">Note that we also need to import two extra packages for checking for specific gRPC error codes—<strong class="source-inline" lang="">google.golang.org/grpc/codes</strong> for accessing a list of error codes and <strong class="source-inline" lang="">google.golang.org/grpc/status</strong> for checking whether the communication error is a valid gRPC error.</p>
+			<p lang="en-GB">Now, our metadata gRPC gateway can perform up to five retries of requests to the metadata service. The retry logic that we just added should help us minimize the impact of occasional errors, such as temporary server unavailability (for example, during an unexpected outage or temporary network issues). However, it introduces some additional challenges:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Extra requests to the server</strong>: For every call to the <strong class="source-inline" lang="">Get</strong> function, the metadata service gRPC gateway now performs up to five calls instead of one for retriable errors.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Request bursts</strong>: The metadata gRPC gateway performs immediate retries on errors, which will generate bursts of requests to the server.</li>
+			</ul>
+			<p lang="en-GB">The latter <a id="_idIndexMarker460"/>scenario may be <a id="_idIndexMarker461"/>especially challenging to the server due to uneven load distribution. Imagine that you are doing some work and getting some phone calls with extra tasks. If you responded to such calls and said that you were busy, you wouldn’t want to get called again immediately and asked to perform the same tasks again—instead, you would want the caller to call back after some time. Similarly, immediate retries would be suboptimal to servers experiencing congestion issues, so we would need to perform additional modifications to our retry logic to introduce extra delays between the retries so that our server does not get overloaded with immediate retries.</p>
+			<p lang="en-GB">The technique of adding extra delays between client request<a id="_idIndexMarker462"/> retries is called <strong class="bold" lang="">backoff</strong>. Different types of backoff are implemented by using different delay intervals between the retry requests:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Constant backoff</strong>: Each <a id="_idIndexMarker463"/>retry is <a id="_idIndexMarker464"/>performed after a constant delay.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Exponential backoff</strong>: Each<a id="_idIndexMarker465"/> retry is performed after a delay that is<a id="_idIndexMarker466"/> exponentially higher than the previous one.</li>
+			</ul>
+			<p lang="en-GB">An example of <a id="_idIndexMarker467"/>exponential backoff would be a sequence of calls where the first retry would be done after a 100 ms delay, the second one would take<a id="_idIndexMarker468"/> a 400 ms wait, and the<a id="_idIndexMarker469"/> third retry delay would be 900 ms. Exponential backoff is usually a better solution than constant, because it performs the next retry much slower than the previous ones, allowing the server to recover in case of overloading. A popular Go library at <a href="https://github.com/cenkalti/backoff">https://github.com/cenkalti/backoff</a> provides an implementation of exponential and other types of backoff algorithms.</p>
+			<p lang="en-GB">Backoff delay can<a id="_idIndexMarker470"/> also be modified by introducing small random changes to its duration. For example, the retry delay value on each step could be increased or decreased by up to 10% to better spread the load on the server. This optimization is <a id="_idIndexMarker471"/>called <strong class="bold" lang="">jittering</strong>. To illustrate the usefulness of jittering, assume multiple clients start calling the server simultaneously. If retries are performed with the same delays for each client, they will keep calling the server simultaneously, generating bursts of server requests. Adding pseudo-random offsets to retry delay intervals helps to distribute the load on a server more evenly, preventing possible traffic bursts from request retries.</p>
+			<h3 lang="en-GB">Deadlines and timeouts</h3>
+			<p lang="en-GB">Let’s now talk about another class of communication issues related to time. When a client performs a request to a server, multiple possible failures may result in either a client or a server not receiving enough data to consider the request successful. Possible failure scenarios include the following:</p>
+			<ul>
+				<li lang="en-GB">The client request does not reach the server due to network issues.</li>
+				<li lang="en-GB">The server gets overloaded and takes longer to respond to the client.</li>
+				<li lang="en-GB">The server processes the request, but the response does not reach the client due to network issues.</li>
+			</ul>
+			<p lang="en-GB">These failures can result in longer waiting times for a client. Imagine you are sending a letter to your relative and not getting a response back. Without additional information, you would continue waiting without knowing whether the letter got lost at any step or the relative simply hasn’t responded.</p>
+			<p lang="en-GB">For synchronous requests, there is a<a id="_idIndexMarker472"/> way to improve the client experience by setting a <strong class="bold" lang="">request timeout</strong>—an<a id="_idIndexMarker473"/> interval after which the request is considered as failed in case of not receiving a successful response. Setting request timeouts is a good practice due to multiple reasons:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Elimination of unexpected waits</strong>: If a request takes an unexpectedly long time, the client can<a id="_idIndexMarker474"/> stop it earlier and perform an optional retry.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Ability to estimate maximum request processing time</strong>: When requests are performed with explicit timeouts, it is easier to calculate how long it will take until the operation returns a response or an error to the caller.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Ability to set longer timeouts for long-running operations</strong>: Libraries used for performing network calls often set default request timeouts (for example, 30 seconds). Sometimes the clients want to set a higher value, knowing that the request may take longer to complete (for example, when uploading a large file to a server). Explicitly setting a higher timeout helps to prevent the situation <a id="_idIndexMarker475"/>of a request getting canceled due to exceeding the default timeout.</li>
+			</ul>
+			<p lang="en-GB">In Go, timeouts are usually propagated via the <strong class="source-inline" lang="">context.Context</strong> object. As we mentioned in <a href="B18865_01.xhtml#_idTextAnchor015"><em class="italic" lang="">Chapter 1</em></a>, each I/O operation, such as a network call, accepts the <strong class="source-inline" lang="">context</strong> object as an argument, and we can set a timeout by calling the <strong class="source-inline" lang="">context.WithTimeout</strong> function, as shown in the following code snippet:</p>
+			<pre class="source-code" lang="en-GB">
+func TimeoutExample(ctx context.Context, args Args) {
+    const timeout = 10 * time.Second
+    ctx, cancel := context.WithTimeout(ctx, timeout)
+    defer cancel()
+    resp, err := SomeOperation(ctx, args)
+}</pre>
+			<p lang="en-GB">In the preceding example, we set the timeout for the <strong class="source-inline" lang="">SomeOperation</strong> function to <strong class="source-inline" lang="">10</strong> seconds, so it should not take more than 10 seconds to complete the operation.</p>
+			<p lang="en-GB">Setting a timeout is not the only way to limit request processing time. An alternative solution to this is setting a <strong class="bold" lang="">deadline</strong>—the <a id="_idIndexMarker476"/>maximal time until which the request should get<a id="_idIndexMarker477"/> processed not to be considered as failed. Unlike a timeout, which is set using the <strong class="source-inline" lang="">time.Duration</strong> structure (for example, having the value of 10 seconds), a deadline indicates the exact instance of time (for example, January 1, 2074, 00:00:00). Here’s an example of using a deadline for the same operation as in the previous code example:</p>
+			<pre class="source-code" lang="en-GB">
+deadline := time.Parse(time.RFC3339, "2074-01-01T00:00:00Z")
+ctx, cancel := context.WithDeadline(ctx, deadline)
+defer cancel()
+resp, err := SomeOperation(ctx, args)</pre>
+			<p lang="en-GB">Technically, both a timeout and a deadline help us achieve the same goal—set a time limit for a target operation. You are free to use either format, depending on your preferences.</p>
+			<h3 lang="en-GB">Fallbacks</h3>
+			<p lang="en-GB">Let’s now talk about another <a id="_idIndexMarker478"/>client-server communication failure scenario—when a client tries to operate and doesn’t get a successful response even after a set of retries. In such a case, there are three possible options for the client:</p>
+			<ul>
+				<li lang="en-GB">Return an error to the caller, if any</li>
+				<li lang="en-GB">Panic, in case an error is fatal to the system</li>
+				<li lang="en-GB">Perform an alternative backup operation, if it is possible</li>
+			</ul>
+			<p lang="en-GB">The last option is<a id="_idIndexMarker479"/> called a <strong class="bold" lang="">fallback</strong>—an alternative logic that can get executed if some <a id="_idIndexMarker480"/>operation can’t be performed as expected. </p>
+			<p lang="en-GB">Let’s take our rating service as an example. In our service, we implemented the <strong class="source-inline" lang="">GetAggregatedRating</strong> endpoint by reading all ratings for a provided record from the rating repository. Now, let’s consider a failure scenario when we can’t retrieve the ratings due to some problem, such as MySQL database unavailability. Without a fallback logic, we would not be able to process an incoming request and would need to return an error to our caller.</p>
+			<p lang="en-GB">An example of a fallback would<a id="_idIndexMarker481"/> be to use a <strong class="bold" lang="">cache</strong>—we could store the previously retrieved ratings in the memory of a service (for example, inside a <strong class="source-inline" lang="">map</strong> structure) and return them on database-read errors. The following code snippet provides an example of such a fallback logic:</p>
+			<pre class="source-code" lang="en-GB">
+    ratings, err := c.repo.Get(ctx, recordID, recordType)
+    if err != nil &amp;&amp; err == repository.ErrNotFound {
+        return 0, ErrNotFound
+    } else if err != nil {
+        log.Printf("Failed to get ratings for %v %v: %v", recordID, recordType, err)
+        log.Printf("Fallback: returning locally cached ratings for %v %v", recordID, recordType)
+        return c.getCachedRatings(recordID, recordType)
+    }</pre>
+			<p lang="en-GB">Using fallbacks is an example <a id="_idIndexMarker482"/>of <strong class="bold" lang="">graceful degradation</strong>—a practice of handling application failures in a way that an application still performs its operations in a limited mode. In our example, the movie service would continue processing requests for getting movie details even if the recommendation feature is unavailable, providing a limited but working functionality to its users.</p>
+			<p lang="en-GB">When designing new services or features, ask yourself which operations could be replaced with fallbacks in case of failures. Additionally, check which features and operations are absolutely necessary and which ones can be turned off in case of any failure, such as system overload or losing a part of a system due to an outage. Also, a good practice is to emit additional useful information related to failures, such as logs and metrics, and make it explicit in the code that the fallback is intentional, as in the preceding example.</p>
+			<h3 lang="en-GB">Rate limiting and throttling</h3>
+			<p lang="en-GB">As we discussed at the beginning of this chapter, there may be a situation when a microservice is overloaded and can’t handle incoming requests anymore. How can we prevent or mitigate such issues?</p>
+			<p lang="en-GB">A popular way of preventing such issues is setting a hard limit on the number of requests to be processed in parallel. Such a<a id="_idIndexMarker483"/> technique is called <strong class="bold" lang="">rate limiting</strong> and can be <a id="_idIndexMarker484"/>applied on multiple levels:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Client level</strong>: A client<a id="_idIndexMarker485"/> limits the number of simultaneous outgoing requests.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Server level</strong>: A <a id="_idIndexMarker486"/>server limits the number of simultaneous incoming requests.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Network/intermediate level</strong>: The <a id="_idIndexMarker487"/>number of requests between a server and its clients is controlled by some logic or an intermediate component between them (for example, by a load balancer).</li>
+			</ul>
+			<p lang="en-GB">When a client or a server exceeds the configured number of requests, the result of a request would be an error that should include a special code or message, indicating that a request has been rate limited.</p>
+			<p lang="en-GB">An example of a rate-limiting indication in the HTTP protocol is a built-in status code, <strong class="source-inline" lang="">429 Too Many Requests</strong>. When a client receives a response with such a code, it should take this into account by either reducing the call rate or waiting some time until the server can process requests again.</p>
+			<p lang="en-GB">Client- and server-level rate limiting <a id="_idIndexMarker488"/>are often done by each service instance separately: each <a id="_idIndexMarker489"/>instance keeps track of the current number of outgoing or incoming requests. The downside of these models is the inability to configure the limits on a global-service level. If you configure each service client instance to send no more than 100 requests per second, you may still receive 100,000 simultaneous requests if there are 1,000 client instances. Such a high number of simultaneous requests could easily overload your service.</p>
+			<p lang="en-GB">Network-level rate limiting<a id="_idIndexMarker490"/> can potentially solve this problem: if rate limiting is performed in a centralized way (for example, by a load balancer that handles requests between the services), the component performing rate limiting can keep track of the total number of requests across all service instances.</p>
+			<p lang="en-GB">While network-level rate limiters provide more flexibility to configure the settings, they often require additional centralized components (such as load balancers). Because of this, we are going to demonstrate how to use a simpler approach, based on the client level.</p>
+			<p lang="en-GB">There is a popular package<a id="_idIndexMarker491"/> implementing rate limiting in Go, called <strong class="source-inline" lang="">golang.org/x/time/rate</strong>. The <a id="_idIndexMarker492"/>package implements the <strong class="bold" lang="">token bucket</strong> algorithm—a <a id="_idIndexMarker493"/>limiting algorithm that initializes a bucket of some configured maximal size <strong class="source-inline" lang="">b</strong>, decrements its value by 1 on each request, and refills it at a configured rate of <strong class="source-inline" lang="">r</strong> elements per second. For example, for b = 100 and r = 50, the token bucket algorithm creates a bucket of size 100 and refills it at a rate of 50 per second. At any moment in time, it doesn’t allow more than 100 simultaneous requests (the maximal number is controlled by the current bucket size).</p>
+			<p lang="en-GB">Here is an example of using a <a id="_idIndexMarker494"/>token bucket-based rate limiter in Go:</p>
+			<pre class="source-code" lang="en-GB">
+package main
+import (
+    "fmt"
+    "golang.org/x/time/rate"
+)
+func main() {
+    limit := 3
+    burst := 3
+    limiter := rate.NewLimiter(rate.Limit(limit), burst)
+    for i := 0; i &lt; 100; i++ {
+        if limiter.Allow() {
+            fmt.Println("allowed")
+        } else {
+            fmt.Println("not allowed")
+        }
+    }
+}</pre>
+			<p lang="en-GB">This code prints <strong class="source-inline" lang="">allowed</strong> 3 times and then keeps printing <strong class="source-inline" lang="">not allowed</strong> 97 times unless it takes more than 1 second to run.</p>
+			<p lang="en-GB">Let’s illustrate how to <a id="_idIndexMarker495"/>use such a rate limiter in combination with a gRPC API handler, which we implemented in <a href="B18865_05.xhtml#_idTextAnchor076"><em class="italic" lang="">Chapter 5</em></a>. The gRPC protocol allows us to define <strong class="bold" lang="">interceptors</strong>—operations<a id="_idIndexMarker496"/> that are performed on each request and can modify the gRPC server’s response to it. To add a gRPC rate limiter to the movie service gRPC handler, perform the following steps: </p>
+			<ol>
+				<li lang="en-GB">Open the <strong class="source-inline" lang="">movie/cmd/main.go</strong> file and add the following code to its imports:<pre class="source-code" lang="en-GB">
+“github.com/grpc-ecosystem/go-grpc-middleware/ratelimit"</pre></li>
+				<li lang="en-GB">Replace the line with a <strong class="source-inline" lang="">grpc.NewServer</strong> call with the following code:<pre class="source-code" lang="en-GB">
+    const limit = 100</pre><pre class="source-code" lang="en-GB">
+    const burst = 100</pre><pre class="source-code" lang="en-GB">
+    l := newLimiter(100, 100)</pre><pre class="source-code" lang="en-GB">
+    srv := grpc.NewServer(grpc.UnaryInterceptor(ratelimit.UnaryServerInterceptor(l)))</pre></li>
+				<li lang="en-GB">Then, add the following structure definition to the file:<pre class="source-code" lang="en-GB">
+type limiter struct {</pre><pre class="source-code" lang="en-GB">
+    l *rate.Limiter</pre><pre class="source-code" lang="en-GB">
+}</pre><pre class="source-code" lang="en-GB">
+func newLimiter(limit int, burst int) *limiter {</pre><pre class="source-code" lang="en-GB">
+    return &amp;limiter{rate.NewLimiter(rate.Limit(limit), burst)}</pre><pre class="source-code" lang="en-GB">
+}</pre><pre class="source-code" lang="en-GB">
+func (l *limiter) Limit() bool {</pre><pre class="source-code" lang="en-GB">
+    return l.l.Allow()</pre><pre class="source-code" lang="en-GB">
+}</pre></li>
+			</ol>
+			<p lang="en-GB">Our rate limiter is <a id="_idIndexMarker497"/>using a rate-limiting gRPC server interceptor from the <strong class="source-inline" lang="">github.com/grpc-ecosystem/go-grpc-middleware/ratelimit</strong> package. Its interface is slightly different from our limiter from <strong class="source-inline" lang="">golang.org/x/time/rate</strong>, so we added a structure that links them together. Now, our gRPC server allows up to 100 requests per second and returns an error with a <strong class="source-inline" lang="">codes.ResourceExhausted</strong> special code in case the limit is exceeded. This allows us to make sure the service does not get overloaded with a sudden spike of a large number of requests—if somebody requests 1 million movie details at once from it, we are not going to make 1 million calls to our metadata service and overload its database.</p>
+			<p lang="en-GB">Keep in mind that rate<a id="_idIndexMarker498"/> limiting is a powerful technique; however, it needs to be used with caution because setting the limit too low would make your system unnecessarily too restrictive for users by rejecting too many requests. To calculate fair rate-limiting settings for your services, you need to periodically perform benchmarking, understanding the maximum throughput of their logic.</p>
+			<p lang="en-GB">Let’s move to the next topic of automation-based reliability techniques, describing how to gracefully terminate the execution of your services.</p>
+			<h2 id="_idParaDest-144" lang="en-GB"><a id="_idTextAnchor145"/>Graceful shutdown</h2>
+			<p lang="en-GB">In this section, we are<a id="_idIndexMarker499"/> going to talk about the graceful handling of<a id="_idIndexMarker500"/> service shutdown events. Service shutdowns can be triggered by multiple events:</p>
+			<ul>
+				<li lang="en-GB">Manual interruption of execution (for example, when a user types <em class="italic" lang="">Ctrl</em> + <em class="italic" lang="">C</em>/<em class="italic" lang="">Cmd</em> + <em class="italic" lang="">C</em> in a terminal that runs the service process, and the process receives a <strong class="source-inline" lang="">SIGINT</strong> signal from the operating system)</li>
+				<li lang="en-GB">Termination of execution by the operating system (for example, by <strong class="source-inline" lang="">SIGTERM</strong> or <strong class="source-inline" lang="">SIGKILL</strong> signals)</li>
+				<li lang="en-GB">Panic in service code</li>
+			</ul>
+			<p lang="en-GB">Generally, sudden termination of the execution of a service may result in the following negative consequences:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Dropped requests</strong>: Incoming API requests may be dropped before they get fully processed, resulting in errors for the callers of the service.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Connection issues</strong>: Service network connections may not be properly closed during a shutdown, resulting in multiple negative effects. For example, not closing a database connection may result in a situation called a <strong class="bold" lang="">connection leak</strong>, when<a id="_idIndexMarker501"/> the database keeps the connection allocated to the service instead of allowing it to be reused by another instance.</li>
+			</ul>
+			<p lang="en-GB">To prevent these issues, you need to ensure that your service shuts down gracefully by performing a set of operations that minimize any negative consequences for the service and its components. Performing a <strong class="bold" lang="">graceful shutdown</strong>, the service would run some extra logic before the termination, such as the following:</p>
+			<ul>
+				<li lang="en-GB">Completing as many unfinished operations, such as unprocessed requests, as possible</li>
+				<li lang="en-GB">Closing all open network connections and yielding any shared resources, such as network sockets</li>
+			</ul>
+			<p lang="en-GB">Graceful shutdown logic for Go services is usually implemented in the following way:</p>
+			<ol>
+				<li lang="en-GB" value="1">The service subscribes to shutdown events by calling a <strong class="source-inline" lang="">Notify</strong> function of an <strong class="source-inline" lang="">os/signal</strong> package.</li>
+				<li lang="en-GB">When a service receives a <strong class="source-inline" lang="">SIGINT</strong> or <strong class="source-inline" lang="">SIGTERM</strong> event from the operating system, indicating that the service is about to be terminated, it performs a set of required operations for closing all open connections and completing all pending tasks.</li>
+				<li lang="en-GB">Once all operations are completed, the service finishes the execution.</li>
+			</ol>
+			<p lang="en-GB">Here is a code <a id="_idIndexMarker502"/>example that you can add to the <strong class="source-inline" lang="">main</strong> function of any <a id="_idIndexMarker503"/>Go service, such as the ones that we implemented in <a href="B18865_02.xhtml#_idTextAnchor027"><em class="italic" lang="">Chapter 2</em></a>:</p>
+			<pre class="source-code" lang="en-GB">
+    sigChan := make(chan os.Signal, 1)
+    signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+    var wg sync.WaitGroup
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        s := &lt;-sigChan
+        log.Printf("Received signal %v, attempting graceful shutdown", s)
+        // Graceful shutdown logic.
+    }()
+    wg.Wait()</pre>
+			<p lang="en-GB">There is also a way to gracefully handle panics in Go code by using the built-in <strong class="source-inline" lang="">recover</strong> function. The following code snippet demonstrates how to handle a panic inside the <strong class="source-inline" lang="">main</strong> function and execute any custom logic, such as closing any open connections:</p>
+			<pre class="source-code" lang="en-GB">
+func main() {
+    defer func() {
+        if err := recover(); err != nil {
+            log.Printf("Panic occurred, attempting graceful shutdown")
+            // Graceful shutdown logic.
+        }
+    }()
+    panic("panic example")
+}</pre>
+			<p lang="en-GB">In our code, we <a id="_idIndexMarker504"/>check whether there is a service panic by calling the <strong class="source-inline" lang="">recover</strong> function<a id="_idIndexMarker505"/> and checking whether it returns a non-nil error. In case of a panic, we can perform any additional operations, such as saving any unsaved data or terminating any open connections.</p>
+			<p lang="en-GB">To gracefully terminate the execution of a Go gRPC server, you need to call the <strong class="source-inline" lang="">GracefulStop</strong> function instead of <strong class="source-inline" lang="">Stop</strong>. Unlike the <strong class="source-inline" lang="">Stop</strong> function, <strong class="source-inline" lang="">GracefulStop</strong> would wait until all requests are processed, helping to reduce the negative impact of the shutdown on the clients.</p>
+			<p lang="en-GB">If you have some long-running components, such as Kafka consumers or any background goroutines executing long-running tasks, you can communicate the service termination signal using the built-in <strong class="source-inline" lang="">context.Context</strong> structure. The <strong class="source-inline" lang="">context.Context</strong> structure provides a feature<a id="_idIndexMarker506"/> called <strong class="bold" lang="">context cancellation</strong>—an ability to notify different components about the cancellation of an execution by sending a specific event through the channel associated with the context.</p>
+			<p lang="en-GB">Let’s update our rating service code to illustrate how to implement context cancellation and a graceful shutdown of a gRPC server:</p>
+			<ol>
+				<li lang="en-GB" value="4">Open the <strong class="source-inline" lang="">main.go</strong> file of the<a id="_idIndexMarker507"/> rating service and find the line that performs a call to the <strong class="source-inline" lang="">context.Background()</strong> function. Replace it with the following code:</li>
+			</ol>
+			<pre class="source-code" lang="en-GB">
+<strong class="bold" lang="">ctx, cancel := context.WithCancel(context.Background())</strong></pre>
+			<p lang="en-GB">Our code creates an instance of a context and the <strong class="source-inline" lang="">cancel</strong> function, which we will be calling on service shutdown to notify our components, such as the service registry, about upcoming termination.</p>
+			<ol>
+				<li lang="en-GB" value="5">Immediately <a id="_idIndexMarker508"/>before the call to the <strong class="source-inline" lang="">srv.Serve</strong> function, add the following code:</li>
+			</ol>
+			<pre class="source-code" lang="en-GB">
+    sigChan := make(chan os.Signal, 1)
+    signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+    var wg sync.WaitGroup
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        s := &lt;-sigChan
+        cancel()
+        log.Printf("Received signal %v, attempting graceful shutdown", s)
+        srv.GracefulStop()
+        log.Println("Gracefully stopped the gRPC server")
+    }()</pre>
+			<p lang="en-GB">In our code, we let the rating service listen for process interruption and termination signals and start the background goroutine, which keeps listening for the relevant notifications. Once it receives either signal, it calls the <strong class="source-inline" lang="">cancel</strong> function that we obtained in the previous step. The result of calling this function would be a notification that would be sent to the components initialized with our context, such as the service registry.</p>
+			<ol>
+				<li lang="en-GB" value="6">Let’s add the <a id="_idIndexMarker509"/>final touch by adding the following line to the end of our <strong class="source-inline" lang="">main</strong> function:</li>
+			</ol>
+			<pre class="source-code" lang="en-GB">
+wg.Wait()</pre>
+			<p lang="en-GB">Let’s now test the code that we just implemented. Run the rating service and then terminate it by pressing <em class="italic" lang="">Ctrl + C</em>/<em class="italic" lang="">Cmd + C</em> (depending on your OS). You should see the following messages:</p>
+			<pre class="source-code" lang="en-GB">
+2022/10/13 08:55:05 Received signal interrupt, attempting graceful shutdown
+2022/10/13 08:55:05 Gracefully stopped the gRPC server</pre>
+			<p lang="en-GB">Communication of termination and interruption events is a common practice in Go microservice development and is an elegant way of implementing graceful shutdown logic. When designing and implementing your services, think in advance about possible resources that need to be closed or de-initialized upon the service termination, such as any network clients and connections. A graceful shutdown logic can prevent the negative effects of sudden service termination. It can also reduce the number of possible errors in your services and improve your operating experience.</p>
+			<p lang="en-GB">At this point, we have reviewed some automation techniques to improve the reliability of our services and reduce the symptoms of various failure scenarios. Now, we can proceed to the next section of the chapter, covering another aspect of reliability work related to development processes and culture. Improvements to your development processes are essential to achieving high reliability in the long term, and the section should be useful to you by providing some valuable tips and ideas that you can utilize in microservice development.</p>
+			<h1 id="_idParaDest-145" lang="en-GB"><a id="_idTextAnchor146"/>Achieving reliability through development processes and culture</h1>
+			<p lang="en-GB">In this section, we are <a id="_idIndexMarker510"/>going to describe some techniques for achieving higher service reliability based on changes in the development processes and culture. You will learn how to establish the processes for improving and reviewing your service reliability, how to learn from any service-related issues and incidents efficiently, and how to measure your service reliability. We will cover the processes and practices that are widely used across the industry, outlining the most important ideas from each one. The section is going to be more theoretical than the previous one; however, it should be equally useful.</p>
+			<p lang="en-GB">First, we are going to provide an overview of the on-call process essential for setting up a mechanism for monitoring issues with your services.</p>
+			<h2 id="_idParaDest-146" lang="en-GB"><a id="_idTextAnchor147"/>On-call process</h2>
+			<p lang="en-GB">When your <a id="_idIndexMarker511"/>services start <a id="_idIndexMarker512"/>handling production traffic or start serving user requests, one of your first reliability goals should be to detect any issues, or incidents, as early as possible. Efficient detection should be automatic—a program will always be much more efficient than a human in detecting most issues. Each automatic detection should notify one or more engineers about the incident so that the engineers can perform work in order to mitigate an incident.</p>
+			<p lang="en-GB">The process for establishing such a mechanism for notifying engineers about service incidents is called <strong class="bold" lang="">on-call</strong>. This process helps ensure that at any moment in time, service incidents are acknowledged and addressed by the engineers responsible for the service. </p>
+			<p lang="en-GB">The main ideas behind the on-call process are the following:</p>
+			<ul>
+				<li lang="en-GB">Engineers can get grouped <a id="_idIndexMarker513"/>into <strong class="bold" lang="">on-call rotations</strong>. Each engineer participating in the on-call process repeatedly gets assigned a continuous <em class="italic" lang="">shift</em> (often taking 1 week), during which they take responsibility for periodically handling notifications regarding service-level incidents.</li>
+				<li lang="en-GB">On-call rotation can have an <em class="italic" lang="">escalation policy</em>—a process of escalating incidents in case they remain unresolved. First, an incident gets reported to the <em class="italic" lang="">primary</em> on-call engineer of the rotation. If the primary engineer is unavailable, the incident gets reported to the <em class="italic" lang="">secondary</em> engineer, and so on.</li>
+				<li lang="en-GB">There can be a <em class="italic" lang="">shadow</em> role, commonly assigned to new engineers. This role does not require any response to the incident, but it can be used for getting familiar with the on-call process and subscribing to real-time incident notifications.</li>
+				<li lang="en-GB">Each incident triggers one or multiple notifications, notifying the on-call engineers about the issue. Each notification must be acknowledged by the responsible on-call engineer unless the incident self-resolves (for example, if a service stops receiving too many requests and starts operating normally).</li>
+				<li lang="en-GB">You can also set up<a id="_idIndexMarker514"/> an <em class="italic" lang="">escalation policy</em> for a rotation—a mechanism for escalating the incident notifications if the responsible on-call engineers don’t acknowledge them within the configured time. Usually, escalation policy follows the reporting chain of the engineering hierarchy—if no engineer acknowledges the incident, the incident first triggers a notification to the closest engineering manager, then to the person the manager is reporting to, and so on until it reaches the highest level (this can even be a CTO at some companies).</li>
+			</ul>
+			<p lang="en-GB">Having an on-call process<a id="_idIndexMarker515"/> is common to most technology companies and teams, and the on-call process is pretty similar in most companies across the industry. Some popular solutions provide mechanisms for triggering various types of notifications, such as SMS, emails, and even phone calls. You can also configure on-call rotations and assign them to different services. One of the most popular solutions to on-call management is <strong class="bold" lang="">PagerDuty</strong>—a<a id="_idIndexMarker516"/> platform providing a set of tools for automating on-call operations, as well as integrations with hundreds of services, including Slack, Zoom, and many more. PagerDuty provides all the features we listed earlier, allowing engineers to configure on-call rotations for their services and notifying them about incidents in different ways. Additionally, it provides an API that can be used for both accessing the incident data and triggering new incidents from the code.</p>
+			<p lang="en-GB">We are not going to dive into the details of PagerDuty's features and integrations in this chapter—I suggest you check the official <a id="_idIndexMarker517"/>PagerDuty documentation on their website, <a href="https://developer.pagerduty.com/docs">https://developer.pagerduty.com/docs</a>. I also suggest you read <a href="B18865_12.xhtml#_idTextAnchor171"><em class="italic" lang="">Chapter 12</em></a> before establishing an on-call process for your services. It will help you to learn more about possible incident detection mechanisms and tools you can utilize in your projects.</p>
+			<p lang="en-GB">Let’s discuss the common challenges of establishing an on-call process in a microservice environment:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Rotation ownership</strong>: Different<a id="_idIndexMarker518"/> services may be maintained by different teams, so there may be multiple on-call rotations inside a single company. A good practice is to have an explicit mapping between each production service and the associated on-call rotation so that it is clear which rotation each incident should be reported to. In <a href="B18865_13.xhtml#_idTextAnchor181"><em class="italic" lang="">Chapter 13</em></a>, we will cover the ownership aspect of this.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Cross-service issues</strong>: Some issues, such as database or network failures, can span multiple services, so it becomes important to have some centralized team(s) that will be able to help with any issues crossing the boundaries of individual <a id="_idIndexMarker519"/>services.  </li>
+			</ul>
+			<p lang="en-GB">Some companies may have thousands of microservices, so centralized incident response teams become crucial. For example, Uber has a dedicated team of engineers called <em class="italic" lang="">Ring0</em> that is able to address any widespread incidents and coordinate the mitigation of issues that span multiple teams. Having such a team helps to dramatically reduce incident mitigation time.</p>
+			<p lang="en-GB">To better understand what happens next after incidents are detected and acknowledged by the engineers, we are going to move now to the next topic: incident management.</p>
+			<h2 id="_idParaDest-147" lang="en-GB"><a id="_idTextAnchor148"/>Incident management</h2>
+			<p lang="en-GB">Once <a id="_idIndexMarker520"/>incidents are detected and<a id="_idIndexMarker521"/> acknowledged by the engineers, there are two other types of work necessary for improving the service or system reliability—mitigation and prevention. Mitigation is required for resolving an open issue unless it gets resolved by itself or due to some external changes (for example, an external API getting fixed by the owning team). Prevention work is useful for ensuring the issue does not happen again. Without a proper prevention response to the incident, you may keep fixing the same issue over and over again, spending your time and affecting the experience of your system’s users.</p>
+			<p lang="en-GB">To make the incident mitigation process quick and efficient, especially in a large team where engineers may have different levels of understanding of the system, there should be enough documentation describing which actions to perform in case of an incident. Such documentation is called a <strong class="bold" lang="">runbook</strong> and<a id="_idIndexMarker522"/> should be prepared for as many types of detectable incidents as possible. Whenever an on-call engineer gets an incident notification, it should be clear from the runbook which steps to take to mitigate it.</p>
+			<p lang="en-GB">A good runbook should be short and concise and provide clear actionable steps that are easy to understand for any engineer. Let’s take this example:</p>
+			<pre class="source-code" lang="en-GB">
+rating_service_fd_limit_reached:
+  mitigation: Restart the service</pre>
+			<p lang="en-GB">If the incident mitigation requires further investigation, include any useful links, such as links to the relevant application logs and dashboards. You should aim for the lowest possible incident mitigation time—also<a id="_idIndexMarker523"/> called <strong class="bold" lang="">time to repair</strong> (<strong class="bold" lang="">TTR</strong>)—to increase the availability of your service and improve its overall health.</p>
+			<p lang="en-GB">Once the incident is mitigated, focus on prevention work to ensure you take all actions to eliminate its causes, as well as to improve detection and mitigation mechanisms, if needed. Multiple companies across the industry use the process of writing documents called <strong class="bold" lang="">incident postmortems</strong> to<a id="_idIndexMarker524"/> organize the learnings around incidents and make sure each incident involves enough work related to its future prevention. An incident postmortem generally consists of the following data:</p>
+			<ul>
+				<li lang="en-GB">Incident title and summary</li>
+				<li lang="en-GB">Authors</li>
+				<li lang="en-GB">When and how the incident was detected and mitigated</li>
+				<li lang="en-GB">Incident context, in the form of a text or a set of diagrams that can help to understand it</li>
+				<li lang="en-GB">Root cause</li>
+				<li lang="en-GB">Incident impact</li>
+				<li lang="en-GB">Incident timeline</li>
+				<li lang="en-GB">Lessons learned</li>
+				<li lang="en-GB">Action<a id="_idIndexMarker525"/> items</li>
+			</ul>
+			<p lang="en-GB">A great example of a postmortem document is provided in the famous Google <em class="italic" lang="">Site Reliability Engineering (SRE)</em> book, and you can get familiar with it at the following link: <a href="https://sre.google/sre-book/example-postmortem/">https://sre.google/sre-book/example-postmortem/</a>.</p>
+			<p lang="en-GB">To get to the root cause of the incident, you can use a technique called <strong class="bold" lang="">Five whys</strong>. The idea of the technique is to keep asking what caused the previously mentioned problem until the root cause is found. Let’s take the<a id="_idIndexMarker526"/> following <strong class="bold" lang="">root cause analysis</strong> (<strong class="bold" lang="">RCA</strong>) as an example to understand the technique:</p>
+			<p lang="en-GB"><strong class="bold" lang="">Incident</strong>: Rating service returns internal errors to its API callers</p>
+			<p lang="en-GB"><strong class="bold" lang="">Root cause analysis</strong>:</p>
+			<ol>
+				<li lang="en-GB" value="1">The rating service started returning internal errors to its API callers due to the rating database’s unavailability.</li>
+				<li lang="en-GB">The rating database became unavailable because of an unexpectedly high request load to it.</li>
+				<li lang="en-GB">The unexpectedly high request load to the rating service was caused by an application bug in the movie service.</li>
+			</ol>
+			<p lang="en-GB">In this example, we kept finding the underlying cause of each previous issue by using the Five whys technique, until we got to the root cause of the incident in just three steps. The technique is very powerful and easy to use, and it can help you get to the root cause of even complex issues quite quickly.</p>
+			<p lang="en-GB">Make sure you include and track action items for your incidents. Capturing the incident details and identifying the causes isn’t enough for making sure incidents are prevented. Prioritizing the action items helps ensure that the most critical ones get addressed as early as possible.</p>
+			<p lang="en-GB">Now, let’s move to the next reliability process based on periodic testing of your possible service failure scenarios.</p>
+			<h2 id="_idParaDest-148" lang="en-GB"><a id="_idTextAnchor149"/>Reliability drills</h2>
+			<p lang="en-GB">As many<a id="_idIndexMarker527"/> system administrators know, it is not enough to have backups of your data to guarantee its durability. You also need to ensure that you can restore the data from the backups in case of any failure. The same principle applies to any part of your service infrastructure—to know that your services are resilient to particular failures, you need to perform periodic <a id="_idIndexMarker528"/>exercises, called <strong class="bold" lang="">drills</strong>.</p>
+			<p lang="en-GB">You can perform many possible types of drills. As in the example with the database backups, if you have any persistent data stored in a database, you can periodically test the ability to back up and restore the data, verifying that your services are tolerable to database availability issues. Another example would be network drills. You can simulate network issues, such as connectivity loss, by updating service routing configuration or any other network settings to check how your services behave in case of network unavailability.</p>
+			<p lang="en-GB">There are multiple benefits<a id="_idIndexMarker529"/> of performing reliability drills:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Detect unexpected service failures</strong>: By performing failure drills, you can detect some unexpected service errors and panics, that don’t happen in the regular mode. Such issues will present themselves in a controlled environment, where engineers are ready to stop the drill at any moment and address the detected errors as early as possible.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Detect unexpected service dependencies</strong>: Reliability drills often uncover unexpected<a id="_idIndexMarker530"/> dependencies between the services, such as <strong class="bold" lang="">transitive dependencies</strong> (service A depends on service B, which depends on service C) or <a id="_idIndexMarker531"/>even <strong class="bold" lang="">circular dependencies</strong> (two services require each other in order to operate).</li>
+				<li lang="en-GB"><strong class="bold" lang="">Ability to mitigate future incidents quicker</strong>: By knowing how the services operate in case of a failure <a id="_idIndexMarker532"/>and how they resolve related issues, you invest in improving future incident mitigation.</li>
+			</ul>
+			<p lang="en-GB">Drills are often performed <a id="_idIndexMarker533"/>as <strong class="bold" lang="">planned incidents</strong>—incidents that get announced in advance and follow the regular incident management process, including the work on the postmortem document. The drill postmortem document should include the same items as a regular incident, with a focus on improving the mitigation and prevention experience. Additionally, engineers should focus on reviewing and updating the service runbooks, making <a id="_idIndexMarker534"/>sure that the incident mitigation instructions are accurate and up to <a id="_idIndexMarker535"/>date.</p>
+			<p lang="en-GB">At this point, we have discussed the most important service reliability techniques. There are many more interesting topics to cover that are related to service reliability—some of them, related to incident detection, we are going to cover in <a href="B18865_12.xhtml#_idTextAnchor171"><em class="italic" lang="">Chapter 12</em></a> of the book. If you are interested in the topic, I strongly encourage you to read the Google <em class="italic" lang="">Site Reliability Engineering (SRE)</em> book, which provides a comprehensive guide to various reliability-related techniques. You can find the online version of the book by going to the following link: <a href="https://sre.google/sre-book/table-of-contents">https://sre.google/sre-book/table-of-contents</a>. The practices that are described in the book are applicable to any microservice, so you can always use it as a reference while working on building any type of system.</p>
+			<h1 id="_idParaDest-149" lang="en-GB"><a id="_idTextAnchor150"/>Summary</h1>
+			<p lang="en-GB">In this chapter, we covered the topic of reliability, describing a set of techniques and practices that can help you to make your microservices more resilient to various types of failures. You have learned some useful techniques for automating error responses of your services and reducing the negative impact of various types of issues, such as service overloading and unexpected service shutdowns. </p>
+			<p lang="en-GB">In the final part of the chapter, we discussed various reliability techniques based on changes in engineering processes and culture, such as introducing the on-call and incident management processes, as well as performing periodic reliability drills. The knowledge that you gained from reading this chapter should help you to establish a solid foundation for writing reliable microservices.</p>
+			<p lang="en-GB">In the next chapter, we are going to continue our journey into the reliability topic and focus on collecting service telemetry data, such as logs, metrics, and traces. Service telemetry data is the primary instrument for setting up service incident detection, and we will illustrate how to work with each type of telemetry data in your microservice code.</p>
+			<h1 id="_idParaDest-150" lang="en-GB"><a id="_idTextAnchor151"/>Further reading</h1>
+			<p lang="en-GB">If you’d like to learn more, refer to the following resources:</p>
+			<ul>
+				<li lang="en-GB"><em class="italic" lang="">Timeouts, retries, and backoff with jitter</em>: https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter</li>
+				<li lang="en-GB"><em class="italic" lang="">Token bucket rate-limiting algorithm</em>: <a href="https://en.wikipedia.org/wiki/Token_bucket">https://en.wikipedia.org/wiki/Token_bucket</a></li>
+				<li lang="en-GB"><em class="italic" lang="">PagerDuty documentation</em>: <a href="https://developer.pagerduty.com/docs">https://developer.pagerduty.com/docs</a></li>
+				<li lang="en-GB"><em class="italic" lang="">Incident postmortems</em>: <a href="https://www.pagerduty.com/resources/learn/incident-postmortem/">https://www.pagerduty.com/resources/learn/incident-postmortem/</a></li>
+				<li lang="en-GB"><em class="italic" lang="">Google Site Reliability Engineering (SRE)</em> website: <a href="https://sre.google/">https://sre.google/</a></li>
+				<li lang="en-GB"><em class="italic" lang="">Google Site Reliability Engineering (SRE)</em>  book: <a href="https://sre.google/sre-book/table-of-contents">https://sre.google/sre-book/table-of-contents</a></li>
+			</ul>
+		</div>
+	</body></html>

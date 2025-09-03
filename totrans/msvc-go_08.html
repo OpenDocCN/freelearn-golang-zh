@@ -1,0 +1,341 @@
+<html><head></head><body>
+		<div id="_idContainer035">
+			<h1 id="_idParaDest-108" class="chapter-number" lang="en-GB"><a id="_idTextAnchor109"/>8</h1>
+			<h1 id="_idParaDest-109" lang="en-GB"><a id="_idTextAnchor110"/>Deployment with Kubernetes</h1>
+			<p lang="en-GB">As you have reached this chapter, you already know how to bootstrap microservices, set up the logic for accessing the database, implement service APIs, use serialization, and enable asynchronous communication between your microservices. Now, we are ready to cover a topic that is very important in practice—microservice deployment.</p>
+			<p lang="en-GB"><strong class="bold" lang="">Deployment</strong> is a technique of uploading and running your code to one or multiple servers that are often located remotely. Prior to this chapter, we assumed that all services are run locally. We implemented services using static hardcoded local addresses, such as <strong class="source-inline" lang="">localhost</strong> for <strong class="bold" lang="">Kafka</strong>. At some point, you will need to run your services remotely—for example, on a remote server or in a cloud, such as <strong class="bold" lang="">Amazon Web Services</strong> (<strong class="bold" lang="">AWS</strong>) or Microsoft Azure. </p>
+			<p lang="en-GB">This chapter will help you to learn how to build and set up your applications for deployments to such remote infrastructure. Additionally, we are going to illustrate how to use one of the most popular deployment and orchestration systems, Kubernetes. You will learn about the benefits it provides, as well as how to set it up for the microservices that we created in the previous chapters.</p>
+			<p lang="en-GB">In this chapter, we will cover the following topics:</p>
+			<ul>
+				<li lang="en-GB">Preparing application code for deployments</li>
+				<li lang="en-GB">Deploying via Kubernetes</li>
+				<li lang="en-GB">Deployment best practices</li>
+			</ul>
+			<p lang="en-GB">Now, let’s proceed to the first part of the chapter, which is going to help you to better understand the core ideas behind the deployment process, and prepare your microservices for deployments.</p>
+			<h1 id="_idParaDest-110" lang="en-GB"><a id="_idTextAnchor111"/>Technical requirements</h1>
+			<p lang="en-GB">To complete this chapter, you need Go <strong class="source-inline" lang="">1.11+</strong> or above, similar to the previous chapters. Additionally, you will need Docker, which you can download at <a href="https://www.docker.com">https://www.docker.com</a>. You will need to register on the Docker website in order to test service deployments in this chapter. </p>
+			<p lang="en-GB">In addition to Docker, to complete this chapter, you will need Kubernetes, which you can download at <a href="https://kubernetes.io">https://kubernetes.io</a> (you will need the <strong class="source-inline" lang="">kubectl</strong> and <strong class="source-inline" lang="">minikube</strong> tools from it).</p>
+			<p lang="en-GB">You can find the GitHub code for this chapter here:</p>
+			<p lang="en-GB"><a href="https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter08">https://github.com/PacktPublishing/microservices-with-go/tree/main/Chapter08</a></p>
+			<h1 id="_idParaDest-111" lang="en-GB"><a id="_idTextAnchor112"/>Preparing application code for deployments</h1>
+			<p lang="en-GB">In this section, we are going to <a id="_idIndexMarker321"/>provide a high-level overview of a service deployment process and describe the actions required to prepare your microservices for deployments. You will learn how to configure Go microservices for running in different environments, how to build them for different operating systems, and some other tips for preparing your microservices for remote execution.</p>
+			<p lang="en-GB">Let’s proceed to the basics of the <a id="_idIndexMarker322"/>deployment process.</p>
+			<h2 id="_idParaDest-112" lang="en-GB"><a id="_idTextAnchor113"/>Deployment basics</h2>
+			<p lang="en-GB">As we mentioned in the introduction to this chapter, deployments allow you to run and update your applications on one or multiple servers. Such servers are usually located remotely (clouds or dedicated web hosting) and are running all the time to allow your applications to serve the request or process data 24/7.</p>
+			<p lang="en-GB">The deployment process for each environment usually consists of multiple steps. The steps include the following:</p>
+			<ol>
+				<li lang="en-GB"><strong class="bold" lang="">Build</strong>: Build a service by <a id="_idIndexMarker323"/>compiling it (for compiled languages, such as Go) and including additional required files.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Rollout</strong>: Copy the newly <a id="_idIndexMarker324"/>created build to servers of the target environment and replace the existing running code, if any, with the newly built one.</li>
+			</ol>
+			<p lang="en-GB">The rollout process is usually sequential: instead of replacing the build on all hosts parallelly, it performs one replacement at a time. For example, if you have ten service instances, the rollout process would first update one instance, then verify that the instance is healthy and move to the second one, and continue until it updates the last service instance. This is done to increase service reliability because if a new version consists of a bug or entirely fails to start on some server, the rollout would not affect all servers at once.</p>
+			<p lang="en-GB">In order to enable the testing of microservices, servers can be classified into <a id="_idIndexMarker325"/>multiple categories, called environments:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Local/development</strong>: Servers <a id="_idIndexMarker326"/>that are used for running and testing code while working on the code. This environment should never handle any requests from users, and it often consists just of a developer’s computer. It can be also configured to use simplified versions of a database and other components, such as single-server and in-memory implementations.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Production</strong>: Servers that <a id="_idIndexMarker327"/>are intended to handle user requests. </li>
+				<li lang="en-GB"><strong class="bold" lang="">Staging</strong>: A mirror of a production <a id="_idIndexMarker328"/>environment, but is used for testing. Staging differs from the local/production environment due to configuration and separate data storages, which help to avoid any interference with production data during testing.</li>
+			</ul>
+			<p lang="en-GB">Production deployments can be done in <a id="_idIndexMarker329"/><strong class="bold" lang="">canary</strong> mode—a deployment mode<a id="_idIndexMarker330"/> that performs the changes only on a small fraction (such as 1%) of production hosts. Canary deployments are useful for the final testing of new code before updating all production instances of a service.</p>
+			<p lang="en-GB">Let’s now see how developers can configure their microservices for deployments to multiple environments.</p>
+			<h2 id="_idParaDest-113" lang="en-GB"><a id="_idTextAnchor114"/>Application configuration</h2>
+			<p lang="en-GB">In the previous section, we <a id="_idIndexMarker331"/>described the differences between various environments, such as local/development and production. Each environment is usually configured differently—if your services have access to databases, each environment will generally have a separate database with different credentials. To enable your services to run in such environments, you would need to have multiple configurations of your services, one per environment.</p>
+			<p lang="en-GB">There are two ways of configuring your services:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">In-place/hardcode</strong>: All required settings are <a id="_idIndexMarker332"/>stored in the service code (Go code, in our case).</li>
+				<li lang="en-GB"><strong class="bold" lang="">Separate code and configuration</strong>: Configuration is stored<a id="_idIndexMarker333"/> in separate files so that it can be modified independently.</li>
+			</ul>
+			<p lang="en-GB">Separating service code and configuration often results in better readability, which makes configuration changes easier. Each environment can have a separate configuration file or a set of files, allowing you to read, review, and update environment-specific configurations easily. Additionally, various data formats, such as YAML, can help to keep configuration files compact. Here’s a YAML configuration example:</p>
+			<pre class="source-code" lang="en-GB">
+mysql:
+  database: ratings
+kafka:
+  topic: ratings</pre>
+			<p lang="en-GB">In this book, we are going to use an approach that separates application code and configuration files and stores the configuration in YAML format. This approach is common to many Go applications and can be seen in many popular open source Go projects.</p>
+			<p class="callout-heading" lang="en-GB">Important note</p>
+			<p class="callout" lang="en-GB">Note that invalid configuration changes are among the top causes of service outages in most production systems. I suggest you explore various ways of automatically validating configuration files as a part of the code commit flow. An example of Git-based YAML configuration validation is provided in the following article: <a href="https://ruleoftech.com/2017/git-pre-commit-and-pre-receive-hooks-validating-yaml">https://ruleoftech.com/2017/git-pre-commit-and-pre-receive-hooks-validating-yaml</a>.</p>
+			<p lang="en-GB">Let’s review our <a id="_idIndexMarker334"/>microservice code and see which settings can be extracted from the application configuration:</p>
+			<ol>
+				<li lang="en-GB" value="1">Our <strong class="source-inline" lang="">metadata service</strong> does not have any settings other than its gRPC handler address, <strong class="source-inline" lang="">localhost:8081</strong>, which you can find in its <strong class="source-inline" lang="">main.go</strong> file:<pre class="source-code" lang="en-GB">
+lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%v", port))</pre></li>
+				<li lang="en-GB">We can extract this setting to the service configuration. A YAML configuration file with this setting would look like this:<pre class="source-code" lang="en-GB">
+api:</pre><pre class="source-code" lang="en-GB">
+  port: 8081</pre></li>
+				<li lang="en-GB">Let’s make the changes for reading the configuration from a file. Inside the <strong class="source-inline" lang="">metadata/cmd</strong> directory, create a <strong class="source-inline" lang="">config.go</strong> file and add the following code to it:<pre class="source-code" lang="en-GB">
+package main</pre><pre class="source-code" lang="en-GB">
+ </pre><pre class="source-code" lang="en-GB">
+type serviceConfig struct {</pre><pre class="source-code" lang="en-GB">
+  APIConfig apiConfig `yaml:"api"`</pre><pre class="source-code" lang="en-GB">
+}</pre><pre class="source-code" lang="en-GB">
+ </pre><pre class="source-code" lang="en-GB">
+type apiConfig struct {</pre><pre class="source-code" lang="en-GB">
+  Port string `yaml:"port"`</pre><pre class="source-code" lang="en-GB">
+}</pre></li>
+				<li lang="en-GB">In addition to this, create a <strong class="source-inline" lang="">configs</strong> directory inside the <strong class="source-inline" lang="">metadata</strong> service directory and add a <strong class="source-inline" lang="">base.yaml</strong> file to it with the following contents:<pre class="source-code" lang="en-GB">
+api:</pre><pre class="source-code" lang="en-GB">
+  port: 8081</pre></li>
+				<li lang="en-GB">The file we just created contains the YAML configuration for our service. Now, let’s add code to our <strong class="source-inline" lang="">main.go</strong> file to read the configuration. Replace the first line of the <strong class="source-inline" lang="">main</strong> function that prints a log message with this:<pre class="source-code" lang="en-GB">
+log.Println("Starting the movie metadata service")</pre><pre class="source-code" lang="en-GB">
+f, err := os.Open("base.yaml")</pre><pre class="source-code" lang="en-GB">
+if err != nil {</pre><pre class="source-code" lang="en-GB">
+    panic(err)</pre><pre class="source-code" lang="en-GB">
+}</pre><pre class="source-code" lang="en-GB">
+defer f.Close()</pre><pre class="source-code" lang="en-GB">
+var cfg serviceConfig</pre><pre class="source-code" lang="en-GB">
+if err := yaml.NewDecoder(f).Decode(&amp;cfg); err != nil {</pre><pre class="source-code" lang="en-GB">
+    panic(err)</pre><pre class="source-code" lang="en-GB">
+}</pre></li>
+			</ol>
+			<p lang="en-GB">Additionally, replace the line with the <strong class="source-inline" lang="">net.Listen</strong> call with this:</p>
+			<pre class="source-code" lang="en-GB">
+lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", cfg.     APIConfig.Port))</pre>
+			<ol>
+				<li lang="en-GB" value="6">The code we have just <a id="_idIndexMarker335"/>added is using a <strong class="source-inline" lang="">gopkg.in/yaml.v3</strong> package to read a YAML file. Import it into our module by running the following command:</li>
+			</ol>
+			<pre class="source-code" lang="en-GB">
+go mod tidy</pre>
+			<p lang="en-GB">Make the same changes that we just made for the other two services we created earlier. Use port number <strong class="source-inline" lang="">8082</strong> for the <strong class="source-inline" lang="">rating</strong> service and <strong class="source-inline" lang="">8083</strong> for the <strong class="source-inline" lang="">movie</strong> service in your YAML files.</p>
+			<p lang="en-GB">The changes we just made helped us introduce the application configuration that is separate from the service logic. This can help us when we want to introduce additional configurable options—to make any configuration changes, we would just need to update the YAML files without touching our service Go code.</p>
+			<p lang="en-GB">Now that we have finished configuring our microservices for deployment, we are ready to move to the next section, which is going to cover the deployment process of our microservices.</p>
+			<h1 id="_idParaDest-114" lang="en-GB"><a id="_idTextAnchor115"/>Deploying via Kubernetes</h1>
+			<p lang="en-GB">In this section, we are going<a id="_idIndexMarker336"/> to illustrate how to set up deployments for our microservices using a popular open source deployment and orchestration platform, Kubernetes. You will learn the basics of Kubernetes, how to set up our microservices for using it, and how to test our microservice deployments in Kubernetes.</p>
+			<h2 id="_idParaDest-115" lang="en-GB"><a id="_idTextAnchor116"/>Introduction to Kubernetes</h2>
+			<p lang="en-GB"><strong class="bold" lang="">Kubernetes</strong> is an open source deployment and orchestration platform that was initially created at Google and later maintained by a large developer community backed by the Linux Foundation. Kubernetes provides a powerful, scalable, and flexible solution for running and deploying applications of any size, from small single-instance applications to ones having tens of thousands of instances. Kubernetes helps to orchestrate multiple operations, such as deployments, rollbacks, up- and down-scaling of applications (changing the application instance count upward and downward), and many more.</p>
+			<p lang="en-GB">In <a id="_idIndexMarker337"/>Kubernetes, each application consists of one or <a id="_idIndexMarker338"/>multiple <strong class="bold" lang="">pods</strong>—the smallest deployable units. Each pod contains one or <a id="_idIndexMarker339"/>multiple <strong class="bold" lang="">containers</strong>—lightweight software blocks containing the application code. The deployment of a single container to multiple pods is illustrated in the following diagram:</p>
+			<div>
+				<div id="_idContainer033" class="IMG---Figure">
+					<img src="image/Figure_7.1_B188651.jpg" alt="Figure 8.1 – Kubernetes deployment model&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 8.1 – Kubernetes deployment model</p>
+			<p lang="en-GB">Kubernetes pods can be run on one or multiple hosts, called <strong class="bold" lang="">nodes</strong>. A group of nodes is called a <strong class="bold" lang="">cluster</strong>, and the relationship between the cluster, nodes, and its pods is illustrated in the following diagram:</p>
+			<div>
+				<div id="_idContainer034" class="IMG---Figure">
+					<img src="image/Figure_7.2_B188651.jpg" alt="Figure 8.2 – Kubernetes cluster model&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 8.2 – Kubernetes cluster model</p>
+			<p lang="en-GB">For deploying a service in Kubernetes, developers generally need to perform the following steps:</p>
+			<ol>
+				<li lang="en-GB" value="1"><strong class="bold" lang="">Prepare a container image</strong>: A <strong class="bold" lang="">container image</strong> contains either the application code or its compiled <a id="_idIndexMarker340"/>binary (both options can be used, as long as <a id="_idIndexMarker341"/>the container image contains the instructions and any tools to run the code), as well as any additional files required for running it. A container image is essentially a program ready for deployment.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Create a deployment configuration</strong>: A Kubernetes deployment configuration tells it how to run the application. It includes settings such as the number of replicas (number of pods to run), names of containers, and many more.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Run a deployment command</strong>: Kubernetes will apply the provided configuration by running the desired number of pods with the target application(s).</li>
+			</ol>
+			<p lang="en-GB">One of the benefits of Kubernetes is abstracting away all the low-level details of deployments, such as selecting target servers to deploy (if you have many, you need to balance their load otherwise), copying and extracting your files, and running health checks. In addition to this, there are some other useful <a id="_idIndexMarker342"/>benefits:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Service discovery</strong>: Kubernetes offers a built-in service discovery API for use in applications.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Rollbacks</strong>: In case there are any issues with the deployment, Kubernetes allows you to roll back the changes to the previous state.</li>
+				<li lang="en-GB"><strong class="bold" lang="">Automated restarts</strong>: If any pod experiences any issue, such as an application crash, Kubernetes will perform <a id="_idIndexMarker343"/>a restart of that pod.</li>
+			</ul>
+			<p lang="en-GB">Now, let’s describe how we can set up deployments of our microservices using Kubernetes.</p>
+			<h2 id="_idParaDest-116" lang="en-GB"><a id="_idTextAnchor117"/>Setting up our microservices for Kubernetes deployments</h2>
+			<p lang="en-GB">All the necessary<a id="_idIndexMarker344"/> steps for setting up<a id="_idIndexMarker345"/> deployments in Kubernetes for our three microservices are set out here:</p>
+			<ol>
+				<li lang="en-GB" value="1">The first step is to create a container image for each service. Kubernetes supports multiple types of containers, and Docker is currently the most popular container type. We already used Docker in <a href="B18865_03.xhtml#_idTextAnchor051"><em class="italic" lang="">Chapter 3</em></a> and will illustrate now how to use it for creating containers for our services.</li>
+			</ol>
+			<p lang="en-GB">Inside the <strong class="source-inline" lang="">metadata</strong> service directory, create a file called <strong class="source-inline" lang="">Dockerfile</strong> and add the following code to it:</p>
+			<pre class="source-code" lang="en-GB">
+FROM alpine:latest
+ 
+COPY main .
+COPY configs/. . EXPOSE 8081
+CMD ["/main"]</pre>
+			<p lang="en-GB">In the file that we just added, we specified that to prepare the image for our container for the <strong class="source-inline" lang="">metadata</strong> service, Docker should use the <strong class="source-inline" lang="">alpine:latest</strong> base image. <strong class="bold" lang="">Alpine</strong> is a <a id="_idIndexMarker346"/>lightweight Linux distribution that has a size of just a few megabytes and is optimal for our services. Then, we added a command to copy the executable file called <strong class="source-inline" lang="">main</strong> to a container, copy the <strong class="source-inline" lang="">configs</strong> directory of the service, and expose an <strong class="source-inline" lang="">8081</strong> port so that we can accept incoming requests on it.</p>
+			<ol>
+				<li lang="en-GB" value="2">As the next step, add a file with the same contents inside the <strong class="source-inline" lang="">rating</strong> and the <strong class="source-inline" lang="">movie</strong> service directories. Make sure you use the right ports in the files (<strong class="source-inline" lang="">8082</strong> and <strong class="source-inline" lang="">8083</strong>, correspondingly).</li>
+			</ol>
+			<p lang="en-GB">Once you have created the Docker configuration files, run the <strong class="source-inline" lang="">build</strong> command inside each service directory:</p>
+			<pre class="source-code" lang="en-GB">
+GOOS=linux go build -o main cmd/*.go</pre>
+			<p lang="en-GB">The results of the previous command should be the executable file called <strong class="source-inline" lang="">main</strong>, stored in each service directory. Note that we used a <strong class="source-inline" lang="">GOOS=linux</strong> variable—this tells the <strong class="source-inline" lang="">go</strong> tool to build our code for the Linux operating system.</p>
+			<ol>
+				<li lang="en-GB" value="3">The next step <a id="_idIndexMarker347"/>is to build service <a id="_idIndexMarker348"/>images. Run this command from the <strong class="source-inline" lang="">metadata</strong> service directory:</li>
+			</ol>
+			<pre class="source-code" lang="en-GB">
+docker build -t metadata .</pre>
+			<p lang="en-GB">Similarly, run this command from the <strong class="source-inline" lang="">rating</strong> service directory:</p>
+			<pre class="source-code" lang="en-GB">
+docker build -t rating .</pre>
+			<p lang="en-GB">Finally, run this command from the <strong class="source-inline" lang="">movie</strong> service directory:</p>
+			<pre class="source-code" lang="en-GB">
+docker build -t movie .</pre>
+			<p lang="en-GB">If each command is executed successfully, we are ready to run out containers using the following commands:</p>
+			<pre class="source-code" lang="en-GB">
+docker run -p 8081:8081 -it metadata
+docker run -p 8082:8082 -it rating
+docker run -p 8083:8083 -it movie</pre>
+			<p lang="en-GB">The result of each execution should be a successful execution of each service.</p>
+			<ol>
+				<li lang="en-GB" value="4">The <a id="_idIndexMarker349"/>next step is to create Docker<a id="_idIndexMarker350"/> Hub repositories in your account so that you can publish your service images to them. Log in to <a href="https://hub.docker.com">https://hub.docker.com</a>, go to the <strong class="bold" lang="">Repositories</strong> section, and create three repositories, called <strong class="source-inline" lang="">metadata</strong>, <strong class="source-inline" lang="">rating</strong>, and <strong class="source-inline" lang="">movie</strong>.</li>
+			</ol>
+			<p lang="en-GB">Execute the following commands to publish the images:</p>
+			<pre class="source-code" lang="en-GB">
+docker tag metadata &lt;Your Docker username&gt;/metadata:1.0.0
+docker push &lt;Your Docker username&gt;/metadata:1.0.0
+docker tag metadata &lt;Your Docker username&gt;/rating:1.0.0
+docker push &lt;Your Docker username&gt;/rating:1.0.0
+docker tag metadata &lt;Your Docker username&gt;/movie:1.0.0
+docker push &lt;Your Docker username&gt;/movie:1.0.0</pre>
+			<p lang="en-GB">These commands should upload the images we just created to your Docker Hub repositories so that Kubernetes can download them during the deployment.</p>
+			<p lang="en-GB">At this point, we are ready to create a Kubernetes deployment configuration that is going to tell Kubernetes how to deploy our services.</p>
+			<ol>
+				<li lang="en-GB" value="5">Inside the <strong class="source-inline" lang="">metadata</strong> service directory, create a file called <strong class="source-inline" lang="">kubernetes-deployment.yml</strong> with the following contents:<pre class="source-code" lang="en-GB">
+apiVersion: apps/v1</pre><pre class="source-code" lang="en-GB">
+kind: Deployment</pre><pre class="source-code" lang="en-GB">
+metadata:</pre><pre class="source-code" lang="en-GB">
+  name: metadata</pre><pre class="source-code" lang="en-GB">
+spec:</pre><pre class="source-code" lang="en-GB">
+  replicas: 2</pre><pre class="source-code" lang="en-GB">
+  selector:</pre><pre class="source-code" lang="en-GB">
+    matchLabels:</pre><pre class="source-code" lang="en-GB">
+      app: metadata</pre><pre class="source-code" lang="en-GB">
+  template:</pre><pre class="source-code" lang="en-GB">
+    metadata:</pre><pre class="source-code" lang="en-GB">
+      labels:</pre><pre class="source-code" lang="en-GB">
+        app: metadata</pre><pre class="source-code" lang="en-GB">
+    spec:</pre><pre class="source-code" lang="en-GB">
+      containers:</pre><pre class="source-code" lang="en-GB">
+      - name: metadata</pre><pre class="source-code" lang="en-GB">
+        image: microservices-with-go/metadata:1.0.0 </pre><pre class="source-code" lang="en-GB">
+        imagePullPolicy: IfNotPresent</pre><pre class="source-code" lang="en-GB">
+        ports:</pre><pre class="source-code" lang="en-GB">
+          - containerPort: 8081</pre></li>
+			</ol>
+			<p lang="en-GB">The file that we just created provides instructions to Kubernetes on how to deploy our <a id="_idIndexMarker351"/>service. Here are<a id="_idIndexMarker352"/> some important settings:</p>
+			<ul>
+				<li lang="en-GB"><strong class="bold" lang="">Replicas</strong>: The number of pods to run</li>
+				<li lang="en-GB"><strong class="bold" lang="">Image</strong>: The name of the container image to deploy</li>
+				<li lang="en-GB"><strong class="bold" lang="">Ports</strong>: Container port to expose</li>
+			</ul>
+			<p lang="en-GB">Note that the container port is different from the application port (the one that we configured in our <strong class="source-inline" lang="">APIConfig</strong> structure). The mapping between these settings is done by Docker as a part of the <strong class="source-inline" lang="">docker run</strong> settings.</p>
+			<ol>
+				<li lang="en-GB" value="6">Now, create a file with the same name in the <strong class="source-inline" lang="">rating</strong> service directory with the following contents:<pre class="source-code" lang="en-GB">
+apiVersion: apps/v1</pre><pre class="source-code" lang="en-GB">
+kind: Deployment</pre><pre class="source-code" lang="en-GB">
+metadata:</pre><pre class="source-code" lang="en-GB">
+  name: rating</pre><pre class="source-code" lang="en-GB">
+spec:</pre><pre class="source-code" lang="en-GB">
+  replicas: 2</pre><pre class="source-code" lang="en-GB">
+  selector:</pre><pre class="source-code" lang="en-GB">
+    matchLabels:</pre><pre class="source-code" lang="en-GB">
+      app: rating</pre><pre class="source-code" lang="en-GB">
+  template:</pre><pre class="source-code" lang="en-GB">
+    metadata:</pre><pre class="source-code" lang="en-GB">
+      labels:</pre><pre class="source-code" lang="en-GB">
+        app: rating</pre><pre class="source-code" lang="en-GB">
+    spec:</pre><pre class="source-code" lang="en-GB">
+      containers:</pre><pre class="source-code" lang="en-GB">
+      - name: rating</pre><pre class="source-code" lang="en-GB">
+        image: &lt;Your Docker username&gt;/rating:1.0.3</pre><pre class="source-code" lang="en-GB">
+        imagePullPolicy: IfNotPresent</pre><pre class="source-code" lang="en-GB">
+        ports:</pre><pre class="source-code" lang="en-GB">
+          - containerPort: 8082</pre></li>
+			</ol>
+			<p lang="en-GB">Remember<a id="_idIndexMarker353"/> to replace the <strong class="source-inline" lang="">image</strong> property <a id="_idIndexMarker354"/>with the Docker image name that you created in <em class="italic" lang="">step 4</em>.</p>
+			<ol>
+				<li lang="en-GB" value="7">Finally, create a <strong class="source-inline" lang="">kubernetes-deployment.yml</strong> file in the <strong class="source-inline" lang="">movie</strong> service directory with the<a id="_idIndexMarker355"/> following <a id="_idIndexMarker356"/>contents:<pre class="source-code" lang="en-GB">
+apiVersion: apps/v1</pre><pre class="source-code" lang="en-GB">
+kind: Deployment</pre><pre class="source-code" lang="en-GB">
+metadata:</pre><pre class="source-code" lang="en-GB">
+  name: movie</pre><pre class="source-code" lang="en-GB">
+spec:</pre><pre class="source-code" lang="en-GB">
+  replicas: 2</pre><pre class="source-code" lang="en-GB">
+  selector:</pre><pre class="source-code" lang="en-GB">
+    matchLabels:</pre><pre class="source-code" lang="en-GB">
+      app: movie</pre><pre class="source-code" lang="en-GB">
+  template:</pre><pre class="source-code" lang="en-GB">
+    metadata:</pre><pre class="source-code" lang="en-GB">
+      labels:</pre><pre class="source-code" lang="en-GB">
+        app: movie</pre><pre class="source-code" lang="en-GB">
+    spec:</pre><pre class="source-code" lang="en-GB">
+      containers:</pre><pre class="source-code" lang="en-GB">
+      - name: movie</pre><pre class="source-code" lang="en-GB">
+        image: ashuiskov/movie:1.0.0</pre><pre class="source-code" lang="en-GB">
+        imagePullPolicy: IfNotPresent</pre><pre class="source-code" lang="en-GB">
+        ports:</pre><pre class="source-code" lang="en-GB">
+          - containerPort: 8083</pre></li>
+				<li lang="en-GB">The next step is <a id="_idIndexMarker357"/>to start the local <a id="_idIndexMarker358"/>Kubernetes cluster using the <strong class="source-inline" lang="">minikube</strong> tool, which you should have installed as a part of Kubernetes. Run the following command to start the cluster:</li>
+			</ol>
+			<pre class="source-code" lang="en-GB">
+minikube start</pre>
+			<ol>
+				<li lang="en-GB" value="9">Then, apply <a id="_idIndexMarker359"/>our <strong class="source-inline" lang="">metadata</strong> deployment<a id="_idIndexMarker360"/> configuration by running the following command from the <strong class="source-inline" lang="">metadata</strong> service directory:</li>
+			</ol>
+			<pre class="source-code" lang="en-GB">
+kubectl apply -f kubernetes-deployment.yml </pre>
+			<ol>
+				<li lang="en-GB" value="10">If the previous command is executed successfully, you should see the new deployment by running this command:</li>
+			</ol>
+			<pre class="source-code" lang="en-GB">
+kubectl get deployments</pre>
+			<p lang="en-GB">The output of the command should be this:</p>
+			<pre class="source-code" lang="en-GB">
+NAME       READY   UP-TO-DATE   AVAILABLE   AGE
+metadata   0/2     2            0           6s</pre>
+			<p lang="en-GB">Also, check the state of the service pods by running the following command:</p>
+			<pre class="source-code" lang="en-GB">
+kubectl get pods</pre>
+			<p lang="en-GB">The output should show the <strong class="source-inline" lang="">Running</strong> status for our <strong class="source-inline" lang="">metadata</strong> service pods, as shown here:</p>
+			<pre class="source-code" lang="en-GB">
+NAME                        READY   STATUS    RESTARTS   AGE
+metadata-5f87cbbf65-st69m   1/1     Running   0          116s
+metadata-5f87cbbf65-t4xsk   1/1     Running   0          116s</pre>
+			<p lang="en-GB">As you may notice, Kubernetes<a id="_idIndexMarker361"/> created two pods<a id="_idIndexMarker362"/> for our service, the same number as we specified in the deployment configuration. Each pod has <a id="_idIndexMarker363"/>a <strong class="bold" lang="">unique identifier</strong> (<strong class="bold" lang="">UID</strong>), which is shown in the left column. You can see that Kubernetes created two pods for our <strong class="source-inline" lang="">metadata</strong> service.</p>
+			<p lang="en-GB">You can check the <a id="_idIndexMarker364"/>logs of each pod by running the<a id="_idIndexMarker365"/> following command:</p>
+			<pre class="source-code" lang="en-GB">
+kubectl logs -f &lt;POD_ID&gt;</pre>
+			<p lang="en-GB">Now, perform the same changes that we did for the <strong class="source-inline" lang="">metadata</strong> service for the other two services, and verify that the pods are running.</p>
+			<p lang="en-GB">If you want to make some manual API requests to the services, you need to set up port forwarding by running the following command:</p>
+			<pre class="source-code" lang="en-GB">
+kubectl port-forward &lt;POD_ID&gt; 8081:8081</pre>
+			<p lang="en-GB">This command would work for the <strong class="source-inline" lang="">metadata</strong>, <strong class="source-inline" lang="">rating</strong>, and <strong class="source-inline" lang="">movie</strong> services; however, you would need to replace the <strong class="source-inline" lang="">8081</strong> port value with <strong class="source-inline" lang="">8082</strong> and <strong class="source-inline" lang="">8083</strong>, correspondingly.</p>
+			<p lang="en-GB">If you did everything well, congratulations! We have finished setting up basic Kubernetes deployments of our microservices. Let’s summarize what we did in this section:</p>
+			<ul>
+				<li lang="en-GB">First, we created container images for each of our services so that we could deploy them.</li>
+				<li lang="en-GB">Then, we published our container images to Docker Hub so that Kubernetes could pull the images during the deployment.</li>
+				<li lang="en-GB">We created a Kubernetes deployment configuration to tell it how to deploy our microservices.</li>
+				<li lang="en-GB">Finally, we tested our Kubernetes deployments using a combination of <strong class="source-inline" lang="">minikube</strong> and <strong class="source-inline" lang="">kubectl</strong> commands.</li>
+			</ul>
+			<p lang="en-GB">At this point, you should have some understanding of Kubernetes deployments and know how to deploy your microservices using them. This knowledge will help you to run your services on many platforms, including all popular cloud platforms, such as AWS, Azure, and <strong class="bold" lang="">Google Cloud Platform</strong> (<strong class="bold" lang="">GCP</strong>).</p>
+			<h1 id="_idParaDest-117" lang="en-GB"><a id="_idTextAnchor118"/>Deployment best practices</h1>
+			<p lang="en-GB">In this section, we are<a id="_idIndexMarker366"/> going to describe some best practices related to the deployment process. These practices, listed here, will help you to set up a reliable deployment process for your microservices: </p>
+			<ul>
+				<li lang="en-GB">Automated rollbacks</li>
+				<li lang="en-GB">Canary deployments</li>
+				<li lang="en-GB">Continuous deployment (CD)</li>
+			</ul>
+			<h2 id="_idParaDest-118" lang="en-GB"><a id="_idTextAnchor119"/>Automated rollbacks</h2>
+			<p lang="en-GB"><strong class="bold" lang="">Automated rollbacks</strong> are the<a id="_idIndexMarker367"/> mechanism of automatically <a id="_idIndexMarker368"/>reverting a deployment in case there was a failure during it. Imagine you are making deployment of a new version of your service and that version has some application bug that is preventing it from starting successfully. In that case, the deployment process will replace your active instances of a service (if the service is already running) with the failing ones, making your services unavailable. Automated rollbacks are a way to detect and revert such bad deployments, helping you to avoid an outage in situations when your services become unavailable due to such issues.</p>
+			<p lang="en-GB">Automated rollbacks are not offered by default in Kubernetes, at the time of writing this book, similar to many popular deployment platforms. However, this should not stop you from using this technique, especially if you aim to achieve high reliability of your services. The high-level idea of implementing automated rollbacks with Kubernetes is as follows:</p>
+			<ul>
+				<li lang="en-GB">Perform continuous health checks of your service (we are going to cover such logic in <a href="B18865_12.xhtml#_idTextAnchor171"><em class="italic" lang="">Chapter 12</em></a> of this book).</li>
+				<li lang="en-GB">When you detect a health issue with your service, check whether there was a recent deployment of your service. For example, you can do so by running the <strong class="source-inline" lang="">kubectl describe deployment</strong> command.</li>
+				<li lang="en-GB">In case there was a recent deployment and the time of it closely matches the time when the health check issues were detected, you can roll it back by executing this rollback command: <strong class="source-inline" lang="">kubectl rollout undo deployment &lt;DEPLOYMENT_NAME&gt;</strong>.</li>
+			</ul>
+			<h2 id="_idParaDest-119" lang="en-GB"><a id="_idTextAnchor120"/>Canary deployments</h2>
+			<p lang="en-GB">As we mentioned at the <a id="_idIndexMarker369"/>beginning of the<a id="_idIndexMarker370"/> chapter, canary is a special type of deployment, where you update only a small fraction (1 to 3%) of instances. The idea of canary deployments is to test a new version of your code on a subset of production instances and validate its correctness before doing a regular production deployment.</p>
+			<p lang="en-GB">We won’t cover the details of setting up canary deployments in Kubernetes, but can cover the basic ideas that would help you to do this once you want to enable canary deployments for your microservices, as set out here:</p>
+			<ul>
+				<li lang="en-GB">Create two separate Kubernetes deployment configurations, one for canary and one for production.</li>
+				<li lang="en-GB">Specify the desired number of replicas in each configuration—if you want to run a service on 50 pods and let canary handle 2% of traffic, set 1 replica for canary and 49 replicas for production.</li>
+				<li lang="en-GB">You may also add environment-specific suffixes to deployment names. For example, you can call a canary deployment of a rating service, <strong class="source-inline" lang="">rating-canary,</strong> and <strong class="source-inline" lang="">rating-production</strong> for the production environment.</li>
+				<li lang="en-GB">When you perform a deployment of your service, deploy it using a canary configuration first.</li>
+				<li lang="en-GB">Once you verify that the deployment was successful, make a deployment using a production configuration.</li>
+			</ul>
+			<p lang="en-GB">Canary deployments are strongly recommended for increasing the reliability of your deployments. Testing new changes on a small fraction of traffic helps to reduce the impact of various application bugs and other types of issues that your services can encounter.</p>
+			<h2 id="_idParaDest-120" lang="en-GB"><a id="_idTextAnchor121"/>Replace with Continuous Deployment (CD)</h2>
+			<p lang="en-GB"><strong class="bold" lang="">Continuous Deployment</strong> (<strong class="bold" lang="">CD</strong>)<a id="_idIndexMarker371"/> is a technique of making frequent recurring deployments. With CD, services <a id="_idIndexMarker372"/>get deployed automatically—for example, on each code change. The main benefit of CD is early deployment failure detection—if any change (such as a Git commit of a new service code) is causing a deployment failure, the failure would often get detected much sooner than in the case of manual deployments.</p>
+			<p lang="en-GB">You can automate deployments by programmatically monitoring a change log (such as Git commit history), or by <a id="_idIndexMarker373"/>using <strong class="bold" lang="">Git hooks</strong>—configurable actions that are executed at specific stages of Git changes. With Kubernetes, once you detect a new version of your software, you can trigger a new deployment by using a <strong class="source-inline" lang="">kubectl apply</strong> command.</p>
+			<p lang="en-GB">Due to the high cadence of version updates, CD requires some tooling for automated checks of service health. We are going to cover such tooling later in <a href="B18865_11.xhtml#_idTextAnchor152"><em class="italic" lang="">Chapter 11</em></a> and <a href="B18865_12.xhtml#_idTextAnchor171"><em class="italic" lang="">Chapter 12</em></a> of this book.</p>
+			<h1 id="_idParaDest-121" lang="en-GB"><a id="_idTextAnchor122"/>Summary</h1>
+			<p lang="en-GB">In this chapter, we have covered a very important topic—service deployments. You have learned about the basics of the service deployment process, as well as the necessary steps for preparing our microservices for deployment. Then, we introduced Kubernetes, a popular deployment and orchestration platform that is now provided by many companies and cloud providers. We have illustrated how to set up a local Kubernetes cluster and deploy our microservices to it, running multiple instances of each service to illustrate how easy is to run any arbitrary number of instances within the Kubernetes platform. </p>
+			<p lang="en-GB">The knowledge you gained should help you to set up more complex deployment processes, as well as to work with the services that are already deployed via Kubernetes.</p>
+			<p lang="en-GB">This chapter summarizes our material on service deployments. In the next chapter, we are going to describe another important topic: unit and integration.</p>
+			<h1 id="_idParaDest-122" lang="en-GB"><a id="_idTextAnchor123"/>Further reading</h1>
+			<p lang="en-GB">If you’d like to learn more, refer to the following links: </p>
+			<ul>
+				<li lang="en-GB">Kubernetes documentation: <a href="https://kubernetes.io/docs/home/ ">https://kubernetes.io/docs/home/</a></li>
+				<li lang="en-GB">Service deployment best practices: <a href="https://codefresh.io/learn/software-deployment/ ">https://codefresh.io/learn/software-deployment/</a></li>
+				<li lang="en-GB">Setting up Kubernetes services: <a href="https://kubernetes.io/docs/concepts/services-networking/service/ ">https://kubernetes.io/docs/concepts/services-networking/service/</a></li>
+				<li lang="en-GB">Blue-green deployments: <a href="https://www.redhat.com/en/topics/devops/what-is-blue-green-deployment">https://www.redhat.com/en/topics/devops/what-is-blue-green-deployment</a></li>
+			</ul>
+		</div>
+	</body></html>

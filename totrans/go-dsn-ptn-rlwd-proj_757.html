@@ -1,0 +1,33 @@
+<html><head></head><body>
+<div id="page" style="height:0pt"/><div class="book" title="The daemon backup tool"><div class="book" id="5SQFC2-9c484ed022e64a0fb0e1aebf8e05d4fd"><div class="book"><div class="book"><h1 class="title" id="calibre_pb_0"><a id="ch08lvl1sec0052" class="calibre1"/>The daemon backup tool</h1></div></div></div><p class="calibre10">The <code class="email">backup</code> tool, which we will call <code class="email">backupd</code>, will be responsible for periodically checking the paths listed in the <code class="email">filedb</code> database, hashing the folders to see whether anything has changed, and using the <code class="email">backup</code> package to actually perform the archiving of the folders that need it.</p><p class="calibre10">Create a new folder called <code class="email">backupd</code> alongside the <code class="email">backup/cmds/backup</code> folder, and let's jump right into handling the fatal errors and flags:</p><pre class="programlisting">func main() { 
+  var fatalErr error 
+  defer func() { 
+    if fatalErr != nil { 
+      log.Fatalln(fatalErr) 
+    } 
+  }() 
+  var ( 
+    interval = flag.Duration("interval", 10 * time.Second, "interval between 
+    checks") 
+    archive  = flag.String("archive", "archive", "path to archive location") 
+    dbpath   = flag.String("db", "./db", "path to filedb database") 
+  ) 
+  flag.Parse() 
+} 
+</pre><p class="calibre10">You must be quite used to seeing this kind of code by now. We defer the handling of fatal errors before specifying three flags: <code class="email">interval</code>, <code class="email">archive</code>, and <code class="email">db</code>. The <code class="email">interval</code> flag represents the number of seconds between checks to see whether folders have changed, the <code class="email">archive</code> flag is the path to the archive location where ZIP files will go, and the <code class="email">db</code> flag is the path to the same <code class="email">filedb</code> database that the <code class="email">backup</code> command is interacting with. The usual call to <code class="email">flag.Parse</code> sets the variables up and validates whether we're ready to move on.</p><p class="calibre10">In order to check the hashes of the folders, we are going to need an instance of <code class="email">Monitor</code> that we wrote earlier. Append the following code to the <code class="email">main</code> function:</p><pre class="programlisting">m := &amp;backup.Monitor{ 
+  Destination: *archive, 
+  Archiver:    backup.ZIP, 
+  Paths:       make(map[string]string), 
+} 
+</pre><p class="calibre10">Here, we create <code class="email">backup.Monitor</code> using the <code class="email">archive</code> value as the <code class="email">Destination</code> type. We'll use the <code class="email">backup.ZIP</code> archiver and create a map ready for it to store the paths and hashes internally. At the start of the daemon, we want to load the paths from the database so that it doesn't archive unnecessarily as we stop and start things.</p><p class="calibre10">Add the following code to the <code class="email">main</code> function:</p><pre class="programlisting">db, err := filedb.Dial(*dbpath) 
+if err != nil { 
+  fatalErr = err 
+  return 
+} 
+defer db.Close() 
+col, err := db.C("paths") 
+if err != nil { 
+  fatalErr = err 
+  return 
+} 
+</pre><p class="calibre10">You have seen this code earlier too; it dials the database and creates an object that allows us to interact with the <code class="email">paths</code> collection. If anything fails, we set <code class="email">fatalErr</code> and return.</p></div></body></html>

@@ -1,0 +1,59 @@
+<html><head></head><body>
+<div class="book" title="Chapter&#xA0;4.&#xA0;Structural Patterns - Proxy, Facade, Decorator, and Flyweight Design Patterns">
+<div class="book" title="Proxy design pattern">
+<div class="book" title="Implementation"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_7"><a id="ch04lvl2sec094" class="calibre1"/>Implementation</h2></div></div></div><p class="calibre10">In our Proxy, the <code class="email">FindUser</code> method will search for a specified ID in the cache list. If it finds it, it will return the ID. If not, it will search in the database. Finally, if it's not in the database list, it will return an error.</p><p class="calibre10">If you remember, our Proxy pattern is composed of two <code class="email">UserList</code> types (one of them a pointer), which are actually slices of <code class="email">User</code> type. We will implement a <code class="email">FindUser</code> method in <code class="email">User</code> type too, which, by the way, has the same signature as the <code class="email">UserFinder</code> interface:</p><pre class="programlisting">type UserList []User 
+ 
+func (t *UserList) FindUser(id int32) (User, error) { 
+  for i := 0; i &lt; len(*t); i++ { 
+    if (*t)[i].ID == id { 
+      return (*t)[i], nil 
+    } 
+  } 
+  return User{}, fmt.Errorf("User %s could not be found\n", id) 
+} 
+</pre><p class="calibre10">The <code class="email">FindUser</code> method in the <code class="email">UserList</code> slice will iterate over the list to try and find a user with the same ID as the <code class="email">id</code> argument, or return an error if it can't find it.</p><p class="calibre10">You may be wondering why the pointer <code class="email">t</code> is between parentheses. This is to dereference the underlying array before accessing its indexes. Without it, you'll have a compilation error, because the compiler tries to search the index before dereferencing the pointer.</p><p class="calibre10">So, the first part of the proxy <code class="email">FindUser</code> method can be written as follows:</p><pre class="programlisting">func (u *UserListProxy) FindUser(id int32) (User, error) { 
+  user, err := u.StackCache.FindUser(id) 
+  if err == nil { 
+    fmt.Println("Returning user from cache") 
+    u.DidLastSearchUsedCache = true 
+    return user, nil 
+  } 
+</pre><p class="calibre10">We use the preceding method to search for a user in the <code class="email">StackCache</code> member. The error will be nil if it can find it, so we check this to print a message to the console, change the state of <code class="email">DidLastSearchUsedCache</code> to <code class="email">true</code> so that the test can check whether the user was retrieved from cache, and finally, return the user.</p><p class="calibre10">So, if the error was not nil, it means that it couldn't find the user in the stack. So, the next step is to search in the database:</p><pre class="programlisting">  user, err = u.SomeDatabase.FindUser(id) 
+  if err != nil { 
+    return User{}, err 
+  } 
+</pre><p class="calibre10">We can reuse the <code class="email">FindUser</code> method we wrote for <code class="email">UserList</code> database in this case, because both have the same type for the purpose of this example. Again, it searches the user in the database represented  by the <code class="email">UserList</code> slice, but in this case, if the user isn't found, it returns the error generated in <code class="email">UserList</code>.</p><p class="calibre10">When the user is found (<code class="email">err</code> is nil), we have to add the user to the stack. For this purpose, we write a dedicated private method that receives a pointer of type <code class="email">UserListProxy</code>:</p><pre class="programlisting">func (u *UserListProxy) addUserToStack(user User) { 
+  if len(u.StackCache) &gt;= u.StackCapacity { 
+    u.StackCache = append(u.StackCache[1:], user) 
+  } 
+  else { 
+    u.StackCache.addUser(user) 
+  } 
+} 
+ 
+func (t *UserList) addUser(newUser User) { 
+  *t = append(*t, newUser) 
+} 
+</pre><p class="calibre10">The <code class="email">addUserToStack</code> method takes the user argument, and adds it to the stack in place. If the stack is full, it removes the first element in it before adding. We have also written an <code class="email">addUser</code> method to <code class="email">UserList</code> to help us in this. So, now in <code class="email">FindUser</code> method, we just have to add one line:</p><pre class="programlisting">u.addUserToStack(user) 
+</pre><p class="calibre10">This adds the new user to the stack, removing the last if necessary.</p><p class="calibre10">Finally, we just have to return the new user of the stack, and set the appropriate value on <code class="email">DidLastSearchUsedCache</code> variable. We also write a message to the console to help in the testing process:</p><pre class="programlisting">  fmt.Println("Returning user from database") 
+  u.DidLastSearchUsedCache = false 
+  return user, nil 
+} 
+</pre><p class="calibre10">With this, we have enough to pass our tests:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ go test -v .</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   Test_UserListProxy</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   Test_UserListProxy/FindUser_-_Empty_cache</strong></span>
+<span class="strong"><strong class="calibre2">Returning user from database</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   Test_UserListProxy/FindUser_-_One_user,_ask_for_the_same_user</strong></span>
+<span class="strong"><strong class="calibre2">Returning user from cache</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   Test_UserListProxy/FindUser_-_overflowing_the_stack</strong></span>
+<span class="strong"><strong class="calibre2">Returning user from cache</strong></span>
+<span class="strong"><strong class="calibre2">Returning user from database</strong></span>
+<span class="strong"><strong class="calibre2">Returning user from database</strong></span>
+<span class="strong"><strong class="calibre2">--- PASS: Test_UserListProxy (0.09s)                      </strong></span>
+<span class="strong"><strong class="calibre2">--- PASS: Test_UserListProxy/FindUser_-_Empty_cache (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">--- PASS: Test_UserListProxy/FindUser_-_One_user,_ask_for_the_same_user (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">--- PASS: Test_UserListProxy/FindUser_-_overflowing_the_stack (0.00s)</strong></span>
+<span class="strong"><strong class="calibre2">PASS</strong></span>
+<span class="strong"><strong class="calibre2">ok</strong></span>
+</pre><p class="calibre10">You can see in the preceding messages that our Proxy has worked flawlessly. It has returned the first search from the database. Then, when we search for the same user again, it uses the cache. Finally, we made a new test that calls three different users and we can observe, by looking at the console output, that just the first was returned from the cache and that the other two were fetched from the database.</p></div></div></div></body></html>

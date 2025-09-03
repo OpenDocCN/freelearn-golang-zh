@@ -1,0 +1,890 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer220">
+			<h1 id="_idParaDest-445" class="chapter-number"><a id="_idTextAnchor1862"/>18</h1>
+			<h1 id="_idParaDest-446"><a id="_idTextAnchor1863"/>Concurrent Work</h1>
+			<p class="callout-heading"><a id="_idTextAnchor1864"/>Overview</p>
+			<p class="callout">This chapter introduces you to Go features that will allow you to perform concurrent work, or, in other words, achieve concurrency. The first feature you will learn is called a Goroutine. You’ll learn what a Goroutine is and how you can use it to achieve concurrency. Then, you’ll learn how to utilize <strong class="source-inline">WaitGroup</strong>s to synchronize the execution of several Goroutines. You will also learn how to implement synchronized and thread-safe changes to variables shared across different Goroutines using atomic changes. To synchronize more complex changes, you will work <span class="No-Break">with mutexes.</span></p>
+			<p class="callout">Later in the chapter, you will experiment with the functionalities of channels and use message tracking to track the completion of a task. We will also cover the importance of concurrency, concurrency patterns, <span class="No-Break">and more.</span></p>
+			<h1 id="_idParaDest-447"><a id="_idTextAnchor1865"/>Technical requirements</h1>
+			<p>For this chapter, you'll require Go version 1.21 or higher. The code for this chapter can be found at: <a href="https://github.com/PacktPublishing/Go-Programming-From-Beginner-to-Professional-Second-Edition-/tree/main/Chapter18"><span class="No-Break">https://github.com/PacktPublishing/Go-Programming-From-Beginner-to-Professional-Second-Edition-/tree/main/Chapter18</span></a><span class="No-Break">.</span></p>
+			<h1 id="_idParaDest-448"><a id="_idTextAnchor1866"/><a id="_idTextAnchor1867"/>Introduction</h1>
+			<p>There is software that’s meant to be used by a single user, and most of what you’ve learned so far in this book allows you to develop such applications. There is other software, however, that is meant to be used by several users at the same time. An example of this is a web server. You created web servers in <a href="B18621_16.xhtml#_idTextAnchor1704"><span class="No-Break"><em class="italic">Chapter 16</em></span></a>, <em class="italic">Web Servers</em>. They are designed to serve websites or web applications that are generally used by thousands of users at the <span class="No-Break">same time.</span></p>
+			<p>When multiple users are accessing a web server, it sometimes needs to perform a series of actions that are totally independent and whose result is the only thing that matters to the final output. All these situations call for a type of programming in which different tasks can be executed at the same time, independently from each other. Some languages allow parallel computation, where tasks are <span class="No-Break">computed simultaneously.</span></p>
+			<p>In concurrent programming, when a task starts, all other tasks start as well, but instead of completing them one by one, the machine performs a bit of each task at the same time. While Go allows concurrent programming, tasks can also be performed in parallel when the machine has multiple cores. From the perspective of the programmer, however, this distinction is not that important, as tasks are created with the idea that they will be performed in parallel and in whatever way the machine will perform them. Let’s find out more in <span class="No-Break">this chapter.</span></p>
+			<h1 id="_idParaDest-449"><a id="_idTextAnchor1868"/><a id="_idTextAnchor1869"/>Goroutines</h1>
+			<p><a id="_idTextAnchor1870"/>Imagine several people have some nails to hammer into a wall. Each person has a different number of nails and a different area of the wall, but there is only one hammer. Each person uses the hammer for one nail, then passes the hammer to the next person, and so on. The person <a id="_idIndexMarker1165"/>with the fewest nails will finish earlier, but they will all share the same hammer; this is how <span class="No-Break">Goroutines work.</span></p>
+			<p>Using Goroutines, Go allows multiple tasks to run at the same time (they are also called coroutines). These are <a id="_idIndexMarker1166"/>routines (read tasks) that can co-run inside the same process but are totally concurrent. Goroutines do not share memory, which is why they are different from threads. However, we will see how easy it is to pass variables across them in your code and how this might lead to some <span class="No-Break">unexpected behavior.</span></p>
+			<p>Writing a Goroutine is nothing special; they are just normal functions. Each function can easily become a Goroutine; all we must do is write the word <strong class="source-inline">go</strong> before calling <span class="No-Break">the function.</span></p>
+			<p>Let us consider a function <span class="No-Break">called </span><span class="No-Break"><strong class="source-inline">hello()</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+func hello() {
+  fmt.Println("hello world")
+}</pre>			<p>To call our function as a Goroutine, we do <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+go hello()</pre>			<p>The function will run as a Goroutine. What this means can be understood better through the <span class="No-Break">following code:</span></p>
+			<pre class="source-code">
+func main() {
+  fmt.Println("Start")
+  go hello()
+  fmt.Println("End")</pre>			<p>The code starts by printing <strong class="source-inline">Start</strong>, then it calls the <strong class="source-inline">hello()</strong> function. Then, the execution goes straight to printing <strong class="source-inline">End</strong> without waiting for the <strong class="source-inline">hello()</strong> function to complete. No matter how long it takes to run the <strong class="source-inline">hello()</strong> function, the <strong class="source-inline">main()</strong> function will not care about <a id="_idIndexMarker1167"/>the <strong class="source-inline">hello()</strong> function as these functions will run independently. To better understand how this works, let’s do <span class="No-Break">some exercises.</span></p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">The important thing to remember is that Go is not a parallel language but concurrent, which means that Goroutines do not work in an independent manner, but each Goroutine is split into smaller parts and each Goroutine runs one of its subparts at <span class="No-Break">a tim<a id="_idTextAnchor1871"/><a id="_idTextAnchor1872"/>e.</span></p>
+			<h2 id="_idParaDest-450"><a id="_idTextAnchor1873"/>Exercise 18.01 – using concurrent Goroutines</h2>
+			<p>Let’s imagine we want to make two calculations. First, we sum all numbers from <strong class="source-inline">1</strong> to <strong class="source-inline">10</strong>, then numbers from <strong class="source-inline">1</strong> to <strong class="source-inline">100</strong>. To save<a id="_idIndexMarker1168"/> time, we want to make both <a id="_idIndexMarker1169"/>calculations happen independently and see both results at the <span class="No-Break">same time:</span></p>
+			<ol>
+				<li>Create a new folder in your filesystem, and, inside it, create a <strong class="source-inline">main.go</strong> file and write <span class="No-Break">the following:</span><pre class="source-code">
+package main
+import "fmt"</pre></li>				<li>Create a function to sum <span class="No-Break">two numbers:</span><pre class="source-code">
+func sum(from, to int) int {
+  res := 0
+  for i := from; i&lt;=to; i++ {
+    res += i
+  }
+  return res
+}</pre><p class="list-inset">This accepts two integers <a id="_idIndexMarker1170"/>as extremes (the minimum and maximum of an interval) and returns the sum of all numbers in the range between these <span class="No-Break">two extremes.</span></p></li>				<li>Create a <strong class="source-inline">main()</strong> function, which sums numbers <strong class="source-inline">1</strong> and <strong class="source-inline">100</strong>, then print <span class="No-Break">the result:</span><pre class="source-code">
+func main() {
+  s1 := sum(1, 100)
+  fmt.Println(s1)
+}</pre></li>				<li>Run <span class="No-Break">the program:</span><pre class="source-code">
+go run main.go</pre><p class="list-inset">You will see the <span class="No-Break">following output:</span></p><pre class="source-code">5050</pre></li>				<li>Now, let’s introduce some concurrency. Modify the <strong class="source-inline">main()</strong> function to look <span class="No-Break">like this:</span><pre class="source-code">
+func main() {
+  var s1 int
+  go func() {
+    s1 = sum(1, 100)
+  }()
+  fmt.Println(s1)
+}</pre><p class="list-inset">Here, we are running an anonymous function that assigns the value <strong class="source-inline">s1</strong> to the sum as before, but if we run the code, the result will be <strong class="source-inline">0</strong>. If you try to remove the term <strong class="source-inline">go</strong> before the <strong class="source-inline">func()</strong> part, you will see that the result is <strong class="source-inline">5050</strong>. In this case, the anonymous function will run and start summing the numbers, but then there is a call to <strong class="source-inline">fmt.Println</strong>, which prints the value of <strong class="source-inline">s1</strong>. Here, the program waits for the <strong class="source-inline">sum()</strong> function to end before printing the value of <strong class="source-inline">s1</strong>, hence returning the <span class="No-Break">correct result.</span></p><p class="list-inset">If we call the function and<a id="_idIndexMarker1171"/> prepend the <strong class="source-inline">go</strong> word, the program prints the current value of <strong class="source-inline">s1</strong> while the function is still computing the sum, which is still <strong class="source-inline">0</strong>, <span class="No-Break">and terminates.</span></p><p class="list-inset">Let’s call the <strong class="source-inline">sum()</strong> function twice with two different ranges. Modify the <span class="No-Break"><strong class="source-inline">main()</strong></span><span class="No-Break"> function:</span></p><pre class="source-code">func main() {
+  var s1, s2 int
+  go func() {
+    s1 = sum(1, 100)
+  }()
+  s2 = sum(1, 10)
+  fmt.Println(s1, s2)
+}</pre><p class="list-inset">If you run this program, it will print numbers <strong class="source-inline">0</strong> and <strong class="source-inline">55</strong>. This is because the concurrent function, <strong class="source-inline">go func()</strong>, does not have the time to return the result. The <strong class="source-inline">main()</strong> function is faster as it must count to <strong class="source-inline">55</strong> and not <strong class="source-inline">5050</strong>, so the program terminates before the concurrent function <span class="No-Break">is finished.</span></p><p class="list-inset">To solve this problem, we want to find a way to wait for the <em class="italic">concurrent </em>function to finish. There are some correct ways to do this, but for now, let’s do something quite crude but <a id="_idIndexMarker1172"/>effective, which is to wait for a fixed amount of time. To do so, just add this line before the <span class="No-Break"><strong class="source-inline">fmt.Println</strong></span><span class="No-Break"> command:</span></p><pre class="source-code">time.Sleep(time.Second)</pre></li>				<li>Modify the <strong class="source-inline">import</strong> section, just below the <strong class="source-inline">package main</strong> instruction, to look <span class="No-Break">as follows:</span><pre class="source-code">
+import (
+  "log"
+  "time"
+)</pre><p class="list-inset">If you run your program now, you should see <strong class="source-inline">5050 55</strong> printed on <span class="No-Break">the screen.</span></p></li>				<li>In the <strong class="source-inline">main()</strong> function, write code for the log to <span class="No-Break">be printed:</span><pre class="source-code">
+log.Println(s1, s2)</pre></li>				<li>If you run your program now, you will see the same output again, <strong class="source-inline">5050 55</strong>, but prepended by a timestamp representing when you ran <span class="No-Break">the code:</span><pre class="source-code">
+2024/01/25 19:23:00 5050 55</pre></li>			</ol>
+			<p>As you can see, the calculations have happened concurrently, and we have received both outputs at the <span class="No-Break">same time.</span></p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">The full code for this exercise is available <span class="No-Break">at </span><a href="https://github.com/PacktPublishing/Go-Programming-From-Beginner-to-Professional-Second-Edition-/tree/main/Chapter18"><span class="No-Break">https://github.com/PacktPublishing/Go-Programming-From-Beginner-to-Professional-Second-Edition-/tree/main/Chapter18</span></a><span class="No-Break">.</span></p>
+			<h1 id="_idParaDest-451"><a id="_idTextAnchor1874"/>WaitGroup</h1>
+			<p>In the previous exercise, we used a not-so-elegant method to ensure that the Goroutine ended by making the main Goroutine wait for<a id="_idIndexMarker1173"/> a second. The important thing to understand is that even if a program does not explicitly use Goroutines via the <strong class="source-inline">go</strong> call, it still uses one Goroutine, which is the main routine. When we run our program and create a new Goroutine, we are running two Goroutines: the main one and the one we just created. In order to synchronize these two Goroutines, Go gives us a function called <strong class="source-inline">WaitGroup</strong>. You can define a <strong class="source-inline">WaitGroup</strong> using the <span class="No-Break">following code:</span></p>
+			<pre class="source-code">
+wg := sync.WaitGroup{}</pre>			<p><strong class="source-inline">WaitGroup</strong> needs the <strong class="source-inline">sync</strong> package to be imported. Typical code using the <strong class="source-inline">WaitGroup</strong> will be something <span class="No-Break">like this:</span></p>
+			<pre class="source-code">
+package main
+import "sync"
+func main() {
+  wg := &amp;sync.WaitGroup{}
+  wg.Add(1)
+  …………………..
+  wg.Wait()
+  ………….
+  ………….
+}</pre>			<p>Here, we create a pointer to a new <strong class="source-inline">WaitGroup</strong>, then we mention that we are adding an asynchronous operation that adds <strong class="source-inline">1</strong> to the group using <strong class="source-inline">wg.Add(1)</strong>. This is essentially a counter holding the number of all concurrent Goroutines that are running. Later, we add the code that will run the concurrent call. At the end, we tell the <strong class="source-inline">WaitGroup</strong> to wait for the Goroutines to end <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">wg.Wait()</strong></span><span class="No-Break">.</span></p>
+			<p>How does the <strong class="source-inline">WaitGroup</strong> know that the routines are complete? Well, we need to explicitly tell the <strong class="source-inline">WaitGroup</strong> about it inside the Goroutine with <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+wg.Done()</pre>			<p>This must reside at the end of the <a id="_idIndexMarker1174"/>called Goroutine. We will see this in the <span class="No-Break">next <a id="_idTextAnchor1875"/><a id="_idTextAnchor1876"/>exercise.</span></p>
+			<h2 id="_idParaDest-452"><a id="_idTextAnchor1877"/>Exercise 18.02 – experimenting with WaitGroup</h2>
+			<p>Let’s say we calculate the addition in <em class="italic">Exercise 18.01</em>, <em class="italic">Using concurrent Goroutines</em>, again using a Goroutine that runs concurrently<a id="_idIndexMarker1175"/> with the main process. However, this time, we want to use a <strong class="source-inline">WaitGroup</strong> to synchronize the results. We have a few changes to make. Essentially, the <strong class="source-inline">sum()</strong> function needs to accept a new parameter for the <strong class="source-inline">WaitGroup</strong>, and there is no need to use the <strong class="source-inline">time</strong> package. Many people new to concurrency add <strong class="source-inline">time.Sleep</strong> to wait for Goroutines to finish. This intentional delay is self-defeating and makes no practical sense outside of testing, as the purpose of Goroutines is to speed up the overall execution <span class="No-Break">of things:</span></p>
+			<ol>
+				<li>Create a new folder and a <strong class="source-inline">main.go</strong> file inside it. The package and import parts of your file will be <span class="No-Break">as follows:</span><pre class="source-code">
+package main
+import (
+  "log"
+  "sync"
+)</pre><p class="list-inset">Here, we define the package as the <strong class="source-inline">main</strong> package and then import the <strong class="source-inline">log</strong> and <strong class="source-inline">sync</strong> packages. <strong class="source-inline">log</strong> will be used again to print out messages, and <strong class="source-inline">sync</strong> will be used for <span class="No-Break">the </span><span class="No-Break"><strong class="source-inline">WaitGroup</strong></span><span class="No-Break">.</span></p></li>				<li>Next, write a <span class="No-Break"><strong class="source-inline">sum()</strong></span><span class="No-Break"> function:</span><pre class="source-code">
+func sum(from,to int, wg *sync.WaitGroup, res *int) {</pre><p class="list-inset">Now, we add a parameter called <strong class="source-inline">wg</strong> with a pointer to <strong class="source-inline">sync.WaitGroup</strong> along with the result parameter. In the previous exercise, we wrapped the <strong class="source-inline">sum()</strong> function with an anonymous <a id="_idIndexMarker1176"/>function that ran as a Goroutine. Here, we want to avoid that, but we need to somehow get the result of the <strong class="source-inline">sum()</strong> function. Hence, we pass an extra parameter as a pointer that will return the <span class="No-Break">correct value.</span></p></li>				<li>Create a loop to increment the <span class="No-Break"><strong class="source-inline">sum()</strong></span><span class="No-Break"> function:</span><pre class="source-code">
+  *res = 0
+  for i := from; i &lt;=to ; i++ {
+    *res += i
+  }</pre><p class="list-inset">Here, we set the value of what is held by the <strong class="source-inline">res</strong> pointer to <strong class="source-inline">0</strong>, and then we use the same loop that we saw earlier, but again associating the <strong class="source-inline">sum()</strong> function with the value pointed by the <span class="No-Break"><strong class="source-inline">res</strong></span><span class="No-Break"> parameter.</span></p></li>				<li>We can now complete <span class="No-Break">this function:</span><pre class="source-code">
+  wg.Done()}</pre><p class="list-inset">Here, we tell the <strong class="source-inline">WaitGroup</strong> that this Goroutine is completed, and then <span class="No-Break">we return.</span></p></li>				<li>Now, let’s write a <strong class="source-inline">main()</strong> function, which will set up the variables and then run the Goroutine that calculates the sum. We will then wait for the Goroutine to finish and display <span class="No-Break">the result:</span><pre class="source-code">
+func main() {
+  s1 := 0
+  wg := &amp;sync.WaitGroup{}</pre><p class="list-inset">Here, the <strong class="source-inline">main()</strong> function is defined, and then a variable called <strong class="source-inline">s1</strong> is set to <strong class="source-inline">0</strong>. Also, a pointer to the <strong class="source-inline">WaitGroup</strong> <span class="No-Break">is created.</span></p></li>				<li>Add one to the count of the <strong class="source-inline">WaitGroup</strong> and then run <span class="No-Break">the Goroutine:</span><pre class="source-code">
+  wg.Add(1)
+  go sum(1,100, wg, &amp;s1)</pre><p class="list-inset">This code notifies the <strong class="source-inline">WaitGroup</strong> that there is one Goroutine running and then creates a new Goroutine <a id="_idIndexMarker1177"/>calculating the sum. The <strong class="source-inline">sum()</strong> function will call the <strong class="source-inline">wg.Done()</strong> method to notify the <strong class="source-inline">WaitGroup</strong> of <span class="No-Break">its completion.</span></p></li>				<li>We need to wait for the Goroutine to finish. To do so, write <span class="No-Break">the following:</span><pre class="source-code">
+  wg.Wait()
+  log.Println(s1)
+}</pre><p class="list-inset">This also logs the result to the <span class="No-Break">standard output.</span></p></li>				<li>Run <span class="No-Break">the program:</span><pre class="source-code">
+go run main.go</pre></li>			</ol>
+			<p>You will see the log output for the function using <strong class="source-inline">WaitGroup</strong>s, as follows, with <span class="No-Break">the timestamp:</span></p>
+			<pre class="console">
+2024/01/25 19:24:51 5050</pre>			<p>With this exercise, we have explored the functionality of <strong class="source-inline">WaitGroup</strong> by synchronizing Goroutines <a id="_idTextAnchor1878"/><a id="_idTextAnchor1879"/>in <span class="No-Break">our code.</span></p>
+			<h1 id="_idParaDest-453"><a id="_idTextAnchor1880"/>Race conditions</h1>
+			<p>One important thing to consider is that whenever we run multiple functions concurrently, we have no guarantee in what <a id="_idIndexMarker1178"/>order each instruction in each function will be performed. In many architectures, this is not a problem. Some functions are not connected in any way with other functions, and whatever a function does in its Goroutine does not affect the actions performed in other Goroutines. This is, however, not always true. The first situation we can think of is when some functions need to share the same parameter. Some functions will read from this parameter, while others will write to this parameter. As we do not know which operation will run first, there is a high<a id="_idIndexMarker1179"/> likelihood that one function will override the value updated by another function. Let’s see an example that explains <span class="No-Break">this situation:</span></p>
+			<pre class="source-code">
+func next(v *int) {
+  c := *v
+  *v = c + 1
+}</pre>			<p>This function takes a pointer to an integer as a parameter. It is a pointer because we want to run several Goroutines with the <strong class="source-inline">next()</strong> function and update <strong class="source-inline">v</strong>. If we run the following code, we would expect that <strong class="source-inline">a</strong> will hold the <span class="No-Break">value 3:</span></p>
+			<pre class="source-code">
+a := 0
+next(&amp;a)
+next(&amp;a)
+next(&amp;a)</pre>			<p>This is perfectly fine. However, what if we run the <span class="No-Break">following code:</span></p>
+			<pre class="source-code">
+a := 0
+go next(&amp;a)
+go next(&amp;a)
+go next(&amp;a)</pre>			<p>In this case, we might see that <strong class="source-inline">a</strong> holds 3, or 2, or 1. Why would this happen? Because when a function executes the following statement, the value of <strong class="source-inline">v</strong> might be 0 for all functions running in <span class="No-Break">independent Goroutines:</span></p>
+			<pre class="source-code">
+c := *v</pre>			<p>If this happens, then each function will set <strong class="source-inline">v</strong> to <strong class="source-inline">c + 1</strong>, which means none of the Goroutines are aware of what the other Goroutines are doing and override any changes made by another Goroutine. This problem is called a <strong class="bold">race condition</strong> and happens every time we work with shared resources without taking precautions. Fortunately, we have several ways to prevent this situation and to make sure that the same change is made only once. We will look<a id="_idIndexMarker1180"/> at these solutions in the next sections, and we will explore the situation we just described in more detail, with a proper solution and <a id="_idTextAnchor1881"/><a id="_idTextAnchor1882"/><span class="No-Break">race detection.</span></p>
+			<h1 id="_idParaDest-454"><a id="_idTextAnchor1883"/>Atomic operations</h1>
+			<p>Let’s imagine we want to run independent functions again. However, in this case, we want to modify the value held by a variable. We still want to sum the numbers from 1 to 100, but we want to split the work into two <a id="_idIndexMarker1181"/>concurrent Goroutines. We can sum the numbers from 1 to 50 in one routine and the numbers from 51 to 100 in another routine. At the end, we will still need to receive the value of 5050, but two different routines can add a number at the same time to the same variable. Let’s see an example with only four numbers where we want to sum 1, 2, 3, and 4, and the result <span class="No-Break">is 10.</span></p>
+			<p>Think of it like having a variable called <strong class="source-inline">s := 0</strong> and then making a loop where the value of <strong class="source-inline">s</strong> becomes <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+s = 0
+s = 1
+s = 3 // (1 + 2)
+s = 6
+s = 10</pre>			<p>However, we could also have the following loop. In this case, the order in which the numbers are summed <span class="No-Break">is different:</span></p>
+			<pre class="source-code">
+s = 0
+s = 1
+s = 4 // 3 + 1, the previous value of 1
+s = 6 // 2 + 4 the previous value of 4
+s = 10</pre>			<p>Essentially, this is just the commutative property of the sum, but this gives us a hint that we can split the sum into two or more concurrent calls. The problem that arises here is that all the functions need to manipulate the same variable, <strong class="source-inline">s</strong>, which can lead to race conditions and incorrect final values. A race condition happens when two processes change the same variable, and one process overrides the changes made by another process without considering the <a id="_idIndexMarker1182"/>previous change. Thankfully, we have a package called <strong class="source-inline">atomic</strong> that allows us to safely modify variables <span class="No-Break">across Goroutines.</span></p>
+			<p>We will look at how this package works soon, but, for now, all you need to know is that this package has some functions for executing simple concurrent safe operations on variables. Let’s look at <span class="No-Break">an example:</span></p>
+			<pre class="source-code">
+func AddInt32(addr *int32, delta int32) (new int32)</pre>			<p>This code takes a pointer to <strong class="source-inline">int32</strong> and modifies it by adding the value it points at to the value of <strong class="source-inline">delta</strong>. If <strong class="source-inline">addr</strong> holds a value of 2 and <strong class="source-inline">delta</strong> is 4, after calling this function, <a id="_idTextAnchor1884"/><a id="_idTextAnchor1885"/><strong class="source-inline">addr</strong> will <span class="No-Break">hold 6.</span></p>
+			<h2 id="_idParaDest-455"><a id="_idTextAnchor1886"/>Exercise 18.03 – an atomic change</h2>
+			<p>In this exercise, we want to calculate the sum of all numbers between 1 and 100 but with more concurrent Goroutines – let’s <a id="_idIndexMarker1183"/>say 4. So, we have one function summing in the range of 1-25, one in the range of 26-50, then 51-75, and finally 76-100. We will use what we’ve learned about atomic operations <span class="No-Break">and </span><span class="No-Break"><strong class="source-inline">WaitGroups</strong></span><span class="No-Break">:</span></p>
+			<ol>
+				<li>Create a new folder and a <strong class="source-inline">main.go</strong> file. Inside it, write the <span class="No-Break">following code:</span><pre class="source-code">
+package main
+import (
+  "log"
+  "sync"
+  "sync/atomic"
+)</pre><p class="list-inset">This will import the same packages used for the previous exercises, in addition to the <span class="No-Break"><strong class="source-inline">sync/atomic</strong></span><span class="No-Break"> package.</span></p></li>				<li>The next step is to refactor the <strong class="source-inline">sum()</strong> function from <em class="italic">Exercise 19.02</em>, <em class="italic">Experimenting with WaitGroup</em>, to<a id="_idIndexMarker1184"/> use the <span class="No-Break"><strong class="source-inline">atomic</strong></span><span class="No-Break"> package:</span><pre class="source-code">
+func sum(from, to int, wg *sync.WaitGroup, res *int32) {</pre><p class="list-inset">Here, we just changed <strong class="source-inline">res</strong> from <strong class="source-inline">int</strong> to <strong class="source-inline">*int32</strong>. The reason for this is that the atomic operations available specifically for arithmetic operations only work on <strong class="source-inline">int32/64</strong> and <span class="No-Break">relative </span><span class="No-Break"><strong class="source-inline">uint32/64</strong></span><span class="No-Break">.</span></p></li>				<li>At this point, write a loop to add each number to <span class="No-Break">the total:</span><pre class="source-code">
+  for i := from; i &lt;= to; i++ {
+    atomic.AddInt32(res, int32(i))
+  }
+  wg.Done()
+  return
+}</pre><p class="list-inset">As you can see, instead of assigning the value of <strong class="source-inline">res</strong> as <strong class="source-inline">0</strong>, we are now adding <strong class="source-inline">i</strong> to the total value held by <strong class="source-inline">res</strong>. The rest of the code <span class="No-Break">is unchanged.</span></p></li>				<li>The next step is to write a <strong class="source-inline">main()</strong> function to calculate the sum in four <span class="No-Break">different Goroutines:</span><pre class="source-code">
+func main() {
+  s1 := int32(0)
+  wg := &amp;sync.WaitGroup{}</pre><p class="list-inset">Here, we set <strong class="source-inline">s1</strong> to an <strong class="source-inline">int32</strong> type rather than <strong class="source-inline">int</strong> so that we can send it as a parameter to the <strong class="source-inline">sum()</strong> function. Then, we create a pointer <span class="No-Break">to </span><span class="No-Break"><strong class="source-inline">WaitGroup</strong></span><span class="No-Break">.</span></p></li>				<li>Now, tell the <strong class="source-inline">WaitGroup</strong> that we will<a id="_idIndexMarker1185"/> have four <span class="No-Break">Goroutines running:</span><pre class="source-code">
+  wg.Add(4)</pre></li>				<li>Now, run four Goroutines performing the sum over four ranges: 1-25, 26-50, 51-75, <span class="No-Break">and 76-100:</span><pre class="source-code">
+  go sum(1, 25, wg, &amp;s1)
+  go sum(26, 50, wg, &amp;s1)
+  go sum(51, 75, wg, &amp;s1)
+  go sum(76, 100, wg, &amp;s1)</pre></li>				<li>Now, add the code that waits for the routines to complete and print <span class="No-Break">the result:</span><pre class="source-code">
+  wg.Wait()
+  log.Println(s1)
+}</pre></li>				<li>Now, run the code with <span class="No-Break">the following:</span><pre class="source-code">
+go run main.go</pre><p class="list-inset">You will then see something <span class="No-Break">like this:</span></p><pre class="source-code">2024/01/25 19:26:04 5050</pre><p class="list-inset">The actual date will be different because it depends on when you run <span class="No-Break">this code.</span></p></li>				<li>Now, let’s test the code. We will use it to show you what it means to have a race condition, why we use this <strong class="source-inline">atomic</strong> package, and what concurrency safety is. Here is the <span class="No-Break">test code:</span><pre class="source-code">
+package main
+import (
+  "bytes"
+  "log"
+  "testing"
+)
+func Test_Main(t *testing.T) {
+  for i:=0; i &lt; 10000; i++ {
+    var s bytes.Buffer
+    log.SetOutput(&amp;s)
+    log.SetFlags(0)
+    main()
+    if s.String() != "5050\n" {
+      t.Error(s.String())
+    }
+  }
+}</pre><p class="list-inset">We will run the same test <span class="No-Break">10,000 times.</span></p></li>				<li>Run <span class="No-Break">your test:</span><pre class="source-code">
+go test</pre><p class="list-inset">The result of the test on<a id="_idIndexMarker1186"/> atomic changes is <span class="No-Break">as follows:</span></p><pre class="source-code">PASS
+ok parallelwork 0.048s</pre></li>				<li>And now, add the <strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">race</strong></span><span class="No-Break"> flag:</span><pre class="source-code">
+go test -race</pre><p class="list-inset">The output when running these tests with the <strong class="source-inline">-race</strong> flag is <span class="No-Break">as follows:</span></p><pre class="source-code">PASS
+ok parallelwork 3.417s</pre><p class="list-inset">Again, everything is fine <span class="No-Break">so far.</span></p></li>				<li>Let’s now remove the <strong class="source-inline">sync/atomic</strong> import and modify the <strong class="source-inline">sum()</strong> function where you see <span class="No-Break">this line:</span><pre class="source-code">
+atomic.AddInt32(res, int32(i))</pre></li>				<li>Change it <span class="No-Break">to this:</span><pre class="source-code">
+*res = *res + int32(i)</pre></li>				<li>N<a id="_idTextAnchor1887"/>ow, run <span class="No-Break">your program:</span><pre class="source-code">
+go run main.go</pre></li>				<li>The log output for a<a id="_idIndexMarker1187"/> non-atomic change stays the same when <span class="No-Break">using pointers:</span><pre class="source-code">
+2024/01/25 19:30:47 5050</pre></li>				<li>But if you try running the test multiple times, you may see some different results, even though, in this case, that is quite unlikely. At this point, however, try running the tests with the <strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">race</strong></span><span class="No-Break"> flag:</span><pre class="source-code">
+go test -race</pre></li>			</ol>
+			<p>You will see <a id="_idTextAnchor1888"/>the <span class="No-Break">following output:</span></p>
+			<div>
+				<div id="_idContainer218" class="IMG---Figure">
+					<img src="image/B18621_18_1.jpg" alt="Figure 18.1: Race conditions arise when using the pointer here" width="1650" height="589"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 18.1: Race conditions arise when using the pointer here</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">GCC must be installed to run this code. Information <a id="_idIndexMarker1188"/>on installation instructions can be found <span class="No-Break">at </span><a href="https://go.dev/doc/install/gccgo"><span class="No-Break">https://go.dev/doc/install/gccgo</span></a><span class="No-Break">.</span></p>
+			<ol>
+				<li>Now, let’s run the code wi<a id="_idTextAnchor1889"/>thout the <strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">race</strong></span><span class="No-Break"> flag:</span></li>
+			</ol>
+			<div>
+				<div id="_idContainer219" class="IMG---Figure">
+					<img src="image/B18621_18_2.jpg" alt="Figure 18.2: Stack trace with racing conditions" width="428" height="1118"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 18.2: Stack trace with racing conditions</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout"><em class="italic">...</em> in <span class="No-Break"><em class="italic">Figure 18</em></span><em class="italic">.2</em> denotes some lines of output that I removed to make the visual <span class="No-Break">more digestible.</span></p>
+			<p>By running the code several times, you<a id="_idIndexMarker1189"/> can see different results because each routine can change the value of <strong class="source-inline">s1</strong> at any time and in any order, which we cannot know <span class="No-Break">in advance.</span></p>
+			<p>In this exercise, you’ve learned how to use the <strong class="source-inline">atomic</strong> package to safely modify variables shared by multiple Goroutines. You’ve learned how direct access to the same variable from different Goroutines can be dangerous and how to use the <strong class="source-inline">atomic </strong>package to avoid this situation. We <a id="_idIndexMarker1190"/>also saw how to work with tests in Go. This topic will be covered more thoroughly in the <span class="No-Break">next chapter.</span></p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">The full code for this exercise is available <span class="No-Break">at </span><a href="https://github.com/PacktPublishing/Go-Programming-From-Beginner-to-Professional-Second-Edition-/tree/main/Chapter18/Exercise18.03"><span class="No-Break">https://github.com/PacktPublishing/Go-Programming-From-Beginner-to-Professional-Second-Edition-/tree/main/Chapter18/Exercise18.03</span></a><span class="No-Break">.</span></p>
+			<h1 id="_idParaDest-456"><a id="_idTextAnchor1890"/>Invisible concurrency</h1>
+			<p>We’ve seen in the previous exercise<a id="_idIndexMarker1191"/> the effects of concurrency through race conditions, but we want to see them in practice. It is easy to understand that concurrency problems are difficult to visualize as they do not manifest in the same way every time we run a program. That’s why we are focusing on finding ways to synchronize concurrent work. One easy way to visualize it, however, but that is difficult to use in tests, is to print out each concurrent routine and see the order in which these routines are called. In the previous exercise, for example, we could have sent another parameter with a name and printed the name of the function at each iteration in the <span class="No-Break"><strong class="source-inline">for</strong></span><span class="No-Break"> loop.</span></p>
+			<p>If we want to see the effects of concurrency and still be able to test it, we could use the <strong class="source-inline">atomic</strong> package again, this time with strings so that we can build a string containing a message from each Goroutine. For this scenario, we will use the <strong class="source-inline">sync</strong> package again, but we will not make use of atomic operations. Instead, we will use a new struct called <strong class="source-inline">Mutex</strong>. A mutex, short for <em class="italic">mutual exclusion</em>, serves as a synchronization primitive in Go, allowing multiple Goroutines to <a id="_idIndexMarker1192"/>coordinate access to shared resources. When a Goroutine acquires a mutex, it locks it, ensuring exclusive access to the critical section of code. This prevents other Goroutines from accessing the same resource until the mutex is unlocked. Once the critical section execution is complete, the mutex is unlocked, allowing other Goroutines to acquire it and proceed with their execution concurrently. Let’s see how we can use it. First, it needs the <strong class="source-inline">sync</strong> package to be imported. Then, we create a mutex <span class="No-Break">like this:</span></p>
+			<pre class="source-code">
+mtx := sync.Mutex{}</pre>			<p>But most of the time, we want to pass a mutex across several functions, so we’d better create a pointer to <span class="No-Break">a mutex:</span></p>
+			<pre class="source-code">
+mtx := &amp;sync.Mutex{}</pre>			<p>This ensures we use the same mutex everywhere. It is important to use the same mutex, but the reason why the mutex must be only one will be clear after analyzing the methods in the <strong class="source-inline">Mutex</strong> struct. If all Goroutines have <strong class="source-inline">mtx.Lock()</strong> before modifying a value in a critical section of code <a id="_idIndexMarker1193"/>such as in the following case, then only one Goroutine at a time can modify the variable due to <span class="No-Break">the lock:</span></p>
+			<pre class="source-code">
+mtx.Lock()
+s = s + 5</pre>			<p>The preceding code snippet will lock the execution of all the routines, except the one that will change the variable. At this point, we will add 5 to the current value of <strong class="source-inline">s</strong>. After this, we release the lock using the following command so that any other Goroutine can modify the value <span class="No-Break">of </span><span class="No-Break"><strong class="source-inline">s</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+mtx.Unlock()</pre>			<p>From now on, any following code will run concurrently. We will see later some better ways to ensure safety when we modify a variable, but, for now, do not worry about adding much code between the lock/unlock part. The more code there is between these constructs, the less concurrent your code will be. So, you should lock the execution of the program, add only the logic required to ensure safety, unlock, and then carry on with the execution of the rest of the code, which does not touch the <span class="No-Break">shared variables.</span></p>
+			<p>One important thing to notice is that the order of asynchronously performed code can change. This is because Goroutines run independently and you cannot know which one runs first. Furthermore, mutex-protected code can only be run by one Goroutine at a time, and you should then not rely on Goroutines to order things correctly; you might need to order your results afterward if<a id="_idTextAnchor1891"/><a id="_idTextAnchor1892"/> <a id="_idTextAnchor1893"/><a id="_idTextAnchor1894"/>you need a <span class="No-Break">specific order.</span></p>
+			<h1 id="_idParaDest-457"><a id="_idTextAnchor1895"/>Channels</h1>
+			<p>We’ve seen how to create concurrent code via Goroutines, how to synchronize it with <strong class="source-inline">WaitGroup</strong>, how to perform atomic operations, and how to temporarily stop concurrency to synchronize access to shared variables. We will now introduce a different concept – the channel, which is typical of Go. A channel is what the name essentially suggests – it’s something where messages can be piped, and any Goroutine can send or receive messages through a channel. Similar to that of a slice, a channel is created the <span class="No-Break">following way:</span></p>
+			<pre class="source-code">
+var ch chan int
+ch = make(chan int)</pre>			<p>Of course, it is possible to instantiate the channel directly with <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+ch := make(chan int)</pre>			<p>Just like with slices, we can also do <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+ch := make(chan int, 10)</pre>			<p>Here, a channel is created with a buffer of <span class="No-Break">10 items.</span></p>
+			<p>A channel can be of any type, such as integer, Boolean, float, and any struct that can be defined, and even slices and pointers, though the last two are generally used <span class="No-Break">less frequently.</span></p>
+			<p>Channels can be passed as <a id="_idIndexMarker1194"/>parameters to functions, and that’s how different Goroutines can share content. Let’s see how to send a message to <span class="No-Break">a channel:</span></p>
+			<pre class="source-code">
+ch &lt;- 2</pre>			<p>In this case, we send the value of 2 to the preceding <strong class="source-inline">ch</strong> channel, which is a channel of integers. Of course, trying to send something other than an integer to an integer channel will cause <span class="No-Break">an error.</span></p>
+			<p>After sending a message, we need to be able to receive a message from a channel. To do that, we can just do <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+&lt;- ch</pre>			<p>Doing this ensures that the message is received; however, the message is not stored. It might seem useless to lose the message, but we will see that it might make sense. Nevertheless, we might want to keep the value received from the channel, and we can do so by storing the value in a <span class="No-Break">new variable:</span></p>
+			<pre class="source-code">
+i := &lt;- ch</pre>			<p>Let’s see a simple program that shows us how to use<a id="_idTextAnchor1896"/><a id="_idTextAnchor1897"/> what we’ve learned <span class="No-Break">so far:</span></p>
+			<pre class="source-code">
+package main
+import "log"
+func main() {
+  ch := make(chan int, 1)
+  ch &lt;- 1
+  i := &lt;- ch
+  log.Println(i)
+}</pre>			<p>This program creates a new channel, pipes the integer 1 in, then reads it, and finally prints out the value of <strong class="source-inline">i</strong>, which should be 1. This code is not that useful in practice, but with a small change, we can see <a id="_idIndexMarker1195"/>something interesting. Let’s make the channel unbuffered by changing the channel definition to <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+ch := make(chan int)</pre>			<p>If you run the code, you will get the <span class="No-Break">following output:</span></p>
+			<pre class="console">
+fatal error: all goroutines are asleep - deadlock!
+goroutine 1 [chan send]:
+main.main()
+    /Users/ samcoyle/go/src/github.com/packt-book/Go-Programming---From-Beginner-to-Professional-Second-Edition-/Chapter19/Exercise19.04/main.go:8 +0x59Process finished with exit code 2</pre>			<p>The message may be different depending on the version of Go you are using. Also, some errors such as these have been introduced in newer versions. In older versions, though, the compiler was more permissive. In this specific case, the problem is simple: if we do not know how big the channel is, the Goroutines wait indefinitely, and this is called a deadlock. You can think of an unbuffered channel as having a capacity of zero. If we try to put anything into it, it won’t hold the item – instead, it will block until we can pass the item through the channel to a variable, for example. We will see later how to handle them, as they require more than one routine running. With only one Goroutine, after we send the message, we block the execution, and there is no other Goroutine able to receive the message; hence, we have <span class="No-Break">a deadlock.</span></p>
+			<p>Before we go further, let’s see one more characteristic of channels, which is that they can be closed. Channels need to be closed when the task they have been created for is finished. To close a channel, type<a id="_idIndexMarker1196"/> in <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+close(ch)</pre>			<p>Alternatively, you can defer the closing, as shown in the following <span class="No-Break">code snippet:</span></p>
+			<pre class="source-code">
+...
+defer close(ch)
+for i := 0; i &lt; 100; i++ {
+  ch &lt;- i
+}
+return</pre>			<p>In this case, after the <strong class="source-inline">return</strong> statement, the channel is closed as the closing is deferred to ru<a id="_idTextAnchor1898"/><a id="_idTextAnchor1899"/>n after the <span class="No-Break"><strong class="source-inline">return</strong></span><span class="No-Break"> statement.</span></p>
+			<h2 id="_idParaDest-458"><a id="_idTextAnchor1900"/>Exercise 18.04 – exchanging greeting messages via channels</h2>
+			<p>In this exercise, we will use a Goroutine to send <a id="_idIndexMarker1197"/>a greeting message, and then we will receive the greeting in the main process. The exercise is very simple and does not need concurrency, but it is a starting point to understand how message <span class="No-Break">passing works:</span></p>
+			<ol>
+				<li>Create a folder. In it, create a <strong class="source-inline">main.go</strong> file with the <span class="No-Break"><strong class="source-inline">main</strong></span><span class="No-Break"> package:</span><pre class="source-code">
+package main
+import (
+  "log"
+)</pre></li>				<li>Then, create a <span class="No-Break"><strong class="source-inline">greeter()</strong></span><span class="No-Break"> function:</span><pre class="source-code">
+func greet(ch chan string) {
+  ch &lt;- "Hello"
+}</pre><p class="list-inset">This function just sends a <strong class="source-inline">Hello</strong> message to a channel <span class="No-Break">and ends.</span></p></li>				<li>Now, create a <strong class="source-inline">main()</strong> function where you instantiate a channel and pass it to the <span class="No-Break"><strong class="source-inline">greeter()</strong></span><span class="No-Break"> function:</span><pre class="source-code">
+func main() {
+  ch := make(chan string)
+  go greet(ch)</pre><p class="list-inset">Here, only a channel of strings is <a id="_idIndexMarker1198"/>created and passed as a parameter to the call to a new routine <span class="No-Break">called </span><span class="No-Break"><strong class="source-inline">greet</strong></span><span class="No-Break">.</span></p></li>				<li>Now, print the result and complete <span class="No-Break">the function:</span><pre class="source-code">
+  log.Println(&lt;-ch)
+}</pre><p class="list-inset">Here, we are printing whatever comes from the channel. The following part of the code returns a value, which is passed straight to the <span class="No-Break"><strong class="source-inline">Println</strong></span><span class="No-Break"> function:</span></p><pre class="source-code">&lt;- ch</pre></li>				<li>Run the program with <span class="No-Break">the following:</span><pre class="source-code">
+go run main.go</pre></li>			</ol>
+			<p>You will see the <span class="No-Break">following output:</span></p>
+			<pre class="console">
+2024/01/25 19:44:11 Hello</pre>			<p>Now, we can see that the message has been delivered to the <strong class="source-inline">main()</strong> function through <span class="No-Break">the channel.</span></p>
+			<p>In this exercise, you have seen how to use channels to make different Goroutines communicate with each other and <a id="_idTextAnchor1901"/><a id="_idTextAnchor1902"/>synchronize <span class="No-Break">their computations.</span></p>
+			<h2 id="_idParaDest-459"><a id="_idTextAnchor1903"/>Exercise 18.05 – two-way message exchange with channels</h2>
+			<p>What we want now is to send messages from the main Goroutine to the second Goroutine and then get a message back as a<a id="_idIndexMarker1199"/> response. We will base our code on the previous one and expand it. The main Goroutine will send a <strong class="source-inline">"Hello John"</strong> message, while the second Goroutine will return <strong class="source-inline">"Thanks"</strong> for the message received, stating it in full, and will then add a <strong class="source-inline">"Hello </strong><span class="No-Break"><strong class="source-inline">David"</strong></span><span class="No-Break"> message:</span></p>
+			<ol>
+				<li>Create a folder. In it, create a <strong class="source-inline">main.go</strong> file with the <span class="No-Break"><strong class="source-inline">main</strong></span><span class="No-Break"> package:</span><pre class="source-code">
+package main
+import (
+  "fmt"
+  "log"
+)</pre><p class="list-inset">With the necessary imports, we will use the <strong class="source-inline">fmt</strong> package to manipulate <span class="No-Break">the strings.</span></p></li>				<li>Write a <strong class="source-inline">greet()</strong> function to return the <span class="No-Break">expected messages:</span><pre class="source-code">
+func greet(ch chan string) {
+  msg := &lt;- ch
+  ch &lt;- fmt.Sprintf("Thanks for %s", msg)
+  ch &lt;- "Hello David"
+}</pre><p class="list-inset">The <strong class="source-inline">greet()</strong> function signature has not changed. However, now, before sending a message, it will first wait for a message and then reply. After receiving the message, this function sends a message back thanking for the greeting and then sends its <span class="No-Break">own greeting.</span></p></li>				<li>Now, create a <strong class="source-inline">main()</strong> function and call the <strong class="source-inline">greet()</strong> function as <span class="No-Break">a Goroutine:</span><pre class="source-code">
+func main() {
+  ch := make(chan string)
+  go greet(ch)</pre><p class="list-inset">Here, the <strong class="source-inline">main()</strong> function is created, and a string channel is instantiated. Then, the second Goroutine is started. Next, we need to send the first message from the main Goroutine to the <a id="_idIndexMarker1200"/>second, which is <span class="No-Break">currently waiting.</span></p></li>				<li>Now, to send a <strong class="source-inline">"Hello John"</strong> message to the channel, write the <span class="No-Break">following code:</span><pre class="source-code">
+  ch &lt;- "Hello John"</pre></li>				<li>And finally, add the code that waits for the messages to come back before <span class="No-Break">printing them:</span><pre class="source-code">
+  log.Println(&lt;-ch)
+  log.Println(&lt;-ch)
+}</pre></li>			</ol>
+			<p>You can see that you need to log twice as you expect two messages to come back. In many cases, you will use a loop to retrieve all the messages, which we will see in the next exercise. For now, try to run your code, and you will see something <span class="No-Break">as follows:</span></p>
+			<pre class="console">
+2024/01/25 19:44:49 Thanks for Hello John
+2024/01/25 19:44:49 Hello David</pre>			<p>From the output, you can see that both messages have been received through <span class="No-Break">the channel.</span></p>
+			<p>In this exercise, you have learned how a Goroutine can both send and receive messages through the same channel and that two Goroutines can exchange messages through the<a id="_idTextAnchor1904"/><a id="_idTextAnchor1905"/> same channel in <span class="No-Break">both directions.</span></p>
+			<h2 id="_idParaDest-460"><a id="_idTextAnchor1906"/>Exercise 18.06 – summing numbers from everywhere</h2>
+			<p>Imagine you want to add a few numbers, but the numbers come from several sources. They might come from a feed or from a database; we<a id="_idIndexMarker1201"/> just do not know which numbers we are going to add and where they come from. However, we need to add them all in one place. In this exercise, we will have four Goroutines sending numbers in particular ranges, and the main Goroutine, which will calculate <span class="No-Break">their sum:</span></p>
+			<ol>
+				<li>Let’s start by creating a new folder and the main file. After you’ve done that, write the package <span class="No-Break">and imports:</span><pre class="source-code">
+package main
+import (
+  "log"
+  "time"
+)</pre><p class="list-inset">Here, we also include the <strong class="source-inline">time</strong> package, which we will use to do a small trick that will help us to better visualize the effects <span class="No-Break">of concurrency.</span></p></li>				<li>Now, write a <span class="No-Break"><strong class="source-inline">push()</strong></span><span class="No-Break"> function:</span><pre class="source-code">
+func push(from, to int, out chan int) {
+  for i := from; i &lt;= to; i++ {
+    out &lt;- i
+    time.Sleep(time.Microsecond)
+  }
+}</pre><p class="list-inset">This sends all the numbers in the <strong class="source-inline">from, to</strong> range to the channel. After each message is sent, the Goroutine sleeps for a microsecond so that another Goroutine will pick up <span class="No-Break">the work.</span></p></li>				<li>Now, write a <span class="No-Break"><strong class="source-inline">main()</strong></span><span class="No-Break"> function:</span><pre class="source-code">
+func main() {
+  s1 := 0
+  ch := make(chan int, 100)</pre><p class="list-inset">This code creates a variable for the final sum, <strong class="source-inline">s1</strong>, and one for the channel, <strong class="source-inline">ch</strong>, which has a buffer <span class="No-Break">of 100.</span></p></li>				<li>Now, create four <span class="No-Break"><strong class="source-inline">go</strong></span><span class="No-Break"> routines:</span><pre class="source-code">
+  go push(1, 25, ch)
+  go push(26, 50, ch)
+  go push(51, 75, ch)
+  go push(76, 100, ch)</pre></li>				<li>At this point, we need to gather all the numbers to add, so we create a loop of <span class="No-Break">100 cycles:</span><pre class="source-code">
+  for c := 0; c &lt; 100; c++ {</pre></li>				<li>Then, read the number from <span class="No-Break">the channel:</span><pre class="source-code">
+    i := &lt;- ch</pre></li>				<li>We also want to see<a id="_idIndexMarker1202"/> which number came from <span class="No-Break">which Goroutine:</span><pre class="source-code">
+    log.Println(i)</pre></li>				<li>Finally, we calculate the sum and show <span class="No-Break">the result:</span><pre class="source-code">
+    s1 += i
+  }
+  log.Println(s1)
+}</pre></li>			</ol>
+			<p>Here, we have the truncated output once you run <span class="No-Break">the program:</span></p>
+			<pre class="console">
+2024/01/25 21:42:09 76
+2024/01/25 21:42:09 26
+2024/01/25 21:42:09 51
+2024/01/25 21:42:09 77
+2024/01/25 21:42:09 52
+……………………………………………………………
+2024/01/25 21:42:09 48
+2024/01/25 21:42:09 75
+2024/01/25 21:42:09 100
+2024/01/25 21:42:09 23
+2024/01/25 21:42:09 49
+2024/01/25 21:42:09 24
+2024/01/25 21:42:09 50
+2024/01/25 21:42:09 25
+2024/01/25 21:42:09 5050</pre>			<p>Based on the results, we can easily guess which number comes from which routine. The last line displays the sum of all numbers. If you run the program multiple times, you will see that the order of the numbers changes <span class="No-Break">as well.</span></p>
+			<p>In this exercise, we saw how we can split some computational work across several concurrent Goroutines and then <a id="_idIndexMarker1203"/>gather all the computation in a single Goroutine. Each Goroutine performs a task. In this case, one sends numbers, while another rece<a id="_idTextAnchor1907"/><a id="_idTextAnchor1908"/>ives the numbers and performs <span class="No-Break">a sum.</span></p>
+			<h2 id="_idParaDest-461"><a id="_idTextAnchor1909"/>Exercise 18.07 – request to Goroutines</h2>
+			<p>In this exercise, we will solve the same problem mentioned in <em class="italic">Exercise 19.06</em>, <em class="italic">Summing numbers from everywhere</em>, but in a different way. Instead of receiving numbers as the Goroutines <a id="_idIndexMarker1204"/>send them, we will make the main Goroutine ask for numbers from the other Goroutines. We will play with channel operations and experiment with their <span class="No-Break">blocking nature:</span></p>
+			<ol>
+				<li>Create a folder and a <strong class="source-inline">main.go</strong> file with the <strong class="source-inline">main</strong> package. Then, add the <span class="No-Break">following import:</span><pre class="source-code">
+package main
+import (
+  "log"
+)</pre></li>				<li>Then, write the signature of the <span class="No-Break"><strong class="source-inline">push()</strong></span><span class="No-Break"> function:</span><pre class="source-code">
+func push(from, to int, in chan bool, out chan int) {</pre><p class="list-inset">Here, there are two channels – a Boolean one called <strong class="source-inline">in</strong>, which represents the incoming requests, and <strong class="source-inline">out</strong>, which will<a id="_idIndexMarker1205"/> be used to send <span class="No-Break">back messages.</span></p></li>				<li>Now, write a loop for sending numbers when a request <span class="No-Break">comes in:</span><pre class="source-code">
+  for i := from; i &lt;= to; i++ {
+    &lt;- in
+    out &lt;- i
+  }
+}</pre><p class="list-inset">As you can see, the loop is still for a fixed number of items. Before sending anything, it waits for a request from the <strong class="source-inline">in</strong> channel. When it receives a request, it sends <span class="No-Break">a number.</span></p></li>				<li>Now, create a <strong class="source-inline">main()</strong> function, where you call the <strong class="source-inline">push()</strong> function in four different Goroutines, each one sending a subset of the numbers 1 <span class="No-Break">to 100:</span><pre class="source-code">
+func main() {
+  s1 := 0
+  out := make(chan int, 100)
+  in := make(chan bool, 100)
+  go push(1, 25, in, out)
+  go push(26, 50, in, out)
+  go push(51, 75, in, out)
+  go push(76, 100, in, out)</pre><p class="list-inset">This is pretty similar to the previous exercise, but it creates an extra <span class="No-Break">channel, </span><span class="No-Break"><strong class="source-inline">in</strong></span><span class="No-Break">.</span></p></li>				<li>Now, create a loop to <a id="_idIndexMarker1206"/>request a number, print it, and add it to <span class="No-Break">the total:</span><pre class="source-code">
+  for c := 0; c &lt; 100; c++ {
+    in &lt;- true
+    i := &lt;- out
+    log.Println(i)
+    s1 += i
+  }
+  log.Println(s1)
+}</pre><p class="list-inset">In this case, the loop first requests a number and then waits to receive another number. Here, we do not need to sleep for a microsecond because after we receive a number, the next request will go to any active Goroutine. If you run the program, you will again see something similar to what you saw in the previous exercise. Here, we have the <span class="No-Break">truncated output:</span></p></li>			</ol>
+			<pre class="console">
+2024/01/25 22:18:00 76
+2024/01/25 22:18:00 1
+2024/01/25 22:18:00 77
+2024/01/25 22:18:00 26
+2024/01/25 22:18:00 51
+2024/01/25 22:18:00 2
+2024/01/25 22:18:00 78
+…………………………………………………………
+2024/01/25 22:18:00 74
+2024/01/25 22:18:00 25
+2024/01/25 22:18:00 50
+2024/01/25 22:18:00 75
+2024/01/25 22:18:00 5050</pre>			<p>You can see that each number is printed in the order it is received. Then, the sum of all numbers is printed on <span class="No-Break">the screen.</span></p>
+			<p>In this exercise, you’ve learned<a id="_idIndexMarker1207"/> how you can use channels to request other Goroutines to perform some actions. A channel can be used to send some trigger messages and <a id="_idTextAnchor1910"/><a id="_idTextAnchor1911"/>not only to exchange content <span class="No-Break">and values.</span></p>
+			<h1 id="_idParaDest-462"><a id="_idTextAnchor1912"/>The importance of concurrency</h1>
+			<p>So far, we’ve seen how to use concurrency to split work over several Goroutines, but in all of these exercises, concurrency was not really needed. In fact, you do not save much time doing what we did, nor do you have any other advantage. Concurrency is important when you need to<a id="_idIndexMarker1208"/> perform several tasks that are logically independent of each other, and the easiest case to understand is a web server. You saw in <a href="B18621_16.xhtml#_idTextAnchor1704"><span class="No-Break"><em class="italic">Chapter 16</em></span></a>, <em class="italic">Web Servers</em>, that several clients will most likely connect to the same server and all these connections will result in the server performing some actions. Also, these actions are all independent; that’s where concurrency is important, as you do not want one of your users to have to wait for all other HTTP requests to be completed before their request gets handled. Another case for concurrency is when you have different data sources to gather data and you can gather that data in different Goroutines and combine the result at the end. We will see now more complex applications for concurrency <a id="_idTextAnchor1913"/><a id="_idTextAnchor1914"/>and learn how to use it for <span class="No-Break">HTTP servers.</span></p>
+			<h2 id="_idParaDest-463"><a id="_idTextAnchor1915"/>Exercise 18.08 – equally splitting work between Goroutines</h2>
+			<p>In this exercise, we will see how we can perform our sum of numbers in a predefined number of Goroutines for them to gather the result at the end. Essentially, we want to create a function that adds numbers and receives the numbers from a channel. When no more numbers are received by the function, we will send the sum to the <strong class="source-inline">main()</strong> function through <span class="No-Break">the channel.</span></p>
+			<p>One thing to note here is that the<a id="_idIndexMarker1209"/> function performing the sum does not know in advance how many numbers it will receive, which means we cannot have a fixed <strong class="source-inline">from, to</strong> range. So, we have to find another solution. We need to be able to split the work in any number of Goroutines and not be bound by a <strong class="source-inline">from, to</strong> range. Also, we do not want to do the addition in the <strong class="source-inline">main()</strong> function. Instead, we want to create a function that will split the work over <span class="No-Break">several Goroutines:</span></p>
+			<ol>
+				<li>Create a folder and a <strong class="source-inline">main.go</strong> file with the <strong class="source-inline">main</strong> package and write <span class="No-Break">the following:</span><pre class="source-code">
+package main
+import (
+  "log"
+)</pre></li>				<li>Now, let’s write a function to do a partial addition. We will call it <strong class="source-inline">worker()</strong> as we will have a fixed set of Goroutines running this same function, waiting for numbers <span class="No-Break">to arrive:</span><pre class="source-code">
+func worker(in chan int, out chan int) {
+  sum := 0
+  for i := range in {
+    sum += i
+  }
+  out &lt;- sum
+}</pre><p class="list-inset">As you can see, we have an <strong class="source-inline">in</strong> channel and an <strong class="source-inline">out</strong> channel of integers. Then, we instantiate the <strong class="source-inline">sum</strong> variable, which will store the sum of all numbers sent to <span class="No-Break">this worker.</span></p></li>				<li>At this point, we have a loop that<a id="_idIndexMarker1210"/> ranges over the channel. This is interesting because we do not use <strong class="source-inline">in</strong> directly, <span class="No-Break">as follows:</span><pre class="source-code">
+&lt;- in</pre><p class="list-inset">We, instead, rely only on the range to get the numbers in. In the loop, we just add <strong class="source-inline">i</strong> to the total and, at the end, we send the partial sum back. Even if we do not know how many items are going to be sent to the channel, we can still loop over the range without a problem. We rely on the fact that when no more items are sent, the <strong class="source-inline">in</strong> channel will <span class="No-Break">be closed.</span></p></li>				<li>Create a <span class="No-Break"><strong class="source-inline">sum()</strong></span><span class="No-Break"> function:</span><pre class="source-code">
+func sum(workers, from, to int) int {</pre><p class="list-inset">This is the actual <strong class="source-inline">sum()</strong> function that has the number of workers and the usual range for the numbers <span class="No-Break">to add.</span></p></li>				<li>Now, write a loop to run the requested number <span class="No-Break">of workers:</span><pre class="source-code">
+  out := make(chan int, workers)
+  in := make(chan int, 4)
+  for i := 0; i &lt;  workers; i++ {
+    go worker(in, out)
+  }</pre><p class="list-inset">This creates the two <strong class="source-inline">in</strong>/<strong class="source-inline">out</strong> channels and runs the number of workers set by the <span class="No-Break"><strong class="source-inline">workers</strong></span><span class="No-Break"> parameter.</span></p></li>				<li>Then, create a loop to send all numbers to the <span class="No-Break"><strong class="source-inline">in</strong></span><span class="No-Break"> channel:</span><pre class="source-code">
+  for i := from; i &lt;= to; i++ {
+    in &lt;- i
+  }</pre><p class="list-inset">This sends all numbers to be summed to the channel, which will distribute the numbers across all Goroutines. If you were to print out the numbers received across with the index of the worker, you could see how the numbers are distributed uniformly across the Goroutines, which does not mean an exact split, but at least it’s a <span class="No-Break">fair one.</span></p></li>				<li>As we sent all the numbers, we now need to receive the partial sums back, but before that, we need to notify<a id="_idIndexMarker1211"/> the function that the numbers to sum are finished, so add the following line of code. Closing a channel means nothing else can be sent, but data can still be received from <span class="No-Break">the channel:</span><pre class="source-code">
+  close(in)</pre></li>				<li>And then, perform a sum of <span class="No-Break">the partials:</span><pre class="source-code">
+  sum := 0
+  for i := 0; i &lt; workers; i++ {
+    sum += &lt;-out
+  }</pre></li>				<li>Then, finally, close the <strong class="source-inline">out</strong> channel and return <span class="No-Break">the result:</span><pre class="source-code">
+  close(out)
+  return sum
+}</pre></li>				<li>At this point, we need to somehow execute this function. So, let’s write a simple <strong class="source-inline">main()</strong> function to <span class="No-Break">do that:</span><pre class="source-code">
+func main() {
+  res := sum(100, 1, 100)
+  log.Println(res)
+}</pre><p class="list-inset">This simply outputs a sum from a function that makes use of concurrency and then prints out <span class="No-Break">the result.</span></p></li>			</ol>
+			<p>If you run your program, you should <a id="_idIndexMarker1212"/>see the log output of the sum of numbers split into different routines <span class="No-Break">as follows:</span></p>
+			<pre class="console">
+2024/01/25 19:49:13 5050</pre>			<p>As you can see, after splitting the computation across multiple Goroutines, the result is synchronized into one <span class="No-Break">single result.</span></p>
+			<p>In this exercise, you’ve learned how to make use of concurrency to split your computation across several concurrent Goroutines and then combine a<a id="_idTextAnchor1916"/><a id="_idTextAnchor1917"/>ll these computations into one <span class="No-Break">single result.</span></p>
+			<h1 id="_idParaDest-464"><a id="_idTextAnchor1918"/>Concurrency patterns</h1>
+			<p>The way we organize our concurrent work is pretty much the same in every application. We will look at one common<a id="_idIndexMarker1213"/> pattern that is called a <em class="italic">pipeline</em>, where we have a source, and then messages are sent from one Goroutine to another until the end of the line, until all Goroutines in the pipeline have been utilized. Another pattern is the <em class="italic">fan out/</em> <em class="italic">fan in</em> pattern where, as in the <a id="_idIndexMarker1214"/>previous exercise, work is sent to several Goroutines reading from the same channel. All these patterns, however, are generally made of a <em class="italic">source</em> stage, which is the first stage of the pipeline and the one that gathers, or sources, the data, then some internal steps, and at the end, a <em class="italic">sink</em>, which is the final stage where the results of the process from all the other routines get merged. It is know<a id="_idTextAnchor1919"/><a id="_idTextAnchor1920"/>n as a sink because all the data sinks <span class="No-Break">into it.</span></p>
+			<h1 id="_idParaDest-465"><a id="_idTextAnchor1921"/>Buffers</h1>
+			<p>You’ve seen in the previous exercises that there are<a id="_idIndexMarker1215"/> channels with a defined <a id="_idTextAnchor1922"/>length and channels with an <span class="No-Break">undetermined length:</span></p>
+			<pre class="source-code">
+ch1 := make(chan int)
+ch2 := make(chan int, 10)</pre>			<p>Let’s see how we can make use <span class="No-Break">of this.</span></p>
+			<p>A buffer is like a container that needs to be filled with some content, so you prepare it when you expect to receive that content. We said that operations on channels are blocking operations, which means the execution of the Goroutine will stop and wait whenever you try to read a message from the channel. Let’s try to understand what this means in practice with an example. Let’s say we have the following code in <span class="No-Break">a Goroutine:</span></p>
+			<pre class="source-code">
+i := &lt;- ch</pre>			<p>We know that before we can carry on with the execution of the code, we need to receive a message. However, there <a id="_idIndexMarker1216"/>is something more about this blocking behavior. If the channel does not have a buffer, the Goroutine is blocked as well. It is not possible to write to a channel or to receive a channel. We’ll get a better idea of this with an example, and we will show how to use unbuffered channels to achieve the same result so that you will get a better understanding of what you’ve seen in the <span class="No-Break">previous exercises.</span></p>
+			<p>Let’s have a look at <span class="No-Break">this code:</span></p>
+			<pre class="source-code">
+ch := make(chan int, 2)
+ch &lt;- 1
+ch &lt;- 2
+fmt.Println(&lt;-ch)
+fmt.Println(&lt;-ch)</pre>			<p>If you put this code inside a function, you will see that it works perfectly and will display something <span class="No-Break">as follows:</span></p>
+			<pre class="console">
+1
+2</pre>			<p>But what if you add an extra read? Let’s take <span class="No-Break">a look:</span></p>
+			<pre class="source-code">
+ch := make(chan int, 2)
+ch &lt;- 1
+ch &lt;- 2
+ch &lt;- 3
+fmt.Println(&lt;-ch)
+fmt.Println(&lt;-ch)</pre>			<p>In this case, you will see <span class="No-Break">an error:</span></p>
+			<pre class="console">
+fatal error: all goroutines are asleep - deadlock!
+goroutine 1 [chan send]:
+main.main()
+    /tmp/sandbox223984687/prog.go:9 +0xa0</pre>			<p>This happens because the routine running this code is blocked after the buffer of size 2 is filled with a data size of 2 coming<a id="_idIndexMarker1217"/> from the read operations (commonly referred to as reads), which results in the buffer being filled with data, which, in this case, has 2 data, and the buffer has a size of 2. We can increase <span class="No-Break">the buffer:</span></p>
+			<pre class="source-code">
+ch := make(chan int, 3)</pre>			<p>And it will work again; we are just not displaying the <span class="No-Break">third number.</span></p>
+			<p>Now, let’s see what happens if we remove the buffer. Try, and again you will see the previous error. This happens because the buffer is always full and the routine is blocked. An unbuffered channel is equivalent to <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+ch := make(chan int, 0)</pre>			<p>We’ve used unbuffered channels without any issues. Let’s see an example of how to <span class="No-Break">use them:</span></p>
+			<pre class="source-code">
+package main
+import "fmt"
+func readThem(ch chan int) {
+  for {
+    fmt.Println(&lt;- ch)
+  }
+}
+func main() {
+  ch := make(chan int)
+  go readThem(ch)
+  ch &lt;- 1
+  ch &lt;- 2
+  ch &lt;- 3
+}</pre>			<p>If you run this program, you should see something <span class="No-Break">as follows:</span></p>
+			<pre class="console">
+1
+2
+3</pre>			<p>But there is a chance you could see fewer numbers. If you run this on the Go Playground, you should see this <a id="_idIndexMarker1218"/>result, but if you run it on your machine, you might see fewer numbers. Try sending <span class="No-Break">more numbers:</span></p>
+			<pre class="source-code">
+ch &lt;- 4
+ch &lt;- 5</pre>			<p>At each addition, run your program; you might not see all the numbers. Basically, there are two Goroutines: one is reading messages from an unbuffered channel, and the main Goroutine is sending these messages through the same channel. Due to this, there is no deadlock. This shows that we can make use of unbuffered channels for read and write operations flawlessly by using two Goroutines. We still have, however, an issue with not all numbers showing up, which we can fix in the <span class="No-Break">following way:</span></p>
+			<pre class="source-code">
+package main
+import "fmt"
+import "sync"
+func readThem(ch chan int, wg *sync.WaitGroup) {
+  for i := range ch {
+    fmt.Println(i)
+  }
+  wg.Done()
+}
+func main() {
+  wg := &amp;sync.WaitGroup{}
+  wg.Add(1)
+  ch := make(chan int)
+  go readThem(ch, wg)
+  ch &lt;- 1
+  ch &lt;- 2
+  ch &lt;- 3
+  ch &lt;- 4
+  ch &lt;- 5
+  close(ch)
+  wg.Wait()
+}</pre>			<p>Here, we iterate over the channel inside the Goroutine, and we stop as soon as the channel gets closed. This is because when the channel gets closed, the range stops iterating. The channel gets closed in the main Goroutine after everything is sent. We make use of a <strong class="source-inline">WaitGroup</strong> here to know that everything is completed. If we were not closing the channel in the <strong class="source-inline">main()</strong> function, we would be in the main Goroutine, which would terminate before the second Goroutine <a id="_idIndexMarker1219"/>would print all the numbers. There is another way, however, to wait for the execution of the second Goroutine to be completed, and this is with explicit notification, which we will see in the next exercise. One thing to notice is that even though we close the channel, the messages all still arrive at the receiving routine. This is because you can receive messag<a id="_idTextAnchor1923"/><a id="_idTextAnchor1924"/>es from a closed channel; you just can’t<a id="_idIndexMarker1220"/> <span class="No-Break">send more.</span></p>
+			<h2 id="_idParaDest-466"><a id="_idTextAnchor1925"/>Exercise 18.09 – notifying when the computation has finished</h2>
+			<p>In this exercise, we want to have one Goroutine to send <a id="_idIndexMarker1221"/>messages and another one to print them. Moreover, we want to know when the sender has finished sending messages. The code will be like the previous example, with <span class="No-Break">some modifications:</span></p>
+			<ol>
+				<li>Create a new file and import the <span class="No-Break">necessary packages:</span><pre class="source-code">
+package main
+import "log"</pre></li>				<li>Then, define a function that will first receive the strings and print <span class="No-Break">them later:</span><pre class="source-code">
+func readThem(in, out chan string) {</pre></li>				<li>Then, create a loop over the channel until the channel <span class="No-Break">is closed:</span><pre class="source-code">
+  for i := range in {
+    log.Println(i)
+  }</pre></li>				<li>Finally, send a notification saying that the processing <span class="No-Break">has finished:</span><pre class="source-code">
+  out &lt;- "done"
+}</pre></li>				<li>Now, let’s build the <span class="No-Break"><strong class="source-inline">main()</strong></span><span class="No-Break"> function:</span><pre class="source-code">
+func main() {
+  log.SetFlags(0)</pre><p class="list-inset">Here, we’ve also set the <strong class="source-inline">log</strong> flags to <strong class="source-inline">0</strong> so that we do not see anything other than the strings <span class="No-Break">we send.</span></p></li>				<li>Now, create the necessary channels and use them to spin up <span class="No-Break">the Goroutine:</span><pre class="source-code">
+  in, out := make(chan string), make(chan string)
+  go readThem(in, out)</pre></li>				<li>Next, create a set of strings and loop over them, sending each string to <span class="No-Break">the channel:</span><pre class="source-code">
+  strs := []string{"a","b", "c", "d", "e", "f"}
+  for _, s := range strs {
+    in &lt;- s
+  }</pre></li>				<li>After that, close the channel <a id="_idIndexMarker1222"/>you used to send the messages and wait for the <span class="No-Break"><strong class="source-inline">done</strong></span><span class="No-Break"> signal:</span><pre class="source-code">
+  close(in)
+  &lt;-out
+}</pre></li>			</ol>
+			<p>If you run your program, you will see the log output of code using a <span class="No-Break"><strong class="source-inline">done</strong></span><span class="No-Break"> channel:</span></p>
+			<pre class="console">
+a
+b
+c
+d
+e
+f</pre>			<p>We see that the <strong class="source-inline">main()</strong> function has received all the messages from the Goroutine and has printed them. The <strong class="source-inline">main()</strong> function terminates only when it has been notified that all incoming messages have <span class="No-Break">been sent.</span></p>
+			<p>In this exercise, you’ve learned how you can make a Goroutine notify another Goroutine that the work has finished by passing<a id="_idTextAnchor1926"/><a id="_idTextAnchor1927"/> a<a id="_idIndexMarker1223"/> message through a channel without <span class="No-Break">needing </span><span class="No-Break"><strong class="source-inline">WaitGroup</strong></span><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-467"><a id="_idTextAnchor1928"/>Some more common practices</h2>
+			<p>In all these examples, we’ve created <a id="_idIndexMarker1224"/>channels and passed them through, but functions can also return channels and spin up new Goroutines. Here is <span class="No-Break">an example:</span></p>
+			<pre class="source-code">
+func doSomething() chan int {
+  ch := make(chan int)
+  go func() {
+    for i := range ch {
+      log.Println(i)
+    }
+  }()
+  return ch
+}</pre>			<p>In this case, we can actually have the following in our <span class="No-Break"><strong class="source-inline">main()</strong></span><span class="No-Break"> function:</span></p>
+			<pre class="source-code">
+ch := doSomething()
+ch &lt;- 1
+ch &lt;- 4</pre>			<p>We do not need to call the <strong class="source-inline">doSomething</strong> function as a Goroutine because it will spin up a new one <span class="No-Break">by itself.</span></p>
+			<p>So<a id="_idTextAnchor1929"/>me functions can also return or accept, such as <span class="No-Break">this one:</span></p>
+			<pre class="source-code">
+&lt;- chan int</pre>			<p>Here’s <span class="No-Break">another example:</span></p>
+			<pre class="source-code">
+chan &lt;- int</pre>			<p>This makes clear what the function does with the channels. In fact, you could try to specify the direction in all the exercises <a id="_idIndexMarker1225"/>we’ve done so<a id="_idTextAnchor1930"/><a id="_idTextAnchor1931"/> far and see what happens if you specify an <span class="No-Break">incorrect one.</span></p>
+			<h1 id="_idParaDest-468"><a id="_idTextAnchor1932"/>HTTP servers</h1>
+			<p>You’ve seen how to build HTTP servers in <a href="B18621_16.xhtml#_idTextAnchor1704"><span class="No-Break"><em class="italic">Chapter 16</em></span></a>, <em class="italic">Web Servers</em>, but you might remember that there was something difficult to <a id="_idIndexMarker1226"/>handle with HTTP servers, and this was the application’s state. Essentially, an HTTP server runs as a single program and listens to requests in the main Goroutine. However, when a new HTTP request is made by one of the clients, a new Goroutine is created that handles that specific request. You have not done it manually, nor have you managed the server’s channels, but this is how it works internally. You do not actually need to send anything across the different Goroutines because each Goroutine and each request is independent since they have been made by <span class="No-Break">different people.</span></p>
+			<p>However, what you must think of is how to not create race conditions when you want to keep a state. Most HTTP servers are stateless, especially if you’re building a microservice environment. However, you might want to keep track of things with a counter, or you might actually work with TCP servers, a gaming server, or a chat app where you need to keep the state and gather information from all the peers. The techniques you’ve learned in this chapter allow you to do so. You can use a mutex to make sure a counter is thread-safe or, better, routine-safe across all requests. I’d suggest you go back to yo<a id="_idTextAnchor1933"/><a id="_idTextAnchor1934"/>ur code for the HTTP server and ensure safety <span class="No-Break">with mutexes.</span></p>
+			<h1 id="_idParaDest-469"><a id="_idTextAnchor1935"/>Methods as Goroutines</h1>
+			<p>So far, you’ve only seen functions used as Goroutines, but methods are simple functions with a receiver; hence, they can be used<a id="_idIndexMarker1227"/> asynchronously too. This can be useful if you want to share some properties of your struct, such as for your counter in an <span class="No-Break">HTTP server.</span></p>
+			<p>With this technique, you can encapsulate the channels you use across several Goroutines belonging to the same instance of a struct without having to pass these <span class="No-Break">channels everywhere.</span></p>
+			<p>Here is a simple example of how to <span class="No-Break">do that:</span></p>
+			<pre class="source-code">
+type MyStruct struct {}
+func (m MyStruct) doIt()
+. . . . . .
+ms := MyStruct{}
+<a id="_idTextAnchor1936"/><a id="_idTextAnchor1937"/>go ms.doIt()</pre>			<p>But let’s see how to apply<a id="_idIndexMarker1228"/> this in <span class="No-Break">an exercise.</span></p>
+			<h2 id="_idParaDest-470"><a id="_idTextAnchor1938"/>Exercise 18.10 – a structured work</h2>
+			<p>In this exercise, we will calculate a sum using several <a id="_idIndexMarker1229"/>workers. A worker is essentially a function, and we will be organizing these workers into a <span class="No-Break">single struct:</span></p>
+			<ol>
+				<li>Create your folder and <strong class="source-inline">main</strong> file. In it, add the required imports and define a <strong class="source-inline">Worker</strong> struct with two channels – <strong class="source-inline">in</strong> and <strong class="source-inline">out</strong>. Ensure that you add a mutex <span class="No-Break">as well:</span><pre class="source-code">
+package main
+import (
+  "fmt"
+  "sync"
+)
+type Worker struct {
+  in, out chan int
+  sbw int // sbw: subworker
+  mtx *sync.Mutex
+}</pre></li>				<li>To create its methods, write <span class="No-Break">the following:</span><pre class="source-code">
+func (w *Worker) readThem() {
+  w.sbw++
+  go func() {</pre><p class="list-inset">Here, we create a method and increment the number of <strong class="source-inline">subworker</strong> instances. Sub-workers are basically identical Goroutines that split the work that needs to be done. Note that the function is meant to be used directly and not as a Goroutine, as it itself creates a <span class="No-Break">new Goroutine.</span></p></li>				<li>Now, build the content of<a id="_idIndexMarker1230"/> the <span class="No-Break">spawned Goroutine:</span><pre class="source-code">
+    partial := 0
+    for i := range w.in {
+      partial += i
+    }
+    w.out &lt;- partial</pre></li>				<li>This is pretty similar to what you’ve done before; now comes the <span class="No-Break">tricky part:</span><pre class="source-code">
+    w.mtx.Lock()
+    w.sbw--
+    if w.sbw == 0 {
+      close(w.out)
+    }
+    w.mtx.Unlock()
+  }()
+}</pre><p class="list-inset">Here, we’ve locked the routine, reduced the counter on the sub-workers safely, and then, in case all the workers have terminated, we’ve closed the output channel. Then, we’ve unlocked the execution to allow the program to <span class="No-Break">carry on.</span></p></li>				<li>At this point, we need to make a function that’s able to return <span class="No-Break">the sum:</span><pre class="source-code">
+func (w *Worker) gatherResult() int {
+  total := 0
+  wg := &amp;sync.WaitGroup{}
+  wg.Add(1)
+  go func() {</pre></li>				<li>Here, we create a total, then a <strong class="source-inline">WaitGroup</strong>, and we add 1 to it as we will spawn only one Goroutine <a id="_idIndexMarker1231"/>whose content is <span class="No-Break">as follows:</span><pre class="source-code">
+    for i:= range w.out{
+      total += i
+    }
+    wg.Done()
+  }()</pre><p class="list-inset">As you can see, we have looped until the <strong class="source-inline">out</strong> channel is closed by one of <span class="No-Break">the sub-workers.</span></p></li>				<li>At this point, we can wait for the Goroutine to finish and return <span class="No-Break">the result:</span><pre class="source-code">
+  wg.Wait()
+  return total
+}</pre></li>				<li>The main code just sets up variables for the worker and <span class="No-Break">its sub-workers:</span><pre class="source-code">
+func main() {
+  mtx := &amp;sync.Mutex{}
+  in := make(chan int, 100)
+  wrNum := 10
+  out := make(chan int)
+  wrk := Worker{in: in, out: out, mtx: mtx}</pre></li>				<li>Now, create a loop where you call the <strong class="source-inline">readThem()</strong> method <strong class="source-inline">wrNum</strong> times. This will create <span class="No-Break">some sub-workers:</span><pre class="source-code">
+  for i := 1; i &lt;= wrNum; i++ {
+    wrk.readThem()
+  }</pre></li>				<li>Now, send the numbers to be summed to <span class="No-Break">the channel:</span><pre class="source-code">
+  for i := 1;i &lt;= 100; i++ {
+    in &lt;- i
+  }</pre></li>				<li>Close the channel to notify <a id="_idIndexMarker1232"/>that all numbers have <span class="No-Break">been sent:</span><pre class="source-code">
+  close(in)</pre></li>				<li>Then, wait for the result and print <span class="No-Break">it out:</span><pre class="source-code">
+  res := wrk.gatherResult()
+  fmt.Println(res)
+}</pre></li>				<li>If you run the program, you will see the log output of a sum made using structs to organize <span class="No-Break">our work:</span><pre class="source-code">
+5050</pre></li>			</ol>
+			<p>In this exercise, you’ve learned how to use a method of a struct to create a new Goroutine. The method can be called like any function<a id="_idTextAnchor1939"/><a id="_idTextAnchor1940"/>, but the result will be a new anonymous Goroutine <span class="No-Break">being created.</span></p>
+			<h1 id="_idParaDest-471"><a id="_idTextAnchor1941"/>Go context package</h1>
+			<p>We’ve seen how to run concurrent code<a id="_idIndexMarker1233"/> and run it until it has finished, waiting for the completion of some processing through <strong class="source-inline">WaitGroup</strong> or channel reads. You might have seen in some Go code, especially code related to HTTP calls, some parameters from the <strong class="source-inline">context</strong> package, and you might have wondered what it is and why it <span class="No-Break">is used.</span></p>
+			<p>All the code we’ve written here is running on our machines and does not pass through the internet, so we hardly have any delay due to latency; however, in situations involving HTTP calls, we might<a id="_idIndexMarker1234"/> encounter servers that do not respond and get stuck. In such cases, how do we stop our call if the server does not respond after a while? How do we stop the execution of a routine that runs independently when an event occurs? Well, we have several ways, but a standard one is to use contexts, and we will see now how they work. A context is a variable that is passed through a series of calls and might hold some values or may be empty. It is a container, but it is not used to send values across functions; you can use normal integers, strings, and so on for this purpose. A context is passed through to get back control of what <span class="No-Break">is happening:</span></p>
+			<pre class="source-code">
+func doIt(ctx context.Context, a int, b string) {
+  fmt.Println(b)
+  doThat(ctx, a*2)
+}
+func doThat(ctx context.Context, a int) {
+  fmt.Println(a)
+  doMore(ctx)
+}</pre>			<p>As you can see, there are several calls, and <strong class="source-inline">ctx</strong> is passed through, but we do not do anything with it. However, it can contain data, and it contains functions that we can use to stop the execution of th<a id="_idTextAnchor1942"/><a id="_idTextAnchor1943"/>e current Goroutine. We will see how it works in the <span class="No-Break">next exercise.</span></p>
+			<h2 id="_idParaDest-472"><a id="_idTextAnchor1944"/>Exercise 18.11 – managing Goroutines with a context</h2>
+			<p>In this exercise, we will start a Goroutine with<a id="_idIndexMarker1235"/> an infinite loop counting from zero until we decide to stop it. We will make use of the context to notify the routine to stop and a sleeping function to make sure we know how many iterations <span class="No-Break">we <a id="_idTextAnchor1945"/><a id="_idTextAnchor1946"/>do:</span></p>
+			<ol>
+				<li>Create your folder and a <strong class="source-inline">main.go</strong> file, then write <span class="No-Break">the following:</span><pre class="source-code">
+package main
+import (
+  "context"
+  "log"
+  "time"
+)</pre><p class="list-inset">For the usual imports, we have <strong class="source-inline">logs</strong> and <strong class="source-inline">time</strong>, which we’ve already seen, plus the <span class="No-Break"><strong class="source-inline">context</strong></span><span class="No-Break"> packag<a id="_idTextAnchor1947"/><a id="_idTextAnchor1948"/>e.</span></p></li>				<li>Let’s write a function<a id="_idIndexMarker1236"/> that counts every 100 milliseconds <span class="No-Break">from 0:</span><pre class="source-code">
+func countNumbers(ctx context.Context, r chan int) {
+  v := 0
+  for {</pre><p class="list-inset">Here, <strong class="source-inline">v</strong> is the value we count from zero. The <strong class="source-inline">ctx</strong> variable is the context, while the <strong class="source-inline">r</strong> variable is the channel returning the result. Then, we start defining <span class="No-Break">a loop.</span></p></li>				<li>No<a id="_idTextAnchor1949"/><a id="_idTextAnchor1950"/>w, we start an infinite loop, but inside it, we will <span class="No-Break">have </span><span class="No-Break"><strong class="source-inline">select</strong></span><span class="No-Break">:</span><pre class="source-code">
+    select {
+      case &lt;-ctx.Done():
+      r &lt;- v
+      return</pre><p class="list-inset">In this <strong class="source-inline">select</strong> group, we have a case where we check whether the context is <strong class="source-inline">done</strong>, and if it is, we just break<a id="_idIndexMarker1237"/> the loop and return the value we have<a id="_idTextAnchor1951"/><a id="_idTextAnchor1952"/> counted <span class="No-Break">so far.</span></p></li>				<li>If the context is not <strong class="source-inline">done</strong>, we need to <span class="No-Break">keep counting:</span><pre class="source-code">
+      default:
+      time.Sleep(time.Millisecond * 100)
+      v++
+    }
+  }
+}</pre><p class="list-inset">Here, we sleep for 100 milliseconds, and then we increment the value <span class="No-Break">by 1.</span></p></li>				<li>The n<a id="_idTextAnchor1953"/><a id="_idTextAnchor1954"/>ext step is to write a <strong class="source-inline">main()</strong> function that makes use of <span class="No-Break">this counter:</span><pre class="source-code">
+func main() {
+  r := make(chan int)
+  ctx := context.TODO()</pre><p class="list-inset">We create an integer channel to pass to the counter and <span class="No-Break">a context.</span></p></li>				<li>We need to be able to cancel the context, so we extend this simple context. For clarity, <strong class="source-inline">cl</strong> is the variable name for the cancelab<a id="_idTextAnchor1955"/><a id="_idTextAnchor1956"/>le context, and <strong class="source-inline">stop</strong> is the function name we have chosen to <span class="No-Break">cancel it:</span><pre class="source-code">
+cl, stop := context.WithCancel(ctx)
+go countNumbers(cl, r)</pre><p class="list-inset">Here, we also finally call the <span class="No-Break">counting Goroutine.</span></p></li>				<li>At this point, we need a way to break the loop, so we will use the <strong class="source-inline">stop()</strong> function returned by <strong class="source-inline">context.WithCancel</strong>, but we will do that inside<a id="_idTextAnchor1957"/><a id="_idTextAnchor1958"/> another Goroutine. This will stop the context after <span class="No-Break">300 milliseconds:</span><pre class="source-code">
+  go func() {
+    time.Sleep(time.Millisecond*100*3)
+    stop()
+  }()</pre></li>				<li>Now, we just <a id="_idTextAnchor1959"/><a id="_idTextAnchor1960"/>need to wait for the<a id="_idIndexMarker1238"/> message with the count to be received and <span class="No-Break">log it:</span><pre class="source-code">
+  v := &lt;- r
+  log.Println(v)
+}</pre></li>			</ol>
+			<p>After 300 milliseconds have passed, the counter will return 3 since, due to context manipulation, the routine stopped at the <span class="No-Break">third iteration:</span></p>
+			<pre class="console">
+2024/01/25 20:00:58 3</pre>			<p>Here, we can see that even though the loop is infinite, the execution stops after <span class="No-Break">three iterations.</span></p>
+			<p>In this exercise, you’ve learned how you can use a context to stop the execution of a Goroutine. This is useful in many cases, such as when performing long tasks that you want to stop after a maximum amount of time or after a certain event <span class="No-Break">has occurred.</span></p>
+			<p>One thing to mention is that, in this exercise, we did something that in some situations could lead to problems. What we did was create a channel in one Goroutine, but close it in another one. This is not wrong; in some cases, it might be useful, but try to avoid it as it could lead to problems when somebody looks at the code or when you look at the code after several months because it is difficult to track where a ch<a id="_idTextAnchor1961"/>annel is closed across <span class="No-Break">several functions.</span></p>
+			<h1 id="_idParaDest-473"><a id="_idTextAnchor1962"/>Concurrent work with sync.Cond</h1>
+			<p>Efficient coordination between different Goroutines is<a id="_idIndexMarker1239"/> crucial to ensure smooth execution and resource management. Another powerful synchronization primitive provided by the Go standard library is <strong class="source-inline">sync.Cond</strong> (condition). The <strong class="source-inline">Cond</strong> type is associated with <strong class="source-inline">sync.Mutex</strong> and provides a way for Goroutines to wait for or signal the occurrence of a particular condition or changes in <span class="No-Break">shared data.</span></p>
+			<p>Let’s explore how to use <strong class="source-inline">sync.Cond</strong> by creating<a id="_idIndexMarker1240"/> a simple <a id="_idIndexMarker1241"/>example of a <strong class="bold">work-in-progress</strong> (<strong class="bold">WIP</strong>) <span class="No-Break">limited queue.</span></p>
+			<h2 id="_idParaDest-474"><a id="_idTextAnchor1963"/>Exercise 18.12 – creating a WIP limited queue</h2>
+			<p>Suppose you have a scenario<a id="_idIndexMarker1242"/> where multiple Goroutines produce and consume items, but you want to limit the number of items in progress currently. <strong class="source-inline">sync.Cond</strong> can help achieve this synchronization. Here’s how <a id="_idTextAnchor1964"/><a id="_idTextAnchor1965"/>to <span class="No-Break">use it:</span></p>
+			<ol>
+				<li>Create your folder and a <strong class="source-inline">main.go</strong> file, then write <span class="No-Break">the following:</span><pre class="source-code">
+package main
+import (
+  "fmt"
+  "sync"
+  "time"
+)</pre><p class="list-inset">We import <strong class="source-inline">fmt</strong>, <strong class="source-inline">sync</strong>, and <strong class="source-inline">time</strong>, which we’ve <span class="No-Break">already seen.</span></p></li>				<li>Let’s define a <strong class="source-inline">W<a id="_idTextAnchor1966"/><a id="_idTextAnchor1967"/>orkInProgressQueue</strong> and function to create a new <span class="No-Break"><strong class="source-inline">WorkInProgressQueue</strong></span><span class="No-Break"> object:</span><pre class="source-code">
+type WorkQueue struct {
+  cond *sync.Cond
+  maxSize int
+  workItems []string
+}
+func NewWorkQueue(maxSize int) *WorkQueue {
+  return &amp;WorkQueue{
+    cond: sync.NewCond(&amp;sync.Mutex{}),
+    maxSize: maxSize,
+    workItems: make([]string, 0),
+  }
+}</pre></li>				<li>Now, we define an <strong class="source-inline">enqueue()</strong> function to a<a id="_idTextAnchor1968"/><a id="_idTextAnchor1969"/>dd work items while respecting a maximum size constraint on the <a id="_idIndexMarker1243"/><span class="No-Break">work queue:</span><pre class="source-code">
+func (wq *WorkQueue) enqueue(item string) {
+  wq.cond<a id="_idTextAnchor1970"/><a id="_idTextAnchor1971"/>.L.Lock()
+  defer wq.cond.L.Unlock()
+  for len(wq.workItems) == wq.maxSize {
+    wq.cond.Wait()
+  }
+  wq.workItems = append(wq.workItems, item)
+  wq.co<a id="_idTextAnchor1972"/><a id="_idTextAnchor1973"/>nd.Signal()
+}</pre></li>				<li>Then, define a <strong class="source-inline">dequeue()</strong> function where we consume <span class="No-Break">work items:</span><pre class="source-code">
+func (wq *WorkQueue) dequeue() string {
+  wq.cond.L.Lock()
+  defer wq.cond.L.Unlock()
+  for len(wq.workItems) == 0 {
+    wq.cond.Wait()
+  }
+  item := wq.workItems[0]
+  wq.workItems = wq.workItems[1:]
+  wq.cond.Signal()
+  return item
+}</pre></li>				<li>Now we define<a id="_idTextAnchor1974"/><a id="_idTextAnchor1975"/> a <strong class="source-inline">main()</strong> function and a<a id="_idIndexMarker1244"/> maximum capacity for our work queue at <span class="No-Break">three items:</span><pre class="source-code">
+func main() {
+  var wg sync.WaitGroup
+  workQueue := NewWorkQueue(3)</pre></li>				<li>Next, we <a id="_idTextAnchor1976"/>define the f<a id="_idTextAnchor1977"/><a id="_idTextAnchor1978"/>irst Goroutine. This one is responsible for producing <span class="No-Break">work items:</span><pre class="source-code">
+  wg.Add(1)
+  go func() {
+    defer wg.Done()
+    for i := 1; i &lt;= 5; i++ {
+      workItem := fmt.Sprintf("WorkItem %d", i)
+      workQueue.enqueue(workItem)
+      fmt.Printf("Enqueued: %s\n", workItem)
+      time.Sleep(time.Second)
+    }
+  }()</pre></li>				<li>We then d<a id="_idTextAnchor1979"/><a id="_idTextAnchor1980"/>efine the second Goroutine. This one is responsible for consuming <span class="No-Break">work items:</span><pre class="source-code">
+  wg.Add(1)
+  go func() {
+    defer wg.Done()
+    for i := 1; i &lt;= 5; i++ {
+      workItem := workQueue.dequeue()
+      fmt.Printf("Dequeued: %s\n", workItem)
+      time.Sleep(2 * time.Second)
+    }
+  }()</pre></li>				<li><a id="_idTextAnchor1981"/><a id="_idTextAnchor1982"/>Lastly, we wait for all <a id="_idIndexMarker1245"/>Goroutines to complete and close our <span class="No-Break"><strong class="source-inline">main()</strong></span><span class="No-Break"> function:</span><pre class="source-code">
+  wg.Wait()
+}</pre></li>				<li>Run <span class="No-Break">the program:</span><pre class="source-code">
+go run main.go</pre></li>			</ol>
+			<p>You will see the following output, where the items may be in different orders of being enqueued and <span class="No-Break">then dequeued:</span></p>
+			<pre class="console">
+Enqueued: WorkItem 1
+Dequeued: WorkItem 1
+Enqueued: WorkItem 2
+Dequeued: WorkItem 2
+Enqueued: WorkItem 3
+Enqueued: WorkItem 4
+Enqueued: WorkItem 5
+Dequeued: WorkItem 3
+Dequeued: WorkItem 4
+Dequeued: WorkItem 5</pre>			<p>This exercise demonstrates a simple work queue where the Goroutine enqueues items up to the queue’s maximum size. If the queue is full, then the Goroutine will wait until there is room for more items in the queue. Once an item is enqueued, then it signals other Goroutines that might be waiting on the condition variable. There is also the second Goroutine, or the consumer Goroutine dequeuing items. The consumer waits if the queue is empty up to the five items. After dequeuing an item, it signals to other Goroutines that might be waiting <a id="_idIndexMarker1246"/>on the condition variable. As you can see, the <strong class="source-inline">sync.Cond</strong> variable is used for signaling and waiting <span class="No-Break">for Goroutines.</span></p>
+			<h1 id="_idParaDest-475"><a id="_idTextAnchor1983"/>The thread-safe map</h1>
+			<p>In concurrent programming, safely managing access to shared data structures is crucial to avoid race conditions and ensure <a id="_idIndexMarker1247"/>consistency. Go’s standard library provides a powerful tool for concurrent map access – the <strong class="source-inline">sync.Map</strong> type. Unlike the regular <strong class="source-inline">Map</strong> type, <strong class="source-inline">sync.Map</strong> is specifically designed to be used concurrently without the need for <span class="No-Break">external synchronization.</span></p>
+			<p>The <strong class="source-inline">sync.Map</strong> type is part of the <strong class="source-inline">sync</strong> package and provides fine-grained locking internally to allow multiple readers and a single writer to access a map concurrently without blocking operations. This makes it suitable for scenarios where you have multiple Goroutines that need to read or modify a <span class="No-Break">map concurrently.</span></p>
+			<p>Let’s look at an exercise showcasing the utility <span class="No-Break">of </span><span class="No-Break"><strong class="source-inline">sync.Map</strong></span><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-476"><a id="_idTextAnchor1984"/>Exercise 18.13 – counting how many times random numbers are between 0 and 9 using sync.Map</h2>
+			<p>Suppose we want to count how<a id="_idIndexMarker1248"/> many times random numbers fall between the values of zero and nine in a concurrent setting. The <strong class="source-inline">sync.Map</strong> type will help us<a id="_idTextAnchor1985"/><a id="_idTextAnchor1986"/> do <span class="No-Break">this safely:</span></p>
+			<ol>
+				<li>Create your folder and a <strong class="source-inline">main.go</strong> file, then write <span class="No-Break">the following:</span><pre class="source-code">
+package main
+import (
+  "crypto/rand"
+  "fmt"
+  "math/big"
+  "sync"
+)</pre></li>				<li>Let’s write a function to<a id="_idIndexMarker1249"/> generate a random number in the range of <strong class="source-inline">[</strong><span class="No-Break"><strong class="source-inline">0, max)</strong></span><span class="No-Break">:</span><pre class="source-code">
+func generateRandomNumber(max int) (int, error) {
+  n, err := ran<a id="_idTextAnchor1987"/><a id="_idTextAnchor1988"/>d.Int(rand.Reader, big.NewInt(int64(max)))
+  if err != nil {
+    return 0, err
+  }
+  return int(n.Int64()), nil
+}</pre></li>				<li>Let’s write a helper function to update<a id="_idTextAnchor1989"/><a id="_idTextAnchor1990"/> the count using load and store methods to safely access and update the <span class="No-Break">count map:</span><pre class="source-code">
+func updateCount(countMap *sync.Map, key int) {
+  count, _ := countMap.LoadOrStore(key, 0)
+  countMap.Store(key, coun<a id="_idTextAnchor1991"/><a id="_idTextAnchor1992"/>t.(int)+1)
+}</pre></li>				<li>Now, write a function to print the counts from the <span class="No-Break"><strong class="source-inline">sync.Map</strong></span><span class="No-Break"> contents:</span><pre class="source-code">
+func printCounts(countMap *sync.Map) {
+  countMap.Range(func(key, value interface{}) bool {
+    fmt.Printf("Number %d: Count %d\n", key, value)
+    return true
+  })
+}</pre></li>				<li>Lastly, we can define a <strong class="source-inline">main()</strong> function that will define our <strong class="source-inline">sync.Map</strong> type and <a id="_idTextAnchor1993"/><a id="_idTextAnchor1994"/>a Goroutine to generate random<a id="_idIndexMarker1250"/> numbers and update the counts in the <span class="No-Break"><strong class="source-inline">sync.Map</strong></span><span class="No-Break"> type:</span><pre class="source-code">
+func main() {
+  var countMap sync.Map
+  numGorouti<a id="_idTextAnchor1995"/><a id="_idTextAnchor1996"/>nes := 5
+  var wg sync.WaitGroup
+  generateAndCount := func() {
+    defer wg.Done()
+    // Generate 1000 random numbers per Goroutine
+    for i := 0; i &lt; 1000; i++ {
+      // Generate random number between 0 and 9
+      randomNumber, err := generateRandomNumber(10)
+      if err != nil {
+        fmt.Println("Error generating random number:", err)
+        return
+      }
+      updateCount(&amp;countMap, randomNumber)
+    }
+  }</pre></li>				<li>We will then end our <strong class="source-inline">main()</strong> function by spawning all our Goroutines and wa<a id="_idTextAnchor1997"/><a id="_idTextAnchor1998"/>iting for their completion before printing the counts from our concurrent <span class="No-Break">safe map:</span><pre class="source-code">
+  for i := 0; i &lt; numGoroutines; i++ {
+    wg.Add(1)
+    go generateAndCount()
+  }
+  wg.Wait()
+  printCounts(&amp;countMap)
+}</pre></li>				<li>Run <span class="No-Break">the program:</span><pre class="source-code">
+go run main.go</pre></li>			</ol>
+			<p>You will see the following output, where<a id="_idIndexMarker1251"/> the items may be in different orders and with <span class="No-Break">different counts:</span></p>
+			<pre class="console">
+Number 7: Count 480
+Number 0: Count 488
+Number 5: Count 506
+Number 4: Count 489
+Number 1: Count 472
+Number 9: Count 499
+Number 2: Count 499
+Number 6: Count 515
+Number 3: Count 481
+Number 8: Count 533</pre>			<p>In this exercise, we used the <strong class="source-inline">sync.Map</strong> type to safely maintain accurate counts for each random number generated by multiple Goroutines. We had the <strong class="source-inline">updateCount</strong> function responsible for updating the count in a thread-safe manner using the <strong class="source-inline">LoadOrStore</strong> and <strong class="source-inline">Store</strong> methods. We just saw how we can use this thread-safe map without additional synchronization mechanisms. Using <strong class="source-inline">sync.Map</strong> simplifies concurrent map access and eliminates the need for explicit locks, making the code c<a id="_idTextAnchor1999"/><a id="_idTextAnchor2000"/>leaner and more efficient in scenarios where concurrent access to a map <span class="No-Break">is required.</span></p>
+			<h1 id="_idParaDest-477"><a id="_idTextAnchor2001"/>Summary</h1>
+			<p>In this chapter, you’ve learned how to create production-ready concurrent code, how to handle race conditions, and how to make sure that your code is concurrent-safe. You’ve learned how to use channels to make your Goroutines communicate with each other and how to stop their executions using <span class="No-Break">a context.</span></p>
+			<p>You’ve worked on several techniques to handle concurrent computation and learned about <strong class="source-inline">sync.Cond</strong> and <strong class="source-inline">sync.Map</strong> as powerful tools in your toolbelt for concurrent programming In many real-life scenarios, you might just use functions and methods that handle concurrency for you, especially if you’re doing web programming, but there are cases where you must handle work coming from some different sources by yourself. You need to match requests with your response through different channels. You might need to gather different data into one single Goroutine from different ones. With what you’ve learned here, you’ll be able to do all that. You’ll be able to ensure you do not lose data by waiting for all Goroutines to finish. You’ll be able to modify the same variable from different Goroutines, making sure you do not override a value if it is not what you want. You’ve also learned how to avoid deadlocks and how to use channels to share information. One of the Go mottos is <em class="italic">Share by communicating, do not communicate by sharing.</em> This means that the preferred way to share values is to send them via a channel and not rely on mutexes if not strictly necessary. You now know how to do <span class="No-Break">all that.</span></p>
+			<p>In the next chapter, you will learn to make your code more professional. Essentially, you will learn what you are expected to do as a professional in a real working environment, which is testing and checking your code – making sure, essentially, that your code works and <span class="No-Break">is valid.</span></p>
+		</div>
+	</div></div></body></html>

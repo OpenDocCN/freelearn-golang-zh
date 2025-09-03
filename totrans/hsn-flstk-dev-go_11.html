@@ -1,0 +1,378 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Testing and Benchmarking Your Web API</h1>
+                </header>
+            
+            <article>
+                
+<p>Testing is of vital importance in production software environments. Applications not only need to be tested for functionality, but they also need to be benchmarked and profiled so that we can examine the performance of our applications. This chapter will provide a wide and practical exposure about how to properly test and benchmark your application.</p>
+<p>In this chapter, we will cover the following topics:</p>
+<ul>
+<li>Mocking types in Go</li>
+<li>Unit testing in Go</li>
+<li>Benchmarking in Go</li>
+</ul>
+<p>The code for this chapter can be found in this book's GitHub repository at <a href="https://github.com/PacktPublishing/Hands-On-Full-Stack-Development-with-Go/tree/master/Chapter08">https://github.com/PacktPublishing/Hands-On-Full-Stack-Development-with-Go/tree/master/Chapter08</a>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Testing in Go</h1>
+                </header>
+            
+            <article>
+                
+<p>One of the building blocks of the testing process in any piece of software is known as <strong>unit testing</strong>. Unit testing is a very popular concept in virtually any programming language, and there are numerous software frameworks and language extensions that allow you to perform unit testing as efficiently as possible.</p>
+<p>The idea of unit testing is to test each unit or component of your software separately. A unit can simply be defined as the smallest testable piece of your software. </p>
+<p class="mce-root"><span>The Go language comes equipped with a testing package, as well as some Go commands to make the process of unit testing easier. The package can be found at </span><a href="https://golang.org/pkg/testing/">https://golang.org/pkg/testing/</a><span>.</span></p>
+<p>In this section, we'll dive a bit deeper into how to build unit tests in the Go language. However, before we start writing unit tests in Go, we first need to cover the concept of mocking.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Mocking</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">The concept of mocking is very popular in the field of unit testing software. It's best described via an example. Let's say we would like to unit test one of the HTTP handler functions of the GoMusic application. The <kbd>GetProducts()</kbd> method is a good method to showcase our example, since the purpose of this method was to return a list of all of the products that are available for sale in our GoMusic store. Here is what the code for <kbd>GetProducts()</kbd> looked like:</p>
+<pre>func (h *Handler) GetProducts(c *gin.Context) {<br/>  if h.db == nil {<br/>    c.JSON(http.StatusInternalServerError, gin.H{"error": "server database error"})<br/>    return<br/>  }<br/>  products, err := h.db.GetAllProducts()<br/>  if err != nil {<br/>    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})<br/>    return<br/>  }<br/>  fmt.Printf("Found %d products\n", len(products))<br/>  c.JSON(http.StatusOK, products)<br/>}</pre>
+<p>This method simply retrieves all of the products from our database and then returns the results as a HTTP response. This method utilized the <kbd>h.db.GetAllProducts()</kbd> method to retrieve the data from our database. </p>
+<p>So, when it's time to perform a unit test for <kbd>GetProducts()</kbd>, we should be able to test the functionality of the method without needing a real database. Furthermore, we should also be able to inject some error scenarios, where we make <kbd>h.db.GetAllProducts()</kbd> fail, and then ensure that <kbd>GetProducts()</kbd> reacts as expected. </p>
+<p>You might be wondering, why is it important to be able to test a method such as <kbd>GetProducts()</kbd> without needing a real database? The answer is simple—unit testing is only concerned with the unit you are currently testing, which is the <kbd>GetProducts()</kbd> method, not your database connection. </p>
+<p>Mock object types can be defined as object types that you can use to <em>mock</em> or fake a certain behavior. In other words, in the case of the <kbd>h.db.GetAllProducts()</kbd> method, instead of using an object type that connects to a real database, we can use a mock type that does not connect to a real database but can give us the results we need to perform the unit testing of the <kbd>GetProducts()</kbd> method.  </p>
+<p>Let's go back down memory lane and remember how <kbd>h.db.GetAllProducts()</kbd> was built. The database part of this piece of code was simply an interface called <kbd>DBLayer</kbd>, which we used to describe all the behavior we would need from a database layer. </p>
+<p>Here is what the <kbd>DBLayer</kbd> interface looked like:</p>
+<pre>type DBLayer interface {<br/>  GetAllProducts() ([]models.Product, error)<br/>  GetPromos() ([]models.Product, error)<br/>  GetCustomerByName(string, string) (models.Customer, error)<br/>  GetCustomerByID(int) (models.Customer, error)<br/>  GetProduct(int) (models.Product, error)<br/>  AddUser(models.Customer) (models.Customer, error)<br/>  SignInUser(username, password string) (models.Customer, error)<br/>  SignOutUserById(int) error<br/>  GetCustomerOrdersByID(int) ([]models.Order, error)<br/>  AddOrder(models.Order) error<br/>  GetCreditCardCID(int) (string, error)<br/>  SaveCreditCardForCustomer(int, string) error<br/>}</pre>
+<p>To create a mock type for our database layer, we just need to create a concrete type that will implement <kbd>DBLayer</kbd> but won't connect to a real database. </p>
+<p class="mce-root">The mock object will need to return some simulated data, which we use for our testing. We can simply store this data in slices or maps inside our mock object.</p>
+<p>Now that we know what mocking is, let's create our mock db type.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating a mock db type</h1>
+                </header>
+            
+            <article>
+                
+<p>Inside our <kbd>backend/src/dblayer</kbd> folder, let's add a new file called <kbd>mockdblayer.go</kbd>. Inside this new file, let's create a type called <kbd>MockDBLayer</kbd>:</p>
+<pre>package dblayer<br/><br/>import (<br/>  "encoding/json"<br/>  "fmt"<br/>  "strings"<br/><br/>  "github.com/PacktPublishing/Hands-On-Full-Stack-Development-with-Go/tree/master/Chapter08/backend/src/models"<br/>)<br/><br/><strong>type MockDBLayer struct {</strong><br/><strong> err error</strong><br/><strong>  products []models.Product</strong><br/><strong>  customers []models.Customer</strong><br/><strong>  orders []models.Order</strong><br/><strong>}<br/></strong></pre>
+<p>The <kbd>MockDBLayer</kbd> type hosts four types:</p>
+<ul>
+<li><kbd>err</kbd>: This is an error type that we can set at will whenever we need to simulate an error scenario. We'll look at how to use it when it's time to write our unit tests.</li>
+<li><kbd>products</kbd>: This is where we store our mock list of products.</li>
+<li><kbd>customers</kbd>: This is where we store our mock list of customers.</li>
+<li><kbd>orders</kbd>: This is where we store our mock list of orders.</li>
+</ul>
+<p>Next, let's write a constructor for our mock type:</p>
+<pre>func NewMockDBLayer(products []models.Product, customers []models.Customer, orders []models.Order) *MockDBLayer {<br/>  return &amp;MockDBLayer{<br/>    products: products,<br/>    customers: customers,<br/>    orders: orders,<br/>  }<br/>}</pre>
+<p>The constructor takes three arguments: a list of <kbd>products</kbd>, a list of <kbd>customers</kbd>, and a list of <kbd>orders</kbd>. This gives other developers the opportunity to define their own data for testing, which is good for flexibility. However, other developers should be able to initialize the <kbd><span>MockDBLayer</span></kbd> type with some mock data pre-loaded:</p>
+<pre>func NewMockDBLayerWithData() *MockDBLayer {<br/>  PRODUCTS := `[<br/>    {<br/>        "ID": 1,<br/>        "CreatedAt": "2018-08-14T07:54:19Z",<br/>        "UpdatedAt": "2019-01-11T00:28:40Z",<br/>        "DeletedAt": null,<br/>        "img": "img/strings.png",<br/>        "small_img": "img/img-small/strings.png",<br/>        "imgalt": "string",<br/>        "price": 100,<br/>        "promotion": 0,<br/>        "productname": "Strings",<br/>        "Description": ""<br/>    },<br/>    {<br/>        "ID": 2,<br/>        "CreatedAt": "2018-08-14T07:54:20Z",<br/>        "UpdatedAt": "2019-01-11T00:29:11Z",<br/>        "DeletedAt": null,<br/>        "img": "img/redguitar.jpeg",<br/>        "small_img": "img/img-small/redguitar.jpeg",<br/>        "imgalt": "redg",<br/>        "price": 299,<br/>        "promotion": 240,<br/>        "productname": "Red Guitar",<br/>        "Description": ""<br/>    },<br/>    {<br/>        "ID": 3,<br/>        "CreatedAt": "2018-08-14T07:54:20Z",<br/>        "UpdatedAt": "2019-01-11T22:05:42Z",<br/>        "DeletedAt": null,<br/>        "img": "img/drums.jpg",<br/>        "small_img": "img/img-small/drums.jpg",<br/>        "imgalt": "drums",<br/>        "price": 17000,<br/>        "promotion": 0,<br/>        "productname": "Drums",<br/>        "Description": ""<br/>    },<br/>    {<br/>        "ID": 4,<br/>        "CreatedAt": "2018-08-14T07:54:20Z",<br/>        "UpdatedAt": "2019-01-11T00:29:53Z",<br/>        "DeletedAt": null,<br/>        "img": "img/flute.jpeg",<br/>        "small_img": "img/img-small/flute.jpeg",<br/>        "imgalt": "flute",<br/>        "price": 210,<br/>        "promotion": 190,<br/>        "productname": "Flute",<br/>        "Description": ""<br/>    },<br/>    {<br/>        "ID": 5,<br/>        "CreatedAt": "2018-08-14T07:54:20Z",<br/>        "UpdatedAt": "2019-01-11T00:30:12Z",<br/>        "DeletedAt": null,<br/>        "img": "img/blackguitar.jpeg",<br/>        "small_img": "img/img-small/blackguitar.jpeg",<br/>        "imgalt": "Black guitar",<br/>        "price": 200,<br/>        "promotion": 0,<br/>        "productname": "Black Guitar",<br/>        "Description": ""<br/>    },<br/>    {<br/>        "ID": 6,<br/>        "CreatedAt": "2018-08-14T07:54:20Z",<br/>        "UpdatedAt": "2019-01-11T00:30:35Z",<br/>        "DeletedAt": null,<br/>        "img": "img/saxophone.jpeg",<br/>        "small_img": "img/img-small/saxophone.jpeg",<br/>        "imgalt": "Saxophone",<br/>        "price": 1000,<br/>        "promotion": 980,<br/>        "productname": "Saxophone",<br/>        "Description": ""<br/>    }<br/>]<br/>`<br/><br/>  ORDERS := `[<br/>  {<br/>      "ID": 1,<br/>      "CreatedAt": "2018-12-29T23:35:36Z",<br/>      "UpdatedAt": "2018-12-29T23:35:36Z",<br/>      "DeletedAt": null,<br/>      "img": "",<br/>      "small_img": "",<br/>      "imgalt": "",<br/>      "price": 0,<br/>      "promotion": 0,<br/>      "productname": "",<br/>      "Description": "",<br/>      "name": "",<br/>      "firstname": "",<br/>      "lastname": "",<br/>      "email": "",<br/>      "password": "",<br/>      "loggedin": false,<br/>      "orders": null,<br/>      "customer_id": 1,<br/>      "product_id": 1,<br/>      "sell_price": 90,<br/>      "purchase_date": "2018-12-29T23:34:32Z"<br/>  },<br/>  {<br/>      "ID": 2,<br/>      "CreatedAt": "2018-12-29T23:35:48Z",<br/>      "UpdatedAt": "2018-12-29T23:35:48Z",<br/>      "DeletedAt": null,<br/>      "img": "",<br/>      "small_img": "",<br/>      "imgalt": "",<br/>      "price": 0,<br/>      "promotion": 0,<br/>      "productname": "",<br/>      "Description": "",<br/>      "name": "",<br/>      "firstname": "",<br/>      "lastname": "",<br/>      "email": "",<br/>      "password": "",<br/>      "loggedin": false,<br/>      "orders": null,<br/>      "customer_id": 1,<br/>      "product_id": 2,<br/>      "sell_price": 299,<br/>      "purchase_date": "2018-12-29T23:34:53Z"<br/>  },<br/>  {<br/>      "ID": 3,<br/>      "CreatedAt": "2018-12-29T23:35:57Z",<br/>      "UpdatedAt": "2018-12-29T23:35:57Z",<br/>      "DeletedAt": null,<br/>      "img": "",<br/>      "small_img": "",<br/>      "imgalt": "",<br/>      "price": 0,<br/>      "promotion": 0,<br/>      "productname": "",<br/>      "Description": "",<br/>      "name": "",<br/>      "firstname": "",<br/>      "lastname": "",<br/>      "email": "",<br/>      "password": "",<br/>      "loggedin": false,<br/>      "orders": null,<br/>      "customer_id": 1,<br/>      "product_id": 3,<br/>      "sell_price": 16000,<br/>      "purchase_date": "2018-12-29T23:35:05Z"<br/>  },<br/>  {<br/>      "ID": 4,<br/>      "CreatedAt": "2018-12-29T23:36:18Z",<br/>      "UpdatedAt": "2018-12-29T23:36:18Z",<br/>      "DeletedAt": null,<br/>      "img": "",<br/>      "small_img": "",<br/>      "imgalt": "",<br/>      "price": 0,<br/>      "promotion": 0,<br/>      "productname": "",<br/>      "Description": "",<br/>      "name": "",<br/>      "firstname": "",<br/>      "lastname": "",<br/>      "email": "",<br/>      "password": "",<br/>      "loggedin": false,<br/>      "orders": null,<br/>      "customer_id": 2,<br/>      "product_id": 1,<br/>      "sell_price": 95,<br/>      "purchase_date": "2018-12-29T23:36:18Z"<br/>  },<br/>  {<br/>      "ID": 5,<br/>      "CreatedAt": "2018-12-29T23:36:39Z",<br/>      "UpdatedAt": "2018-12-29T23:36:39Z",<br/>      "DeletedAt": null,<br/>      "img": "",<br/>      "small_img": "",<br/>      "imgalt": "",<br/>      "price": 0,<br/>      "promotion": 0,<br/>      "productname": "",<br/>      "Description": "",<br/>      "name": "",<br/>      "firstname": "",<br/>      "lastname": "",<br/>      "email": "",<br/>      "password": "",<br/>      "loggedin": false,<br/>      "orders": null,<br/>      "customer_id": 2,<br/>      "product_id": 2,<br/>      "sell_price": 299,<br/>      "purchase_date": "2018-12-29T23:36:39Z"<br/>  },<br/>  {<br/>      "ID": 6,<br/>      "CreatedAt": "2018-12-29T23:38:13Z",<br/>      "UpdatedAt": "2018-12-29T23:38:13Z",<br/>      "DeletedAt": null,<br/>      "img": "",<br/>      "small_img": "",<br/>      "imgalt": "",<br/>      "price": 0,<br/>      "promotion": 0,<br/>      "productname": "",<br/>      "Description": "",<br/>      "name": "",<br/>      "firstname": "",<br/>      "lastname": "",<br/>      "email": "",<br/>      "password": "",<br/>      "loggedin": false,<br/>      "orders": null,<br/>      "customer_id": 2,<br/>      "product_id": 4,<br/>      "sell_price": 205,<br/>      "purchase_date": "2018-12-29T23:37:01Z"<br/>  },<br/>  {<br/>      "ID": 7,<br/>      "CreatedAt": "2018-12-29T23:38:19Z",<br/>      "UpdatedAt": "2018-12-29T23:38:19Z",<br/>      "DeletedAt": null,<br/>      "img": "",<br/>      "small_img": "",<br/>      "imgalt": "",<br/>      "price": 0,<br/>      "promotion": 0,<br/>      "productname": "",<br/>      "Description": "",<br/>      "name": "",<br/>      "firstname": "",<br/>      "lastname": "",<br/>      "email": "",<br/>      "password": "",<br/>      "loggedin": false,<br/>      "orders": null,<br/>      "customer_id": 3,<br/>      "product_id": 4,<br/>      "sell_price": 210,<br/>      "purchase_date": "2018-12-29T23:37:28Z"<br/>  },<br/>  {<br/>      "ID": 8,<br/>      "CreatedAt": "2018-12-29T23:38:28Z",<br/>      "UpdatedAt": "2018-12-29T23:38:28Z",<br/>      "DeletedAt": null,<br/>      "img": "",<br/>      "small_img": "",<br/>      "imgalt": "",<br/>      "price": 0,<br/>      "promotion": 0,<br/>      "productname": "",<br/>      "Description": "",<br/>      "name": "",<br/>      "firstname": "",<br/>      "lastname": "",<br/>      "email": "",<br/>      "password": "",<br/>      "loggedin": false,<br/>      "orders": null,<br/>      "customer_id": 3,<br/>      "product_id": 5,<br/>      "sell_price": 200,<br/>      "purchase_date": "2018-12-29T23:37:41Z"<br/>  },<br/>  {<br/>      "ID": 9,<br/>      "CreatedAt": "2018-12-29T23:38:32Z",<br/>      "UpdatedAt": "2018-12-29T23:38:32Z",<br/>      "DeletedAt": null,<br/>      "img": "",<br/>      "small_img": "",<br/>      "imgalt": "",<br/>      "price": 0,<br/>      "promotion": 0,<br/>      "productname": "",<br/>      "Description": "",<br/>      "name": "",<br/>      "firstname": "",<br/>      "lastname": "",<br/>      "email": "",<br/>      "password": "",<br/>      "loggedin": false,<br/>      "orders": null,<br/>      "customer_id": 3,<br/>      "product_id": 6,<br/>      "sell_price": 1000,<br/>      "purchase_date": "2018-12-29T23:37:54Z"<br/>  },<br/>  {<br/>      "ID": 10,<br/>      "CreatedAt": "2019-01-13T00:44:55Z",<br/>      "UpdatedAt": "2019-01-13T00:44:55Z",<br/>      "DeletedAt": null,<br/>      "img": "",<br/>      "small_img": "",<br/>      "imgalt": "",<br/>      "price": 0,<br/>      "promotion": 0,<br/>      "productname": "",<br/>      "Description": "",<br/>      "name": "",<br/>      "firstname": "",<br/>      "lastname": "",<br/>      "email": "",<br/>      "password": "",<br/>      "loggedin": false,<br/>      "orders": null,<br/>      "customer_id": 19,<br/>      "product_id": 6,<br/>      "sell_price": 1000,<br/>      "purchase_date": "2018-12-29T23:37:54Z"<br/>  },<br/>  {<br/>      "ID": 11,<br/>      "CreatedAt": "2019-01-14T06:03:08Z",<br/>      "UpdatedAt": "2019-01-14T06:03:08Z",<br/>      "DeletedAt": null,<br/>      "img": "",<br/>      "small_img": "",<br/>      "imgalt": "",<br/>      "price": 0,<br/>      "promotion": 0,<br/>      "productname": "",<br/>      "Description": "",<br/>      "name": "",<br/>      "firstname": "",<br/>      "lastname": "",<br/>      "email": "",<br/>      "password": "",<br/>      "loggedin": false,<br/>      "orders": null,<br/>      "customer_id": 1,<br/>      "product_id": 3,<br/>      "sell_price": 17000,<br/>      "purchase_date": "0001-01-01T00:00:00Z"<br/>  }<br/>]<br/>`<br/>  CUSTOMERS := `[<br/>  {<br/>      "ID": 1,<br/>      "CreatedAt": "2018-08-14T07:52:54Z",<br/>      "UpdatedAt": "2019-01-13T22:00:45Z",<br/>      "DeletedAt": null,<br/>      "name": "",<br/>      "firstname": "Mal",<br/>      "lastname": "Zein",<br/>      "email": "mal.zein@email.com",<br/>      "password": "$2a$10$ZeZI4pPPlQg89zfOOyQmiuKW9Z7pO9/KvG7OfdgjPAZF0Vz9D8fhC",<br/>      "loggedin": true,<br/>      "orders": null<br/>  },<br/>  {<br/>      "ID": 2,<br/>      "CreatedAt": "2018-08-14T07:52:55Z",<br/>      "UpdatedAt": "2019-01-12T22:39:01Z",<br/>      "DeletedAt": null,<br/>      "name": "",<br/>      "firstname": "River",<br/>      "lastname": "Sam",<br/>      "email": "river.sam@email.com",<br/>      "password": "$2a$10$mNbCLmfCAc0.4crDg3V3fe0iO1yr03aRfE7Rr3vdfKMGVnnzovCZq",<br/>      "loggedin": false,<br/>      "orders": null<br/>  },<br/>  {<br/>      "ID": 3,<br/>      "CreatedAt": "2018-08-14T07:52:55Z",<br/>      "UpdatedAt": "2019-01-13T21:56:05Z",<br/>      "DeletedAt": null,<br/>      "name": "",<br/>      "firstname": "Jayne",<br/>      "lastname": "Ra",<br/>      "email": "jayne.ra@email.com",<br/>      "password": "$2a$10$ZeZI4pPPlQg89zfOOyQmiuKW9Z7pO9/KvG7OfdgjPAZF0Vz9D8fhC",<br/>      "loggedin": false,<br/>      "orders": null<br/>  },<br/>  {<br/>      "ID": 19,<br/>      "CreatedAt": "2019-01-13T08:43:44Z",<br/>      "UpdatedAt": "2019-01-13T15:12:25Z",<br/>      "DeletedAt": null,<br/>      "name": "",<br/>      "firstname": "John",<br/>      "lastname": "Doe",<br/>      "email": "john.doe@bla.com",<br/>      "password": "$2a$10$T4c8rmpbgKrUA0sIqtHCaO0g2XGWWxFY4IGWkkpVQOD/iuBrwKrZu",<br/>      "loggedin": false,<br/>      "orders": null<br/>  }<br/>]<br/>`<br/>  var products []models.Product<br/>  var customers []models.Customer<br/>  var orders []models.Order<br/>  json.Unmarshal([]byte(PRODUCTS), &amp;products)<br/>  json.Unmarshal([]byte(CUSTOMERS), &amp;customers)<br/>  json.Unmarshal([]byte(ORDERS), &amp;orders)<br/>  return NewMockDBLayer(products, customers, orders)<br/>}</pre>
+<p>The preceding function has some data hardcoded inside it, which then gets fed to the <kbd><span>MockDBLayer</span></kbd> constructor. This allows developers to make use of the <kbd><span>MockDBLayer</span></kbd> type so that they can use it right away without first needing to come up with data.</p>
+<p>Next, we need to offer methods to expose the data that's being used by the <kbd><span>MockDBLayer</span></kbd> type:</p>
+<pre>func (mock *MockDBLayer) GetMockProductData() []models.Product {<br/>  return mock.products<br/>}<br/><br/>func (mock *MockDBLayer) GetMockCustomersData() []models.Customer {<br/>  return mock.customers<br/>}<br/><br/>func (mock *MockDBLayer) GetMockOrdersData() []models.Order {<br/>  return mock.orders<br/>}</pre>
+<p>Now, we need a method that will allow us to be in full control of the errors that are returned by the methods of<span> </span><kbd><span>MockDBLayer</span></kbd>. This is important because during our unit tests, it's likely we'll need to test how the code will behave if an error occurs. We'll revisit this concept when we work on our unit test. For now, let's write a method that allows us to set errors that are returned by our mock type:</p>
+<pre>func (mock *MockDBLayer) SetError(err error) {<br/>  mock.err = err<br/>}</pre>
+<p>Now, it's time to implement the <kbd>DBLayer</kbd> interface methods. Let's start with the <kbd>GetAllProducts()</kbd> method. This is what it will look like:</p>
+<pre>func (mock *MockDBLayer) GetAllProducts() ([]models.Product, error) {<br/>  //Should we return an error?<br/>  if mock.err != nil {<br/>    return nil, mock.err<br/>  }<br/>  //return products list<br/>  return mock.products, nil<br/>}</pre>
+<p>The first thing we need to check is whether the <kbd><span>MockDBLayer</span></kbd> type returns an error or not. If it needs to return an error, then we just return the error. Otherwise, we return the list of products we saved in our mock type.</p>
+<p>Next, let's take a look at the <kbd>GetPromos()</kbd> method:</p>
+<pre>func (mock *MockDBLayer) GetPromos() ([]models.Product, error) {<br/>  if mock.err != nil {<br/>    return nil, mock.err<br/>  }<br/>  promos := []models.Product{}<br/>  for _, product := range mock.products {<br/>    if product.Promotion &gt; 0 {<br/>      promos = append(promos, product)<br/>    }<br/>  }<br/>  return promos, nil<br/>}</pre>
+<p>In the preceding code, we first checked whether we should return an error, like we did previously. We then looped through the list of products and picked the products that have promotions. </p>
+<p class="mce-root"/>
+<p>Next, let's explore the <kbd>GetProduct(id)</kbd> method. This method should be able to retrieve a product based on the <kbd>id</kbd> that's provided. This is what it looks like:</p>
+<pre>func (mock *MockDBLayer) GetProduct(id int) (models.Product, error) {<br/>  result := models.Product{}<br/>  if mock.err != nil {<br/>    return result, mock.err<br/>  }<br/>  for _, product := range mock.products {<br/>    if product.ID == uint(id) {<br/>      return product, nil<br/>    }<br/>  }<br/>  return result, fmt.Errorf("Could not find product with id %d", id)<br/>}</pre>
+<p>As with the other methods, we first need to check whether we need to return an error, and if so, we return the error and exit the method. Otherwise, we retrieve the piece of data that's being queried by this method. In the case of <kbd>GetProduct(id)</kbd>, we loop through the products list and then return the product with the requested <kbd>id</kbd>. This loop could have been replaced by a simple map retrieval if we were to store our products in a map instead of a list. In a production environment, you will need to decide how you would like your data to be represented in your mock objects (maps and/or slices). In this case, I decided to go with a slice for simplicity. In a more complex mock object, you might want to store data in slices for methods that return all the data, as well as in maps for methods that return specific items.</p>
+<p>The rest of the code for the mock object will continue to implement the <kbd>DBLayer</kbd> interface methods.</p>
+<p>Here is the method to get a customer by name:</p>
+<pre>func (mock *MockDBLayer) GetCustomerByName(first, last string) (models.Customer, error) {<br/>  result := models.Customer{}<br/>  if mock.err != nil {<br/>    return result, mock.err<br/>  }<br/>  for _, customer := range mock.customers {<br/>    if strings.EqualFold(customer.FirstName, first) &amp;&amp; strings.EqualFold(customer.LastName, last) {<br/>      return customer, nil<br/>    }<br/>  }<br/>  return result, fmt.Errorf("Could not find user %s %s", first, last)<br/>}</pre>
+<p>Here is the method to get a customer by their ID:</p>
+<pre><br/>func (mock *MockDBLayer) GetCustomerByID(id int) (models.Customer, error) {<br/>  result := models.Customer{}<br/>  if mock.err != nil {<br/>    return result, mock.err<br/>  }<br/><br/>  for _, customer := range mock.customers {<br/>    if customer.ID == uint(id) {<br/>      return customer, nil<br/>    }<br/>  }<br/>  return result, fmt.Errorf("Could not find user with id %d", id)<br/>}</pre>
+<p>Here is the code to add a user:</p>
+<pre>func(mock *MockDBLayer) AddUser(customer models.Customer) (models.Customer, error){<br/>  if mock.err != nil {<br/>    return models.Customer{}, mock.err<br/>  }<br/>  mock.customers = append(mock.customers, customer)<br/>  return customer, nil<br/>}</pre>
+<p>Here is the code to sign in a user:</p>
+<pre>func (mock *MockDBLayer) SignInUser(email, password string) (models.Customer, error) {<br/>  if mock.err != nil {<br/>    return models.Customer{}, mock.err<br/>  }<br/>  for _, customer := range mock.customers {<br/>    if strings.EqualFold(email, customer.Email) &amp;&amp; customer.Pass == password {<br/>      customer.LoggedIn = true<br/>      return customer, nil<br/>    }<br/>  }<br/>  return models.Customer{}, fmt.Errorf("Could not sign in user %s", email)<br/>}</pre>
+<p>Here is the code to sign out a user by ID:</p>
+<pre>func (mock *MockDBLayer) SignOutUserById(id int) error {<br/>  if mock.err != nil {<br/>    return mock.err<br/>  }<br/>  for _, customer := range mock.customers {<br/>    if customer.ID == uint(id) {<br/>      customer.LoggedIn = false<br/>      return nil<br/>    }<br/>  }<br/>  return fmt.Errorf("Could not sign out user %d", id)<br/>}</pre>
+<p>Here is the code to get customer orders by ID:</p>
+<pre>func (mock *MockDBLayer) GetCustomerOrdersByID(id int) ([]models.Order, error) {<br/>  if mock.err != nil {<br/>    return nil, mock.err<br/>  }<br/>  for _, customer := range mock.customers {<br/>    if customer.ID == uint(id) {<br/>      return customer.Orders, nil<br/>    }<br/>  }<br/>  return nil, fmt.Errorf("Could not find customer id %d", id)<br/>}</pre>
+<p>Here is the code to add an order:</p>
+<pre>func (mock *MockDBLayer) AddOrder(order models.Order) error {<br/>  if mock.err != nil {<br/>    return mock.err<br/>  }<br/>  mock.orders = append(mock.orders, order)<br/>  for _, customer := range mock.customers {<br/>    if customer.ID == uint(order.CustomerID) {<br/>      customer.Orders = append(customer.Orders, order)<br/>      return nil<br/>    }<br/>  }<br/>  return fmt.Errorf("Could not find customer id %d for order", order.CustomerID)<br/>}</pre>
+<p>Finally, the following methods are just place holders for the credit card handling logic. The unit tests that we'll explore in this chapter won't cover credit card handling, so to simplify things; let's just leave them as place holders for now:</p>
+<pre><br/>//The credit card related mock methods will need more work. They are out of scope of this chapter.<br/>func (mock *MockDBLayer) GetCreditCardCID(id int) (string, error) {<br/>  if mock.err != nil {<br/>    return "", mock.err<br/>  }<br/>  return "", nil<br/>}<br/><br/>func (mock *MockDBLayer) SaveCreditCardForCustomer(int, string) error {<br/>  if mock.err != nil {<br/>    return mock.err<br/>  }<br/>  return nil<br/>}</pre>
+<p>It is worth mentioning that there are some third-party open source projects in the Go language that can help with the creation and utilization of mock objects. However, in this chapter, we have built our own.</p>
+<p>Now that we have created a mock db type, let's cover unit testing in Go.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Unit testing in Go</h1>
+                </header>
+            
+            <article>
+                
+<p>It's now time to explore unit testing in Go and make use of the<span> </span><kbd><span>MockDBLayer</span></kbd> type that we built in the previous section. </p>
+<p>The first step for writing unit tests in Go is to create a new file in the same folder as the package you would like to test. The filename has to end with <kbd>_test.go</kbd>. In our case, since we seek to test the <kbd>GetProducts()</kbd> method in the <kbd>rest</kbd> package, we'll create a new file in the same folder and call it <kbd>handler_test.go</kbd>.</p>
+<p>This file will only build and execute when you run unit tests, but not during regular builds. You may be wondering, how would I run unit tests in Go? The answer is simple—you utilize the <kbd>go test</kbd> command! Whenever you run <kbd>go test</kbd>, only the files that end with <kbd>_test.go</kbd> will build and run. </p>
+<p>If you are running the <kbd>go test</kbd> command from a different folder than the folder of the package that you would like to test, then you can just point to the package that you would like to test:</p>
+<pre><strong>go test &lt;Your_Package_Path&gt;</strong></pre>
+<p class="mce-root">For example, if we want to run the unit tests for our <kbd>rest</kbd> package, the command will look like this:</p>
+<pre><strong>go test github.com/PacktPublishing/Hands-On-Full-Stack-Development-with-Go/tree/master/Chapter08/backend/src/rest</strong></pre>
+<p>Now, let's dive further into the <kbd>handler_test.go</kbd> file. The first thing we need to do is declare the package:</p>
+<pre>package rest</pre>
+<p>Next, we need to write a function that will represent our unit test. In Go, you need to follow some specific rules to ensure that your function gets executed as part of the unit testing that's produced by the <kbd>go test</kbd> <span>command:</span></p>
+<ul>
+<li>Your function has to start with the word <kbd>Test</kbd></li>
+<li>The first letter after <kbd>Test</kbd> has to be in upper case</li>
+<li>The function needs to take the <kbd>*testing.T</kbd> type as an argument</li>
+</ul>
+<p>The <kbd>*testing.T</kbd> type provides some important methods that will help us signify whether a test has failed or passed. The type also provides some logging features that we can use. We'll see the <kbd>*testing.T</kbd> type in action shortly, when we start writing our test code.</p>
+<p>So, by following the preceding three rules, we'll create a new function called <span><kbd>TestHandler_GetProducts</kbd> to host the unit testing code for the <kbd>GetProducts()</kbd> method in our HTTP handler. </span>Here is what the function will look like:</p>
+<pre>func TestHandler_GetProducts(t *testing.T) {<br/>}</pre>
+<p>The first thing we need to do is enable the test mode of the Gin framework. The testing mode of the Gin framework prevents too much logging:</p>
+<pre>func TestHandler_GetProducts(t *testing.T) {<br/>  // Switch to test mode so you don't get such noisy output<br/>  gin.SetMode(gin.TestMode)<br/>}</pre>
+<p>Next, let's initialize our <kbd>mockdbLayer</kbd> type. We will use the constructor that included some hardcoded data:</p>
+<pre>func TestHandler_GetProducts(t *testing.T) {<br/>  // Switch to test mode so you don't get such noisy output<br/>  gin.SetMode(gin.TestMode)<br/>  mockdbLayer := dblayer.NewMockDBLayerWithData()<br/>}</pre>
+<p>The <kbd>GetProducts()</kbd> method we are seeking to test in this section is an HTTP handler function, which is expected to return a list of products that are available from the GoMusic store. As we covered in the previous chapters, an HTTP handler function can be defined as an action that gets executed when an HTTP request is sent to a specific relative URL. The HTTP handler will process the HTTP request and return a response via HTTP as well. </p>
+<p>In our unit test, we'll need to test not only the functionality of <kbd>GetProducts()</kbd> as a method, but also how it reacts to HTTP requests.</p>
+<p>We'll need to define the relative URL that will activate the HTTP handler function for that. Let's call it <kbd>/products</kbd> and make it a constant:</p>
+<pre>func TestHandler_GetProducts(t *testing.T) {<br/>  // Switch to test mode so you don't get such noisy output<br/>  gin.SetMode(gin.TestMode)<br/>  mockdbLayer := dblayer.NewMockDBLayerWithData()<br/>  h := NewHandlerWithDB(mockdbLayer)<br/><strong>  const productsURL string = "/products"</strong><br/>}</pre>
+<p>We'll see how we can make use of that constant in the next chapter.</p>
+<p>In the next section we'll cover an important concept known as table-drive development.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Table-driven development</h1>
+                </header>
+            
+            <article>
+                
+<p>In a typical practical unit test, we seek to test a certain function or method to see how it will react to certain inputs and error conditions. This means that the code of the unit test would need to call the function or method we are trying to test multiple times, and with different inputs and error conditions. Instead of writing large interconnection <kbd>if</kbd> statements to make the calls with different inputs, we can instead follow a very popular design pattern known as <strong>table-driven development</strong>.</p>
+<p>The idea behind test-driven development is simple—we will use an array of Go structs or a map to represent our tests. The struct array or map will contain information about the inputs and error conditions that we want to pass to the function/method being tested. We will then loop through the array of Go structs and call the method/function to be tested with the current inputs and error conditions. This approach will produce a number of sub-tests under the main unit test.</p>
+<p>In our unit test, we'll use an array of Go structs to represent our different subtests. Here is what the array will look like:</p>
+<pre>tests := []struct {<br/>    name string<br/>    inErr error<br/>    outStatusCode int<br/>    expectedRespBody interface{}<br/>  }{<br/>    }</pre>
+<p>Let's call the preceding code our <kbd>test</kbd> table. Here is what the Go struct fields will represent:</p>
+<ul>
+<li><kbd>name</kbd>: This is the name of the subtest.</li>
+<li><kbd>inErr</kbd>: This is the input error. We will inject this error into the mock db layer type and monitor how the <kbd>GetProducts()</kbd> method will behave.</li>
+<li><kbd>outStatusCode</kbd>: This is the expected HTTP status code that is produced from calling the <kbd>GetProducts()</kbd> HTTP handler. If the HTTP status code that's returned from calling <kbd>GetProducts()</kbd> as an HTTP handler does not match this value, then the unit test fails.</li>
+<li><kbd>expectedRespBody</kbd>: This is the expected HTTP response body that's returned from calling the <kbd>GetProducts()</kbd> HTTP handler. If the returned HTTP body does not match this value, then the unit test fails. This field is of the <kbd>interface{}</kbd> type because it can either be a slice of products or an error message. The <kbd>interface{}</kbd> type in Go can represent any other data type.</li>
+</ul>
+<p>The beauty of the table-driven testing design pattern is the fact that it's very flexible; you can simply add more fields to test more conditions. </p>
+<p>There are two expected HTTP response bodies that can be produced from the <kbd>GetProducts()</kbd> HTTP handler—we either get some list of products, or we get an error message. The error message takes the following format: <kbd>{error:"the error message"}</kbd>.</p>
+<p>Before we start running our subtests from our test table, let's define a <kbd>struct</kbd> type to represent the error message so that we can use it in our testing:</p>
+<pre> type errMSG struct {<br/>    Error string `json:"error"`<br/>  }</pre>
+<p>Next, we need to define our list of subtests. For simplicity, we'll pick two different scenarios to test:</p>
+<pre> tests := []struct {<br/>    name string<br/>    inErr error<br/>    outStatusCode int<br/>    expectedRespBody interface{}<br/>  }{<br/><strong>    {</strong><br/><strong>      "getproductsnoerrors",</strong><br/><strong>      nil,</strong><br/><strong>      http.StatusOK,</strong><br/><strong>      mockdbLayer.GetMockProductData(),</strong><br/><strong>    },</strong><br/><strong>    {</strong><br/><strong>      "getproductswitherror",</strong><br/><strong>      errors.New("get products error"),</strong><br/><strong>      http.StatusInternalServerError,</strong><br/><strong>      errMSG{Error: "get products error"},</strong><br/><strong>    },</strong><br/>  }</pre>
+<p>In the preceding code, we defined two different subtests:</p>
+<ul>
+<li>The first one is called <kbd>getproductsnoerrors</kbd>. It represents a straight execution scenario where no errors occurred and everything worked fine. We inject no errors to the mock db layer type, so we expect no errors to return from the <kbd>GetProducts()</kbd> method. We expect an HTTP response status of <kbd>OK</kbd>, and we expect to get a list of the product data that's stored in mock db layer as the HTTP response body. The reason why we expect to get a list of the product data stored in the mock db layer as our output is because of the fact that the mock db type will be the database layer for our <kbd>GetProducts()</kbd> method.</li>
+<li>The second one is called <kbd>getproductswitherror</kbd>. It represents an execution scenario where an error has occurred. We inject an error called <kbd>"get products error"</kbd> into the mock db layer type. This error will be expected to be returned as the HTTP response body of the <kbd>GetProducts()</kbd> handler function call. The HTTP status code that's expected will be <kbd>StatusInternalServerError</kbd>.</li>
+</ul>
+<p>The remainder of our unit test code will loop through the test table and execute our tests. The <kbd>*testing.T</kbd> type, which got passed as an argument to our unit test function, provides methods that we can use to define subtests within our unit test, which we can then run in parallel. </p>
+<p>First, to define a subtest within our unit test, we must utilize the following method:</p>
+<pre>t.Run(name string,f func(t *T))bool</pre>
+<p>The first argument is the name of the subtest, whereas the second argument is a function that represents the subtest we would like to run. In our case, we'll need to loop through our <kbd>test</kbd> table and call <kbd>t.Run()</kbd> for each subtest. Here is what this will look like:</p>
+<pre> for _, tt := range tests {<br/>    t.Run(tt.name, func(t *testing.T) {<br/>        //run our sub-test<br/>    }<br/>}</pre>
+<p>Now, let's focus on the code to run for our subtests. The first thing we need to do is inject an error into the mock type:</p>
+<pre> for _, tt := range tests {<br/>    t.Run(tt.name, func(t *testing.T) {<br/>      //set the input error<br/>      mockdbLayer.SetError(tt.inErr)<br/>    }<br/>}</pre>
+<p>Next, we need to create a test HTTP request to represent the HTTP request which will be received by our <kbd>GetProducts()</kbd> HTTP handler. Again, Go comes to the rescue with a standard package called <kbd>httptest</kbd>. This package empowers you to create special data types that allow you to test HTTP-related functionality. One of the functions provided by <kbd>httptest</kbd> is a function called <kbd>NewRequest()</kbd>, which returns an HTTP request type that we can use for our testing:</p>
+<pre>//Create a test request<br/>req := httptest.NewRequest(http.MethodGet, productsURL, nil)    </pre>
+<p>The function takes three arguments: the type of HTTP method, the relative URL where the HTTP request is expected to get sent, and the body of the request, if any.</p>
+<p>In the case of the <kbd>GetProducts()</kbd> HTTP <kbd>handler</kbd> method, it's expecting an HTTP <kbd>GET</kbd> request that targets the <kbd>/products</kbd> relative URL. We have already stored the <kbd>/products</kbd> value in the <kbd>productsURL</kbd> constant. </p>
+<p class="mce-root">The <kbd>httptest</kbd> package also provides a data type called <kbd>ResponseRecorder</kbd>, which can be used to capture the HTTP response of an HTTP handler function call. The <kbd>ResponseRecorder</kbd> data type implements Go's <kbd>http.ResponseWriter</kbd> interface, which enables the <kbd>ResponseRecorder</kbd> to be injected in any code that makes use of <kbd>http.ResponseWriter</kbd>. We'll need to obtain a value of this data type so that we can use it in our testing:</p>
+<pre>//create an http response recorder<br/>w := httptest.NewRecorder()</pre>
+<p>Next, we'll need to create an instance of the Gin framework engine to use it in our test. This is because the <kbd>GetProducts()</kbd> method that we are trying to test is an HTTP handler function for a Gin engine router, so it needs a <kbd>*gin.Context</kbd> type as its input. Here is what the function signature looks like:</p>
+<pre>GetProducts(c *gin.Context)</pre>
+<p>Luckily, the Gin framework comes prepared with a function called <kbd>CreateTestContext()</kbd> for the <span>exact</span> purpose of creating an instance of a Gin context and an instance of a Gin engine to use for testing. The <kbd>CreateTestContext()</kbd> function takes an <kbd>http.ResponseWriter</kbd> interface as input, which means that we can pass our <kbd>httptest.ResponseRecorder</kbd> as the input, since it implements the <kbd>http.ResponseWriter</kbd> interface as input. Here is what the code will look like:</p>
+<pre>//create an http response recorder  <br/>w := httptest.NewRecorder()<br/>  <br/><strong>//create a fresh gin engine object from the response recorder, we will ignore the context value</strong><br/><strong>_, engine := gin.CreateTestContext(w)</strong></pre>
+<p>As we mentioned earlier, the <kbd>CreateTestContext()</kbd> function returns two values: a Gin context instance and a Gin engine instance. In our case, we will not make use of the Gin context instance, which is why we didn't receive the value for it in the preceding code. The reason why we won't make use of the Gin context instance is because I prefer to use the Gin engine instance for my testing, as it allows me to test the full workflow of an HTTP request being served. </p>
+<p>Next, we'll make use of the Gin engine instance to map our <kbd>GetProducts()</kbd> method to the <kbd>productsURL</kbd> relative URL address via an HTTP <kbd>GET</kbd> request. Here is what this looks like:</p>
+<pre>//configure the get request<br/> engine.GET(productsURL, h.GetProducts)</pre>
+<p>Now, it's time to get our Gin engine to serve the HTTP request, and then pass the HTTP response to our <kbd>ResponseRecorder</kbd>:</p>
+<pre>//serve the request<br/> engine.ServeHTTP(w, req)</pre>
+<p>This will, in effect, send our test HTTP request to the <kbd>GetProducts()</kbd> handler method, since the test request targets <kbd>productsURL</kbd>. The <kbd>GetProducts()</kbd> handler method will then process the request and send an HTTP response via <kbd>w</kbd>, which is our <kbd>ResponseRecorder</kbd>.</p>
+<p>It's now time to test how <kbd>GetProducts()</kbd> processed the HTTP request. The first thing we need to do is extract the HTTP response from <kbd>w</kbd>. This is done via the <kbd>Result()</kbd> method in the <kbd>ResponseRecorder</kbd> object type:</p>
+<pre>//test the output<br/>response := w.Result()</pre>
+<p>Then, we need to test the HTTP status code of the result. If it's not equal to the expected HTTP status code, then we fail the test case and we log why:</p>
+<pre>if response.StatusCode != tt.outStatusCode {<br/>        t.Errorf("Received Status code %d does not match expected status code %d", response.StatusCode, tt.outStatusCode)<br/> }</pre>
+<p>As shown in the preceding code, the <kbd>*testing.T</kbd> type comes equipped with a method called <kbd>Errorf</kbd>, which can be used to log a message and then fail the test. If we wanted to log a message without failing the test, we can use a method called <kbd>Logf</kbd>. If we want to fail a test right away, we can call a method called <kbd>Fail</kbd>. The <kbd>t.Errorf</kbd> method is the combination of <kbd>t.Logf</kbd>, followed by <kbd>t.Fail</kbd>.</p>
+<p> Next, we need to capture the HTTP body of the response so that we're able to compare it to the expected HTTP response body for this subtest. There are two scenarios to consider: either an error was injected into our subtest, which means an error message is expected as the result, or there was no error injected, which means a list of products is the expected HTTP response body:</p>
+<pre>/*<br/>Since we don't know the data type to expect from the http response, we'll use interface{} as the type <br/>*/      <br/>var respBody interface{}      <br/>//If an error was injected, then the response should decode to an error message type     <br/> if tt.inErr != nil {<br/>        var errmsg errMSG<br/>        json.NewDecoder(response.Body).Decode(&amp;errmsg)<br/>        //Assign decoded error message to respBody<br/>        respBody = errmsg      <br/>} else {<br/>        //If an error was not injected, the response should decode to a slice of products data types<br/>        products := []models.Product{}<br/>        json.NewDecoder(response.Body).Decode(&amp;products)<br/>        //Assign decoded products list to respBody<br/>        respBody = products      <br/>}</pre>
+<p>The last thing we need to do is compare the expected HTTP response body with the actual HTTP response body that we received. To do the comparison, we need to make use of a very handy function that is present in Go's <kbd>reflect</kbd> package. This function is called <kbd>reflect.DeepEqual()</kbd>, and it helps us to fully compare two values and identify whether they are clones of each other. If the two values are not equal, then we log an error and fail the test. Here is what the code will look like:</p>
+<pre>if !reflect.DeepEqual(respBody, tt.expectedRespBody) {<br/>       t.Errorf("Received HTTP response body %+v does not match expected HTTP response Body %+v", respBody, tt.expectedRespBody)<br/> }</pre>
+<p>With this, our unit test is completed! Let's have a look at what the overall testing code will look like:</p>
+<pre>func TestHandler_GetProducts(t *testing.T) {<br/>  // Switch to test mode so you don't get such noisy output<br/>  gin.SetMode(gin.TestMode)<br/>  mockdbLayer := dblayer.NewMockDBLayerWithData()<br/>  h := NewHandlerWithDB(mockdbLayer)<br/>  const productsURL string = "/products"<br/>  type errMSG struct {<br/>    Error string `json:"error"`<br/>  }<br/> // Use table driven testing<br/>  tests := []struct {<br/>    name string<br/>    inErr error<br/>    outStatusCode int<br/>    expectedRespBody interface{}<br/>  }{<br/>    {<br/>      "getproductsnoerrors",<br/>      nil,<br/>      http.StatusOK,<br/>      mockdbLayer.GetMockProductData(),<br/>    },<br/>    {<br/>      "getproductswitherror",<br/>      errors.New("get products error"),<br/>      http.StatusInternalServerError,<br/>      errMSG{Error: "get products error"},<br/>    },<br/>  }<br/>  for _, tt := range tests {<br/>    t.Run(tt.name, func(t *testing.T) {<br/>      //set the input error<br/>      mockdbLayer.SetError(tt.inErr)<br/>      //Create a test request<br/>      req := httptest.NewRequest(http.MethodGet, productsURL, nil)<br/>      //create an http response recorder<br/>      w := httptest.NewRecorder()<br/>      //create a fresh gin context and gin engine object from the response recorder<br/>      _, engine := gin.CreateTestContext(w)<br/><br/>      //configure the get request<br/>      engine.GET(productsURL, h.GetProducts)<br/>      //serve the request<br/>      engine.ServeHTTP(w, req)<br/><br/>      //test the output<br/>      response := w.Result()<br/>      if response.StatusCode != tt.outStatusCode {<br/>        t.Errorf("Received Status code %d does not match expected status code %d", response.StatusCode, tt.outStatusCode)<br/>      }<br/>      //Since we don't know the data type to expect from the http response, we'll use interface{} as the type <br/>      var respBody interface{}<br/>      //If an error was injected, then the response should decode to an error message type<br/>      if tt.inErr != nil {<br/>        var errmsg errMSG<br/>        json.NewDecoder(response.Body).Decode(&amp;errmsg)<br/>        respBody = errmsg<br/>      } else {<br/>        //If an error was not injected, the response should decode to a slice of products data types<br/>        products := []models.Product{}<br/>        json.NewDecoder(response.Body).Decode(&amp;products)<br/>        respBody = products<br/>      }<br/><br/>      if !reflect.DeepEqual(respBody, tt.expectedRespBody) {<br/>        t.Errorf("Received HTTP response body %+v does not match expected HTTP response Body %+v", respBody, tt.expectedRespBody)<br/>      }<br/>    })<br/>  }<br/>}</pre>
+<p>It's worth mentioning that Go gives you the power to run your subtests in parallel to each other. You can invoke this behavior by calling <kbd>t.Parallel()</kbd> inside your subtests. Here is what this will look like:</p>
+<pre>for _, tt := range tests {<br/>    t.Run(tt.name, func(t *testing.T) {<br/>            t.Parallel()<br/>            //your concurrent code<br/>    }<br/>}</pre>
+<p>However, when you run concurrent subtests, you must make sure that any data types they share won't change state or behavior in parallel, otherwise your test results will not be reliable. For example, in our code, we use a single mock db layer type object, which was initialized outside of the subtests. This means that whenever we change the error state of the mock db layer inside a subtest, it might have affected other subtests running in parallel and made use of the mock db layer object at the same time.</p>
+<p>What remains in this section is to run our unit test and witness the results. As we mentioned earlier, you can either run the <kbd>go test</kbd> command from inside the folder that hosts the package you seek to test, or you can use the <kbd>go test &lt;your_package_path&gt;</kbd> command from outside your package folder. If the unit test passes, you will see an output that looks like this:</p>
+<pre><strong>PASS</strong><br/><strong>ok github.com/PacktPublishing/Hands-On-Full-Stack-Development-with-Go/tree/master/Chapter08/backend/src/rest 0.891s</strong></pre>
+<p>The default output shows you the full name of the package that was tested and the time it took to run the test(s).</p>
+<p>If you want to see more information, you can run <kbd>go test -v</kbd>. This is what this command will return:</p>
+<pre><strong>c:\Programming_Projects\GoProjects\src\github.com\PacktPublishing\Hands-On-Full-Stack-Development-with-Go\8-Testing-and-benchmarking\backend\src\rest&gt;go test -v</strong><br/><strong>=== RUN TestHandler_GetProducts</strong><br/><strong>=== RUN TestHandler_GetProducts/getproductsnoerrors</strong><br/><strong>=== RUN TestHandler_GetProducts/getproductswitherror</strong><br/><strong>--- PASS: TestHandler_GetProducts (0.00s)</strong><br/><strong>    --- PASS: TestHandler_GetProducts/getproductsnoerrors (0.00s)</strong><br/><strong>    --- PASS: TestHandler_GetProducts/getproductswitherror (0.00s)</strong><br/><strong>PASS</strong><br/><strong>ok github.com/PacktPublishing/Hands-On-Full-Stack-Development-with-Go/8-Testing-and-benchmarking/backend/src/rest 1.083s</strong></pre>
+<p>The <kbd>-v</kbd> flag shows verbose output—it will show you the name of the unit test being run, as well as the names of the subtests within the unit test as they run.</p>
+<p>Let's take a look at benchmarking in the next section</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Benchmarking</h1>
+                </header>
+            
+            <article>
+                
+<p>Another key topic in the world of testing software is benchmarking. <strong>Benchmarking</strong> is the practice of measuring the performance of your code. The Go <kbd>testing</kbd> package offers you the ability to perform strong benchmarking on your code. </p>
+<p>Let's start by targeting a piece of code and showcase how to benchmark it using Go. A good function to benchmark is the <kbd>hashpassword()</kbd> function, which is utilized by our database layer. This function can be found in the <kbd>backend/src/dblayer/orm.go</kbd> file. It takes a reference to a string as an argument, and then it uses a <kbd>bcrypt</kbd> hash to hash the string. Here is the code:</p>
+<pre>func hashPassword(s *string) error {<br/>  if s == nil {<br/>    return errors.New("Reference provided for hashing password is nil")<br/>  }<br/>  //converd password string to byte slice<br/>  sBytes := []byte(*s)<br/>  //Obtain hashed password<br/>  hashedBytes, err := bcrypt.GenerateFromPassword(sBytes, bcrypt.DefaultCost)<br/>  if err != nil {<br/>    return err<br/>  }<br/>  //update password string with the hashed version<br/>  *s = string(hashedBytes[:])<br/>  return nil<br/>}</pre>
+<p>Let's say that we would like to test the performance of this function. How do we begin?</p>
+<p>The first step is to create a new file. The filename should end with <kbd>_test.go</kbd>. The file needs to exist in the same folder as the <kbd>dblayer</kbd> package, which hosts the function we seek to test. Let's call the file <kbd>orm_test.go</kbd>.</p>
+<p>As we mentioned earlier, files whose names end with <kbd>_test.go</kbd> will not be part of the regular build process. Instead, they activate when we run tests via the <kbd>go test</kbd> command. </p>
+<p>Next, inside the file, we'll start by declaring the Go package that the file belongs to, which is <kbd>dblayer</kbd>. Then, we need to import the testing package that we will use in our code:</p>
+<pre>package dblayer<br/><br/>import "testing"</pre>
+<p>Now, it's time to write the code to benchmark the <kbd>hashpassword()</kbd> function. To write benchmark functions in Go, we need to follow these rules:</p>
+<ul>
+<li>The function name has to start with the word <kbd>Benchmark</kbd>.</li>
+<li>The first letter after the word <kbd>Benchmark</kbd> needs to be in upper case.</li>
+<li>The function takes <kbd>*testing.B</kbd> as an argument. The <kbd>*testing.B</kbd> type provides methods that facilitate benchmarking our code.</li>
+</ul>
+<p>As we follow those three rules, we'll build our benchmark function with the following signature:</p>
+<pre>func BenchmarkHashPassword(b *testing.B) {<br/>}</pre>
+<p>Next, we'll initialize a string to be hashed:</p>
+<pre>func BenchmarkHashPassword(b *testing.B) {<br/>  text := "A String to be Hashed"<br/>}</pre>
+<p class="mce-root"/>
+<p>To utilize an object of type <kbd>*testing.B</kbd> to benchmark a piece of code, we need to run the targeted piece of code <kbd>b.N</kbd> times. <kbd>N</kbd> is simply a field in the <kbd>*testing.B</kbd> type, which adjusts its value until the targeted code can be reliably measured. This is what the code will look like:</p>
+<pre>func BenchmarkHashPassword(b *testing.B) {<br/> text := "A String to be Hashed"<br/> for i := 0; i &lt; b.N; i++ {<br/> hashPassword(&amp;text)<br/> }<br/>}</pre>
+<p>The preceding code will run <kbd>hashPassword()</kbd> as many times as it takes to benchmark it. To run the benchmark, we can use the <kbd>go test</kbd> command in combination with a <kbd>-bench</kbd> flag:</p>
+<pre><strong>go test -bench .</strong></pre>
+<p>The <kbd>-bench</kbd> flag needs to be provided as a regex expression to indicate the benchmark functions that we would like to run. If we would like to run everything that's available, we can use <kbd>.</kbd> to indicate all. Otherwise, if we only want to run benchmarks that include the term <kbd>HashPassword</kbd>, we can modify the command, as follows:</p>
+<pre><strong>go test -bench HashPassword</strong></pre>
+<p>The output will look like this:</p>
+<pre><strong>goos: windows</strong><br/><strong>goarch: amd64</strong><br/><strong>pkg: github.com/PacktPublishing/Hands-On-Full-Stack-Development-with-Go/8-Testing-and-benchmarking/backend/src/dblayer</strong><br/><strong>BenchmarkHashPassword-8 20 69609530 ns/op</strong><br/><strong>PASS</strong><br/><strong>ok github.com/PacktPublishing/Hands-On-Full-Stack-Development-with-Go/8-Testing-and-benchmarking/backend/src/dblayer 1.797s</strong></pre>
+<p>The output simply states that the <kbd>hashPassword</kbd> function was run 20 times, and that it had a speed of about 69,609,530 nanoseconds per loop. </p>
+<p>In our case, we only initialized a string right before running our benchmark, which is a very straightforward and easy operation:</p>
+<pre>func BenchmarkHashPassword(b *testing.B) {<br/><strong>  text := "A String to be Hashed"</strong><br/>  for i := 0; i &lt; b.N; i++ {</pre>
+<pre><br/>    hashPassword(&amp;text)<br/>  }<br/>}</pre>
+<p>However, if your initialization is much more complex and takes some time to complete, it's advised that you run <kbd>b.ResetTimer()</kbd> after you finish your initialization and before you perform your benchmarking. Here is an example:</p>
+<pre>func BenchMarkSomeFunction(b *testing.B){<br/>    someHeavyInitialization()<br/>    b.ResetTimer()<br/>    for i:=0;i&lt;b.N;b++{<br/>        SomeFunction()<br/>    }<br/>}</pre>
+<pre>b.Run(name string, f func(b *testing.B))</pre>
+<p>The <kbd>*testing.B</kbd> type also comes with an extra method called <kbd>RunParallel()</kbd>, which can test performance in a parallel setting. This works in concert with a flag known as <kbd>go test -cpu</kbd>:</p>
+<pre>b.RunParallel(func(pb *testing.PB){<br/>    for pb.Next(){<br/>        //your code<br/>    }<br/>})</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">This chapter covered a key skill that any software developer should have, which is proper software testing in production. We focused on the features that are offered by the Go language to enable the testing of Go code. </p>
+<p>We started by covering how to build mock types and why they are important when it comes to software testing. We then covered how to perform unit testing in Go and how to benchmark your software.</p>
+<p>In the next chapter, we'll explore the concept of Isomorphic Go programming, by covering the GopherJS framework.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li>What is the definition of a mock type? Why is it useful?</li>
+<li>What is the testing package in Go?</li>
+<li>What is the <kbd>*testing.T</kbd> type used for?</li>
+<li>What is the <kbd>*testing.B</kbd> type used for?</li>
+<li>What is the <kbd>*testing.T.Run()</kbd> method used for?</li>
+<li>What is the <kbd>*testing.T.Parallel()</kbd> method used for?</li>
+<li>What is meant by benchmarking?</li>
+<li>What is the <kbd>*testing.B.ResetTimer()</kbd> method used for?</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<p>For more information, you can go through the following links:</p>
+<ul>
+<li><strong>The Go testing package</strong>: <a href="https://golang.org/pkg/testing/">https://golang.org/pkg/testing/</a></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

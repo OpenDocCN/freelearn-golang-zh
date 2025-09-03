@@ -1,0 +1,56 @@
+<html><head></head><body>
+<div class="book" title="Facade design pattern">
+<div class="book" title="Implementation"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_6"><a id="ch04lvl2sec0110" class="calibre1"/>Implementation</h2></div></div></div><p class="calibre10">First of all, we are going to implement the parser that our methods will use to parse the JSON response from the <code class="email">OpenWeatherMap</code> REST API:</p><pre class="programlisting">func (p *CurrentWeatherData) responseParser(body io.Reader) (*Weather, error) { 
+  w := new(Weather) 
+  err := json.NewDecoder(body).Decode(w) 
+  if err != nil { 
+    return nil, err 
+  } 
+ 
+  return w, nil 
+} 
+</pre><p class="calibre10">And this should be enough to pass the test by now:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">go test -v -run=responseParser . 
+=== RUN   TestOpenWeatherMap_responseParser 
+--- PASS: TestOpenWeatherMap_responseParser (0.00s) 
+PASS 
+ok</strong></span>
+</pre><p class="calibre10">At least we have our parser well tested. Let's structure our code to look like a library. First, we will create the methods to retrieve the weather of a city by its name and its country code, and the method that uses its latitude and longitude:</p><pre class="programlisting">func (c *CurrentWeatherData) GetByGeoCoordinates(lat, lon float32) (weather *Weather, err error) { 
+  return c.doRequest( 
+  fmt.Sprintf("http://api.openweathermap.org/data/2.5/weather q=%s,%s&amp;APPID=%s", lat, lon, c.APIkey)) 
+} 
+ 
+func (c *CurrentWeatherData) GetByCityAndCountryCode(city, countryCode string) (weather *Weather, err error) { 
+  return c.doRequest(   
+  fmt.Sprintf("http://api.openweathermap.org/data/2.5/weather?lat=%f&amp;lon=%f&amp;APPID=%s", city, countryCode, c.APIkey) ) 
+} 
+</pre><p class="calibre10">A piece of cake? Of course! Everything must be as easy as possible, and it is a sign of a good job. The complexity in this facade is to create connections to the <code class="email">OpenWeatherMap</code> API, and control the possible errors. This problem is shared between all the Facade methods in our example, so we don't need to write more than one API call right now.</p><p class="calibre10">What we do is pass the URL that the REST API needs in order to return the information we desire. This is achieved by the <code class="email">fmt.Sprintf</code> function, which formats the strings in each case. For example, to gather the data using a city name and a country code, we use the following string:</p><pre class="programlisting">fmt.Sprintf("http://api.openweathermap.org/data/2.5/weather?lat=%f&amp;lon=%f&amp;APPID=%s", city, countryCode, c.APIkey) 
+</pre><p class="calibre10">This takes the pre-formatted string <a class="calibre1" href="https://openweathermap.org/api">
+https://openweathermap.org/api
+</a> and formats it by replacing each <code class="email">%s</code> specifier with the city, the <code class="email">countryCode</code> that we introduced in the arguments, and the API key member of the <code class="email">CurrentWeatherData</code> type.</p><p class="calibre10">But, we haven't set any API key! Yes, because this is a library, and the users of the library will have to use their own API keys. We are hiding the complexity of creating the URIs, and handling the errors.</p><p class="calibre10">Finally, the <code class="email">doRequest</code> function is a big fish, so we will see it in detail, step by step:</p><pre class="programlisting">func (o *CurrentWeatherData) doRequest(uri string) (weather *Weather, err error) { 
+  client := &amp;http.Client{} 
+  req, err := http.NewRequest("GET", uri, nil) 
+  if err != nil { 
+    return 
+  } 
+  req.Header.Set("Content-Type", "application/json") 
+</pre><p class="calibre10">First, the signature tells us that the <code class="email">doRequest</code> method accepts a URI string, and returns a pointer to the <code class="email">Weather</code> variable and an error. We start by creating an <code class="email">http.Client</code> class, which will make the requests. Then, we create a request object, which will use the <code class="email">GET</code> method, as described in the <code class="email">OpenWeatherMap</code> webpage, and the URI we passed. If we were to use a different method, or more than one, they would have to be brought about by arguments in the signature. Nevertheless, we will use just the <code class="email">GET</code> method, so we could hardcode it there.</p><p class="calibre10">Then, we check whether the request object has been created successfully, and set a header that says that the content type is a JSON:</p><pre class="programlisting">resp, err := client.Do(req) 
+if err != nil { 
+  return 
+} 
+ 
+if resp.StatusCode != 200 { 
+  byt, errMsg := ioutil.ReadAll(resp.Body) 
+  if errMsg == nil { 
+    errMsg = fmt.Errorf("%s", string(byt)) 
+  } 
+  err = fmt.Errorf("Status code was %d, aborting. Error message was:\n%s\n",resp.StatusCode, errMsg) 
+ 
+  return 
+} 
+</pre><p class="calibre10">Then we make the request, and check for errors. Because we have given names to our return types, if any error occurs, we just have to return the function, and Go will return the variable <code class="email">err</code> and the variable <code class="email">weather</code> in the state they were in at that precise moment.</p><p class="calibre10">We check the status code of the response, as we only accept 200 as a good response. If 200 isn't returned, we will create an error message with the contents of the body and the status code returned:</p><pre class="programlisting">  weather, err = o.responseParser(resp.Body) 
+  resp.Body.Close() 
+ 
+  return 
+} 
+</pre><p class="calibre10">Finally, if everything goes well, we use the <code class="email">responseParser</code> function we wrote earlier to parse the contents of Body, which is an <code class="email">io.Reader</code> interface. Maybe you are wondering why we aren't controlling <code class="email">err</code> from the <code class="email">response parser</code> method. It's funny, because we are actually controlling it. <code class="email">responseParser</code> and <code class="email">doRequest</code> have the same return signature. Both return a <code class="email">Weather</code> pointer and an error (if any), so we can return directly whatever the result was.</p></div></div></body></html>

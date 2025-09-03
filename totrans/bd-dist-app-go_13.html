@@ -1,0 +1,474 @@
+<html><head></head><body>
+		<div id="_idContainer393">
+			<h1 id="_idParaDest-153"><a id="_idTextAnchor160"/>Chapter 10: Capturing Gin Application Metrics</h1>
+			<p>In this final chapter, you will learn how to debug, troubleshoot, and monitor the RESTful API in near-real time. You will also learn how to collect Gin application metrics to measure the of the Gin application and to profile for abnormal behavior. Besides that, you will also explore how to stream Gin debug logs to a centralized logging platform using the ELK stack.</p>
+			<p>As such, we will cover the following topics:</p>
+			<ul>
+				<li>Exposing Gin application metrics with Prometheus</li>
+				<li>Monitoring server-side metrics</li>
+				<li>Streaming Gin logs to the ELK platform</li>
+			</ul>
+			<p>By the end of this chapter, you will be able to instrument and monitor a Dockerized Gin web application running in production and debug its logs with ease. </p>
+			<h1 id="_idParaDest-154"><a id="_idTextAnchor161"/>Technical requirements</h1>
+			<p>To follow the content in this chapter, you will need the following:</p>
+			<ul>
+				<li>A complete understanding of the previous chapter. This chapter is a follow-up to the previous one as it will use the same source code. Hence, some snippets won't be explained to avoid repetition.</li>
+				<li>It is assumed that you already have knowledge of Docker and containerization.</li>
+			</ul>
+			<p>The code bundle for this chapter is hosted on GitHub at <a href="https://github.com/PacktPublishing/Building-Distributed-Applications-in-Gin/tree/main/chapter10">https://github.com/PacktPublishing/Building-Distributed-Applications-in-Gin/tree/main/chapter10</a>.</p>
+			<h1 id="_idParaDest-155"><a id="_idTextAnchor162"/>Exposing Gin metrics with Prometheus</h1>
+			<p>In the previous chapter, you <a id="_idIndexMarker844"/>learned how to automate the <a id="_idIndexMarker845"/>deployment process for a Gin application. However, no app is immune from downtime or external attacks (<strong class="bold">DDoS</strong>). That's why you need to set up the right tools to constantly monitor the performance of your application. <strong class="bold">Prometheus</strong> (<a href="https://prometheus.io">https://prometheus.io</a>) is a <a id="_idIndexMarker846"/>common open source tool for monitoring applications. </p>
+			<p>You can install the Go client by running the following command from your terminal session:</p>
+			<p class="source-code">go get github.com/prometheus/client_golang</p>
+			<p>Next, update the <strong class="source-inline">main.go</strong> file so that it exposes an HTTP route on the <strong class="source-inline">/prometheus</strong> path. The route handler will call the Prometheus HTTP handler, which will return a list of runtime and application metrics:</p>
+			<p class="source-code">router.GET("/prometheus", gin.WrapH(promhttp.Handler()))</p>
+			<p>Then, import the following package to use the <strong class="source-inline">promhttp</strong> struct:</p>
+			<p class="source-code">"github.com/prometheus/client_golang/prometheus/promhttp" </p>
+			<p>Next, redeploy the application. If you navigate to <a href="http://localhost:8080/prometheus">http://localhost:8080/prometheus</a>, you should see the following metrics:</p>
+			<div>
+				<div id="_idContainer350" class="IMG---Figure">
+					<img src="image/Figure_10.1_B17115.jpg" alt="Figure 10.1 – Prometheus default metrics&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.1 – Prometheus default metrics</p>
+			<p>This application only <a id="_idIndexMarker847"/>exposes the default metrics. You can also <a id="_idIndexMarker848"/>expose your own custom metrics by instrumenting the Gin application code. Let's learn how to do that. </p>
+			<h2 id="_idParaDest-156"><a id="_idTextAnchor163"/>Instrumenting a Gin application</h2>
+			<p>Instrumentation is the <a id="_idIndexMarker849"/>ability to monitor and measure performance, detect errors, and get trace information that represents the application's state. Prometheus allows us to inject code to monitor a Gin application up close. </p>
+			<p>To add a custom metric, such as counting the number of incoming requests, follow these steps:</p>
+			<ol>
+				<li>First, we need to create a piece of middleware to intercept incoming HTTP requests and increment the counter:<p class="source-code">var totalRequests = prometheus.NewCounterVec(</p><p class="source-code">   prometheus.CounterOpts{</p><p class="source-code">       Name: "http_requests_total",</p><p class="source-code">       Help: "Number of incoming requests",</p><p class="source-code">   },</p><p class="source-code">   []string{"path"},</p><p class="source-code">)</p></li>
+				<li>Then, we must <a id="_idIndexMarker850"/>define a piece of Gin middleware with the following code block:<p class="source-code">func PrometheusMiddleware() gin.HandlerFunc {</p><p class="source-code">   return func(c *gin.Context) {</p><p class="source-code">       totalRequests.WithLabelValues(</p><p class="source-code">          c.Request.URL.Path).Inc()</p><p class="source-code">       c.Next()</p><p class="source-code">   }</p><p class="source-code">}</p></li>
+				<li>Next, register the <strong class="source-inline">totalRequests</strong> counter within the <strong class="source-inline">init()</strong> method's body:<p class="source-code">prometheus.Register(totalRequests)</p></li>
+				<li>Then, pass the <strong class="source-inline">PrometheusMiddleware</strong> middleware to the Gin router:<p class="source-code">router.Use(PrometheusMiddleware())</p></li>
+				<li>Restart the application and then refresh the <strong class="source-inline">/prometheus</strong> URL. </li>
+			</ol>
+			<p>In the response, you'll see the number of requests per path:</p>
+			<div>
+				<div id="_idContainer351" class="IMG---Figure">
+					<img src="image/Figure_10.2_B17115.jpg" alt="Figure 10.2 – Instrumenting Gin code&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.2 – Instrumenting Gin code</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">Your output might not display as much data as mine since you have not accessed the application that often. The best way to get more data is to issue multiple HTTP requests to the Recipes API.</p>
+			<p>Another useful <a id="_idIndexMarker851"/>metric you can expose is the number of HTTP requests that have been received per HTTP method. Similarly, define a global counter and increment the counter for the corresponding HTTP method: </p>
+			<p class="source-code">var totalHTTPMethods = prometheus.NewCounterVec(</p>
+			<p class="source-code">   prometheus.CounterOpts{</p>
+			<p class="source-code">       Name: "http_methods_total",</p>
+			<p class="source-code">       Help: "Number of requests per HTTP method",</p>
+			<p class="source-code">   },</p>
+			<p class="source-code">   []string{"method"},</p>
+			<p class="source-code">)</p>
+			<p class="source-code">func PrometheusMiddleware() gin.HandlerFunc {</p>
+			<p class="source-code">   return func(c *gin.Context) {</p>
+			<p class="source-code">       totalRequests.WithLabelValues(</p>
+			<p class="source-code">          c.Request.URL.Path).Inc()</p>
+			<p class="source-code">       totalHTTPMethods.WithLabelValues(</p>
+			<p class="source-code">          c.Request.Method).Inc()</p>
+			<p class="source-code">       c.Next()</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">}</p>
+			<p>Register the <strong class="source-inline">totalHTTPMethods</strong> counter within the <strong class="source-inline">init()</strong> method body and restart the application.</p>
+			<p>Once the application <a id="_idIndexMarker852"/>has been restarted, in the response payload, you should see the number of requests partitioned by the HTTP method:</p>
+			<div>
+				<div id="_idContainer352" class="IMG---Figure">
+					<img src="image/Figure_10.3_B17115.jpg" alt="Figure 10.3 – Number of requests per HTTP method&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.3 – Number of requests per HTTP method</p>
+			<p>You can also record the HTTP request latencies in seconds with the following code block. We're using <strong class="source-inline">Histogram</strong> instead of <strong class="source-inline">Counter</strong> to <a id="_idIndexMarker853"/>count individual observations from incoming HTTP requests:</p>
+			<p class="source-code">var httpDuration = promauto.NewHistogramVec(</p>
+			<p class="source-code">   prometheus.HistogramOpts{</p>
+			<p class="source-code">       Name: "http_response_time_seconds",</p>
+			<p class="source-code">       Help: "Duration of HTTP requests",</p>
+			<p class="source-code">   },</p>
+			<p class="source-code">   []string{"path"},</p>
+			<p class="source-code">)</p>
+			<p class="source-code">func PrometheusMiddleware() gin.HandlerFunc {</p>
+			<p class="source-code">   return func(c *gin.Context) {</p>
+			<p class="source-code">       timer := prometheus.NewTimer(httpDuration.</p>
+			<p class="source-code">          WithLabelValues(c.Request.URL.Path))</p>
+			<p class="source-code">       totalRequests.WithLabelValues(</p>
+			<p class="source-code">          c.Request.URL.Path).Inc()</p>
+			<p class="source-code">       totalHTTPMethods.WithLabelValues(</p>
+			<p class="source-code">          c.Request.Method).Inc()</p>
+			<p class="source-code">       c.Next()</p>
+			<p class="source-code">       timer.ObserveDuration()</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">}</p>
+			<p>As a result, you should have something similar to the following:</p>
+			<div>
+				<div id="_idContainer353" class="IMG---Figure">
+					<img src="image/Figure_10.4_B17115.jpg" alt="Figure 10.4 – Duration of the HTTP requests &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.4 – Duration of the HTTP requests </p>
+			<p>Now that the metrics <a id="_idIndexMarker854"/>have been exposed, you can store them in a time-series database and build an interactive dashboard on top of that. Getting regular insights into how the app works can help you identify ways to optimize its performance.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">Another alternative is to use the following Go library, written by the open source community: <a href="https://github.com/zsais/go-gin-prometheus">https://github.com/zsais/go-gin-prometheus</a>. It comes with a generic set of metrics.</p>
+			<p>To get started, follow these steps:</p>
+			<ol>
+				<li value="1">Deploy Prometheus by using the official Docker image with the following <strong class="source-inline">docker-compose.yml</strong> file:<p class="source-code">version: "3"</p><p class="source-code">services:</p><p class="source-code"> api:</p><p class="source-code">   build: .</p><p class="source-code">   environment:</p><p class="source-code">     - MONGO_URI=mongodb://admin:password@</p><p class="source-code">                 mongodb:27017/test?authSource=admin</p><p class="source-code">                 &amp;readPreference=primary&amp;ssl=false</p><p class="source-code">     - MONGO_DATABASE=demo</p><p class="source-code">     - REDIS_URI=redis:6379</p><p class="source-code">     - API_VERSION=1.0.0</p><p class="source-code">   ports:</p><p class="source-code">     - 8080:8080</p><p class="source-code">   external_links:</p><p class="source-code">     - mongodb</p><p class="source-code">     - redis</p><p class="source-code">   restart: always</p><p class="source-code"> redis:</p><p class="source-code">   image: redis</p><p class="source-code">   restart: always</p><p class="source-code"> mongodb:</p><p class="source-code">   image: mongo:4.4.3</p><p class="source-code">   environment:</p><p class="source-code">     - MONGO_INITDB_ROOT_USERNAME=admin</p><p class="source-code">     - MONGO_INITDB_ROOT_PASSWORD=password</p><p class="source-code">   restart: always</p><p class="source-code"> prometheus:</p><p class="source-code">   image: prom/prometheus:v2.27.0</p><p class="source-code">   volumes:</p><p class="source-code">     - ./prometheus.yml:/etc/prometheus/prometheus.yml</p><p class="source-code">   ports:</p><p class="source-code">     - 9090:9090</p><p class="source-code">   restart: always</p><p>The Prometheus <a id="_idIndexMarker855"/>container uses a <strong class="source-inline">prometheus.yml</strong> configuration file, which defines a background job to scrape the Golang Prometheus metrics endpoint:</p><p class="source-code">global:</p><p class="source-code"> scrape_interval:     15s</p><p class="source-code"> evaluation_interval: 15s</p><p class="source-code">scrape_configs:</p><p class="source-code"> - job_name: prometheus</p><p class="source-code">   static_configs:</p><p class="source-code">     - targets: ['localhost:9090']</p><p class="source-code"> - job_name: recipes-api</p><p class="source-code">   metrics_path: /prometheus</p><p class="source-code">   static_configs:</p><p class="source-code">     - targets:</p><p class="source-code">       - api:8080 </p></li>
+				<li>Redeploy the application stack with the following command:<p class="source-code">docker-compose up -d</p><p>The stack logs <a id="_idIndexMarker856"/>should look similar to this:</p><div id="_idContainer354" class="IMG---Figure"><img src="image/Figure_10.5_B17115.jpg" alt="Figure 10.5 – Docker stack logs&#13;&#10;"/></div><p class="figure-caption">Figure 10.5 – Docker stack logs</p></li>
+				<li>Navigate to the Prometheus dashboard by visiting <strong class="source-inline">localhost:9090</strong> in your favorite browser. You can explore the available metrics by using the search bar and writing <a id="_idIndexMarker857"/>queries using the <strong class="bold">Prometheus Query Language</strong> (<strong class="bold">PromQL</strong>). Prometheus collects metrics by polling (scraping) instrumented Gin code:<div id="_idContainer355" class="IMG---Figure"><img src="image/Figure_10.6_B17115.jpg" alt="Figure 10.6 – Exploring metrics from the Prometheus dashboard &#13;&#10;"/></div><p class="figure-caption">Figure 10.6 – Exploring metrics from the Prometheus dashboard </p></li>
+				<li>Turn the <a id="_idIndexMarker858"/>metrics into a chart by clicking on the <strong class="bold">Graph</strong> tab:<div id="_idContainer356" class="IMG---Figure"><img src="image/B17115_10_07_v2.jpg" alt="Figure 10.7 – Using the built-in graph feature of Prometheus&#13;&#10;"/></div><p class="figure-caption">Figure 10.7 – Using the built-in graph feature of Prometheus</p><p>You can build <a id="_idIndexMarker859"/>advanced charts by using a visualization platform such as Grafana. It summarizes and visualizes data stored in Prometheus and provides a wide range of UI components to build user-friendly dashboards. The monitoring workflow is illustrated in the following schema:</p><div id="_idContainer357" class="IMG---Figure"><img src="image/Figure_10.8_B17115.jpg" alt="Figure 10.8 – Collecting Gin metrics with Prometheus and Grafana &#13;&#10;"/></div><p class="figure-caption">Figure 10.8 – Collecting Gin metrics with Prometheus and Grafana </p></li>
+				<li>Deploy Grafana inside a <a id="_idIndexMarker860"/>Docker container with the following code snippet:<p class="source-code">grafana:</p><p class="source-code">   image: grafana/grafana:7.5.6</p><p class="source-code">   ports:</p><p class="source-code">     - 3000:3000</p><p class="source-code">   restart: always</p></li>
+				<li>Spin up the container using the following command: <p class="source-code">docker-compose up –d</p></li>
+				<li>Head to <strong class="source-inline">localhost:3000</strong>; you'll be asked to enter some user credentials. The defaults are admin for both the username and password:<div id="_idContainer358" class="IMG---Figure"><img src="image/Figure_10.9_B17115.jpg" alt="Figure 10.9 – Grafana login page &#13;&#10;"/></div><p class="figure-caption">Figure 10.9 – Grafana login page </p></li>
+				<li>Next, connect to <a id="_idIndexMarker861"/>Prometheus by creating a data source. Click on <strong class="bold">Configuration</strong> from the sidebar. Within the <strong class="bold">Data Sources</strong> tab, click on the <strong class="bold">Add data source</strong> button:<div id="_idContainer359" class="IMG---Figure"><img src="image/Figure_10.10_B17115.jpg" alt="Figure 10.10 – Adding a new data source&#13;&#10;"/></div><p class="figure-caption">Figure 10.10 – Adding a new data source</p></li>
+				<li>After that, select <strong class="bold">Prometheus</strong> and then <a id="_idIndexMarker862"/>fill in the fields, as shown in the following screenshot. Then, click on the <strong class="bold">Save &amp; Test</strong> button at the bottom of the page:</li>
+			</ol>
+			<div>
+				<div id="_idContainer360" class="IMG---Figure">
+					<img src="image/Figure_10.11_B17115.jpg" alt="Figure 10.11 – Configuring a Prometheus data source &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.11 – Configuring a Prometheus data source </p>
+			<p>You're now ready to create your first Grafana dashboard! </p>
+			<p>You can start by clicking on <strong class="bold">New Dashbord</strong>/<strong class="bold">Add panel</strong> to create a chart. Enter the <strong class="source-inline">http_requests_total</strong> expression into the query field while using the <strong class="bold">Metrics</strong> dropdown to look up metrics via autocompletion. Show only the path label of the returned results by typing the <strong class="source-inline">{{path}}</strong> keyword in the <strong class="source-inline">legend</strong> field. </p>
+			<p>You should now have the <a id="_idIndexMarker863"/>following graph configuration, which represents the total number of HTTP requests over time per path:</p>
+			<div>
+				<div id="_idContainer361" class="IMG---Figure">
+					<img src="image/B17115_10_12_v2.jpg" alt="Figure 10.12 – Total number of HTTP requests &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.12 – Total number of HTTP requests </p>
+			<p>Save the panel and create a new one to display the response time of the served HTTP requests over time by using the <strong class="source-inline">http_response_time_seconds_sum</strong> expression:</p>
+			<div>
+				<div id="_idContainer362" class="IMG---Figure">
+					<img src="image/B17115_10_13_v2.jpg" alt="Figure 10.13 – HTTP response time  &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.13 – HTTP response time  </p>
+			<p>You can also <a id="_idIndexMarker864"/>create a single stat counter to display the total number of requests per HTTP method using the following configuration:</p>
+			<div>
+				<div id="_idContainer363" class="IMG---Figure">
+					<img src="image/B17115_10_14_v2.jpg" alt="Figure 10.14 – Using Grafana's single stat component&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.14 – Using Grafana's single stat component</p>
+			<p>You can <a id="_idIndexMarker865"/>experiment with the dashboard by adding other panels with metrics and customize it to your liking:</p>
+			<div>
+				<div id="_idContainer364" class="IMG---Figure">
+					<img src="image/B17115_10_15_v2.jpg" alt="Figure 10.15 – Interactive and dynamic Grafana dashboard &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.15 – Interactive and dynamic Grafana dashboard </p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">You can download <strong class="source-inline">dashboard.json</strong>, which contains the Grafana configuration for the preceding dashboard, from the GitHub repository under the <strong class="source-inline">chapter10</strong> folder.</p>
+			<h1 id="_idParaDest-157"><a id="_idTextAnchor164"/>Monitoring server-side metrics</h1>
+			<p>So far, you <a id="_idIndexMarker866"/>have learned how to monitor application-side metrics by instrumenting the Gin application code. In this section, you will learn how to expose server-side metrics and monitor the overall health of the containers running on the Gin distributed web application. </p>
+			<p>To collect server-side metrics, you can use an <a id="_idIndexMarker867"/>open source solution called <strong class="bold">Telegraf </strong>(<a href="https://github.com/influxdata/telegraf">https://github.com/influxdata/telegraf</a>), a <strong class="bold">data collection agent</strong> (<strong class="bold">DCA</strong>) that can <a id="_idIndexMarker868"/>collect metrics from multiple inputs and forward them to different sources:</p>
+			<div>
+				<div id="_idContainer365" class="IMG---Figure">
+					<img src="image/Figure_10.16_B17115.jpg" alt="Figure 10.16 – Collecting server-side metrics with the Telegraf agent&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.16 – Collecting server-side metrics with the Telegraf agent</p>
+			<p>Telegraf can be easily <a id="_idIndexMarker869"/>deployed using Docker. Add the following code block to <strong class="source-inline">docker-compose.yml</strong>:</p>
+			<p class="source-code">telegraf:</p>
+			<p class="source-code">   image: telegraf:latest</p>
+			<p class="source-code">   volumes:</p>
+			<p class="source-code">     - ./telegraf.conf:/etc/telegraf/telegraf.conf</p>
+			<p class="source-code">     - /var/run/docker.sock:/var/run/docker.sock </p>
+			<p><strong class="source-inline">telegraf.conf</strong> contains a list of data sources (<strong class="bold">inputs</strong>) where Telegraf will fetch data from. It also contains a list of destinations (<strong class="bold">outputs</strong>) where the data will be forwarded to. In the following configuration file, Telegraf will collect the metrics about the server resources (memory, CPU, disk, and network traffic) and Docker daemon (usage of resources per container), and then forward these metrics to the Prometheus server:</p>
+			<p class="source-code">[[inputs.cpu]]</p>
+			<p class="source-code"> percpu = false</p>
+			<p class="source-code"> totalcpu = true</p>
+			<p class="source-code"> fieldpass = [ "usage*" ]</p>
+			<p class="source-code">[[inputs.disk]]</p>
+			<p class="source-code"> fielddrop = [ "inodes*" ]</p>
+			<p class="source-code"> mount_points=["/"]</p>
+			<p class="source-code">[[inputs.net]]</p>
+			<p class="source-code"> interfaces = [ "eth0" ]</p>
+			<p class="source-code"> fielddrop = [ "icmp*", "ip*", "tcp*", "udp*" ]</p>
+			<p class="source-code">[[inputs.mem]]</p>
+			<p class="source-code">[[inputs.swap]]</p>
+			<p class="source-code">[[inputs.system]]</p>
+			<p class="source-code">[[inputs.docker]]</p>
+			<p class="source-code"> endpoint = "unix:///var/run/docker.sock"</p>
+			<p class="source-code"> container_names = []</p>
+			<p class="source-code">[[outputs.prometheus_client]]</p>
+			<p class="source-code">listen = "telegraf:9100"</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">You can also forward these metrics to InfluxDB (<a href="https://github.com/influxdata/influxdb">https://github.com/influxdata/influxdb</a>), a <a id="_idIndexMarker870"/>scalable time-series database, and connect it to Grafana. </p>
+			<p>Next, define a new job in <strong class="source-inline">prometheus.yml</strong> to scrape the metrics that have been exposed by the <a id="_idIndexMarker871"/>Telegraf container:</p>
+			<p class="source-code">global:</p>
+			<p class="source-code"> scrape_interval:     15s</p>
+			<p class="source-code"> evaluation_interval: 15s</p>
+			<p class="source-code">scrape_configs:</p>
+			<p class="source-code"> - job_name: prometheus</p>
+			<p class="source-code">   static_configs:</p>
+			<p class="source-code">     - targets: ['localhost:9090']</p>
+			<p class="source-code"> - job_name: recipes-api</p>
+			<p class="source-code">   metrics_path: /prometheus</p>
+			<p class="source-code">   static_configs:</p>
+			<p class="source-code">     - targets:</p>
+			<p class="source-code">       - api:8080</p>
+			<p class="source-code"> - job_name: telegraf</p>
+			<p class="source-code">   scrape_interval: 15s</p>
+			<p class="source-code">   static_configs:</p>
+			<p class="source-code">     - targets: ['telegraf:9100'] </p>
+			<p>With that done, restart the stack with the following command:</p>
+			<p class="source-code">docker-compose up -d</p>
+			<p>Then, head back to the Prometheus dashboard and navigate to <strong class="bold">Targets</strong> from the <strong class="bold">Status</strong> dropdown list. A Telegraf target should have been added to the list:</p>
+			<div>
+				<div id="_idContainer366" class="IMG---Figure">
+					<img src="image/Figure_10.17_B17115.jpg" alt="Figure 10.17 – Telegraf job up and running &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.17 – Telegraf job up and running </p>
+			<p>With the <a id="_idIndexMarker872"/>server-side metrics now available in Prometheus, you can create additional panels in Grafana. </p>
+			<p>For instance, you can select the <strong class="source-inline">docker_container_mem_usage_percent</strong> expression from the <strong class="bold">Metrics</strong> dropdown to monitor the memory usage per container over time:</p>
+			<div>
+				<div id="_idContainer367" class="IMG---Figure">
+					<img src="image/B17115_10_18_v2.jpg" alt="Figure 10.18 – Memory usage per container &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.18 – Memory usage per container </p>
+			<p>Add additional <a id="_idIndexMarker873"/>metrics so that you can monitor the CPU, disk usage, or the overall health metrics of the running containers:</p>
+			<div>
+				<div id="_idContainer368" class="IMG---Figure">
+					<img src="image/B17115_10_19_v2.jpg" alt="Figure 10.19 – Server-side and application-side metrics&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.19 – Server-side and application-side metrics</p>
+			<p>Well done! Now, you <a id="_idIndexMarker874"/>have a pretty interactive dashboard for a minimum amount of time.</p>
+			<h2 id="_idParaDest-158"><a id="_idTextAnchor165"/>Creating a Grafana notification channel</h2>
+			<p>In the previous chapter, you learned <a id="_idIndexMarker875"/>how to use Slack to raise awareness about the CI/CD status for teams to take immediate actions. You can use the same approach while monitoring Gin applications by configuring a Slack alert on your <strong class="bold">Grafana</strong> dashboard when a certain threshold is reached. </p>
+			<p>From the Grafana dashboard, click on the <strong class="bold">Alerting</strong> icon and click on <strong class="bold">Notification channels</strong>. Click on the <strong class="bold">Add Channel</strong> button and change the type to <strong class="bold">Slack</strong>. Then, input a Webhook URL:</p>
+			<div>
+				<div id="_idContainer369" class="IMG---Figure">
+					<img src="image/Figure_10.20_B17115.jpg" alt="Figure 10.20 – Configuring a Slack notification channel&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.20 – Configuring a Slack notification channel</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">For a step-by-step guide on how to create a Slack application and generate a Webhook URL, check out <a href="B17115_09_Final_JM_ePub.xhtml#_idTextAnchor146"><em class="italic">Chapter 9</em></a>, <em class="italic">Implementing a CI/CD Pipeline.</em></p>
+			<p>To <a id="_idIndexMarker876"/>test out the configuration, click on the <strong class="bold">Test</strong> button. You should get a message similar to the following in your configured Slack channel:</p>
+			<div>
+				<div id="_idContainer370" class="IMG---Figure">
+					<img src="image/Figure_10.21_B17115.jpg" alt="Figure 10.21 – Slack test message from Grafana&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.21 – Slack test message from Grafana</p>
+			<p>Now that you have a <a id="_idIndexMarker877"/>notification channel, you can create an alerting rule on the dashboard panel. For instance, create an alert rule on the <strong class="bold">HTTP Requests</strong> graph that you created earlier and select the notification channel in the <strong class="bold">Notifications</strong> section. The rule will look as follows:</p>
+			<div>
+				<div id="_idContainer371" class="IMG---Figure">
+					<img src="image/Figure_10.22_B17115.jpg" alt="Figure 10.22 – Creating an alert rule in Grafana &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.22 – Creating an alert rule in Grafana </p>
+			<p>Every 30 seconds, Grafana will evaluate if the average number of HTTP requests is over 1,000 requests. If the metrics violate this rule, Grafana will wait for 2 minutes. If, after 2 minutes, the metrics have not been recovered, Grafana will trigger an alert and a Slack notification will be sent.</p>
+			<p>To test out the alert rule, you <a id="_idIndexMarker878"/>need to generate a workload. You <a id="_idIndexMarker879"/>can use <strong class="bold">Apache Benchmark</strong> to send 1,500 requests in parallel to the Recipes API with the following command:</p>
+			<p class="source-code">ab -n 1500 http://localhost:8080/recipes</p>
+			<p>Here, the number of requests for the <strong class="source-inline">/recipes</strong> endpoint will cross the 1,000 threshold, as shown in the following graph:</p>
+			<div>
+				<div id="_idContainer372" class="IMG---Figure">
+					<img src="image/Figure_10.23_B17115.jpg" alt="Figure 10.23 – Reaching the 1,000 requests limit&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.23 – Reaching the 1,000 requests limit</p>
+			<p>After 2 minutes, the alert will be triggered, and you will see the following message on your Slack channel:</p>
+			<div>
+				<div id="_idContainer373" class="IMG---Figure">
+					<img src="image/Figure_10.24_B17115.jpg" alt="Figure 10.24 – Slack alert from Grafana &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.24 – Slack alert from Grafana </p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">Another option for setting up metrics alerts is <a id="_idIndexMarker880"/>using Prometheus Alertmanager (<a href="https://prometheus.io/docs/alerting/latest/alertmanager">https://prometheus.io/docs/alerting/latest/alertmanager</a>). </p>
+			<p>Having Slack notifications <a id="_idIndexMarker881"/>can help you take immediate action before things go horribly wrong in your production environment.</p>
+			<h1 id="_idParaDest-159"><a id="_idTextAnchor166"/>Streaming Gin logs to the ELK platform</h1>
+			<p>Another <a id="_idIndexMarker882"/>beneficial aspect to keep an eye on while <a id="_idIndexMarker883"/>deploying a <a id="_idIndexMarker884"/>Gin web application in production is <strong class="bold">logs</strong>. Logs can help you find the root cause of bad application performance or crashes. </p>
+			<p>However, logs can be verbose and spammy – that's why you'll need a centralized platform to be able to apply filters and keep an <a id="_idIndexMarker885"/>eye on important events. That's where a solution <a id="_idIndexMarker886"/>such as <strong class="bold">Elasticsearch</strong>, <strong class="bold">Logstash</strong>, and <strong class="bold">Kibana</strong> (<strong class="bold">ELK</strong>) is <a id="_idIndexMarker887"/>needed. The following schema illustrates how such a solution can be implemented:</p>
+			<div>
+				<div id="_idContainer374" class="IMG---Figure">
+					<img src="image/Figure_10.25_B17115.jpg" alt="Figure 10.25 – Streaming Gin logs to ELK&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.25 – Streaming Gin logs to ELK</p>
+			<p>Gin application logs <a id="_idIndexMarker888"/>will be shipped to Logstash using the Docker GELF driver (<a href="https://docs.docker.com/config/containers/logging/gelf/">https://docs.docker.com/config/containers/logging/gelf/</a>). From there, Logstash will process the <a id="_idIndexMarker889"/>incoming logs and store them in Elasticsearch. Finally, the logs can be visualized in Kibana through interactive dashboards. </p>
+			<h2 id="_idParaDest-160"><a id="_idTextAnchor167"/>Deploying the ELK stack with Docker</h2>
+			<p>By now, you <a id="_idIndexMarker890"/>should be familiar with Docker and be able to use it to deploy a <a id="_idIndexMarker891"/>Dockerized ELK stack using Docker Compose. To do so, follow these steps:</p>
+			<ol>
+				<li value="1">Start <a id="_idIndexMarker892"/>with <strong class="bold">Logstash</strong>. Add the following YAML block to <strong class="source-inline">docker-compose.yml</strong>. The container uses the latest Docker image v7.12.1 (at the time of writing this chapter): <p class="source-code">logstash:</p><p class="source-code">   image: docker.elastic.co/logstash/logstash:7.12.1</p><p class="source-code">   command: logstash -f /etc/logstash/logstash.conf</p><p class="source-code">   volumes:</p><p class="source-code">     - ./logstash.conf:/etc/logstash/logstash.conf</p><p class="source-code">   ports:</p><p class="source-code">     - "5000:5000"</p><p class="source-code">     - "12201:12201"</p><p class="source-code">     - "12201:12201/udp"</p></li>
+				<li>The container <a id="_idIndexMarker893"/>uses a <strong class="source-inline">logstash.conf</strong> with the <a id="_idIndexMarker894"/>following content:<p class="source-code">input {</p><p class="source-code">     gelf {</p><p class="source-code">          type =&gt; docker</p><p class="source-code">         port =&gt; 12201</p><p class="source-code">       }          </p><p class="source-code">}</p><p class="source-code">output {</p><p class="source-code">   elasticsearch {</p><p class="source-code">      hosts =&gt; "elasticsearch:9200"</p><p class="source-code">      index =&gt; "containers-%{+YYYY.MM.dd}"</p><p class="source-code">   }</p><p class="source-code">}</p></li>
+				<li>Next, deploy the second component responsible for storing and indexing incoming logs. Elasticsearch can be deployed in a single-node mode with the following configuration: <p class="source-code">elasticsearch:</p><p class="source-code">   image: docker.elastic.co/elasticsearch</p><p class="source-code">      /elasticsearch:7.12.1</p><p class="source-code">   ports:</p><p class="source-code">     - 9200:9200</p><p class="source-code">   environment:</p><p class="source-code">     - discovery.type=single-node</p><p class="callout-heading">Note</p><p class="callout">For production usage, it's highly recommended deploying Elasticsearch in a cluster mode with multiple data nodes to achieve high availability and resiliency.</p></li>
+				<li>Then, deploy the third <a id="_idIndexMarker895"/>component to visualize the incoming <a id="_idIndexMarker896"/>Gin logs in an interactive way. The following YAML block is responsible for deploying Kibana:<p class="source-code">kibana:</p><p class="source-code">   image: docker.elastic.co/kibana/kibana:7.12.1</p><p class="source-code">   ports:</p><p class="source-code">     - 5601:5601</p><p class="source-code">   environment:</p><p class="source-code">     - ELASTICSEARCH_HOSTS=http://elasticsearch:9200</p></li>
+			</ol>
+			<p>Your ELK stack is now configured! </p>
+			<p>With the ELK stack configured, you need to stream the Gin application logs to Logstash. Luckily, Docker has a built-in <strong class="source-inline">GELF</strong> driver that supports Logstash. To stream the Gin application logs to Logstash, apply the following steps:</p>
+			<ol>
+				<li value="1">Add the following <strong class="source-inline">logging</strong> section to the Recipes API YAML block:<p class="source-code">api:</p><p class="source-code">   build: .</p><p class="source-code">   environment:</p><p class="source-code">     - MONGO_URI=mongodb://admin:password</p><p class="source-code">          @mongodb:27017/test?authSource=admin</p><p class="source-code">          &amp;readPreference=primary&amp;ssl=false</p><p class="source-code">     - MONGO_DATABASE=demo</p><p class="source-code">     - REDIS_URI=redis:6379</p><p class="source-code">     - API_VERSION=1.0.0</p><p class="source-code">   ports:</p><p class="source-code">     - 8080:8080</p><p class="source-code">   restart: always</p><p class="source-code">   logging:</p><p class="source-code">     driver: gelf</p><p class="source-code">     options:</p><p class="source-code">       gelf-address: "udp://127.0.0.1:12201"</p><p class="source-code">       tag: "recipes-api"</p></li>
+				<li>Redeploy the <a id="_idIndexMarker897"/>entire stack with <strong class="source-inline">docker-compose up –d</strong>. You <a id="_idIndexMarker898"/>can check whether all the services are up and running by running the <strong class="source-inline">docker-compose ps</strong> command:<div id="_idContainer375" class="IMG---Figure"><img src="image/Figure_10.26_B17115.jpg" alt="Figure 10.26 – List of running Docker services&#13;&#10;"/></div><p class="figure-caption">Figure 10.26 – List of running Docker services</p><p class="callout-heading">Note</p><p class="callout">Make sure Docker Engine is allotted at least 4 GiB of memory. In Docker Desktop, you can configure resource usage of the <strong class="bold">Advanced</strong> tab in <strong class="bold">Preferences</strong>. </p></li>
+				<li>Then, point your browser to <strong class="source-inline">localhost:5601</strong>. You should be welcomed with the Kibana dashboard:<div id="_idContainer376" class="IMG---Figure"><img src="image/Figure_10.27_B17115.jpg" alt="Figure 10.27 – Kibana welcome page &#13;&#10;"/></div><p class="figure-caption">Figure 10.27 – Kibana welcome page </p></li>
+				<li>Next, click <a id="_idIndexMarker899"/>on <strong class="bold">Add data</strong> and select <strong class="bold">Elasticsearch logs</strong> as a <a id="_idIndexMarker900"/>data source:<div id="_idContainer377" class="IMG---Figure"><img src="image/B17115_10_28_v2.jpg" alt="Figure 10.28 – Adding data from Elasticsearch &#13;&#10;"/></div><p class="figure-caption">Figure 10.28 – Adding data from Elasticsearch </p></li>
+				<li>Click on <strong class="bold">Create index pattern</strong> and type <strong class="source-inline">containers-*</strong> in the <strong class="bold">Index pattern name</strong> field. The <em class="italic">asterix</em> is <a id="_idIndexMarker901"/>used to <a id="_idIndexMarker902"/>include all the logs coming from Logstash. Then, click on the <strong class="bold">Next step</strong> button:<div id="_idContainer378" class="IMG---Figure"><img src="image/Figure_10.29_B17115.jpg" alt="Figure 10.29 – Creating an index pattern &#13;&#10;"/></div><p class="figure-caption">Figure 10.29 – Creating an index pattern </p></li>
+				<li>Select <strong class="source-inline">@timestamp</strong> as the primary <a id="_idIndexMarker903"/>time field to use <a id="_idIndexMarker904"/>with the global time filter. Then, click on <strong class="bold">Create index pattern</strong>:<div id="_idContainer379" class="IMG---Figure"><img src="image/Figure_10.30_B17115.jpg" alt="Figure 10.30 – Configuring a timestamp field for logs &#13;&#10;"/></div><p class="figure-caption">Figure 10.30 – Configuring a timestamp field for logs </p><p>On the subsequent page, you <a id="_idIndexMarker905"/>should see a list that <a id="_idIndexMarker906"/>contains every field in the <strong class="source-inline">containers</strong> index:</p><div id="_idContainer380" class="IMG---Figure"><img src="image/B17115_10_31_v2.jpg" alt="Figure 10.31 – List of available fields in the containers index &#13;&#10;"/></div><p class="figure-caption">Figure 10.31 – List of available fields in the containers index </p></li>
+				<li>With Elasticsearch being connected with Kibana, click on <strong class="bold">Discover</strong> from the sidebar in the <strong class="bold">Analytics</strong> section. You should see a stream of logs coming from the Gin RESTful API:<div id="_idContainer381" class="IMG---Figure"><img src="image/B17115_10_32_v2.jpg" alt="Figure 10.32 – Gin logs in Kibana&#13;&#10;"/></div><p class="figure-caption">Figure 10.32 – Gin logs in Kibana</p><p class="callout-heading">Note</p><p class="callout">For production usage, you can use the curator tool (<a href="https://www.elastic.co/guide/en/elasticsearch/client/curator/index.html">https://www.elastic.co/guide/en/elasticsearch/client/curator/index.html</a>) to remove indices that are older than X days from Elasticsearch. </p></li>
+				<li>Expand a <a id="_idIndexMarker907"/>row <a id="_idIndexMarker908"/>from the list of logs. </li>
+			</ol>
+			<p>You should see that the Gin application log is stored in a field called <strong class="source-inline">message</strong>:</p>
+			<div>
+				<div id="_idContainer382" class="IMG---Figure">
+					<img src="image/B17115_10_33_v2.jpg" alt="Figure 10.33 – Message field content&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.33 – Message field content</p>
+			<p>Now, you have a <a id="_idIndexMarker909"/>working pipeline that reads Gin logs. However, you'll <a id="_idIndexMarker910"/>notice that the format of the log messages is not ideal. You can parse this field and split the important information into multiple fields using Grok expressions.</p>
+			<h2 id="_idParaDest-161"><a id="_idTextAnchor168"/>Writing Grok expressions</h2>
+			<p>Grok expressions work by <a id="_idIndexMarker911"/>parsing text patterns by using regular expressions and assigning them to an identifier. The syntax is <strong class="source-inline">%{PATTERN:IDENTIFIER}</strong>. We can write a sequence of Grok patterns and assign various pieces of the following log message to various identifiers:</p>
+			<p class="source-code">[GIN] 2021/05/13 - 18:45:44 | 200 |   37.429912ms |   172.26.0.1 | GET   "/recipes" </p>
+			<p>The Grok pattern is as follows:</p>
+			<p class="source-code">%{DATE:date} - %{TIME:time} \| %{NUMBER:status} \| %{SPACE} %{NUMBER:requestDuration}%{GREEDYDATA:unit} \| %{SPACE} %{IP:clientIp} \| %{WORD:httpMethod} %{SPACE} %{QUOTEDSTRING:url}</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">Grok comes with its own dictionary of patterns that you can use out of the box. However, you can always define your own custom pattern.</p>
+			<p>You can test the pattern <a id="_idIndexMarker912"/>using the <strong class="bold">Grok Debugger</strong> feature on the <strong class="bold">Dev Tools</strong> page. In the <strong class="bold">Sample Data</strong> field, enter the previous message and in <strong class="bold">Grok Pattern</strong>, enter the Grok pattern. </p>
+			<p>Then, click on <strong class="bold">Simulate</strong>; you'll see the simulated event that results from applying the Grok pattern:</p>
+			<div>
+				<div id="_idContainer383" class="IMG---Figure">
+					<img src="image/B17115_10_34_v2.jpg" alt="Figure 10.34 – Applying a Grok pattern to sample data &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.34 – Applying a Grok pattern to sample data </p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">If an error occurs, you can continue iterating over the custom pattern until the output matches the event that you expect.</p>
+			<p>Now that you have a <a id="_idIndexMarker913"/>working Grok pattern, you can apply parsing at the Logstash level. To do this, update the <strong class="source-inline">logstash.conf</strong> file so that it includes a filter section, as follows:</p>
+			<p class="source-code">input {</p>
+			<p class="source-code">   gelf {</p>
+			<p class="source-code">       type =&gt; docker</p>
+			<p class="source-code">       port =&gt; 12201</p>
+			<p class="source-code">   }      </p>
+			<p class="source-code">}</p>
+			<p class="source-code">filter {</p>
+			<p class="source-code">   grok {</p>
+			<p class="source-code">       match =&gt; {"message" =&gt; "%{DATE:date} - %{TIME:time} </p>
+			<p class="source-code">                 \| %{NUMBER:status} \| %{SPACE}    </p>
+			<p class="source-code">                %{NUMBER:requestDuration}%{GREEDYDATA:unit} </p>
+			<p class="source-code">                \| %{SPACE} %{IP:clientIp} </p>
+			<p class="source-code">                \| %{WORD:httpMethod} %{SPACE} </p>
+			<p class="source-code">                %{QUOTEDSTRING:url}"}</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">}</p>
+			<p class="source-code">output {</p>
+			<p class="source-code">   elasticsearch {</p>
+			<p class="source-code">       hosts =&gt; "elasticsearch:9200"</p>
+			<p class="source-code">       index =&gt; "containers-%{+YYYY.MM.dd}"</p>
+			<p class="source-code">   }</p>
+			<p class="source-code">} </p>
+			<p>Now, if you restart the <a id="_idIndexMarker914"/>Logstash container, the incoming logs should be parsed and split into multiple fields:</p>
+			<div>
+				<div id="_idContainer384" class="IMG---Figure">
+					<img src="image/Figure_10.35_B17115.jpg" alt="Figure 10.35 – Message field split into multiple fields&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.35 – Message field split into multiple fields</p>
+			<p>Create a new <a id="_idIndexMarker915"/>dashboard and click on <strong class="bold">Create panel</strong> to create a new chart:</p>
+			<div>
+				<div id="_idContainer385" class="IMG---Figure">
+					<img src="image/Figure_10.36_B17115.jpg" alt="Figure 10.36 – Creating a new Kibana dashboard &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.36 – Creating a new Kibana dashboard </p>
+			<p>Drag the <strong class="source-inline">status.keyword</strong> field and drop it into the panel. Then, select a <strong class="bold">Stacked bar</strong> chart. You should get the following chart, which represents the number of requests per HTTP status code:</p>
+			<div>
+				<div id="_idContainer386" class="IMG---Figure">
+					<img src="image/B17115_10_37_v2.jpg" alt="Figure 10.37 – Building a chart with the Kibana chart builder&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.37 – Building a chart with the Kibana chart builder</p>
+			<p>You can save the <a id="_idIndexMarker916"/>stacked bar chart as a widget and import it into a dashboard. With a dashboard, you can combine multiple visualizations onto a single page, then filter them by providing a search query or by selecting filters by clicking elements in the visualization. Dashboards are useful when you want to get an overview of your Gin application logs and make correlations among various visualizations and logs.</p>
+			<h2 id="_idParaDest-162"><a id="_idTextAnchor169"/>Updating the Gin logging format</h2>
+			<p>By default, Gin records <a id="_idIndexMarker917"/>every request field to <strong class="bold">standard output</strong> (<strong class="bold">stdout</strong>), which is awesome for troubleshooting and debugging HTTP request errors. However, this can be too verbose for other developers and they can get lost easily and miss the important events. Luckily, you can override this default behavior by creating a custom log formatter. </p>
+			<p>To create a custom log format with Gin, start with the following code block:</p>
+			<p class="source-code">router.Use(gin.LoggerWithFormatter(func(</p>
+			<p class="source-code">                    param gin.LogFormatterParams) string {</p>
+			<p class="source-code">       return fmt.Sprintf("[%s] %s %s %d %s\n",</p>
+			<p class="source-code">           param.TimeStamp.Format("2006-01-02T15:04:05"),</p>
+			<p class="source-code">           param.Method,</p>
+			<p class="source-code">           param.Path,</p>
+			<p class="source-code">           param.StatusCode,</p>
+			<p class="source-code">           param.Latency,</p>
+			<p class="source-code">       )</p>
+			<p class="source-code">}))</p>
+			<p>The code will log the <a id="_idIndexMarker918"/>request timestamp, HTTP method, path, status code, and duration:</p>
+			<div>
+				<div id="_idContainer387" class="IMG---Figure">
+					<img src="image/Figure_10.38_B17115.jpg" alt="Figure 10.38 – Gin custom log format&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.38 – Gin custom log format</p>
+			<p>By default, Gin will output all logs to <strong class="source-inline">stdout</strong>, but you can disable them by setting <strong class="source-inline">GIN_MODE</strong> to release mode with the following command:</p>
+			<p class="source-code">GIN_MODE=release go run main.go</p>
+			<div>
+				<div id="_idContainer388" class="IMG---Figure">
+					<img src="image/Figure_10.39_B17115.jpg" alt="Figure 10.39 – Running Gin in release mode &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.39 – Running Gin in release mode </p>
+			<p>You can also <a id="_idIndexMarker919"/>override the log destination so that it's a file instead of <strong class="source-inline">stdout</strong> with the following code block:</p>
+			<p class="source-code">gin.DisableConsoleColor()</p>
+			<p class="source-code">f, _ := os.Create("debug.log")</p>
+			<p class="source-code">gin.DefaultWriter = io.MultiWriter(f)</p>
+			<p>As a result, a new file called <strong class="source-inline">debug.log</strong> should be created alongside the application logs:</p>
+			<div>
+				<div id="_idContainer389" class="IMG---Figure">
+					<img src="image/Figure_10.40_B17115.jpg" alt="Figure 10.40 – Streaming logs to a file&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.40 – Streaming logs to a file</p>
+			<p>You can stream the file's content to Elasticsearch with Filebeat. <strong class="bold">Filebeat</strong> can <a id="_idIndexMarker920"/>be used as a replacement for Logstash:</p>
+			<div>
+				<div id="_idContainer390" class="IMG---Figure">
+					<img src="image/Figure_10.41_B17115.jpg" alt="Figure 10.41 – Shipping log files with Filebeat to ELK &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.41 – Shipping log files with Filebeat to ELK </p>
+			<p>Add the <a id="_idIndexMarker921"/>following YAML block to <strong class="source-inline">docker-compose.yml</strong> to deploy a container based on the Filebeat v7.12.1 image: </p>
+			<p class="source-code">filebeat:</p>
+			<p class="source-code">   image: docker.elastic.co/beats/filebeat:7.12.1</p>
+			<p class="source-code">   volumes:</p>
+			<p class="source-code">     - ./filebeat.yml:/usr/share/filebeat/filebeat.yml</p>
+			<p class="source-code">     - ./debug.log:/var/log/api/debug.log</p>
+			<p>The container will look in <strong class="source-inline">/usr/share/filebeat</strong> for the configuration file. The configuration file is provided through bind mounts (see the <em class="italic">volumes</em> section). The file's content is as follows. It will listen for logs coming from <strong class="source-inline">/var/log/api/debug.log</strong> and echo any that are received by Elasticsearch:  </p>
+			<p class="source-code">filebeat.inputs:</p>
+			<p class="source-code">- type: log</p>
+			<p class="source-code">  paths:</p>
+			<p class="source-code">   - /var/log/api/debug.log</p>
+			<p class="source-code">output.elasticsearch:</p>
+			<p class="source-code">  hosts: 'http://elasticsearch:9200'</p>
+			<p>Restart the stack with the <strong class="source-inline">docker-compose up –d</strong> command. The list of running Docker services is as follows:</p>
+			<div>
+				<div id="_idContainer391" class="IMG---Figure">
+					<img src="image/Figure_10.42_B17115.jpg" alt="Figure 10.42 – Filebeat running as a Docker container &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.42 – Filebeat running as a Docker container </p>
+			<p>Issue a few requests to the <a id="_idIndexMarker922"/>Recipes API. At this point, Gin will forward the logs to <strong class="source-inline">debug.log</strong> and Filebeat will stream them into Elasticsearch. From there, you can visualize them in real time in Kibana:</p>
+			<div>
+				<div id="_idContainer392" class="IMG---Figure">
+					<img src="image/Figure_10.43_B17115.jpg" alt="Figure 10.43 – Visualizing logs coming from Filebeat&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 10.43 – Visualizing logs coming from Filebeat</p>
+			<p>Great! You can now use the Kibana dashboard to analyze Gin logs in real time. Analyzing those logs can provide a lot of information that helps with troubleshooting the root cause of Gin application failure.</p>
+			<h1 id="_idParaDest-163"><a id="_idTextAnchor170"/>Summary</h1>
+			<p>In this chapter, you learned how to instrument Gin application code to expose application-side metrics using Prometheus. You saw how to build a dynamic dashboard with Grafana to monitor the overall health of a Gin application in near-real time, as well as how to trigger a Slack alert when certain thresholds are crossed.</p>
+			<p>Then, you learned how to stream Gin logs to a centralized logging platform built using open source tools such as Logstash, Elasticsearch, and Kibana. Along the way, you learned how to parse Gin logs with Grok patterns and how to build charts on top of these parsed fields.</p>
+			<p>Congratulations! Now, you can design, build, and deploy a distributed Gin application from scratch. You also have a solid foundation regarding how to automate the deployment workflow and monitor a running Gin application in production.</p>
+			<h1 id="_idParaDest-164"><a id="_idTextAnchor171"/>Further reading</h1>
+			<ul>
+				<li><em class="italic">Learn Grafana 7.0</em> by Eric Salituro, Packt publishing</li>
+				<li><em class="italic">Hands-On Infrastructure Monitoring with Prometheus</em> by Joel Bastos and Pedro Arajo, Packt publishing</li>
+			</ul>
+		</div>
+	
+
+		<div id="_idContainer394">
+			<h1 id="_idParaDest-165"><a id="_idTextAnchor172"/>Conclusion</h1>
+			<p>We're at the end of our journey through this book! You've made it to the very end. I hope that you're proud of the journey you've taken. You've learned the ins and outs of the Gin framework and put together a fully functional distributed Gin application.</p>
+			<p>By now, you should know all you need to know to build a scalable Dockerized Gin application, from handling multiple Git branches with GitFlow to automating the build on AWS with a CI/CD pipeline, troubleshooting and monitoring in near-real-time, and generating API documentation with OpenAPI.</p>
+			<p>There's a lot to absorb and learn in this book, especially if this is your first exposure to the Gin framework. I find that the best way to learn is by doing, so take the RESTful API you've built and add new features to it. And if you do build something, reach out to me and tell me what you've done.</p>
+		</div>
+	</body></html>

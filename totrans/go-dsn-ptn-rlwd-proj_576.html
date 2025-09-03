@@ -1,0 +1,75 @@
+<html><head></head><body>
+<div class="book" title="Using it all - concurrent singleton">
+<div class="book" title="Implementation"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_2"><a id="ch08lvl2sec0210" class="calibre1"/>Implementation</h2></div></div></div><p class="calibre10">First of all, we'll create the Goroutine that will hold the count:</p><pre class="programlisting">var addCh chan bool = make(chan bool) 
+var getCountCh chan chan int = make(chan chan int) 
+var quitCh chan bool = make(chan bool) 
+ 
+func init() { 
+  var count int 
+ 
+  go func(addCh &lt;-chan bool, getCountCh &lt;-chan chan int, quitCh &lt;-chan bool) { 
+    for { 
+      select { 
+      case &lt;-addCh: 
+        count++ 
+      case ch := &lt;-getCountCh: 
+        ch &lt;- count 
+      case &lt;-quitCh: 
+        return 
+      } 
+    } 
+  }(addCh, getCountCh, quitCh) 
+} 
+</pre><p class="calibre10">We created three channels, as we mentioned earlier:</p><div class="book"><ul class="itemizedlist"><li class="listitem">The <code class="email">addCh</code> channel is used to communicate with the action of adding one to the count, and receives a <code class="email">bool</code> type just to signal "add one" (we don't need to send the number, although we could).</li><li class="listitem">The <code class="email">getCountCh</code> channel will return a channel that will receive the current value of the count. Take a moment to reason about the <code class="email">getCountCh</code> channel-it's a channel that receives a channel that receives integer types. It sounds a bit complicated, but it will make more sense when we finish the example, don't worry.</li><li class="listitem">The <code class="email">quitCh</code> channel will communicate to the Goroutine that it should end its infinite loop and finish itself too.</li></ul></div><p class="calibre10">Now we have the channels that we need to perform the actions we want. Next, we launch the Goroutine passing the channels as arguments. As you can see, we are restricting the direction of the channels to provide more type safety. Inside this Goroutine, we create an infinite <code class="email">for</code> loop. This loop won't stop until a break is executed within it.</p><p class="calibre10">Finally, the <code class="email">select</code> statement, if you remember, was a way to receive data from different channels at the same time. We have three cases, so we listen to the three incoming channels that entered as arguments:</p><div class="book"><ul class="itemizedlist"><li class="listitem">The <code class="email">addCh</code> case will add one to the count. Remember that only one case can be executed on each iteration so that no Goroutine could be accessing the current count until we finish adding one.</li><li class="listitem">The <code class="email">getCountCh</code> channel receives a channel that receives an integer, so we capture this new channel and send the current value through it to the other end.</li><li class="listitem">The <code class="email">quitCh</code> channel breaks the <code class="email">for</code> loop, so the Goroutine ends.</li></ul></div><p class="calibre10">One last thing. The <code class="email">init()</code> function in any package will get executed on program execution, so we don't need to worry about executing this function specifically from our code.</p><p class="calibre10">Now, we'll create the type that the tests are expecting. We will see that all the magic and logic is hidden from the end user in this type (as we have seen in the code of the test):</p><pre class="programlisting">type singleton struct {} 
+ 
+var instance singleton 
+func GetInstance() *singleton { 
+  return &amp;instance 
+} 
+</pre><p class="calibre10">The <code class="email">singleton</code> type works similar to the way it worked in <a class="calibre1" title="Chapter 2. Creational Patterns - Singleton, Builder, Factory, Prototype, and Abstract Factory Design Patterns" href="part0111_split_000.html#39REE2-9c484ed022e64a0fb0e1aebf8e05d4fd">
+Chapter 2
+</a>, <span class="strong"><em class="calibre11">Creational Patterns - Singleton, Builder, Factory, Prototype, and Abstract Factory</em></span>, but this time it won't hold the count value. We created a local value for it called <code class="email">instance</code>, and we return the pointer to this instance when we call the <code class="email">GetInstance()</code> method. It is not strictly necessary to do it this way, but we don't need to allocate a new instance of the <code class="email">singleton</code> type every time we want to access the count variable.</p><p class="calibre10">First, the <code class="email">AddOne()</code> method will have to add one to the current count. How? By sending <code class="email">true</code> to the <code class="email">addCh</code> channel. That's simple:</p><pre class="programlisting">func (s *singleton) AddOne() { 
+  addCh &lt;- true 
+} 
+</pre><p class="calibre10">This small snippet will trigger the <code class="email">addCh</code> case in our Goroutine in turn. The <code class="email">addCh</code> case simply executes <code class="email">count++</code> and finishes, letting <code class="email">select</code> channel control flow that is executed on <code class="email">init</code> function above to execute the next instruction:</p><pre class="programlisting">func (s *singleton) GetCount() int { 
+  resCh := make(chan int) 
+  defer close(resCh) 
+  getCountCh &lt;- resCh 
+  return &lt;-resCh 
+} 
+</pre><p class="calibre10">The <code class="email">GetCount</code> method creates a channel every time it's called and defers the action of closing it at the end of the function. This channel is unbuffered as we have seen previously in this chapter. An unbuffered channel blocks the execution until it receives some data. So we send this channel to <code class="email">getCountCh</code> which is a channel too and, effectively, expects a <code class="email">chan int</code> type to send the current count value back through it. The <code class="email">GetCount()</code> method will not return until the value of <code class="email">count</code> variable arrives to the <code class="email">resCh</code> channel.</p><p class="calibre10">You might be thinking, why aren't we using the same channel in both directions to receive the value of the count? This way we will avoid an allocation. Well, if we use the same channel inside the <code class="email">GetCount()</code> method, we will have two listeners in this channel--one in <code class="email">select</code> statement, at the beginning of the file on the <code class="email">init</code> function, and one there, so it could resolve to any of them when sending the value back:</p><pre class="programlisting">func (s *singleton) Stop() { 
+  quitCh &lt;- true 
+  close(addCh) 
+  close(getCountCh) 
+  close(quitCh) 
+} 
+</pre><p class="calibre10">Finally, we have to stop the Goroutine at some moment. The <code class="email">Stop</code> method sends the value to the <code class="email">singleton</code> type Goroutine so that the <code class="email">quitCh</code> case is triggered and the <code class="email">for</code> loop is broken. The next step is to close all channels so that no more data can be sent through them. This is very convenient when you know that you won't be using some of your channels anymore.</p><p class="calibre10">Time to execute the tests and take a look:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ go test -v .</strong></span>
+<span class="strong"><strong class="calibre2">=== RUN   TestStartInstance</strong></span>
+<span class="strong"><strong class="calibre2">Before loop, current count is 4911</strong></span>
+<span class="strong"><strong class="calibre2">--- PASS: TestStartInstance (0.03s)</strong></span>
+<span class="strong"><strong class="calibre2">PASS</strong></span>
+<span class="strong"><strong class="calibre2">ok</strong></span>
+</pre><p class="calibre10">Very little code output, but everything has worked as expected. In the test, we printed the value of the count before entering the loop that iterates until it reaches the value 10,000. As we saw previously, the Go scheduler will try to run the content of the Goroutines using as many OS threads as you configured by using the <code class="email">GOMAXPROCS</code> configuration. In my computer, it is set to <code class="email">4</code> because my computer has four cores. But the point is that we can see that a lot of things can happen after launching a Goroutine (or 10,000) and the next execution line.</p><p class="calibre10">But what about its use of mutexes?</p><pre class="programlisting">type singleton struct { 
+  count int 
+  sync.RWMutex 
+} 
+ 
+var instance singleton 
+ 
+func GetInstance() *singleton { 
+  return &amp;instance 
+} 
+ 
+func (s *singleton) AddOne() { 
+  s.Lock() 
+  defer s.Unlock() 
+  s.count++ 
+} 
+ 
+func (s *singleton) GetCount()int { 
+  s.RLock() 
+  defer s.RUnlock() 
+  return s.count 
+} 
+</pre><p class="calibre10">In this case, the code is much leaner. As we saw previously, we can embed the mutex within the <code class="email">singleton</code> structure. The count is also held in the <code class="email">count</code> field and the <code class="email">AddOne()</code> and <code class="email">GetCount()</code> methods lock and unlock the value to be concurrently safe.</p><p class="calibre10">One more thing. In this <code class="email">singleton</code> instance, we are using the <code class="email">RWMutex</code> type instead of the already known <code class="email">sync.Mutex</code> type. The main difference here is that the <code class="email">RWMutex</code> type has two types of locks--a read lock and a write lock. The read lock, executed by calling the <code class="email">RLock</code> method, only waits if a write lock is currently active. At the same time, it only blocks a write lock, so that many read actions can be done in parallel. It makes a lot of sense; we don't want to block a Goroutine that wants to read a value just because another Goroutine is also reading the value-it won't change. The <code class="email">sync.RWMutex</code> type helps us to achieve this logic in our code.</p></div></div></body></html>

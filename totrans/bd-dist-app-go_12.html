@@ -1,0 +1,380 @@
+<html><head></head><body>
+		<div id="_idContainer349">
+			<h1 id="_idParaDest-139"><a id="_idTextAnchor146"/>Chapter 9: Implementing a CI/CD Pipeline</h1>
+			<p>This chapter will show you how to build a CI/CD workflow to automate the deployment of a Gin service. We will also discuss the importance of embracing a GitFlow approach while building a Gin-based API.</p>
+			<p>In this chapter, we will cover the following topics:</p>
+			<ul>
+				<li>Exploring CI/CD practices</li>
+				<li>Building a continuous integration workflow</li>
+				<li>Maintaining multiple runtime environments</li>
+				<li>Implementing continuous delivery</li>
+			</ul>
+			<p>By the end of this chapter, you will be able to automate the test, build, and deploy process of a Gin web application.</p>
+			<h1 id="_idParaDest-140"><a id="_idTextAnchor147"/>Technical requirements</h1>
+			<p>To follow the content in this chapter, you will need the following:</p>
+			<ul>
+				<li>A complete understanding of the previous chapter. This chapter is a follow-up of the previous one as it will be using the same source code. Hence, some snippets won't be explained to avoid repetition.</li>
+				<li>Previous experience with CI/CD practices is highly recommended so that you can follow this chapter with ease.</li>
+			</ul>
+			<p>The code bundle for this chapter is hosted on GitHub at <a href="https://github.com/PacktPublishing/Building-Distributed-Applications-in-Gin/tree/main/chapter09">https://github.com/PacktPublishing/Building-Distributed-Applications-in-Gin/tree/main/chapter09</a>.</p>
+			<h1 id="_idParaDest-141"><a id="_idTextAnchor148"/>Exploring CI/CD practices</h1>
+			<p>In the previous chapters, you <a id="_idIndexMarker745"/>learned how to design, build, and deploy a Gin web application on AWS. Currently, deploying new changes can be a time-consuming process. When deploying to an EC2 instance, Kubernetes, or <strong class="bold">Platform as a Service</strong> (<strong class="bold">PaaS</strong>), there are <a id="_idIndexMarker746"/>manual steps involved that help the new changes be pushed out of the door. </p>
+			<p>Luckily, many of these deployment steps can be automated, thus saving development time, removing possibilities for human errors, and reducing release cycle times. That's why in this section, you will learn how to embrace <strong class="bold">continuous integration</strong> (<strong class="bold">CI</strong>), <strong class="bold">continuous deployment</strong> (<strong class="bold">CD</strong>) and <strong class="bold">continuous delivery</strong> to accelerate the <strong class="bold">time to market</strong> (<strong class="bold">TTM</strong>) of <a id="_idIndexMarker747"/>your application, as well as to ensure high-quality features shipment through each iteration. But first, what do these practices mean?</p>
+			<h2 id="_idParaDest-142"><a id="_idTextAnchor149"/>Continuous integration</h2>
+			<p><strong class="bold">Continuous integration</strong> (<strong class="bold">CI</strong>) is the <a id="_idIndexMarker748"/>process of having a centralized code repository (for example, GitHub, Bitbucket, GitLab, and so on) and making all the changes and features go through a pipeline before integrating them into the remote repository. A classic pipeline triggers a build whenever a code commit (or push event) occurs, runs pre-integrations tests, builds the artifact (for example, Docker image, JAR, an npm package, and so on), and pushes the results into a private registry for versioning:</p>
+			<div>
+				<div id="_idContainer304" class="IMG---Figure">
+					<img src="image/Figure_9.1_B17115.jpg" alt="Figure 9.1 – CI/CD practices&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.1 – CI/CD practices</p>
+			<p>As shown in the preceding diagram, the CI workflow consists of the following stages: <strong class="bold">Checkout</strong>, <strong class="bold">Test</strong>, <strong class="bold">Build</strong>, and <strong class="bold">Push</strong>.</p>
+			<h2 id="_idParaDest-143"><a id="_idTextAnchor150"/>Continuous deployment</h2>
+			<p><strong class="bold">Continuous deployment</strong> (<strong class="bold">CD</strong>), on the other hand, is an <a id="_idIndexMarker749"/>extension of the CI workflow. Every change that passes through all the stages of the CI pipeline is released automatically placed onto a staging or preprod environment, where the QA team can run validation and acceptance tests.</p>
+			<h2 id="_idParaDest-144"><a id="_idTextAnchor151"/>Continuous delivery</h2>
+			<p><strong class="bold">Continuous delivery</strong> is similar to CD but requires human intervention or business <a id="_idIndexMarker750"/>validation before you can deploy the new release to a production environment. This human involvement could include manual deployment, which is typically performed by a QA engineer, or something as simple as clicking a button. This differs from CD, where every successful build is released to the staging environment.</p>
+			<p>Embracing these three practices can help in improving the code's quality and testability, and also helps reduce the risk of shipping broken releases to production.</p>
+			<p>Now that you understand what these three components are, by the end of this chapter, you will be able to build an end-to-end deployment process for our Gin web application, similar to the one shown in the following diagram: </p>
+			<div>
+				<div id="_idContainer305" class="IMG---Figure">
+					<img src="image/Figure_9.2_B17115.jpg" alt="Figure 9.2 – CI/CD pipeline&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.2 – CI/CD pipeline</p>
+			<p>The preceding <a id="_idIndexMarker751"/>pipeline is divided into the following stages:</p>
+			<ul>
+				<li><strong class="bold">Checkout</strong>: Pulls the latest changes from the project's GitHub repository.</li>
+				<li><strong class="bold">Test</strong>: Runs unit and quality tests within a Docker container.</li>
+				<li><strong class="bold">Build</strong>: Compiles and builds a Docker image from a Dockerfile.</li>
+				<li><strong class="bold">Push</strong>: Tags the image and stores it in a private registry.</li>
+				<li><strong class="bold">Deploy</strong>: Deploys and promotes the changes to an AWS environment (EC2, EKS, or ECS).<p class="callout-heading">Note</p><p class="callout">We're using CircleCI as a CI server, but the same workflow can be implemented with other CI solutions such as Jenkins, Travis CI, GitHub Actions, and so on.</p></li>
+			</ul>
+			<h1 id="_idParaDest-145"><a id="_idTextAnchor152"/>Building a CI workflow</h1>
+			<p>The application we <a id="_idIndexMarker752"/>built for this book is versioned in a GitHub repository. This repository uses the GitFlow model as a branching strategy, where three main branches are used. Each branch represents a runtime environment for the application:</p>
+			<ul>
+				<li><strong class="bold">Master branch</strong>: This branch <a id="_idIndexMarker753"/>corresponds to the <a id="_idIndexMarker754"/>code running in the production environment.</li>
+				<li><strong class="bold">Preprod branch</strong>: The staging <a id="_idIndexMarker755"/>environment –  a mirror of the <a id="_idIndexMarker756"/>production environment.</li>
+				<li><strong class="bold">Develop branch</strong>: The <a id="_idIndexMarker757"/>sandbox or development <a id="_idIndexMarker758"/>environment.</li>
+			</ul>
+			<p>To promote the application from one environment to another, you <a id="_idIndexMarker759"/>can create <strong class="bold">feature branches</strong>. You can <a id="_idIndexMarker760"/>also create <strong class="bold">hotfix branches</strong> for major bugs or issues.</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">To learn more about GitFlow workflows and best practices, check out the official documentation: <a href="https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow">https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow</a>.</p>
+			<p>The following figure shows what your Project's GitHub repository would look like:</p>
+			<div>
+				<div id="_idContainer306" class="IMG---Figure">
+					<img src="image/Figure_9.3_B17115.jpg" alt="Figure 9.3 – Project's GitHub repository&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.3 – Project's GitHub repository</p>
+			<p>You will be <a id="_idIndexMarker761"/>using <strong class="bold">CircleCI</strong> to automate the CI/CD workflow. If you don't have a CircleCI account already, sign <a id="_idIndexMarker762"/>up for free using your GitHub account at https://circleci.com. The principles of CI/CD remain the same, regardless of the CI server:</p>
+			<div>
+				<div id="_idContainer307" class="IMG---Figure">
+					<img src="image/Figure_9.4_B17115.jpg" alt="Figure 9.4 – CircleCI landing page&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.4 – CircleCI landing page</p>
+			<p>Once you've signed up, you <a id="_idIndexMarker763"/>need to configure CircleCI to run the application tests and build the Docker image. To do so, you need to describe all the steps in a template file and save it within the code's GitHub repository. This approach is called <strong class="bold">Pipeline as Code</strong>.</p>
+			<h2 id="_idParaDest-146"><a id="_idTextAnchor153"/>Pipeline as Code</h2>
+			<p>When a CircleCI build is triggered, it looks <a id="_idIndexMarker764"/>for a <strong class="source-inline">.circleci/config.yml</strong> file. This file contains the instructions to be <a id="_idIndexMarker765"/>executed on the CI server.</p>
+			<p>Start by creating a <strong class="source-inline">.circleci</strong> folder and a <strong class="source-inline">.config.yml</strong> file with the following content:</p>
+			<p class="source-code">version: 2.1</p>
+			<p class="source-code">executors:</p>
+			<p class="source-code"> environment:</p>
+			<p class="source-code">   docker:</p>
+			<p class="source-code">     - image: golang:1.15.6</p>
+			<p class="source-code">   working_directory: </p>
+			<p class="source-code">jobs:</p>
+			<p class="source-code"> test:</p>
+			<p class="source-code">   executor: environment</p>
+			<p class="source-code">   steps:</p>
+			<p class="source-code">     - checkout</p>
+			<p class="source-code">workflows:</p>
+			<p class="source-code"> ci_cd:</p>
+			<p class="source-code">   jobs:</p>
+			<p class="source-code">     - test</p>
+			<p>The preceding <a id="_idIndexMarker766"/>code snippet will run the <a id="_idIndexMarker767"/>workflow inside an environment powered by a Golang v1.15.6 Docker image. Most of the CI/CD steps will be performed with Docker, which makes running builds locally a breeze and keeps our options open if we want to migrate to a different CI server in the future (versus vendor lock-in). The first job to be run is the test stage, which consists of the following steps:</p>
+			<p class="source-code">jobs:</p>
+			<p class="source-code"> test:</p>
+			<p class="source-code">   executor: environment</p>
+			<p class="source-code">   steps:</p>
+			<p class="source-code">     - checkout</p>
+			<p class="source-code">     - restore_cache:</p>
+			<p class="source-code">         keys:</p>
+			<p class="source-code">           - go-mod-v4-{{ checksum "go.sum" }}</p>
+			<p class="source-code">     - run:</p>
+			<p class="source-code">         name: Install Dependencies</p>
+			<p class="source-code">         command: go mod download</p>
+			<p class="source-code">     - save_cache:</p>
+			<p class="source-code">         key: go-mod-v4-{{ checksum "go.sum" }}</p>
+			<p class="source-code">         paths:</p>
+			<p class="source-code">           - "/go/pkg/mod"</p>
+			<p class="source-code">     - run:</p>
+			<p class="source-code">         name: Code linting</p>
+			<p class="source-code">         command: &gt;</p>
+			<p class="source-code">           go get -u golang.org/x/lint/golint</p>
+			<p class="source-code">           golint ./...</p>
+			<p class="source-code">     - run:</p>
+			<p class="source-code">         name: Unit tests</p>
+			<p class="source-code">         command: go test -v ./...</p>
+			<p>The <strong class="source-inline">test</strong> job will <a id="_idIndexMarker768"/>fetch the latest <a id="_idIndexMarker769"/>changes from this <a id="_idIndexMarker770"/>project's GitHub repository using the <strong class="source-inline">checkout</strong> instruction. Then, it will download the project dependencies and cache them for future usage (to reduce the workflow duration), after which, it will run a series of tests:</p>
+			<ul>
+				<li><strong class="bold">Code linting</strong>: This checks if the <a id="_idIndexMarker771"/>code respects standard coding conventions.</li>
+				<li><strong class="bold">Unit tests</strong>: This executes the <a id="_idIndexMarker772"/>unit tests we wrote in previous chapters.</li>
+			</ul>
+			<p>With the CircleCI config ready, let's create a <a id="_idIndexMarker773"/>project on CircleCI for the Gin application. To do so, follow these steps:</p>
+			<ol>
+				<li>Jump to the CircleCI console and click on <strong class="bold">Set up Project</strong>, next to the project's repository: <div id="_idContainer308" class="IMG---Figure"><img src="image/Figure_9.5_B17115.jpg" alt="Figure 9.5 – Setting up a CircleCI project&#13;&#10;"/></div><p class="figure-caption">Figure 9.5 – Setting up a CircleCI project</p></li>
+				<li>Click <a id="_idIndexMarker774"/>on the <strong class="bold">Use Existing Config</strong> button, since we already have a CircleCI configuration, and click on <strong class="bold">Start Building</strong>: <div id="_idContainer309" class="IMG---Figure"><img src="image/Figure_9.6_B17115.jpg" alt="Figure 9.6 – CircleCI configuration&#13;&#10;"/></div><p class="figure-caption">Figure 9.6 – CircleCI configuration</p></li>
+				<li>A new pipeline will start; however, it will fail due to no <strong class="source-inline">config.yml</strong> file existing in the code repository. This error is shown in the following screenshot:<div id="_idContainer310" class="IMG---Figure"><img src="image/Figure_9.7_B17115.jpg" alt="Figure 9.7 – Pipeline failed&#13;&#10;"/></div><p class="figure-caption">Figure 9.7 – Pipeline failed</p></li>
+				<li>Push the CircleCI configuration to the <a id="_idIndexMarker775"/>GitHub repository on the develop branch by running the following commands:<p class="source-code"><strong class="bold">git add .</strong></p><p class="source-code"><strong class="bold">git commit –m "added test stage"</strong></p><p class="source-code"><strong class="bold">git push origin develop</strong></p><p>A new pipeline will be triggered automatically. The output will be something similar to the following:</p><div id="_idContainer311" class="IMG---Figure"><img src="image/Figure_9.8_B17115.jpg" alt="Figure 9.8 – Pipeline has been triggered automatically&#13;&#10;"/></div><p class="figure-caption">Figure 9.8 – Pipeline has been triggered automatically</p></li>
+				<li>Click on the <strong class="bold">test</strong> job. <p>You should see the steps described in the <strong class="source-inline">config.yml</strong> file. All the tests will pass, and you will be able to build your Docker image:</p><div id="_idContainer312" class="IMG---Figure"><img src="image/Figure_9.9_B17115.jpg" alt="Figure 9.9 – Running automated tests&#13;&#10;"/></div><p class="figure-caption">Figure 9.9 – Running automated tests</p><p>It's worth <a id="_idIndexMarker776"/>mentioning that the pipeline was triggered automatically because upon setting up the CircleCI project, a webhook was created automatically in the project's GitHub repository. This way, for each push event, a notification is sent to CircleCI servers to trigger the corresponding CircleCI pipeline:</p><div id="_idContainer313" class="IMG---Figure"><img src="image/Figure_9.10_B17115.jpg" alt="Figure 9.10 – GitHub Webhook&#13;&#10;"/></div><p class="figure-caption">Figure 9.10 – GitHub Webhook</p><p>Let's move on to the <a id="_idIndexMarker777"/>next step of integrating the application by building a Docker image.</p></li>
+				<li>Add a <strong class="source-inline">build</strong> job to the CI/CD workflow:<p class="source-code">workflows:</p><p class="source-code"> ci_cd:</p><p class="source-code">   jobs:</p><p class="source-code">     - test</p><p class="source-code">     - build</p></li>
+				<li>The <strong class="source-inline">build</strong> job is <a id="_idIndexMarker778"/>responsible for building a Docker image based on our <strong class="source-inline">Dockerfile</strong>, which is stored within the code repository. Then, it tags the built image and stores it in a remote Docker registry for versioning:<p class="source-code">build:</p><p class="source-code">    executor: environment</p><p class="source-code">   steps:</p><p class="source-code">     - checkout</p><p class="source-code">     - setup_remote_docker:</p><p class="source-code">        version: 19.03.13</p><p class="source-code">     - run:</p><p class="source-code">         name: Build image</p><p class="source-code">         command: &gt;</p><p class="source-code">           TAG=0.1.$CIRCLE_BUILD_NUM</p><p class="source-code">           docker build -t USER/recipes-api:$TAG .</p><p class="source-code">     - run:</p><p class="source-code">         name: Push image</p><p class="source-code">         command: &gt;</p><p class="source-code">           docker tag USER/recipes-api:$TAG </p><p class="source-code">               ID.dkr.ecr.REGION.amazonaws.com/USER/</p><p class="source-code">               recipes-api:$TAG</p><p class="source-code">           docker tag USER/recipes-api:$TAG </p><p class="source-code">               ID.dkr.ecr.REGION.amazonaws.com/USER/</p><p class="source-code">               recipes-api:develop</p><p class="source-code">           docker push ID.dkr.ecr.REGION.amazonaws.com/</p><p class="source-code">               USER/recipes-api:$TAG</p><p class="source-code">           docker push ID.dkr.ecr.REGION.amazonaws.com/</p><p class="source-code">               USER/recipes-api:develop</p><p class="callout-heading">Note</p><p class="callout">If you're interested in the Dockerfile, you can find it in this book's GitHub repository at <a href="https://github.com/PacktPublishing/Building-Distributed-Applications-in-Gin/blob/main/chapter10/Dockerfile">https://github.com/PacktPublishing/Building-Distributed-Applications-in-Gin/blob/main/chapter10/Dockerfile</a>.</p><p>To tag the image, we <a id="_idIndexMarker779"/>will be using semantic versioning (<a href="https://semver.org">https://semver.org</a>). The version's format is three digits, separated by a dot: </p><div id="_idContainer314" class="IMG---Figure"><img src="image/Figure_9.11_B17115.jpg" alt="Figure 9.11 – Semantic versioning&#13;&#10;"/></div><p class="figure-caption">Figure 9.11 – Semantic versioning</p><p>The major version is increased when new changes break the API (backward-incompatible changes). The minor version is incremented when new features are released, while the patch version is incremented with bug fixes.</p><p>In the CircleCI configuration, you're using the <strong class="source-inline">$CIRCLE_BUILD_NUM</strong> environment <a id="_idIndexMarker780"/>variable to create a unique version for each Docker image that's built via the development cycle of our Gin application. Another alternative is using the <strong class="source-inline">CIRCLE_SHA1</strong> variable, which is the SHA1 hash of the Git commit that triggered the CI build.</p></li>
+				<li>Once the image has been tagged, store it in a private registry. In the previous example, you <a id="_idIndexMarker781"/>were using an <strong class="bold">Elastic Container Registry</strong> (<strong class="bold">ECR</strong>) as a private repository, but another solution such as DockerHub can be used as well.</li>
+				<li>Push the changes to the develop branch with the following command:<p class="source-code"><strong class="bold">git add .</strong></p><p class="source-code"><strong class="bold">git commit –m "added build stage"</strong></p><p class="source-code"><strong class="bold">git push origin develop</strong></p></li>
+			</ol>
+			<p>A new pipeline will be triggered. Once the <strong class="source-inline">test</strong> job has completed, the <strong class="source-inline">build</strong> job will be executed, as shown in the following screenshot:</p>
+			<div>
+				<div id="_idContainer315" class="IMG---Figure">
+					<img src="image/Figure_9.12_B17115.jpg" alt="Figure 9.12 – Running a &quot;build&quot; job&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.12 – Running a "build" job</p>
+			<p>The following are the <strong class="source-inline">build</strong> job's steps. The test should fail at the <strong class="bold">Push image</strong> step because CircleCI wasn't able to push the image to ECR due to a lack of AWS permissions:</p>
+			<div>
+				<div id="_idContainer316" class="IMG---Figure">
+					<img src="image/Figure_9.13_B17115.jpg" alt="Figure 9.13 – Push image step&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.13 – Push image step</p>
+			<p>Let us now see how you can configure your CI and CD workflows:</p>
+			<ol>
+				<li value="1">To allow CircleCI to interact with <a id="_idIndexMarker782"/>your ECR repository, create a <a id="_idIndexMarker783"/>dedicated IAM user with proper IAM policies.</li>
+				<li>Jump to the <a id="_idIndexMarker784"/>AWS Management Console (<a href="https://console.aws.amazon.com/">https://console.aws.amazon.com/</a>) and navigate <a id="_idIndexMarker785"/>to the <strong class="bold">Identity and Access Management</strong> (<strong class="bold">IAM</strong>) console. Then, create a new IAM user for CircleCI. Check the <strong class="bold">Programmatic access</strong> box, as shown in the following screenshot:<div id="_idContainer317" class="IMG---Figure"><img src="image/Figure_9.14_B17115.jpg" alt="Figure 9.14 – CircleCI IAM user&#13;&#10;"/></div><p class="figure-caption">Figure 9.14 – CircleCI IAM user</p></li>
+				<li>Attach the <a id="_idIndexMarker786"/>following IAM policy to the IAM user. This <a id="_idIndexMarker787"/>statement allows CircleCI to push a Docker image to the ECR repository. Make sure that you substitute <strong class="source-inline">ID</strong> as needed:<p class="source-code"><strong class="bold">{</strong></p><p class="source-code"><strong class="bold">    "Version": "2008-10-17",</strong></p><p class="source-code"><strong class="bold">    "Statement": [</strong></p><p class="source-code"><strong class="bold">        {</strong></p><p class="source-code"><strong class="bold">            "Sid": "AllowPush",</strong></p><p class="source-code"><strong class="bold">            "Effect": "Allow",</strong></p><p class="source-code"><strong class="bold">            "Principal": {</strong></p><p class="source-code"><strong class="bold">                "AWS": [</strong></p><p class="source-code"><strong class="bold">                    "arn:aws:iam::ID:circleci/</strong></p><p class="source-code"><strong class="bold">                                  push-pull-user-1"</strong></p><p class="source-code"><strong class="bold">                ]</strong></p><p class="source-code"><strong class="bold">            },</strong></p><p class="source-code"><strong class="bold">            "Action": [</strong></p><p class="source-code"><strong class="bold">                "ecr:PutImage",</strong></p><p class="source-code"><strong class="bold">                "ecr:InitiateLayerUpload",</strong></p><p class="source-code"><strong class="bold">                "ecr:UploadLayerPart",</strong></p><p class="source-code"><strong class="bold">                "ecr:CompleteLayerUpload"</strong></p><p class="source-code"><strong class="bold">            ]</strong></p><p class="source-code"><strong class="bold">        }</strong></p><p class="source-code"><strong class="bold">    ]</strong></p><p class="source-code"><strong class="bold">}</strong></p></li>
+				<li>Once the IAM user has <a id="_idIndexMarker788"/>been created, create an <a id="_idIndexMarker789"/>access key from the <strong class="bold">Security credentials</strong> tab. Then, head back to the CircleCI dashboard and jump to <strong class="bold">Project Settings</strong>: <div id="_idContainer318" class="IMG---Figure"><img src="image/Figure_9.15_B17115.jpg" alt="Figure 9.15 – CircleCI environment variables&#13;&#10;"/></div><p class="figure-caption">Figure 9.15 – CircleCI environment variables</p></li>
+				<li>Under the <strong class="bold">Environment Variables</strong> section, click on the <strong class="bold">Add Environment Variable</strong> button and add the following variables:<p><strong class="bold">AWS_ACCESS_KEY_ID</strong>: Specifies an AWS access key associated with the CircleCI IAM user.</p><p><strong class="bold">AWS_SECRET_ACCESS_KEY</strong>: Specifies an AWS secret access key associated with the CircleCI IAM user.</p><p><strong class="bold">AWS_DEFAULT_REGION</strong>: Specifies the AWS region where the ECR repository is located:</p><div id="_idContainer319" class="IMG---Figure"><img src="image/Figure_9.16_B17115.jpg" alt="Figure 9.16 – AWS credentials as environment variables&#13;&#10;"/></div><p class="figure-caption">Figure 9.16 – AWS credentials as environment variables</p></li>
+				<li>Once the environment <a id="_idIndexMarker790"/>variables have been set up, update the CircleCI configuration by adding an instruction to <a id="_idIndexMarker791"/>authenticate with ECR, before executing the <strong class="source-inline">docker push</strong> commands. The new changes will look as follows:<p class="source-code">    -run:</p><p class="source-code">        name: Push image</p><p class="source-code">        command: |</p><p class="source-code">            TAG=0.1.$CIRCLE_BUILD_NUM</p><p class="source-code">           docker tag USER/recipes-api:$TAG </p><p class="source-code">               ID.dkr.ecr.REGION.amazonaws.com/USER/</p><p class="source-code">               recipes-api:$TAG</p><p class="source-code">           docker tag USER/recipes-api:$TAG ID.dkr.ecr. </p><p class="source-code">               REGION.amazonaws.com/USER/</p><p class="source-code">               recipes-api:develop</p><p class="source-code">           aws ecr get-login-password --region REGION | </p><p class="source-code">               docker login --username AWS --password-</p><p class="source-code">               stdin ID.dkr.ecr.REGION.amazonaws.com</p><p class="source-code">           docker push ID.dkr.ecr.REGION.amazonaws.com</p><p class="source-code">               /USER/recipes-api:$TAG</p><p class="source-code">    docker push ID.dkr.ecr.REGION.amazonaws.com</p><p class="source-code">               /USER/recipes-api:develop</p></li>
+				<li>Substitute the <strong class="source-inline">USER</strong>, <strong class="source-inline">ID</strong>, and <strong class="source-inline">REGION</strong> variables appropriately with your own values and, once again, push <a id="_idIndexMarker792"/>the changes to <a id="_idIndexMarker793"/>the remote repository, under the develop branch:<p class="source-code"><strong class="bold">git add .</strong></p><p class="source-code"><strong class="bold">git commit –m "authenticate with ecr"</strong></p><p class="source-code"><strong class="bold">git push origin develop</strong></p><p class="callout-heading">Note</p><p class="callout">Instead of hardcoding the <strong class="source-inline">USER</strong>, <strong class="source-inline">ID</strong>, and <strong class="source-inline">REGION</strong> values in the configuration file, you can pass their values as environment variables from the CircleCI project settings.</p><p>A new pipeline will be triggered. This time, the <strong class="source-inline">build</strong> job should be successful, and you should see something similar to the following:</p><div id="_idContainer320" class="IMG---Figure"><img src="image/Figure_9.17_B17115.jpg" alt="Figure 9.17 – Building and storing a Docker image with CircleCI&#13;&#10;"/></div><p class="figure-caption">Figure 9.17 – Building and storing a Docker image with CircleCI</p><p>Now, click on the <strong class="bold">Push image</strong> step. You <a id="_idIndexMarker794"/>should see <a id="_idIndexMarker795"/>logs that confirm that the image has been stored in ECR:</p><div id="_idContainer321" class="IMG---Figure"><img src="image/Figure_9.18_B17115.jpg" alt="Figure 9.18 – Docker tag and push logs&#13;&#10;"/></div><p class="figure-caption">Figure 9.18 – Docker tag and push logs</p><p>For each image of the application built with CI, there will also be a corresponding tag in the ECR repository:</p><div id="_idContainer322" class="IMG---Figure"><img src="image/Figure_9.19_B17115.jpg" alt="Figure 9.19 – Docker image in ECR&#13;&#10;"/></div><p class="figure-caption">Figure 9.19 – Docker image in ECR</p><p class="callout-heading">Note</p><p class="callout">In addition to the dynamically built version, we're storing a <strong class="source-inline">develop</strong> tag that points to the latest built image in the develop branch.</p><p>With the test and build <a id="_idIndexMarker796"/>stages being automated, you <a id="_idIndexMarker797"/>can go even further and automate the deployment process as well. </p></li>
+				<li>Similar to the previous jobs, add a <strong class="source-inline">deploy</strong> job to the current workflow:<p class="source-code">workflows:</p><p class="source-code"> ci_cd:</p><p class="source-code">   jobs:</p><p class="source-code">     - test</p><p class="source-code">     - build</p><p class="source-code">     - deploy</p><p>The <strong class="source-inline">deploy</strong> job will simply use the <strong class="source-inline">docker-compose.yml</strong> file we covered in the previous chapter to deploy the application stack on an EC2 instance. The file will look as follows (the full YAML file has been cropped for brevity):</p><p class="source-code">version: "3" </p><p class="source-code">services:</p><p class="source-code">  api:</p><p class="source-code">    image: ID.dkr.ecr.REGION.amazonaws.com/USER/</p><p class="source-code">           recipes-api:develop</p><p class="source-code">    environment:</p><p class="source-code">      - MONGO_URI=mongodb://admin:password@mongodb</p><p class="source-code">            :27017/test?authSource=admin</p><p class="source-code">             &amp;readPreference=primary&amp;ssl=false</p><p class="source-code">      - MONGO_DATABASE=demo</p><p class="source-code">      - REDIS_URI=redis:6379</p><p class="source-code">    external_links:</p><p class="source-code">      - mongodb</p><p class="source-code">      - redis</p><p class="source-code">  redis:</p><p class="source-code">    image: redis</p><p class="source-code">  mongodb:</p><p class="source-code">    image: mongo:4.4.3</p><p class="source-code">    environment:</p><p class="source-code">      - MONGO_INITDB_ROOT_USERNAME=admin</p><p class="source-code">      - MONGO_INITDB_ROOT_PASSWORD=password</p></li>
+				<li>To deploy the new changes to the EC2 instance where the containers are running, you will have to SSH to the remote server and issue two <strong class="source-inline">docker-compose</strong> commands – <strong class="source-inline">pull</strong> and <strong class="source-inline">up</strong>:<p class="source-code">deploy:</p><p class="source-code">   executor: environment</p><p class="source-code">   steps:</p><p class="source-code">     - checkout</p><p class="source-code">     - run:</p><p class="source-code">         name: Deploy with Docker Compose</p><p class="source-code">         command: |</p><p class="source-code">           ssh -oStrictHostKeyChecking=no ec2-user@IP </p><p class="source-code">               docker-compose pull &amp;&amp; docker-compose up –d</p></li>
+				<li>Make sure that you <a id="_idIndexMarker798"/>substitute the <strong class="source-inline">IP</strong> variable <a id="_idIndexMarker799"/>with the IP or the DNS name of the EC2 instance where the sandbox environment is running.</li>
+				<li>To SSH to the EC2 instance, add the SSH key pair you used to deploy the EC2 instance in AWS to your CircleCI project settings. Under <strong class="bold">SSH Keys</strong>, click on <strong class="bold">Add SSH Key</strong> and paste the content of the SSH key pair:<div id="_idContainer323" class="IMG---Figure"><img src="image/Figure_9.20_B17115.jpg" alt="Figure 9.20 – Adding an SSH key pair&#13;&#10;"/></div><p class="figure-caption">Figure 9.20 – Adding an SSH key pair</p></li>
+				<li>Commit and push the new CircleCI config to GitHub with the following commands:<p class="source-code"><strong class="bold">git add .</strong></p><p class="source-code"><strong class="bold">git commit –m "added deploy stage"</strong></p><p class="source-code"><strong class="bold">git push origin develop</strong></p><p>A new pipeline will be <a id="_idIndexMarker800"/>triggered, and the test, build, and deploy <a id="_idIndexMarker801"/>jobs will be executed sequentially. At the end of the <strong class="bold">deploy</strong> job, the newly built image will be deployed to the sandbox environment:</p></li>
+			</ol>
+			<div>
+				<div id="_idContainer324" class="IMG---Figure">
+					<img src="image/Figure_9.21_B17115.jpg" alt="Figure 9.21 – Continuous deployment&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.21 – Continuous deployment</p>
+			<p>If you're <a id="_idIndexMarker802"/>running <strong class="bold">Elastic Container Service</strong> (<strong class="bold">ECS</strong>), you can force ECS to pull the new image with the following CircleCI config:</p>
+			<p class="source-code">version: 2.1</p>
+			<p class="source-code">orbs:</p>
+			<p class="source-code"> aws-ecs: circleci/aws-ecs@0.0.11</p>
+			<p class="source-code">workflows:</p>
+			<p class="source-code">ci_cd:</p>
+			<p class="source-code">   jobs:</p>
+			<p class="source-code">    - test</p>
+			<p class="source-code">    - build</p>
+			<p class="source-code">    - aws-ecs/deploy-service-update:</p>
+			<p class="source-code">       aws-region: AWS_DEFAULT_REGION</p>
+			<p class="source-code">       family: 'demo'</p>
+			<p class="source-code">       cluster-name: 'sandbox'</p>
+			<p class="source-code">       container-image-name-updates: </p>
+			<p class="source-code">           'container=api,tag=0.1.${CIRCLE_BUILD_NUM}'</p>
+			<p class="callout-heading">Note</p>
+			<p class="callout">Make sure that you assign ECS permissions to the CircleCI IAM user to perform the task update successfully.</p>
+			<p>The major <a id="_idIndexMarker803"/>change is that we're using CircleCI orbs instead of Docker images as a runtime environment. By using orbs, we <a id="_idIndexMarker804"/>can use pre-built commands, which reduces the lines of code in our config file. The deploy job will deploy the updated image to a sandbox ECS cluster.</p>
+			<p>If you're running Kubernetes, you can use the following CircleCI specification file to update the image:</p>
+			<p class="source-code">version: 2.1</p>
+			<p class="source-code">orbs:</p>
+			<p class="source-code">   aws-eks: circleci/aws-eks@0.2.0</p>
+			<p class="source-code">   kubernetes: circleci/kubernetes@0.3.0</p>
+			<p class="source-code">jobs:</p>
+			<p class="source-code"> deploy:</p>
+			<p class="source-code">   executor: aws-eks/python3</p>
+			<p class="source-code">   steps:</p>
+			<p class="source-code">     - checkout</p>
+			<p class="source-code">     - aws-eks/update-kubeconfig-with-authenticator:</p>
+			<p class="source-code">         cluster-name: sandbox</p>
+			<p class="source-code">         install-kubectl: true</p>
+			<p class="source-code">         aws-region: AWS_REGION</p>
+			<p class="source-code">     - kubernetes/create-or-update-resource:</p>
+			<p class="source-code">         resource-file-path: "deployment/</p>
+			<p class="source-code">         api.deployment.yaml"</p>
+			<p class="source-code">         get-rollout-status: true</p>
+			<p class="source-code">         resource-name: deployment/api</p>
+			<p class="source-code">     - kubernetes/create-or-update-resource:</p>
+			<p class="source-code">         resource-file-path: "deployment/api.service.yaml"</p>
+			<p class="source-code">        </p>
+			<p class="source-code">workflows:</p>
+			<p class="source-code"> ci_cd:</p>
+			<p class="source-code">  jobs:</p>
+			<p class="source-code">    - test</p>
+			<p class="source-code">    - build</p>
+			<p class="source-code">    - deploy</p>
+			<p>With your CI and CD workflows configured, you can test them out by building a new feature for the Gin RESTful API. You can do so by implementing the following steps:</p>
+			<ol>
+				<li value="1">Update the <strong class="source-inline">main.go</strong> file and expose a new endpoint on the <strong class="source-inline">/version</strong> resource using the <a id="_idIndexMarker805"/>Gin router. The <a id="_idIndexMarker806"/>endpoint will display the running API version:<p class="source-code">router.GET("/version", VersionHandler)</p><p>The HTTP handler is self-explanatory; it returns the value of the <strong class="source-inline">API_VERSION</strong> environment variable:</p><p class="source-code">func VersionHandler(c *gin.Context) {</p><p class="source-code">   c.JSON(http.StatusOK, gin.H{"version": os.Getenv(</p><p class="source-code">       "API_VERSION")})</p><p class="source-code">}</p></li>
+				<li>To inject the environment variable dynamically, you can use the Docker arguments feature, which allows you to pass values at build time. Update our <strong class="source-inline">Dockerfile</strong> and declare <strong class="source-inline">API_VERSION</strong> as a build argument and environment variable:<p class="source-code">FROM golang:1.16</p><p class="source-code">WORKDIR /go/src/github.com/api</p><p class="source-code">COPY . .</p><p class="source-code">RUN go mod download</p><p class="source-code">RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app .</p><p class="source-code">FROM alpine:latest </p><p class="source-code">ARG API_VERSION</p><p class="source-code">ENV API_VERSION=$API_VERSION</p><p class="source-code">RUN apk --no-cache add ca-certificates</p><p class="source-code">WORKDIR /root/</p><p class="source-code">COPY --from=0 /go/src/github.com/api/app .</p><p class="source-code">CMD ["./app"]</p></li>
+				<li>Next, update the <strong class="source-inline">Build image</strong> step by injecting the <strong class="source-inline">$TAG</strong> variable as a value for the <strong class="source-inline">API_VERSION</strong> build argument:<p class="source-code">run:</p><p class="source-code">   name: Build image</p><p class="source-code">    command: |</p><p class="source-code">      TAG=0.1.$CIRCLE_BUILD_NUM</p><p class="source-code">      docker build -t mlabouardy/</p><p class="source-code">          recipes-api:$TAG --build-arg API_VERSION=${TAG} .</p></li>
+				<li>Push the new <a id="_idIndexMarker807"/>changes to the develop branch <a id="_idIndexMarker808"/>with the following code: <p class="source-code"><strong class="bold">git add .</strong></p><p class="source-code"><strong class="bold">git commit –m "inject api version"</strong></p><p class="source-code"><strong class="bold">git push origin develop</strong></p><p>A build will start to run as soon as we push. Once the CI pipeline has finished and produced a success message, the <strong class="source-inline">deploy</strong> job will run and deploy the application on EC2:</p><div id="_idContainer325" class="IMG---Figure"><img src="image/Figure_9.22_B17115.jpg" alt="Figure 9.22 – Deploying Docker Stack&#13;&#10;"/></div><p class="figure-caption">Figure 9.22 – Deploying Docker Stack</p></li>
+				<li>To test out the <a id="_idIndexMarker809"/>new changes, navigate to <a id="_idIndexMarker810"/>the instance IP address and point your browser to the <strong class="source-inline">/api/version</strong> resource path:</li>
+			</ol>
+			<div>
+				<div id="_idContainer326" class="IMG---Figure">
+					<img src="image/Figure_9.23_B17115.jpg" alt="Figure 9.23 – API running version&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.23 – API running version</p>
+			<p>This will return the version of the running Docker image of the Gin RESTful API.</p>
+			<p>It's worth mentioning that the current CirlceCI config doesn't guarantee the jobs will always run in the same order (test -&gt; build -&gt; deploy). To maintain the CI/CD order, use the <strong class="source-inline">requires</strong> keyword, as follows:</p>
+			<p class="source-code">workflows:</p>
+			<p class="source-code"> ci_cd:</p>
+			<p class="source-code">   jobs:</p>
+			<p class="source-code">     - test</p>
+			<p class="source-code">     - build:</p>
+			<p class="source-code">       requires:</p>
+			<p class="source-code">           - test</p>
+			<p class="source-code">     - deploy:</p>
+			<p class="source-code">       requires:</p>
+			<p class="source-code">           - test</p>
+			<p class="source-code">           - build</p>
+			<p>This way, you can <a id="_idIndexMarker811"/>ensure the deploy job is <a id="_idIndexMarker812"/>only executed if both the test and build jobs are successful:</p>
+			<div>
+				<div id="_idContainer327" class="IMG---Figure">
+					<img src="image/Figure_9.24_B17115.jpg" alt="Figure 9.24 – CI/CD workflow&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.24 – CI/CD workflow</p>
+			<p>Awesome! Now, we have a complete CI/CD pipeline for our Gin application.</p>
+			<h1 id="_idParaDest-147"><a id="_idTextAnchor154"/>Maintaining multiple runtime environments</h1>
+			<p>In a real-world scenario, you'll need multiple environments to <a id="_idIndexMarker813"/>avoid pushing broken features or major bugs to a sandbox or staging environment (or worse, a production environment) before validating them.</p>
+			<p>You can create an EC2 instance to host the staging environment by running a new EC2 instance based on the sandbox environment we created in previous chapters:</p>
+			<ol>
+				<li value="1">Select the <strong class="bold">sandbox</strong> instance and click on <strong class="bold">Actions</strong> from the action bar. Then, click on <strong class="bold">Launch more like this</strong> from the <strong class="bold">Image and template</strong> drop-down list:<div id="_idContainer328" class="IMG---Figure"><img src="image/Figure_9.25_B17115.jpg" alt="Figure 9.25 – Replicating the sandbox environment&#13;&#10;"/></div><p class="figure-caption">Figure 9.25 – Replicating the sandbox environment</p><p>This option will automatically populate the Amazon EC2 launch wizard with configuration details from the selected instance. </p></li>
+				<li>Update the <strong class="source-inline">Name</strong> tag <a id="_idIndexMarker814"/>value to <strong class="source-inline">staging</strong> and click on <strong class="bold">Launch</strong> to provision the instance:<div id="_idContainer329" class="IMG---Figure"><img src="image/Figure_9.26_B17115.jpg" alt="Figure 9.26 – Staging environment running in an EC2 instance&#13;&#10;"/></div><p class="figure-caption">Figure 9.26 – Staging environment running in an EC2 instance</p></li>
+				<li>Once the instance is up and running, update CircleCI so that it tags the Docker image based on the branch name where the pipeline is running. In addition to the <strong class="source-inline">dynamic</strong> tag we created via the <strong class="source-inline">CIRCLE_BUILD_NUM</strong> environment variable, push a <strong class="source-inline">fixed</strong> tag (develop, preprod, or master) if the current branch is either <a id="_idIndexMarker815"/>develop, preprod, or master:<p class="source-code">run:</p><p class="source-code">   name: Push image</p><p class="source-code">   command: |</p><p class="source-code">     TAG=0.1.$CIRCLE_BUILD_NUM</p><p class="source-code">     aws ecr get-login-password --region REGION | docker </p><p class="source-code">         login --username AWS --password-stdin </p><p class="source-code">         ID.dkr.ecr.REGION.amazonaws.com</p><p class="source-code">     docker tag USER/recipes-api:$TAG </p><p class="source-code">     ID.dkr.ecr.REGION.amazonaws.com/USER/recipes-api:$TAG</p><p class="source-code">     docker push ID.dkr.ecr.REGION.amazonaws.com/</p><p class="source-code">         USER/recipes-api:$TAG</p><p class="source-code">     if [ "${CIRCLE_BRANCH}" == "master" ] || [ </p><p class="source-code">         "${CIRCLE_BRANCH}" == "preprod" ] || [ </p><p class="source-code">         "${CIRCLE_BRANCH}" == "develop" ];</p><p class="source-code">    then</p><p class="source-code">        docker tag USER/recipes-api:$TAG </p><p class="source-code">            ID.dkr.ecr.REGION.amazonaws.com/USER/</p><p class="source-code">            recipes-api:${CIRCLE_BRANCH}</p><p class="source-code">             docker push ID.dkr.ecr.REGION.amazonaws.com/</p><p class="source-code">                 USER/recipes-api:${CIRCLE_BRANCH}</p><p class="source-code">      fi</p></li>
+				<li>Next, update the <strong class="source-inline">deploy</strong> job so that you can SSH it to the right EC2 instance IP address based on <a id="_idIndexMarker816"/>the current Git branch name:<p class="source-code">run:</p><p class="source-code">   name: Deploy with Docker Compose</p><p class="source-code">   command: |</p><p class="source-code">     if [ "${CIRCLE_BRANCH}" == "master" ]</p><p class="source-code">     then</p><p class="source-code">        ssh -oStrictHostKeyChecking=no ec2-user@IP_PROD </p><p class="source-code">            "docker-compose pull &amp;&amp; docker-compose up -d"</p><p class="source-code">    elif [ "${CIRCLE_BRANCH}" == "preprod" ]</p><p class="source-code">     then</p><p class="source-code">        ssh -oStrictHostKeyChecking=no             ec2-user@IP_STAGING </p><p class="source-code">            "docker-compose pull &amp;&amp; docker-compose up -d"</p><p class="source-code">     else</p><p class="source-code">        ssh -oStrictHostKeyChecking=no             ec2-user@IP_SANDBOX </p><p class="source-code">            "docker-compose pull &amp;&amp; docker-compose up -d"</p><p class="source-code">     fi</p><p class="callout-heading">Note</p><p class="callout">The IP addresses (<strong class="source-inline">IP_PROD</strong>, <strong class="source-inline">IP_STAGING</strong>, and <strong class="source-inline">IP_SANDBOX</strong>) should be defined as environment variables in the CircleCI project's settings.</p></li>
+				<li>Finally, update the workflow so that it deploys the changes, but only if the current Git <a id="_idIndexMarker817"/>branch is a <strong class="source-inline">develop</strong>, <strong class="source-inline">preprod</strong>, or <strong class="source-inline">master</strong> branch:<p class="source-code">workflows:</p><p class="source-code"> ci_cd:</p><p class="source-code">   jobs:</p><p class="source-code">     - test</p><p class="source-code">     - build:</p><p class="source-code">         requires:</p><p class="source-code">           - test</p><p class="source-code">     - deploy:</p><p class="source-code">         requires:</p><p class="source-code">           - test</p><p class="source-code">           - build</p><p class="source-code">         filters:</p><p class="source-code">           branches:</p><p class="source-code">             only:</p><p class="source-code">               - develop</p><p class="source-code">               - preprod</p><p class="source-code">               - master</p></li>
+				<li>Commit and store the changes in GitHub using the following commands:<p class="source-code"><strong class="bold">git add .</strong></p><p class="source-code"><strong class="bold">git commit –m "continuous deployment"</strong></p><p class="source-code"><strong class="bold">git push origin develop</strong></p><p>A new pipeline will be triggered automatically on the develop branch, where the changes will be deployed to a sandbox environment:</p></li>
+			</ol>
+			<div>
+				<div id="_idContainer330" class="IMG---Figure">
+					<img src="image/Figure_9.27_B17115.jpg" alt="Figure 9.27 – Deploying to a sandbox environment&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.27 – Deploying to a sandbox environment</p>
+			<p>Once the <a id="_idIndexMarker818"/>new changes have been validated in the sandbox environment, you should be ready to promote the code to the staging environment.</p>
+			<p>To deploy to the staging environment, follow these steps:</p>
+			<ol>
+				<li value="1">Create a <strong class="bold">pull request</strong> (<strong class="bold">PR</strong>) to <a id="_idIndexMarker819"/>merge the develop branch into the preprod branch, as follows:<div id="_idContainer331" class="IMG---Figure"><img src="image/Figure_9.28_B17115.jpg" alt="Figure 9.28 – Creating a pull request&#13;&#10;"/></div><p class="figure-caption">Figure 9.28 – Creating a pull request</p><p>Notice that the PR is ready to be merged because all the checks have passed:</p><div id="_idContainer332" class="IMG---Figure"><img src="image/Figure_9.29_B17115.jpg" alt="Figure 9.29 – Successful Git checks&#13;&#10;"/></div><p class="figure-caption">Figure 9.29 – Successful Git checks</p></li>
+				<li>Click <a id="_idIndexMarker820"/>on the <strong class="bold">Merge pull request</strong> button. A new pipeline will be triggered on the preprod branch and three jobs – <strong class="bold">test</strong>, <strong class="bold">build</strong>, and <strong class="bold">deploy</strong> – will be executed one by one:<div id="_idContainer333" class="IMG---Figure"><img src="image/Figure_9.30_B17115.jpg" alt="Figure 9.30 – Deploying to a staging environment&#13;&#10;"/></div><p class="figure-caption">Figure 9.30 – Deploying to a staging environment</p></li>
+				<li>At the end of the <strong class="bold">build</strong> stage, a new image from the preprod branch, as well as its CircleCI build number, will be stored in the ECR repository, as follows:<div id="_idContainer334" class="IMG---Figure"><img src="image/Figure_9.31_B17115.jpg" alt="Figure 9.31 – Preprod Docker image&#13;&#10;"/></div><p class="figure-caption">Figure 9.31 – Preprod Docker image</p></li>
+				<li>Now, deploy <a id="_idIndexMarker821"/>the image to the staging environment using the <strong class="source-inline">docker-compose up</strong> command. Hit the IP address of the staging environment; you should see the version of the running Docker image:</li>
+			</ol>
+			<div>
+				<div id="_idContainer335" class="IMG---Figure">
+					<img src="image/Figure_9.32_B17115.jpg" alt="Figure 9.32 – Docker image version.&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.32 – Docker image version.</p>
+			<p>Great! You now have a staging environment where you can validate your API functionalities before promoting them to production.</p>
+			<p>So far, you have learned how to achieve continuous deployment via a push event. However, in a production environment, you might want to add extra validation before shipping a new release to production. That's where <strong class="bold">continuous delivery practices</strong> come into play.</p>
+			<h1 id="_idParaDest-148"><a id="_idTextAnchor155"/>Implementing continuous delivery</h1>
+			<p>To deploy the Gin application to production, you <a id="_idIndexMarker822"/>need to spin up a dedicated EC2 instance or EKS cluster. You must ask for manual validation before deploying to production.</p>
+			<p>With CircleCI, you can use the <strong class="source-inline">pause_workflow</strong> job to interact with the user and ask for approval before resuming the pipeline. To do so, follow these steps:</p>
+			<ol>
+				<li value="1">Add the <strong class="source-inline">pause_workflow</strong> job before the <strong class="source-inline">deploy</strong> job and define a <strong class="source-inline">release</strong> job, as follows:<p class="source-code">workflows:</p><p class="source-code"> ci_cd:</p><p class="source-code">   jobs:</p><p class="source-code">     - test</p><p class="source-code">     - build:</p><p class="source-code">         requires:</p><p class="source-code">           - test</p><p class="source-code">     - deploy:</p><p class="source-code">         requires:</p><p class="source-code">           - test</p><p class="source-code">           - build</p><p class="source-code">         filters:</p><p class="source-code">           branches:</p><p class="source-code">             only:</p><p class="source-code">               - develop</p><p class="source-code">               - preprod</p><p class="source-code">     - pause_workflow:</p><p class="source-code">         requires:</p><p class="source-code">           - test</p><p class="source-code">           - build</p><p class="source-code">         type: approval</p><p class="source-code">         filters:</p><p class="source-code">           branches:</p><p class="source-code">             only:</p><p class="source-code">               - master</p><p class="source-code">     - release:</p><p class="source-code">         requires:</p><p class="source-code">           - pause_workflow</p><p class="source-code">         filters:</p><p class="source-code">           branches:</p><p class="source-code">             only:</p><p class="source-code">               - master</p></li>
+				<li>Push the changes to <a id="_idIndexMarker823"/>the develop branch. A new pipeline will be triggered and the changes will be deployed to your sandbox environment. Next, create a pull request and merge the develop and preprod branches. Now, raise a pull request to merge the preprod branch and the master branch:<div id="_idContainer336" class="IMG---Figure"><img src="image/Figure_9.33_B17115.jpg" alt="Figure 9.33 – Pull request to merge into the master branch&#13;&#10;"/></div><p class="figure-caption">Figure 9.33 – Pull request to merge into the master branch</p></li>
+				<li>Once the PR has <a id="_idIndexMarker824"/>been merged, a new pipeline will be triggered on the master branch and both the test and build jobs will be executed:<div id="_idContainer337" class="IMG---Figure"><img src="image/Figure_9.34_B17115.jpg" alt="Figure 9.34 – Running a CI/CD workflow on the master branch&#13;&#10;"/></div><p class="figure-caption">Figure 9.34 – Running a CI/CD workflow on the master branch</p></li>
+				<li>When the <strong class="source-inline">pause_workflow</strong> job is reached, the pipeline will be paused, as follows:<div id="_idContainer338" class="IMG---Figure"><img src="image/Figure_9.35_B17115.jpg" alt="Figure 9.35 – Asking the user for approval&#13;&#10;"/></div><p class="figure-caption">Figure 9.35 – Asking the user for approval</p></li>
+				<li>If you click on the <strong class="bold">pause_workflow</strong> box, a confirmation dialog will pop up, where you <a id="_idIndexMarker825"/>can allow the workflow to continue running:<div id="_idContainer339" class="IMG---Figure"><img src="image/Figure_9.36_B17115.jpg" alt="Figure 9.36 – Approving the deployment&#13;&#10;"/></div><p class="figure-caption">Figure 9.36 – Approving the deployment</p></li>
+				<li>Once approved, the pipeline will resume, and the deploy stage will be executed. At the end of the CI/CD pipeline, the application will be deployed into a production environment:</li>
+			</ol>
+			<div>
+				<div id="_idContainer340" class="IMG---Figure">
+					<img src="image/Figure_9.37_B17115.jpg" alt="Figure 9.37 – Deploying an application to production&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.37 – Deploying an application to production</p>
+			<p>Awesome! With that, you have achieved continuous delivery!</p>
+			<p>Before wrapping up, you <a id="_idIndexMarker826"/>can improve the workflow by adding a <strong class="bold">Slack</strong> notification to raise awareness within the development team when a new build is being triggered on CircleCI.</p>
+			<h2 id="_idParaDest-149"><a id="_idTextAnchor156"/>Improving the feedback loop with Slack</h2>
+			<p>You can <a id="_idIndexMarker827"/>use the <strong class="bold">Slack RESTful API</strong> to post a <a id="_idIndexMarker828"/>notification on a Slack <a id="_idIndexMarker829"/>channel or use the CircleCI Slack orb with pre-built Slack commands to improve the feedback loop.</p>
+			<p>To do so, follow these steps: </p>
+			<ol>
+				<li value="1">Add the following code block to the <strong class="source-inline">test</strong> job:<p class="source-code">- slack/notify:</p><p class="source-code">         channel: "#ci"</p><p class="source-code">         event: always</p><p class="source-code">         custom: |</p><p class="source-code">           {</p><p class="source-code">             "blocks": [</p><p class="source-code">               {</p><p class="source-code">                 "type": "section",</p><p class="source-code">                 "text": {</p><p class="source-code">                   "type": "mrkdwn",</p><p class="source-code">                   "text": "*Build has started*! </p><p class="source-code">                             :crossed_fingers:"</p><p class="source-code">                 }</p><p class="source-code">               },</p><p class="source-code">               {</p><p class="source-code">                 "type": "divider"</p><p class="source-code">               },</p><p class="source-code">               {</p><p class="source-code">                 "type": "section",</p><p class="source-code">                 "fields": [</p><p class="source-code">                   {</p><p class="source-code">                     "type": "mrkdwn",</p><p class="source-code">                     "text": "*Project*:\</p><p class="source-code">                         n$CIRCLE_PROJECT_REPONAME"</p><p class="source-code">                   },</p><p class="source-code">                   {</p><p class="source-code">                     "type": "mrkdwn",</p><p class="source-code">                     "text": "*When*:\n$(date +'%m/%d/%Y </p><p class="source-code">                               %T')"</p><p class="source-code">                   },</p><p class="source-code">                   {</p><p class="source-code">                     "type": "mrkdwn",</p><p class="source-code">                     "text": "*Branch*:\n$CIRCLE_BRANCH"</p><p class="source-code">                   },</p><p class="source-code">                   {</p><p class="source-code">                     "type": "mrkdwn",</p><p class="source-code">                     "text": "*Author*:                              \n$CIRCLE_USERNAME"</p><p class="source-code">                   }</p><p class="source-code">                 ],</p><p class="source-code">                 "accessory": {</p><p class="source-code">                   "type": "image",</p><p class="source-code">                   "image_url": "https://media.giphy.com/</p><p class="source-code">                    media/3orieTfp1MeFLiBQR2/giphy.gif",</p><p class="source-code">                   "alt_text": "CircleCI logo"</p><p class="source-code">                 }</p><p class="source-code">               },</p><p class="source-code">               {</p><p class="source-code">                 "type": "actions",</p><p class="source-code">                 "elements": [</p><p class="source-code">                   {</p><p class="source-code">                     "type": "button",</p><p class="source-code">                     "text": {</p><p class="source-code">                       "type": "plain_text",</p><p class="source-code">                       "text": "View Workflow"</p><p class="source-code">                     },</p><p class="source-code">                     "url": "https://circleci.com/</p><p class="source-code">                        workflow-run/${                                     CIRCLE_WORKFLOW_ID}"</p><p class="source-code">                   }</p><p class="source-code">                 ]</p><p class="source-code">               }</p><p class="source-code">             ]</p><p class="source-code">           }</p></li>
+				<li>Then, create a new <a id="_idIndexMarker830"/>Slack application on your <a id="_idIndexMarker831"/>Slack workspace by navigating to <a href="https://api.slack.com/apps">https://api.slack.com/apps</a> and clicking on <strong class="bold">Build app</strong> from the page's header:<div id="_idContainer341" class="IMG---Figure"><img src="image/Figure_9.38_B17115.jpg" alt="Figure 9.38 – New Slack application&#13;&#10;"/></div><p class="figure-caption">Figure 9.38 – New Slack application</p></li>
+				<li>Give the application a meaningful name and click on the <strong class="bold">Create App</strong> button. On the <strong class="bold">OAuth &amp; Permissions</strong> page, add the following permissions under <strong class="bold">Bot Token Scopes</strong>:<div id="_idContainer342" class="IMG---Figure"><img src="image/Figure_9.39_B17115.jpg" alt="Figure 9.39 – Slack bot permissions&#13;&#10;"/></div><p class="figure-caption">Figure 9.39 – Slack bot permissions</p></li>
+				<li>From the left <a id="_idIndexMarker832"/>navigation menu, click on <strong class="bold">OAuth &amp; Permissions</strong> and copy <a id="_idIndexMarker833"/>the OAuth token:<div id="_idContainer343" class="IMG---Figure"><img src="image/Figure_9.40_B17115.jpg" alt="Figure 9.40 – Bot user OAuth token&#13;&#10;"/></div><p class="figure-caption">Figure 9.40 – Bot user OAuth token</p></li>
+				<li>Go back to the <a id="_idIndexMarker834"/>CircleCI project settings and add <a id="_idIndexMarker835"/>the following environment variables:<p><strong class="bold">SLACK_ACCESS_TOKEN</strong>: The OAuth Token we generated previously.</p><p><strong class="bold">SLACK_DEFAULT_CHANNEL</strong>: The Slack channel where you want to post CircleCI build notifications.</p><p>You should see the following:</p><div id="_idContainer344" class="IMG---Figure"><img src="image/Figure_9.41_B17115.jpg" alt="Figure 9.41 – Slack environment variables&#13;&#10;"/></div><p class="figure-caption">Figure 9.41 – Slack environment variables</p></li>
+				<li>Push the <a id="_idIndexMarker836"/>new CircleCI config updates to <a id="_idIndexMarker837"/>GitHub. At this point, a new pipeline will be executed:</li>
+			</ol>
+			<div>
+				<div id="_idContainer345" class="IMG---Figure">
+					<img src="image/Figure_9.42_B17115.jpg" alt="Figure 9.42 – Slack notification when the pipeline starts&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.42 – Slack notification when the pipeline starts</p>
+			<p>A Slack notification will be sent on the configured Slack channel containing the name of the project and the name of the Git branch:</p>
+			<div>
+				<div id="_idContainer346" class="IMG---Figure">
+					<img src="image/Figure_9.43_B17115.jpg" alt="Figure 9.43 – Sending a Slack notification&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.43 – Sending a Slack notification</p>
+			<p>You can take this even <a id="_idIndexMarker838"/>further and send a notification based on the pipeline's status. For instance, add the <a id="_idIndexMarker839"/>following code if you want to be alerted when the pipeline fails (the full JSON has been cropped for brevity):</p>
+			<p class="source-code">- slack/notify:</p>
+			<p class="source-code">     channel: "#ci"</p>
+			<p class="source-code">     event: fail</p>
+			<p class="source-code">     custom: |</p>
+			<p class="source-code">       {</p>
+			<p class="source-code">         "blocks": [</p>
+			<p class="source-code">           {</p>
+			<p class="source-code">             "type": "section",</p>
+			<p class="source-code">             "text": {</p>
+			<p class="source-code">                "type": "mrkdwn",</p>
+			<p class="source-code">                "text": "*Tests failed, run for your </p>
+			<p class="source-code">                         life*! :fearful:"</p>
+			<p class="source-code">              }</p>
+			<p class="source-code">          ]</p>
+			<p class="source-code">       }</p>
+			<p>You can simulate a pipeline failure by throwing an error with a code error different than <strong class="source-inline">0</strong>:</p>
+			<p class="source-code">- run:</p>
+			<p class="source-code">     name: Unit tests</p>
+			<p class="source-code">     command: |</p>
+			<p class="source-code">       go test -v ./...</p>
+			<p class="source-code">       exit 1</p>
+			<p>Now, push the changes to the develop branch. When the pipeline reaches the <strong class="source-inline">Unit tests</strong> step, an <a id="_idIndexMarker840"/>error will be thrown, and the <a id="_idIndexMarker841"/>pipeline will fail:</p>
+			<div>
+				<div id="_idContainer347" class="IMG---Figure">
+					<img src="image/Figure_9.44_B17115.jpg" alt="Figure 9.44 – Throwing an error programmatically &#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.44 – Throwing an error programmatically </p>
+			<p>On the Slack channel, you should receive a notification similar to the one shown in the following screenshot:</p>
+			<div>
+				<div id="_idContainer348" class="IMG---Figure">
+					<img src="image/Figure_9.45_B17115.jpg" alt="Figure 9.45 – Sending a notification when the pipeline fails&#13;&#10;"/>
+				</div>
+			</div>
+			<p class="figure-caption">Figure 9.45 – Sending a notification when the pipeline fails</p>
+			<p>That's pretty much it. This <a id="_idIndexMarker842"/>chapter has merely scratched the <a id="_idIndexMarker843"/>surface of what can be done with the CI/CD pipeline. However, it should provide enough of a foundation for you to start experimenting and building your own end-to-end workflows for your Gin applications.</p>
+			<h1 id="_idParaDest-150"><a id="_idTextAnchor157"/>Summary</h1>
+			<p>In this chapter, you learned how to set up a CI/CD pipeline from scratch to automate the deployment process of a Gin application with CircleCI. Additionally, using CircleCI orbs improves productivity by simplifying how we write our Pipeline as Code configuration.</p>
+			<p>You also explored how to run automated tests with Docker and how to achieve continuous deployment with GitFlow and multiple AWS environments. Along the way, you set up Slack notifications so that you're alerted about a build failure or success.</p>
+			<p>The final chapter in this book will cover how to troubleshoot and debug Gin applications running in production.</p>
+			<h1 id="_idParaDest-151"><a id="_idTextAnchor158"/>Questions</h1>
+			<ol>
+				<li value="1">Build a CI/CD pipeline to automate the deployment process for the React web application we built in <a href="B17115_05_Final_JM_ePub.xhtml#_idTextAnchor088"><em class="italic">Chapter 5</em></a>, <em class="italic">Serving Static HTML in Gin</em>.</li>
+				<li>Add a Slack notification for when a successful production deployment is made.</li>
+			</ol>
+			<h1 id="_idParaDest-152"><a id="_idTextAnchor159"/>Further reading</h1>
+			<ul>
+				<li><em class="italic">Hands-On Serverless Applications with Go</em> by Mohamed Labouardy, Packt publishing</li>
+				<li><em class="italic">Implementing DevOps with AWS</em> by Salle Ingle, Packt publishing</li>
+			</ul>
+		</div>
+	</body></html>

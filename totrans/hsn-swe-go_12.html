@@ -1,0 +1,1204 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Communicating with the Outside World</h1>
+                </header>
+            
+            <article>
+                
+<div class="mce-root packt_quote">"<span>An API that isn't comprehensible isn't usable</span><span>."</span></div>
+<div class="packt_quote CDPAlignRight CDPAlign"><span>- James Gosling</span></div>
+<p>All software systems eventually need to exchange data with the outside world. In many cases, this is achieved via an API. This chapter provides a comparison between the REST and RPC patterns for building APIs and discusses some common API issues such as authentication, versioning, and security. The rest of this chapter explores the gRPC ecosystem in depth and concludes with a gRPC-based API implementation for the Links 'R' Us project.</p>
+<p>The following topics will be covered in this chapter:</p>
+<ul>
+<li>Basic principles of RESTful APIs</li>
+<li>Strategies for securing APIs and pitfalls that you should avoid</li>
+<li>Approaches for API versioning</li>
+<li>gRPC as an alternative to building high-performance services</li>
+<li>Describing messages and RPC services using the protocol buffers definition language</li>
+<li>The different RPC modes (unary, client, server-streaming, and bi-directional streaming)</li>
+<li>Locking down gRPC APIs</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>The full code for the topics discussed that will be within this chapter have been published to this book's GitHub repository in the <kbd>Chapter09</kbd> folder.</p>
+<p>You can access this book's GitHub repository, which contains the code and all the required resources for each of this book's chapters, by pointing your web browser to the following URL: <a href="https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang">https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang</a>.</p>
+<p>To get you up and running as quickly as possible, each example project includes a Makefile that defines the following set of targets:</p>
+<table style="border-collapse: collapse;width: 100%" border="1">
+<tbody>
+<tr>
+<td><strong>Makefile target</strong></td>
+<td><strong>Description</strong></td>
+</tr>
+<tr>
+<td>deps</td>
+<td>Install any required dependencies</td>
+</tr>
+<tr>
+<td>test</td>
+<td>Run all tests and report coverage</td>
+</tr>
+<tr>
+<td>lint</td>
+<td>Check for lint errors</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>As with all the other chapters in this book, you will need a fairly recent version of Go, which you can download at <a href="https://golang.org/dl">https://golang.org/dl</a>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Designing robust, secure, and backward-compatible REST APIs</h1>
+                </header>
+            
+            <article>
+                
+<p>Whenever an engineer hears the word API, <strong>REST</strong>, the acronym for <strong>Representational State Transfer</strong>, is undoubtedly one of the first words that springs to mind. Indeed, the vast majority of online services and applications that people use on a daily basis are using a REST API to communicate with the backend servers.</p>
+<p>The proliferation of what we commonly refer to as RESTful APIs is indeed not coincidental. REST, as an architectural style for building applications for the web, offers quite a few enticing advantages over alternatives such as the <strong>Simple Object Access Protocol</strong> (<strong>SOAP</strong>):</p>
+<ul>
+<li><strong>Ease of interaction</strong>: A web browser or a command tool such as <kbd>curl</kbd> is all that is required to interact with REST endpoints</li>
+<li>The majority of programming languages ship with built-in support for performing HTTP requests</li>
+<li>It is quite easy to intercept HTTP requests (for example, via a proxy) and provided canned responses for testing purposes</li>
+<li>By virtue of the fact that RESTful APIs are built on top of HTTP, clients (for example, web browsers) can opt to cache large HTTP GET responses locally, query the remote server to figure out whether the cached data has become stale, and needs to be refreshed</li>
+</ul>
+<p>REST APIs are built around the concept of accessing and mutating resources. A resource represents any piece of application data (for example, a product, user, order, collection of documents, and so on) that clients can operate on. A typical RESTful API exposes a set of endpoints that allow clients to <strong>create</strong>, <strong>read</strong>, <strong>update</strong>, and <strong>delete</strong> (<strong>CRUD</strong>) resources of a particular type. Each one of these actions maps to an HTTP verb, as follows:</p>
+<ul>
+<li>A new resource can be created via a POST request</li>
+<li>Existing resources can be retrieved via a GET request</li>
+<li>Resources can be fully or partially updated via a PUT or PATCH request</li>
+<li>A resource can be deleted via a DELETE request</li>
+</ul>
+<p>While the REST architecture does not dictate the use of a particular data format for delivering data to clients, nowadays, JSON has become the de facto standard for implementing REST APIs. This can be largely attributed to the fact that it is lightweight, human-readable, and easy to compress. Having said that, you can still find several organizations out there (banks and payment processing gateways are a typical example) that provide RESTful APIs that expect and produce XML payloads.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using human-readable paths for RESTful resources</h1>
+                </header>
+            
+            <article>
+                
+<p>One of the key ideas, and something that clients would typically expect when dealing with a RESTful API, is that each resource instance can be individually addressed via a <strong>Uniform Resource Identi</strong><strong>fier</strong> (<strong>URI</strong>). Since the format of URIs plays a significant role in conveying the API's resource model to the clients that will be consuming it, software engineers should always strive to come up with consistent URI naming schemes when designing new APIs or introducing new resource types to existing APIs.</p>
+<p>The following opinionated set of conventions for naming resources can help you design APIs that are easier for end users to understand and work with:</p>
+<ul>
+<li>Resource names must always be nouns and never verbs or verb-like expressions. Verbs can be used as suffixes to indicate an action to be performed on a particular resource. For example, <kbd>/basket/checkout</kbd> triggers the checkout flow for the current user's basket.</li>
+<li>As an exception to the previously mentioned guideline, verbs related to CRUD operations should not be included as part of the resource URI; they can be inferred by the HTTP verb that's used when performing requests. In other words, instead of using a URI such as <kbd>/users/123/delete</kbd> to delete a user, clients should perform an HTTP <strong>DELETE</strong> request to <kbd>/users/123</kbd> instead.</li>
+<li>When referring to a specific resource instance by name, a singular noun must be used. For instance,<kbd> /user/account</kbd> returns the account details for the currently logged-on user. While it might be tempting to use the singular noun pattern to refer to a particular item within a collection (for example, <kbd>/user/123</kbd>), it is recommended to avoid this practice as it tends to create inconsistent paths for CRUD operations.</li>
+<li>A plural noun must be used when referring to a collection of resources or a specific resource instance within a collection. For example, <kbd>order/123/items</kbd> would return the list of items in order with ID <kbd>123</kbd>, while <kbd>/users/789</kbd> would return information about the user with ID <kbd>789</kbd>.</li>
+<li>Avoid appending trailing forward slashes (/) to the end of URIs. Doing so does not provide any additional information to clients and could lead to confusion; that is, is the URI complete or does it lack a portion of its path?</li>
+<li>RFC3986 <sup>[6]</sup> defines URIs as being case-sensitive. Therefore, for consistency purposes, it's good practice to stick to lowercase characters for URI paths. What's more, the use of hyphens (-) to separate long path segments can oftentimes result in paths that are much easier to read. Arguably, <kbd>/archived-resource</kbd> is much easier to read than <kbd>/archivedresource</kbd>.</li>
+</ul>
+<p>The following table summarizes the combination of HTTP verbs and URI patterns for performing CRUD operations against a collection of products. The set of HTTP verbs and resource paths for working with a <kbd>products</kbd> resource are given as follows:</p>
+<table style="border-collapse: collapse;width: 100%" border="1">
+<tbody>
+<tr>
+<td><strong>HTTP Verb</strong></td>
+<td><strong>Path</strong></td>
+<td><strong>Expects (JSON)</strong></td>
+<td><strong>Returns (JSON)</strong></td>
+<td><strong>HTTP Status</strong></td>
+<td><strong>Description</strong></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><kbd>/products</kbd></td>
+<td>A product entry</td>
+<td>The new product entry including its ID</td>
+<td>200 (success) or 201 (created)</td>
+<td>Create a new product</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><kbd>/products</kbd></td>
+<td>Nothing</td>
+<td>An array with product entries</td>
+<td>200 (success)</td>
+<td>Get a list of products</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><kbd>/products/:id</kbd></td>
+<td>Nothing</td>
+<td>The product with the specified ID</td>
+<td>200 (success) or 404 (not found)</td>
+<td>Get product by ID</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><kbd>/products/:id</kbd></td>
+<td>A product entry</td>
+<td>The updated product entry</td>
+<td>200 (success) or 404 (not found)</td>
+<td>Update product by ID</td>
+</tr>
+<tr>
+<td>PATCH</td>
+<td><kbd>/products/:id</kbd></td>
+<td>A partial product entry</td>
+<td>The updated product entry</td>
+<td>200 (success) or 404 (not found)</td>
+<td>Update individual fields for a product by ID</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><kbd>/products/:id</kbd></td>
+<td>Nothing</td>
+<td>Nothing</td>
+<td>200 (success) or 404 (not found)</td>
+<td>Delete product by ID</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>As you can probably surmise, the aforementioned patterns can also be applied to address resources that form hierarchies. For instance, to retrieve the set of permissions that have been assigned to the user with ID <kbd>123</kbd> within a security group with ID <kbd>789</kbd>, <kbd>/security-groups/789/users/123/permissions</kbd> can be used as a path. In this example, the use of a forward slash to separate the security group and user resources implies the existence of a hierarchical relationship between them.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Controlling access to API endpoints</h1>
+                </header>
+            
+            <article>
+                
+<p>After defining the endpoints for referring to resources, the next logical step is to implement a mechanism for enforcing access control. For instance, while <kbd>/orders/123</kbd> and <kbd>orders/789</kbd> are both valid resource paths, they might belong to different users; obviously, we would expect that each user should only be able to access their own orders.</p>
+<p>In a different scenario, a user might be able to list the users that belong to a particular security group by performing a GET request to <kbd>/security-groups/123/users</kbd>, but only an administrator would be allowed to add or remove users from that group (for example, by performing POST and DELETE<strong> </strong>requests to the same endpoint). A fairly common pattern for achieving this kind of granular access to resources is <strong>Role-Based Access Control</strong> (<strong>RBAC</strong>).</p>
+<p>To apply this pattern, we need to define a list of roles (for example, normal user, administrator, and so on) and associate each role with a set of access permissions. Each user of the system is assigned to one or more roles that the system consults when considering whether it should grant access to a particular resource or not.</p>
+<p>Before we can go ahead and implement RBAC, we need to establish a mechanism for authenticating users prior to them attempting to access non-public API endpoints.</p>
+<div>
+<p>A lot of people tend to conflate the terms authentication and authorization when, in fact, they cannot be used interchangeably.</p>
+</div>
+<p>To avoid any confusion, let's spend a bit of time properly defining the two terms:</p>
+<ul>
+<li><strong>Authentication</strong>: This proves that a particular entity (for example, a client making API requests) is who they claim to be by providing some form of credential. This is akin to displaying your passport when going through security at an airport.</li>
+<li><strong>Authorization</strong>: This proves that an entity has a right to access a particular resource. For instance, a metro ticket grants you access to a train platform without you having to disclose your identity.</li>
+</ul>
+<p>In the following two sections, we will be examining two popular approaches to handling authentication, namely, basic HTTP authentication over TLS and authorization to an external service provider via <strong>OAuth2</strong>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Basic HTTP authentication</h1>
+                </header>
+            
+            <article>
+                
+<p>Basic HTTP authentication is probably the easiest and simplest way to implement an authentication layer for any API. Each client is provided either with a username and password tuple or with an API key. The latter approach is generally preferred as it allows application developers to generate multiple access keys that are tied to the same user account but can be independently managed, metered, and even revoked, should the need arise.</p>
+<p>Whenever clients need to perform an authenticated API request, they have to encode their access credentials and attach them to the outgoing request by means of the standard HTTP authorization header. Clients construct the content of the header field in the following way:</p>
+<ol type="1">
+<li>Concatenate the username and password with a colon separator. So, if the username is <kbd>foo</kbd> and the password is <kbd>bar</kbd>, the concatenated result would be <kbd>foo:bar</kbd>. On the other hand, if the client is only provided with an API key, they need to use it as the username and concatenate it with a blank password. In other words, if the API key is <kbd>abcdefg</kbd>, then the concatenated result would be <kbd>abcdefg:</kbd>.</li>
+<li>The concatenated credentials are then base64-encoded. For the username and password scenario we mentioned previously, the encoded output for <kbd>foo:bar</kbd> becomes <kbd>Zm9vOmJhcg==</kbd>.</li>
+<li>The authorization method (basic) followed by a space character is prepended to the encoded credentials to yield the final header value, that is, <kbd>Authorization: Basic Zm9vOmJhcg==</kbd>.</li>
+</ol>
+<p>The obvious caveat of this approach is that the client's credentials are transmitted in plaintext over the wire. Therefore, in order to avoid credential leaks, API requests need to be transmitted over a secure channel. In principle, this is achieved by establishing a TLS session between the client and the server.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Securing TLS connections from eavesdropping</h1>
+                </header>
+            
+            <article>
+                
+<p>It is also important to note that while TLS sessions do offer a secure channel for exchanging data, TLS encryption is not a panacea; it is still possible for a malicious adversary to intercept and decode TLS traffic by using a proxy to perform a <strong>man-in-the-middle</strong> (<strong>MITM</strong>) attack:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/77f12f87-d575-49a2-91a9-5766ec1b9f14.png" style="width:64.67em;height:40.67em;"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Figure 1: Using a MITM attack to intercept TLS traffic</div>
+<p>The preceding diagram illustrates a scenario where <strong>Alice</strong> uses her bank's application on her mobile phone to query the balance in her bank account. <strong>Eve</strong> is a malicious actor trying to intercept the API calls between the application running on <strong>Alice's</strong> phone and the bank backend servers.</p>
+<p>To achieve this, <strong>Eve</strong> needs to install a MITM proxy that will intercept and record outgoing connection requests from <strong>Alice's</strong> phone and either proxy them to the intended server or return fake responses. However, as we mentioned previously, the bank's server uses TLS-based encryption, so the bank application will not complete the TLS handshake steps unless the server provides a valid TLS certificate for the bank's domain.</p>
+<p>In order for the MITM attack to succeed, the proxy server needs to be able to provide forged TLS certificates to Alice, which not only matches the bank's domain but is also signed by one of the globally trusted <strong>Certificate Authorities</strong> (<strong>CAs</strong>) that are preinstalled on <strong>Alice's</strong> phone.</p>
+<p>Given that <strong>Eve</strong> does not have access to the private keys of any global CA, a prerequisite for forging certificates is for <strong>Eve</strong> to install a custom certificate authority on <strong>Alice's</strong> phone. This can be achieved either by exploiting a security hole via social engineering or simply by forcing <strong>Alice</strong> to do so if <strong>Eve</strong> happens to be a state actor.</p>
+<p>With <strong>Eve's</strong> CA certificate in place, the interception process works as follows:</p>
+<ol type="1">
+<li><strong>Alice</strong> tries to connect to a website, for example, <kbd>https://www.bank.com</kbd>.</li>
+<li><strong>Eve</strong> intercepts the request and establishes a TCP socket with <strong>Alice</strong>.</li>
+<li><strong>Alice</strong> initiates the TLS handshake. The handshake headers include a<strong> Server Name Indication </strong>(<strong>SNI</strong>) entry, which indicates the domain name it is trying to reach.</li>
+<li>Eve opens a connection to the real <kbd>https://www.bank.com</kbd> server and initiates a TLS handshake, making sure to pass the same SNI entry as <strong>Alice</strong>.</li>
+<li>The bank server responds with its TLS certificate that also includes information about the server <strong>Common Name</strong> (<strong>CN</strong>), which in this case would normally be <kbd>www.bank.com</kbd> or <kbd>bank.com</kbd>. The certificate may also include a <strong>Subject Alternative Name</strong> (<strong>SAN</strong>) entry, which enumerates a list of additional domains that are also secured by the same certificate.</li>
+<li><strong>Eve</strong> forges a new TLS certificate that matches the information from the bank's TLS certificate and signs it with the private keys that correspond to the custom CA cert installed on <strong>Alice's</strong> phone. The forged certificate is returned to <strong>Alice</strong>.</li>
+<li><strong>Alice</strong> successfully verifies the forged TLS certificate, that is, it has the correct SNI and its parent certificate chain can be fully traced back to a trusted root CA. At this point, <strong>Alice</strong> completes the TLS handshake and sends out an API request to the bank API, which includes her access credentials.</li>
+</ol>
+<ol start="8" type="1">
+<li><strong>Alice's</strong> request is encrypted with the forged TLS certificate. <strong>Eve</strong> decrypts the request and makes a record of it. Acting as a proxy, she opens a connection to the real bank server and sends <strong>Alice's</strong> request through.</li>
+<li><strong>Eve</strong> records the response from the bank server and sends it back to <strong>Alice</strong>.</li>
+</ol>
+<p>Now that we are fully aware of the extent of damage that can be potentially caused by MITM attacks, what steps can we actually take to make our APIs more resistant to attacks like this? One approach to mitigating the issue of forged TLS certificates is to employ a technique known as public key pinning.</p>
+<p>Each time we release a new client for our application, we embed the fingerprint of the public key that corresponds to the TLS certificate that's used to secure the API gateway. After completing the TLS handshake, the client calculates the public key fingerprint for the certificates that are presented by the server and compares it to the embedded value. If a mismatch is detected, the client immediately aborts the connection attempt and notifies the user that a potential MITM attack might be in progress.</p>
+<p>Now, let's look at how we can implement public key pinning in our Go applications. The full source code for the following example is available in the <kbd>Chapter09/pincert/dialer</kbd> package of this book's GitHub repository. Go's <kbd>http.Transport</kbd> type is a low-level primitive that is used by <kbd>http.Client</kbd> to perform HTTP and HTTPS requests. When creating a new <kbd>http.Transport</kbd> instance, we can override its <kbd>DialTLS</kbd> field with a custom function that will be invoked each time a new TLS connection needs to be established. This sounds like the perfect spot to implement the public key fingerprint verification logic.</p>
+<p>The <kbd>WithPinnedCertVerification</kbd> helper, whose listing is shown in the following code, returns a dialer function that can be assigned to the <kbd>DialTLS</kbd> field of <kbd>http.Transport</kbd>:</p>
+<div>
+<pre>func WithPinnedCertVerification(pkFingerprint []byte, tlsConfig *tls.Config) TLSDialer {<br/>    return func(network, addr string) (net.Conn, error) {<br/>       conn, err := tls.Dial(network, addr, tlsConfig)<br/>        if err != nil {<br/>            return nil, err<br/>        }<br/>        if err := verifyPinnedCert(pkFingerprint, conn.ConnectionState().PeerCertificates); err != nil { _ = conn.Close()<br/>            return nil, err<br/>        }<br/>        return conn, nil<br/>    }<br/>}</pre></div>
+<p>The returned dialer attempts to establish a TLS connection by invoking the <kbd>tls.Dial</kbd> function with the caller-provider network, destination address, and <kbd>tls.Config</kbd> parameters as arguments. Note that the <kbd>tls.Dial</kbd> call will also automatically handle the validation of the TLS certificate chain that's presented by the remote server for us. After successfully establishing a TLS connection, the dialer delegates the verification of the pinned certificate to the <kbd>verifyPinnedCert</kbd> helper function, which is shown in the following code snippet:</p>
+<div>
+<pre>func verifyPinnedCert(pkFingerprint []byte, peerCerts []*x509.Certificate) error {<br/>    for _, cert := range peerCerts {<br/>        certDER, err := x509.MarshalPKIXPublicKey(cert.PublicKey)<br/>        if err != nil {<br/>            return xerrors.Errorf("unable to serialize certificate public key: %w", err)<br/>        }<br/>        fingerprint := sha256.Sum256(certDER)<br/><br/>        // Matched cert PK fingerprint to the one provided.<br/>        if bytes.Equal(fingerprint[:], pkFingerprint) {<br/>            return nil<br/>        }<br/>    }<br/>    return xerrors.Errorf("remote server presented a certificate which does not match the provided fingerprint")<br/>}</pre></div>
+<p>The <kbd>verifyPinnedCert</kbd> implementation iterates the list of X509 certificates presented by the remote server and calculates the SHA256 hash for each certificate's public key. Each calculated fingerprint is then compared to the pinned certificate's fingerprint. If a match is found, then <kbd>verifyPinnedCert</kbd> returns without an error and the TLS connection can be safely used to make API calls. On the other hand, an error will be returned if no match was found. In the latter case, the dialer will terminate the connection and propagate the error back to the caller.</p>
+<p>Using this dialer to improve the security of your API clients is quite easy. All you need to do is create your own <kbd>http.Client</kbd> instance, as follows:</p>
+<div>
+<pre>client := &amp;http.Client{<br/>    Transport: &amp;http.Transport{<br/>        DialTLS: dialer.WithPinnedCertVerification(<br/>            fingerprint, <br/>            new(tls.Config),<br/>        ),<br/>    },<br/>}</pre></div>
+<p>You can now use this client instance to perform HTTPS requests to your backend servers, just like you would normally do, but with the added benefit that your code can now detect MITM attack attempts. A complete end-to-end example of using this dialer to perform public key pinning can be found in the <kbd>Chapter09/pincert</kbd> package of this book's GitHub repository.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Authenticating to external service providers using OAuth2</h1>
+                </header>
+            
+            <article>
+                
+<p>OAuth is an open standard for authorization that was initially proposed as an alternative to the basic authentication pattern that we examined in the previous section.</p>
+<p>OAuth was designed to solve the following problem:<span> let's </span>assume that we have two services, A and B, which are typically unrelated to each other. As end users of service A, we wish to grant it access to some of our personal data that is hosted by service B. However, we want to avoid having to divulge our credentials so that we can access service B from service A.</p>
+<p>Common use cases for using OAuth are as follows:</p>
+<ul>
+<li>Using a third-party service as a <strong>single sign-on</strong> (<strong>SSO</strong>) provider instead of creating individual accounts for each service we are interested in using. The login with <em>X</em> buttons that you commonly see when attempting to sign in to online services is a great example of this pattern. Furthermore, SSO providers often provide a dashboard where users can examine the list of services that they have granted access to and revoke their access at any point in time.</li>
+<li>Allowing a service to use another service's API on behalf of a particular user. For instance, a user can log in to a <strong>Continuous Integration</strong> (<strong>CI</strong>) service with their GitHub account and allow the CI service to use GitHub's API to query the user's repositories or to set up webhooks that will trigger CI runs when a pull request is created.</li>
+</ul>
+<p>So, how does this work under the hood and how can we integrate the OAuth framework into our Go applications? For the remainder of this section, we will be focusing on the three-legged OAuth2 flow, which can facilitate data exchange between applications without sharing user credentials.</p>
+<p>The three-legged OAuth2 flow involves the following four parties:</p>
+<ul>
+<li><strong>The Resource Owner</strong>: This is the user who wants to give access to their data that's hosted by service B to service A without sharing their credentials.</li>
+<li><strong>The OAuth client</strong>: In our scenario, service A wants to leverage an API offered by service B to obtain the user's data or to execute some action on behalf of the user.</li>
+<li><strong>The Resource Server</strong>: In our scenario, service B hosts the user data that service A attempts to access.</li>
+<li><strong>The Authorization Server</strong>: This is a part of service B and acts as the key component in this particular OAuth flow. It generates the appropriate set of access tokens that allow service A to access a specific subset of the user data hosted by service B.</li>
+</ul>
+<p>The following diagram illustrates the three-legged OAuth2 flow:</p>
+<p class="mce-root CDPAlignCenter CDPAlign"><img src="assets/40e0989f-d149-4afa-bcfb-41183ec7c649.png" style="width:73.83em;height:40.25em;"/></p>
+<div class="CDPAlignCenter CDPAlign packt_figref">Figure 2: The steps in the three-legged OAuth2 flow</div>
+<p>In order for service A to be able to trigger the three-legged OAuth2 flow, it needs to be registered with the authorization server for service B. Upon registering, service A will be assigned a unique client ID and client secret token. The client ID is a public token that allows the authorization server to identify the application that requires access. On the other hand, the client secret is private and is used to authenticate the OAuth client whenever it needs to contact the authorization server.</p>
+<p>Let's examine what happens during the three-legged OAuth2 flow:</p>
+<ol type="1">
+<li>The user visits the website for service A and clicks the login with the B button.</li>
+<li>The backend server for service A is configured with the API endpoints of the authorization server for service B. It returns an authorization URL to the user that embeds the following pieces of information:
+<ul>
+<li>The client ID token that is used by the authorization server to identify the service requesting access</li>
+<li>A set of granular access permissions (grants) to be granted to service A</li>
+<li>A URL hosted by service A, which the user will be redirected to by the authorization server once they consent to give access</li>
+<li>A nonce value, which is to be used as a unique identifier for the authorization request</li>
+</ul>
+</li>
+<li>The user visits the authorization URL using their web browser.</li>
+<li>The authorization server renders a consent page providing details (name, author, and so on) about the application that requires access to the user's data, as well as a description for the types of grants that can be requested.</li>
+</ol>
+<p style="padding-left: 60px">An example of a consent page for authorizing access to a user's GitHub account can be seen in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/b75ddae0-8177-4df1-9195-effaa6cf2798.png" style="width:32.75em;height:38.67em;"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign">Figure 3: An example consent page for granting access to a user's GitHub account</div>
+<ol start="5" type="1">
+<li class="CDPAlignCenter CDPAlign CDPAlignLeft">Once the user reviews and authorizes the list of permissions that have been requested by service A and authorizes them, their web browser will be redirected to the URL included in the authorization request URL that was generated in <em>step 2</em>. The authorization server appends two additional values to that URL <span>– </span>the nonce value from the authorization request and an access code.</li>
+</ol>
+<ol start="6" type="1">
+<li class="CDPAlignCenter CDPAlign CDPAlignLeft">After receiving the access code and matching the incoming nonce value to the one included in the authorization request, the OAuth client contacts the server and attempts to exchange the obtained access co de with an access token.</li>
+<li class="CDPAlignCenter CDPAlign CDPAlignLeft">The authorization server returns two tokens: a short-lived access token that can be used to access data on the resource server and a long-lived refresh token that the OAuth client can use to refresh expired access tokens.</li>
+<li class="CDPAlignCenter CDPAlign CDPAlignLeft">The OAuth client contacts the resource server and obtains the required data using the access token.</li>
+</ol>
+<p>In a similar fashion to the basic authentication mechanism we discussed previously, all outgoing requests to the resource server include an HTTP authorization header that the client populates with the obtained access token. The only difference is that instead of specifying a basic authorization method, this time, the client specifies <kbd>bearer</kbd> as the authorization method, that is, the transmitted header looks like <kbd>Authorization: Bearer ACCESS_TOKEN</kbd>.</p>
+<p>Fortunately, most of the plumbing that's needed for implementing the three-legged OAuth flow in our applications is already provided by the <kbd>golang.org/x/oauth2</kbd> package. All we need to do is implement the redirect handling logic we described in <em>step 5</em>. Let's begin by creating a new type called <kbd>Flow</kbd> to encapsulate the logic for our OAuth implementation. The <kbd>type</kbd> definition lives in the <kbd>Chapter09/oauthflow/auth</kbd> package and contains the following set of fields:</p>
+<div>
+<pre>type Flow struct {<br/>    cfg oauth2.Config<br/><br/>    mu sync.Mutex<br/>    srvListener net.Listener<br/>    pendingRequests map[string]chan Result<br/>}</pre></div>
+<p>The <kbd>cfg</kbd> field holds a <kbd>oauth2.Config</kbd> value, which describes the OAuth provider's endpoints for:</p>
+<ul>
+<li>Authorizing requests</li>
+<li>Obtaining access tokens</li>
+<li>Refreshing access tokens when they expire</li>
+</ul>
+<p>The <kbd>srvListener</kbd> field stores the <kbd>net.Listener</kbd> instance, which is where our implementation will listen for incoming OAuth redirects, while the <kbd>pendingRequests map</kbd> keeps track of all authorization attempts that are currently in flight. A <kbd>sync.Mutex</kbd> guards the access to both these variables and ensures that our implementation is safe for concurrent use.</p>
+<p>To work with our package, users must create a new <kbd>Flow</kbd> instance by invoking the <kbd>NewOAuthFlow</kbd> constructor, whose implementation is shown in the following code snippet:</p>
+<div>
+<pre><a>func NewOAuthFlow(cfg oauth2.Config, callbackListenAddr, redirectHost string) (*Flow, error) {</a>
+<a>    if callbackListenAddr == "" {</a>
+<a>        callbackListenAddr = "127.0.0.1:8080"</a>
+<a>    }</a>
+<a>    l, err := net.Listen("tcp", callbackListenAddr)</a>
+<a>    if err != nil {</a>
+<a>        return nil, xerrors.Errorf("cannot create listener for handling OAuth redirects: %w", err)</a>
+<a>    }</a>
+<a>    if redirectHost == "" {</a>
+<a>        redirectHost = l.Addr().String()</a>
+<a>    }</a>
+
+<a>    cfg.RedirectURL = fmt.Sprintf("http://%s/oauth/redirect", redirectHost)</a>
+<a>    f := &amp;Flow{srvListener: l, cfg: cfg, pendingRequests: make(map[string]chan Result)}</a>
+
+<a>    mux := http.NewServeMux()</a>
+<a>    mux.HandleFunc(redirectPath, f.handleAuthRedirect)</a>
+<a>    go func() { _ = http.Serve(l, mux) }()</a>
+<a>    return f, nil</a>
+<a>}</a></pre></div>
+<p>The constructor expects three arguments:</p>
+<ul>
+<li>An <kbd>oauth2.Config</kbd> instance for the provider that the user wishes to authenticate against.</li>
+<li>A local address so that it can listen for incoming redirect requests. If not specified, the implementation will bind to the default address, <kbd>127.0.0.1:8080</kbd>.</li>
+<li> A redirect URL that is sent to the remote server as part of the three-legged OAuth flow. If not specified, the implementation will use the address that the listener has bound to.</li>
+</ul>
+<p>You might be wondering why users need to specify both the listen address and the redirect URL. When we are testing our application locally, these two values will always be the same. In fact, we can leave both parameters blank and our application will work just fine with the default values!</p>
+<p>In this scenario, once we log in to the remote service, the OAuth server will redirect our browser to a loopback address that the browser can successfully connect to, given that it executes on the same machine as our OAuth redirect listener.</p>
+<p>In a production deployment, our code would run on an isolated virtual machine hosted by a cloud provider. While our OAuth-handling code would still be listening to a loopback address, the users' browsers would only be able to connect to it through a load balancer with a public IP address. In such a case, the only way to make the three-legged OAuth flow work correctly is to provide a redirect URL whose DNS record resolves to the IP of the external load balancer.</p>
+<p>Going back to the constructor implementation, the first thing that we need to do is bind a new <kbd>net.Listener</kbd> to the requested address and populate the value of the <kbd>redirectHost</kbd> parameter (if it's not been specified). Next, we overwrite the <kbd>RedirectURL</kbd> field of the user-provided OAuth configuration object with a URL that is generated by concatenating the value of the <kbd>redirectHost</kbd> parameter with a known static path (in this example, <kbd>/oauth/redirect</kbd>). Before returning the newly allocated <kbd>Flow</kbd> instance, the code spawns a go-routine and starts an HTTP server for processing incoming redirects from the remote authorization server.</p>
+<p>After obtaining a new <kbd>Flow</kbd> instance, users can trigger a three-legged OAuth flow by invoking its <kbd>Authenticate</kbd> method, whose source is displayed in the following code snippet:</p>
+<div>
+<pre>func (f *Flow) Authenticate() (string, &lt;-chan Result, error) {<br/>    nonce, err := genNonce(16)<br/>    if err != nil {<br/>        return "", nil, err<br/>    }<br/><br/>    authURL := f.cfg.AuthCodeURL(nonce, oauth2.AccessTypeOffline)<br/>    resCh := make(chan Result, 1)<br/>    f.mu.Lock()<br/>    f.pendingRequests[nonce] = resCh<br/>    f.mu.Unlock()<br/><br/>    return authURL, resCh, nil<br/>}</pre></div>
+<p>From the preceding code snippet, to distinguish between concurrent authentication requests, the <kbd>Authenticate</kbd> method generates a unique nonce value and associates it with every pending request. The generated nonce is then passed to the OAuth configuration's <kbd>AuthCodeURL</kbd> method to generate an authorization URL (pointing at the remote service) where the end user can log in using their web browser and consent to the grants that have been requested by our application.</p>
+<p>The remaining steps of the OAuth flow happen asynchronously. To this end, the code allocates a buffered <kbd>Result</kbd> channel, appends it to the <kbd>pendingRequests</kbd> map while using the generated nonce as a key, and returns both the authorization URL and the result channel to the caller. The application must then redirect the end user's browser to the generated URL and block until a <kbd>Result</kbd> instance can be read off the returned channel.</p>
+<p>The <kbd>Result</kbd> type encapsulates the result of an authorization attempt and is defined as follows:</p>
+<div>
+<pre>type Result struct {<br/>    authErr error<br/>    authCode string<br/>    cfg *oauth2.Config<br/>}</pre></div>
+<p>Once the user completes the authorization process, the remote OAuth server will redirect their browser to the HTTP server that we launched in the <kbd>Flow</kbd> type's constructor. Next, we will examine the implementation of the <kbd>handleAuthRedirect</kbd> HTTP handler.</p>
+<div class="packt_infobox">In the following code snippets, the <kbd>r</kbd> variable refers to an <kbd>http.Request</kbd> instance, while the <kbd>w</kbd> variable refers to an <kbd>http.ResponseWriter</kbd> instance.</div>
+<p>The first task of the HTTP handler is to parse and validate the parameters that were sent to us by the authorization server using the following block of code:</p>
+<div>
+<pre>if err := r.ParseForm(); err != nil {<br/>    w.WriteHeader(http.StatusBadRequest)<br/>    return<br/>}<br/><br/>nonce := r.FormValue("state")<br/>code := r.FormValue("code")</pre></div>
+<p>The <kbd>ParseForm</kbd> method of the <kbd>http.Request</kbd> object is quite flexible in that it is able to decode parameters both from the URL (if this is a <strong>GET</strong> request) and the HTTP request body (if this is a <strong>POST</strong> request). If the call returns without an error, we use the handy <kbd>FormValue</kbd> method to extract the state parameter, which contains the nonce value that we embedded in our initial authorization request URL, and the code value, which contains the access code that was returned by the authorization server.</p>
+<p>Next, the handler acquires the lock and indexes the <kbd>pendingRequests</kbd> map using the provided nonce value in an attempt to look up the result channel for the pending request. If no match is found, we print out a simple warning message that will be displayed to the user's browser and exit the handler. Otherwise, we remove the pending result channel from the map and publish a <kbd>Result</kbd> instance to it. The following block of code illustrates how the aforementioned steps are implemented:</p>
+<div>
+<pre>f.mu.Lock()<br/>resCh, exists := f.pendingRequests[nonce]<br/>if !exists {<br/>    f.mu.Unlock()<br/>    _, _ = fmt.Fprint(w, unknownNonce)<br/>    return<br/>}<br/>delete(f.pendingRequests, nonce)<br/>f.mu.Unlock()<br/><br/>resCh &lt;- Result{ authCode: code, cfg: &amp;f.cfg }<br/>close(resCh)<br/><br/>_, _ = fmt.Fprint(w, successMsg)</pre></div>
+<p>Once the HTTP handler writes the <kbd>Result</kbd> value to the channel, the application waiting on the channel unblocks and can invoke the result's <kbd>Client</kbd> method to obtain an <kbd>http.Client</kbd> instance so that it can make authenticated calls to the remote service. The returned <kbd>http.Client</kbd> instance is specially configured to automatically inject the obtained access token into all outgoing requests and transparently refresh it when it expires. The complete implementation for this method is outlined in the following code snippet:</p>
+<div>
+<pre>func (ar *Result) Client(ctx context.Context) (*http.Client, error) {<br/>    if ar.authErr != nil {<br/>        return nil, ar.authErr<br/>    }<br/><br/>    token, err := ar.cfg.Exchange(ctx, ar.authCode)<br/>    if err != nil {<br/>        return nil, xerrors.Errorf("unable to exchange authentication code with OAuth token: %w", err)<br/>    }<br/><br/>    return ar.cfg.Client(ctx, token), nil<br/>}</pre></div>
+<p>As shown in the preceding code snippet, we complete the three-legged OAuth flow by exchanging the short-lived authentication code that's sent back to us by the authorization server with a long-lived access token. Finally, we pass the <kbd>OAuth</kbd> access token to the similarly-named <kbd>Client</kbd> method of the stored <kbd>oauth2.Config</kbd> value to create a token-aware <kbd>http.Client</kbd> instance, which is then returned to the caller.</p>
+<p>To understand how all the pieces of the puzzle fit together, you can take a look at the <kbd>Chapter09/oauthflow</kbd> package in this book's GitHub repository. It contains a complete, end-to-end example of a simple CLI application that uses the code from this section to gain access to GitHub's API and to print out a user's login name.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Dealing with API versions</h1>
+                </header>
+            
+            <article>
+                
+<p>Once a public API for a particular service gets published and third parties begin using it, API developers need to be very careful to avoid introducing any changes that could cause third-party applications to stop working.</p>
+<p>Imagine that we are building a payment processor similar to PayPal, Stripe, or Adyen. The core business value proposition of such a service is to provide a solid and easy-to-use API for handling payments. To this end, we expect hundreds or thousands of application instances (e-commerce sites, recurring subscription services, and so on) to be tightly coupled to our payment processor's public API.</p>
+<p>Introducing new API endpoints would be a relatively trivial task; after all, none of the applications that depend on the service API will be using the new endpoints, so we can't really break something. On the other hand, changing existing or removing old API endpoints cannot be done without giving advance notice to all the users of our API.</p>
+<p>The problem is compounded even further by the fact that each application integrator moves at a different pace; some may update their applications in a relatively short amount of time, while others may take months to come up with an update. Likewise, application integrators can also go out of business, leaving end users with no channel for receiving updates for already deployed application instances.</p>
+<p>So, what if we were in complete control of both the server and the client? Would it be easier to introduce breaking changes if we were building, for instance, a mobile application and opted to use a proprietary API for communicating with the backend servers? The answer is still no! To figure out why this is the case, let's pretend that we are the operator that's responsible for running a ride-hailing application.</p>
+<p>One strategy that we can use to our advantage is to ship our mobile application with a built-in force-update mechanism. When the application starts, it can contact our API servers and check whether an update must be installed before continuing. If that happens to be the case, the application can nag the user until they agree to update it. That would definitely work... unless, of course, our users were standing in the pouring rain on a Saturday night, desperately trying to get a taxi.</p>
+<p>In such a scenario, displaying a "please upgrade the application to continue" message is definitely a sign of bad UX and would probably trigger many users to immediately switch to a competitor's application. In addition, some of our users might be owners of older phone models that cannot be upgraded to a newer version of our application because they either run on older hardware or because the phone manufacturer revoked the keys that are used to sign applications for OS versions that are not supported anymore.</p>
+<p>In hindsight, the evolution of APIs is inevitable. Therefore, we need to come up with some kind of versioning mechanism for the RESTful APIs that would allow us to introduce breaking changes while at the same time still being able to handle requests from legacy API clients.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Including the API version as a route prefix</h1>
+                </header>
+            
+            <article>
+                
+<p>The most popular approach for implementing API versioning is for clients to include the requested API version as part of the requested API endpoint paths. For instance, <kbd>/v1/account</kbd> and <kbd>/v2/account</kbd> are versioned endpoints for retrieving the user's account details. However, the <kbd>/account</kbd> endpoint, when mounted under the <kbd>v2</kbd> prefix, might return a completely different payload than the one mounted under the <kbd>v1</kbd> prefix.</p>
+<p>The choice of the version naming scheme is totally arbitrary and is up to the API designer to decide on. Common versioning schemes include the following:</p>
+<ul>
+<li>Numeric values; for example, <kbd>v4</kbd></li>
+<li>API release dates; for example, <kbd>20200101</kbd></li>
+<li>Season names that coincide with new API releases; for example, <kbd>spring2020</kbd></li>
+</ul>
+<p>It is important to be aware that this particular versioning approach violates the principle that URIs should refer to unique resources. Clearly, in the previous example, <kbd>/v1/account</kbd> and <kbd>/v2/account</kbd> both refer to the same resource. What's more, a limitation of this approach is that we cannot version individual API endpoints.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Negotiating API versions via HTTP Accept headers</h1>
+                </header>
+            
+            <article>
+                
+<p>The version as part of the route approach works fine if we assume that the API server is always supporting the latest API version. In this scenario, the client can simply select the highest version that it can work with without any concern about the server hosting the API. What if this assumption does not hold?</p>
+<p>Let's say that we are developing a chat server that users can download and deploy on their own infrastructure. Besides the chat server package, we also develop and maintain the official client for connecting to the chat server. The chat server exposes an API endpoint with a <kbd>/messages/:channel</kbd> path, which clients can invoke to obtain a list of messages for a particular channel.</p>
+<p>In version 1 of the API, each returned message includes two fields: the name of the user who sent the message and the message itself. In version 2 of the API, the message payload is augmented with two additional fields, namely, a timestamp and a link to the user's avatar image.</p>
+<p>Given that the version of the server that gets deployed is ultimately controlled by the end user, clients that connect to the server have no means of knowing which API version they can safely use. Granted, we could provide a dedicated API endpoint that clients could use to query the server version and then select the API version based on the server response. However, this approach is not really elegant and cannot really scale if we want to version specific endpoints but not the entire API.</p>
+<p>Clearly, we need to introduce a sort of negotiation protocol that would allow the client and server to select the maximum common supported API version that is understood by both parties. As it turns out, the HTTP protocol already comes with such functionality baked in.</p>
+<p>The client can use the HTTP Accept header to specify the API versions that it supports when it invokes the <kbd>/messages/:channel</kbd> endpoint. The contents of the Accept header must follow the media type specification format defined in RFC6838 <sup>[9]</sup>. For JSON-based APIs, the <kbd>application/vnd.apiVersion+json</kbd> template is typically used.</p>
+<p>The <kbd>vnd</kbd> part indicates a vendor-specific media type. The <kbd>apiVersion</kbd> part is used to specify the supported version number, while the <kbd>+json</kbd> part indicates that the client expects a well-formed JSON document to be returned by the server. The media type syntax also allows clients to specify multiple media types as a comma-separated list. For the scenario we are currently discussing, a client that supports both API versions but prefers to use version 2 of the API would populate the header with the value <kbd>application/vnd.v2+json,application/vnd.v1+json</kbd>.</p>
+<p>The server parses the header value, locates the highest supported API version, and routes the request to it or returns an error if none of the proposed client API versions are supported. When responding to the client with the payload, the server sets the value of the <kbd>Content-Type</kbd> header to indicate the API version that was actually used to process the request. The client parses this information and uses it to correctly unmarshal and handle the response payload.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building RESTful APIs in Go</h1>
+                </header>
+            
+            <article>
+                
+<p>Nowadays, building RESTful APIs in Go is a fairly streamlined process. If you don't mind a little bit of elbow grease (for example, using regular expressions to manually extract parameters from request paths), you can build your very own HTTP router by leveraging the functionality offered by <kbd>http.Mux</kbd>, a component that ships with the Go standard library.</p>
+<p>While building your own router from scratch would undoubtedly be a great learning experience, you should probably save quite a bit of time (and effort) and simply use one of the popular, battle-tested router packages such as gorilla-mux <sup>[5]</sup> or HttpRouter <sup>[3]</sup>.</p>
+<p>On the other hand, if fully-fledged web frameworks (combining a router, middleware, and perhaps an ORM into a single package) are your cup of tea, you will be positively surprised to find out that there are a plethora of packages to choose from! An indicative list of popular (based on the number of stars on GitHub) web framework packages would definitely include buffalo <sup>[1]</sup>, revel <sup>[4]</sup>, and gin-gonic <sup>[10]</sup>.</p>
+<div>
+<p>All of these packages have one thing in common: they are all built on top of the net/http package. If you happen to be building APIs that can potentially receive a large (that is, more than one million requests per server) volume of concurrent requests, you may find that the net/http package actually becomes a bottleneck that caps your API's throughput.</p>
+<p>If you ever find yourself in this predicament and don't mind programming against a slightly different API than the one offered by the net/http package, you should take a look at the fasthttp <sup>[8]</sup> package.</p>
+</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Building RPC-based APIs with the help of gRPC</h1>
+                </header>
+            
+            <article>
+                
+<p>gRPC <sup>[2]</sup> is a modern open source framework that was created by Google to assist the process of implementing APIs that are based on the <strong>Remote Procedure Call</strong> (<strong>RPC</strong>) paradigm. In contrast to the REST architecture, which is more suited for connecting web-based clients such as browsers to backend services, gRPC was proposed as a cross-platform and cross-language alternative for building low-latency and highly scalable distributed systems.</p>
+<div>
+<p>Do you know what the letter g in gRPC stands for? A lot of people naturally think that it stands for Google, a reasonable assumption given that gRPC was released by Google in the first place. Others believe that <strong>gRPC</strong> is a recursive acronym, that is, <strong>gRPC Remote Procedure Calls</strong>.</p>
+<p>The fun fact is that both interpretations are wrong! According to the gRPC documentation on GitHub, the meaning of the letter g changes with every new gRPC release <sup>[11]</sup>.</p>
+</div>
+<p>While the construction of high-performance APIs to link together microservices is the bread and butter of gRPC, as we will see in the following sections, it can also be used as a replacement for existing REST APIs.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Comparing gRPC to REST</h1>
+                </header>
+            
+            <article>
+                
+<p>While using REST as an architecture for building APIs provides several benefits, it also comes with a few caveats attached. Let's examine these caveats in more detail.</p>
+<p>REST APIs are typically implemented on top of the HTTP/1.x protocol, which lacks proper support for managing and reusing connections. As a result, clients must establish a new TCP connection with the backend server and perform a complete TLS handshake every time they wish to invoke an API endpoint. This requirement not only incurs additional latency to API calls but also increases the load on backend servers (or load balancers, if you are doing TLS termination at the edge) since TLS handshaking comes with a non-insignificant computation cost.</p>
+<p>In an attempt to mitigate this issue, HTTP/1.1 introduced the model of HTTP pipelining. In this connection-management mode, the client opens a single TCP socket to the server and sends a batch of successive requests through. The server processes the batch of requests and sends back a batch of responses that match the order of the requests sent in by the client. One limitation of this model is that it can only be applied to idempotent requests (HEAD, GET, PUT, and DELETE). Furthermore, it is susceptible to head-of-line blocking, that is, a request that takes a long time to execute will delay the processing of subsequent requests in the same batch.</p>
+<p>On the other hand, gRPC is built on top of HTTP/2, which defines a new connection management model, that is, multiplexed streams. With this model, gRPC can support bi-directional streams that are interleaved and transmitted over a single TCP connection. This approach avoids the head-of-line blocking problem altogether and also allows the server to send push notifications back to the client.</p>
+<p>The text-based nature of the HTTP/1.x protocol and the choice of JSON as the dominant serialization format for requests and responses makes RESTful APIs a bit too verbose to work with in use cases where the goal is to maximize throughput. While JSON payloads can definitely be compressed (for example, using gzip), we wouldn't be able to achieve the same efficiency as protocol buffers, the binary format that gRPC uses to compactly encode messages exchanged between the client and the server.</p>
+<p>Finally, RESTful APIs do not mandate a particular structure for requests and response payloads. It's up to the client and server to correctly unmarshal JSON payloads and coerce the payload values to the correct type for the language they are written in. This approach could lead to errors or, even worse, data corruption.</p>
+<p>For example, if the server tries to unmarshal a 64-bit integer into a 32-bit integer variable, the value might be truncated if the original value cannot be coerced into 32 bits. On the other hand, gRPC uses strongly-typed messages, which always unmarshal to the correct types, regardless of the programming language that's used by the client or the server.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining messages using protocol buffers</h1>
+                </header>
+            
+            <article>
+                
+<p>Protocol buffers are language- and platform-neutral mechanisms for serializing structured data in a very efficient manner. To achieve language neutrality, protocol buffers describe both messages and RPC services in a high-level <strong>interface definition language</strong> (<strong>IDL</strong>).</p>
+<p>To start working with protocol buffers, we need to install the protoc compiler for our development environment. You can do this by compiling from source or by installing a pre-built binary release for your platform from <a href="https://github.com/protocolbuffers/protobuf/releases">https://github.com/protocolbuffers/protobuf/releases</a>.</p>
+<p>In addition, you will also need to install the Go output generator for the protoc compiler and the Go packages that are required for working with protocol buffers and the gRPC framework by executing the following commands:</p>
+<pre><strong>go get -u google.golang.org/grpc</strong><br/><strong>go get -u github.com/golang/protobuf/protoc-gen-go</strong></pre>
+<p>Protocol buffer message definitions typically live in files with a <kbd>.proto</kbd> extension. They are processed by specialized tools that compile the definitions into language-specific types that we can use to build our applications. For Go, the protoc compiler is generally invoked as follows:</p>
+<pre><strong>protoc --go_out=plugins=grpc:. -I. some-file.proto</strong></pre>
+<p>The <kbd>--go_out</kbd> argument instructs the protoc compiler to enable the Go output generator. It expects a comma-delimited list of options that end with a colon character. In the aforementioned example, the option list includes a plugin option to enable the gRPC plugin. The argument after the colon character specifies the location for any file that's generated by the compiler. Here, we set it to the current working directory.</p>
+<p>The <kbd>-I</kbd> argument can be used to specify additional include paths that the compiler scans when resolving include directives. In this example, we add the current working directory to the include path.</p>
+<p>Finally, the last argument to the protoc compiler is the name of the <kbd>.proto</kbd> file to be compiled.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining messages</h1>
+                </header>
+            
+            <article>
+                
+<p>So, what does a protocol buffer message definition look like? Here is a short example:</p>
+<div>
+<pre>syntax = "proto3";<br/>package geocoding;<br/><br/>message Address {<br/>  string query = 1;<br/>  int32 page_number = 2;<br/>  int32 result_per_page = 3;<br/>}</pre></div>
+<p>In the preceding definition, the first line announces the version of the protocol buffer format that's going to be used for the rest of the file to the compiler. In this example, we are using version 3, which is the latest version and the one should be used for any new projects. The second line defines the name of the package, which will be used as a container for the generated protocol buffer definitions. As you can probably guess, the use of packages avoids conflicts between projects that define messages with the same names.</p>
+<p>Message definitions begin with the <kbd>message</kbd> keyword, which is followed by the message name and a list of (field type, field name) tuples. Protocol buffer compilers recognize the following set of built-in types <sup>[7]</sup>:</p>
+<table style="border-collapse: collapse;width: 100%" border="1">
+<tbody>
+<tr>
+<td><strong>.proto Type</strong></td>
+<td><strong>Equivalent Go Type</strong></td>
+<td><strong>Notes</strong></td>
+</tr>
+<tr>
+<td><kbd>double</kbd></td>
+<td><kbd>float64</kbd></td>
+<td/>
+</tr>
+<tr>
+<td><kbd>float</kbd></td>
+<td><kbd>float32</kbd></td>
+<td/>
+</tr>
+<tr>
+<td><kbd>int32</kbd></td>
+<td><kbd>int32</kbd></td>
+<td>Uses variable-length encoding</td>
+</tr>
+<tr>
+<td><kbd>int64</kbd></td>
+<td><kbd>int64</kbd></td>
+<td>Uses variable-length encoding</td>
+</tr>
+<tr>
+<td><kbd>uint32</kbd></td>
+<td><kbd>uint32</kbd></td>
+<td>Uses variable-length encoding</td>
+</tr>
+<tr>
+<td><kbd>uint64</kbd></td>
+<td><kbd>uint64</kbd></td>
+<td>Uses variable-length encoding</td>
+</tr>
+<tr>
+<td><kbd>sint32</kbd></td>
+<td><kbd>int32</kbd></td>
+<td>More efficient for storing negative integer values than <kbd>int32</kbd></td>
+</tr>
+<tr>
+<td><kbd>sint64</kbd></td>
+<td><kbd>int64</kbd></td>
+<td>More efficient for storing negative integer values than <kbd>int64</kbd></td>
+</tr>
+<tr>
+<td><kbd>fixed32</kbd></td>
+<td><kbd>uint32</kbd></td>
+<td>Always 4 bytes; more efficient for values &gt; 228 than <kbd>uint32</kbd></td>
+</tr>
+<tr>
+<td><kbd>fixed64</kbd></td>
+<td><kbd>uint64</kbd></td>
+<td>Always 8 bytes; more efficient for values &gt; 256 than <kbd>uint64</kbd></td>
+</tr>
+<tr>
+<td><kbd>sfixed32</kbd></td>
+<td><kbd>int32</kbd></td>
+<td>Always 4 bytes</td>
+</tr>
+<tr>
+<td><kbd>sfixed64</kbd></td>
+<td><kbd>int64</kbd></td>
+<td>Always 8 bytes</td>
+</tr>
+<tr>
+<td><kbd>bool</kbd></td>
+<td><kbd>bool</kbd></td>
+<td/>
+</tr>
+<tr>
+<td><kbd>string</kbd></td>
+<td><kbd>string</kbd></td>
+<td/>
+</tr>
+<tr>
+<td><kbd>bytes</kbd></td>
+<td><kbd>[]byte</kbd></td>
+<td/>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>As we mentioned in the previous sections, protocol buffers try to encode messages into a compact and space-efficient format. To this end, integers are generally serialized using variable-length encoding. Since this approach does not work that well for negative values, protocol buffers also define auxiliary types for (mostly) negative values (for example, <kbd>sint32</kbd> and <kbd>sint64</kbd>), which are encoded in a different and more space-efficient way.</p>
+<p>Of course, we are not limited to just the built-in types. We can use already-defined message types as field types too! In fact, these definitions might even live in a separate <kbd>.proto</kbd> file that we include in the following way:</p>
+<div>
+<pre>import "google/protobuf/timestamp.proto";<br/><br/>message Record {<br/>  bytes data = 1;<br/>  google.protobuf.Timestamp created_at = 2;<br/>}</pre></div>
+<p>Another interesting feature of protocol buffers is enumerations, which allow us to define fields that can only be assigned a value from a fixed, predefined list of values. The following code expands the <kbd>Address</kbd> message definition so that it includes a type field to help us identify the address type:</p>
+<div>
+<pre>message Address {<br/>  string query = 1;<br/>  int32 page_number = 2;<br/>  int32 result_per_page = 3;<br/>  AddressType type = 4; // We can only assign an address type value to this field.<br/>}<br/><br/>enum AddressType {<br/>  UNKNOWN = 0;<br/>  HOME = 1;<br/>  BUSINESS = 2;<br/>}</pre></div>
+<p>The <kbd>enum</kbd> block defines the list of constants that can be assigned to the newly introduced type field. One important thing to keep in mind is that every enumeration list must include a constant that maps to the zero value as its first element. This serves as the default value for the field.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Versioning message definitions</h1>
+                </header>
+            
+            <article>
+                
+<p>Each field in a protocol buffer message is assigned a unique ID. The most common pattern is to assign IDs in an incremental fashion, starting from 1. When a field is serialized to the wire format, the serializer emits a small header that contains information about the field type, its size (for variable-sized fields), and its ID.</p>
+<p>The receiver scans the header and checks whether a field with that ID is present in its local message definition. If so, the field value is unserialized from the stream to the appropriate field. Otherwise, the receiver uses the information in the header to skip over any fields it does not recognize.</p>
+<p>This feature is extremely important as it forms the basis for versioning message definitions. Since message definitions evolve over time, new fields can be added or existing fields may be reordered without breaking existing consumers who are working with messages that have been compiled from older <kbd>.proto</kbd> files.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Representing collections</h1>
+                </header>
+            
+            <article>
+                
+<p>What's more, protocol buffers can also model two types of collections, namely, lists and maps. To create a list of items, all we need to do is add the <kbd>repeated</kbd> keyword as a prefix of the field's type. On the other hand, maps are defined with a special notation, that is, <kbd>map&lt;K, V&gt;</kbd>, where <kbd>K</kbd> and <kbd>V</kbd> represent the types for the map keys and values. The following snippet is an example of defining collections:</p>
+<div>
+<pre>message User {<br/>  string id = 1;<br/>  string name = 2;<br/>}<br/><br/>message Users {<br/>  repeated User user_list = 1;<br/>  map&lt;string, User&gt; user_by_id = 2;<br/>}</pre></div>
+<p>When compiled to Go code, the fields for the <kbd>Users</kbd> message will be mapped to a <kbd>[]User</kbd> type and a <kbd>map[string]User</kbd> type, respectively.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Modeling field unions</h1>
+                </header>
+            
+            <article>
+                
+<p>One frequent requirement for many kinds of applications is the ability to model unions. A union is a special kind of value that can have multiple representations, all of which point to the same location in memory. The use of shared memory implies that every time we write a value to a particular union field, any attempt to read one of the other union fields will result in garbled data.</p>
+<p>The concept of unions extends quite nicely to protocol buffers. If you are working with messages that contain multiple fields where, at most, one field can be set at any given time, you can reduce the amount of required memory by grouping all these fields in a union.</p>
+<p>A union definition begins with the <kbd>oneof</kbd> keyword, followed by the field name and a list of fields that comprise the union. The following snippet shows a simple example that demonstrates a very common API use case:</p>
+<div>
+<pre>message CreateAccountResponse {<br/>  string correlation_id = 1;<br/>  oneof payload {<br/>    Account account = 2;<br/>    Error error = 3;<br/>  }<br/>}</pre></div>
+<p>In this example, all the responses have an associated correlation ID value. However, depending on the outcome of the API call invocation, the response payload will either contain an <kbd>Account</kbd> or an <kbd>Error</kbd>.</p>
+<p>After compiling the aforementioned message definition, the protoc compiler will generate two special types, namely, <kbd>CreateAccountResponse_Account</kbd> and <kbd>CreateAccountResponse_Error</kbd><span>, that can be assigned to the</span><span> </span><kbd>Payload</kbd><span> </span><span>field of the</span><span> </span><kbd>CreateAccountResponse</kbd><span> </span><span>type:</span></p>
+<div class="sourceCode">
+<pre class="sourceCode go">type CreateAccountResponse_Account struct {<br/>    Account *Account `protobuf:"bytes,1,opt,name=account,proto3,oneof"`<br/>}<br/><br/>type CreateAccountResponse_Error struct {<br/>    Error *Error `protobuf:"bytes,2,opt,name=error,proto3,oneof"`<br/>}</pre></div>
+<p>To prevent other types from being assigned to the<span> </span><kbd>Payload</kbd><span> </span>field, the protoc compiler uses an interesting trick: it defines a private interface with an unexported dummy method and arranges it so that only the previous two type definitions implement it:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">type isCreateAccountResponse_Payload interface {<br/>    isCreateAccountResponse_Payload()<br/>}<br/><br/>func (*CreateAccountResponse_Account) isCreateAccountResponse_Payload() {}<br/>func (*CreateAccountResponse_Error) isCreateAccountResponse_Payload() {}</pre></div>
+<p>The protoc compiler specifies the interface mentioned in the preceding code snippet as the type of the<span> </span><kbd>Payload</kbd><span> </span>field, thus making it a compile-time error to assign any other type to the field. Moreover, to facilitate the retrieval of the union values, the compiler will also generate<span> </span><kbd>GetAccount</kbd><span> </span>and<span> </span><kbd>GetError</kbd><span> </span>helpers on the<span> </span><kbd>CreateAccountResponse</kbd><span> </span>type. These helpers peek into the<span> </span><kbd>Payload</kbd><span> </span>field's contents and either return the assigned value (<kbd>Account</kbd><span> </span>or<span> </span><kbd>Error</kbd>) or<span> </span><kbd>nil</kbd><span> </span>if no value of that type has been assigned to the union field.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The Any type</h1>
+                </header>
+            
+            <article>
+                
+<p>When building event-driven systems, a common pattern is to define a top-level message that acts as an envelope for different event payloads. Since <span>new event types may be added (or removed) at any point in time, using a union is simply not goi</span><span>ng to suffice. Furthermore, the following are from the standpoint of event consumers:</span></p>
+<ul>
+<li>Consumers might ship with older <kbd>.proto</kbd> versions than the event producers do. It is quite possible for them to encounter an event payload that they don't really know how to decode.</li>
+<li>Some consumers may only be interested in processing a<span> </span><em>subset</em><span> </span>of the events. In such a scenario, consumers should only decode the messages they care about and skip over all other messages.</li>
+</ul>
+<p>To cater for such cases, we can use the<span> </span><kbd>Any</kbd><span> </span>type to define our envelope message:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">import "google/protobuf/any.proto";<br/><br/>message Envelope {<br/>  string id = 1;<br/>  google.protobuf.Any payload = 2;<br/>}</pre></div>
+<p>The<span> </span><kbd>Any</kbd><span> </span>type, as the name implies, can store any protocol buffer message. Internally, this is achieved by storing a serialized version of the message, as well as a string identifier that describes the type of message stored within. The type identifier has the form of a URL and is constructed by concatenating<span> </span><kbd>type.googleapis.com/</kbd><span> </span>with the message name. The<span> </span><kbd>ptypes</kbd><span> </span>package (you can find it at <a href="http://www.github.com/golang/protobuf/ptypes">www.<span>github.com/golang/protobuf/ptypes</span></a>) provides several useful helpers for dealing with<span> </span><kbd>Any</kbd><span> </span>messages.</p>
+<p>The following code is an example of how we would populate an<span> </span><kbd>Envelope</kbd><span> </span>instance:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func wrapInEnvelope(id string, payload proto.Message) (*Envelope, error) {<br/>    any, err := ptypes.MarshalAny(payload)<br/>    if err != nil {<br/>        return nil, err<br/>    }<br/><br/>    return &amp;Envelope{<br/>        Id: id,<br/>        Payload: any,<br/>    }, nil<br/>}</pre></div>
+<p>The<span> </span><kbd>MarshalAny</kbd><span> </span>helper takes any value that implements the<span> </span><kbd>proto.Message</kbd><span> </span>interface and serializes it into an<span> </span><kbd>Any</kbd><span> </span>message, which we then assign to the<span> </span><kbd>Payload</kbd><span> </span>field of the<span> </span><kbd>Envelope</kbd><span> </span>type.</p>
+<p>On the consumer end, we can use the following block of code to process incoming envelopes:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func handleEnvelope(env *Envelope) error {<br/>    if env.Payload == nil {<br/>        return nil<br/>    }<br/><br/>    switch env.Payload.GetTypeUrl() {<br/>    case "type.googleapis.com/Record":<br/>        var rec *Record<br/>        if err := ptypes.UnmarshalAny(env.Payload, &amp;rec); err != nil {<br/>            return err<br/>        }<br/>        return handleRecord(rec)<br/>    default:<br/>        return ErrUnknownMessageType<br/>    }<br/>}</pre></div>
+<p>Essentially, the handler switches on the message type and uses the<span> </span><kbd>UnmarshalAny</kbd><span> </span>helper to unserialize and handle supported messages. On the other hand, if the message type is unknown or not one that the consumer is interested in, they can either skip it or return an error, which is what is happening in the preceding code.</p>
+<p>After defining the set of messages that we want to use in our application using the protocol buffer definition language, the next logical step is to create RPCs that make use of them! In the following section, we will explore how we can enable the <em>grpc</em> plugin and have the protoc compiler automatically generate the required code stubs for our RPCs.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing RPC services</h1>
+                </header>
+            
+            <article>
+                
+<p>The gRPC framework leverages the stream multiplexing capabilities of <kbd>HTTP/2</kbd> so that it can handle both synchronous and asynchronous RPCs. The protoc compiler, when invoked with the<span> </span><em>grpc</em><span> </span>plugin enabled, will generate the following:</p>
+<ul>
+<li>Client and server<span> </span><strong>interfaces</strong><span> </span>for every RPC service definition in the compiled <kbd>.proto</kbd> file. For a service named<span> </span><kbd>Foo</kbd>, the compiler will generate a<span> </span><kbd>FooServer</kbd><span> </span>and a<span> </span><kbd>FooClient</kbd><span> </span>interface. This is quite a useful feature as it allows us to inject mocked clients into our code at test time.</li>
+<li>Complete client implementation for each service that adheres to the generated client interface.</li>
+<li>A helper function to register our service implementation with a gRPC server instance. Once again, for a service called<span> </span><kbd>Foo</kbd>, the compiler will generate a function with a signature similar to <kbd><span>RegisterFooServer(*grpc.Server, FooServer)</span></kbd>.</li>
+</ul>
+<p>The following short code snippet demonstrates how we can create a new gRPC server, register our implementation for the<span> </span><kbd>Foo</kbd><span> </span>service, and start serving incoming RPCs:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func serve(addr string, serverImpl FooServer) error {<br/>    l, err := net.Listen("tcp", addr)<br/>    if err != nil {<br/>        return err<br/>    }<br/>    grpcServer := grpc.NewServer()<br/>    RegisterFooServer(grpcServer, serverImpl)<br/>    return grpcServer.Serve(l)<br/>}</pre></div>
+<p>In the following four sections, we will examine the different types of RPC modes that are supported by the gRPC framework.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Unary RPCs</h1>
+                </header>
+            
+            <article>
+                
+<p>A unary RPC is equivalent to the request-response model that's used in traditional RESTful APIs. In the following example, we are defining a service with the name<span> </span><kbd>AccountService</kbd><span> </span>that exposes a<span> </span><kbd>CreateAccount</kbd><span> </span>method that receives <kbd>CreateAccountRequest</kbd><span> </span>as input and returns a<span> </span><kbd>CreateAccountResponse</kbd><span> </span>to the caller:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message CreateAccountRequest {<br/>  string user_name = 1;<br/>  string password = 2;<br/>  string email = 3;<br/>}<br/><br/>message CreateAccountResponse {<br/>  string account_id = 1;<br/>}<br/><br/>service AccountService {<br/>  rpc CreateAccount (CreateAccountRequest) returns (CreateAccountResponse);<br/>}</pre></div>
+<p>Defining the server handler is also quite similar to a regular RESTful API. Consider the following code:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">var _ AccountServiceServer = (*server)(nil)<br/><br/>func (*server) CreateAccount(_ context.Context, req *CreateAccountRequest) (*CreateAccountResponse, error) {<br/>    accountID, err := createAccount(req)<br/>    if err != nil {<br/>        return nil, err<br/>    }<br/><br/>    return &amp;CreateAccountResponse{AccountId: accountID}, nil<br/>}</pre></div>
+<p>To be able to register our server implementation with gRPC, we need to implement the<span> </span><kbd>AccountServiceServer</kbd><span> </span>interface. The server-side implementation in the listing (given in the preceding code snippet) receives a<span> </span><kbd>CreateAccountRequest</kbd> message as an argument. It invokes the<span> </span><kbd>createAccount</kbd><span> </span>helper, which validates the request, creates the new account record, and returns its ID. Then, a new<span> </span><kbd>CreateAccountResponse</kbd><span> instance </span>is created and returned to the client.</p>
+<p>On the client side, things are also quite simple. The following code shows that the<span> </span><kbd>accountAPI</kbd><span> </span>type simply offers a friendly API for abstracting the RPC call to the server:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (a *accountAPI) CreateAccount(account model.Account) (string, error) {<br/>    req := makeCreateAccountRequest(account)<br/>    res, err := a.accountCli.CreateAccount(context.Background(), req)<br/>    if err != nil {<br/>        return "", err<br/>    }<br/>    return res.AccountId, nil<br/>}</pre></div>
+<p>The method receives a model instance that describes the account to be created, converts it into <kbd>CreateAccountInstance</kbd><span>, </span>and sends it to the server via the<span> </span><kbd>AccountServiceClient</kbd><span> </span>instance that was injected at construction time. Upon receiving a response, the client extracts the ID that was assigned to the new account and returns it to the caller.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Server-streaming RPCs</h1>
+                </header>
+            
+            <article>
+                
+<p>In a server-streaming RPC scenario, the client initiates an RPC on the server and receives a stream of responses. Clients block reading on the stream until new data becomes available or the server closes the stream. In the latter case, the client read request will return an<span> </span><kbd>io.EOF</kbd><span> </span>error to indicate that no more data is available.</p>
+<p>In the following example, we are defining a service that streams price updates for a particular cryptocurrency:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message CryptoPriceRequest {<br/>  string crypto_type = 1;<br/>}<br/><br/>message CryptoPrice {<br/>  double price = 1;<br/>}<br/><br/>service PriceService {<br/>  rpc StreamCryptoPrice (CryptoPriceRequest) returns (stream CryptoPrice);<br/>}</pre></div>
+<p>The following code shows the server-side implementation for the <kbd>StreamCryptoPrice</kbd> RPC:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">var _ PriceServiceServer = (*server)(nil)<br/><br/>func (*server) StreamCryptoPrice(req *CryptoPriceRequest, resSrv PriceService_StreamCryptoPriceServer) error {<br/>    for price := range priceStreamFor(req.CryptoType) {<br/>        if err := resSrv.Send(&amp;CryptoPrice{Price: price}); err != nil {<br/>            return err<br/>        }<br/>    }<br/>    return nil<br/>}</pre></div>
+<p>The<span> </span><kbd>StreamCryptoPrice</kbd><span> </span>signature shown in the preceding code snippet is different than the unary RPC signature we examined in the previous section. Besides the incoming request, the handler also receives a helper type that the protoc compiler created for us to deal with the streaming aspects of this particular RPC call.</p>
+<p>The server handler calls out to the<span> </span><kbd>priceStreamFor</kbd><span> </span>helper (implementation omitted) to obtain a channel where price updates for the requested currency type are posted. Once a new price has been received, the server code invokes the<span> </span><kbd>Send</kbd><span> </span>method on the provided stream helper to stream a new response to the client. Once the server handler returns (for example, when the price stream channel closes), gRPC will automatically shut down the stream and send an<span> </span><kbd>io.EOF</kbd><span> </span>error to the client, whose implementation is shown in the following code block:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (a *priceAPI) ListPrices(cryptoType string) error {<br/>    stream, err := a.priceCli.StreamCryptoPrice(context.Background(), &amp;CryptoPriceRequest{CryptoType: cryptoType})<br/>    if err != nil {<br/>        return err<br/>    }<br/><br/>    for {<br/>        res, err := stream.Recv()<br/>        if err != nil {<br/>            if err == io.EOF {<br/>                return nil<br/>            }<br/>            return err<br/>        }<br/>        updateListing(cryptoType, res.Price)<br/>    }<br/>}</pre></div>
+<p>The client API wrapper uses the injected<span> </span><kbd>PriceServiceClient</kbd><span> </span>instance to initiate the RPC and obtain a stream where price updates can be read from. The client then enters an infinite <kbd>for</kbd> loop where it blocks on the stream's<span> </span><kbd>Recv</kbd><span> </span>method until a new price update (or an error) is received.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Client-streaming RPCs</h1>
+                </header>
+            
+            <article>
+                
+<p>Client-streaming RPCs are the opposite of server-streaming RPCs. In this case, it's the client that streams data to the server. Once the server has received <em>all</em> the data, it replies with a<span> </span><em>single</em><span> </span>response.</p>
+<p>In the following example, we are defining a service that receives a stream of metric values from the client and responds with a set of aggregated statistics (<kbd>count</kbd>, <kbd>min</kbd>, <kbd>max</kbd>, and <kbd>avg</kbd> value) for the entire batch:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">syntax = "proto3";<br/><br/>message Observation {<br/>  double value = 1;<br/>}<br/><br/>message StatsResponse {<br/>  int32 count = 1;<br/>  double min = 2;<br/>  double max = 3;<br/>  double avg = 4;<br/>}<br/><br/>service StatsService {<br/>  rpc CalculateStats (stream Observation) returns (StatsResponse);<br/>}</pre></div>
+<p>The following block of code builds on top of the functionality offered by the RPC client for this service and exposes an API for calculating the statistics for a stream of values that are read off a caller-provided Go channel:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (a *statsAPI) GetStats(valueCh &lt;-chan float32) (*Stats, error) {<br/>    stream, err := a.statsCli.CalculateStats(context.Background())<br/>    if err != nil {<br/>        return nil, err<br/>    }<br/>    for val := range valueCh {<br/>        if err := stream.Send(&amp;Observation{Value: val}); err != nil {<br/>            return nil, err<br/>        }<br/>    }<br/>    res, err := stream.CloseAndRecv()<br/>    if err != nil {<br/>        return nil, err<br/>    }<br/>    return makeStats(res), err<br/>}</pre></div>
+<p>As shown in the preceding code snippet, the<span> </span><kbd>GetStats</kbd><span> </span>implementation initially makes a call to the underlying RPC client's <kbd>CalculateStats</kbd><span> </span>method and obtains a (client-side) stream helper. With the help of a <kbd>range</kbd><em> </em>loop, each value from the provided <kbd>valueCh</kbd> is wrapped into a new <kbd>Observation</kbd> message and transmitted to the server for processing. Once the client has sent all observed values to the server, it invokes the<span> </span><kbd>CloseAndRecv</kbd><span> </span>method, which performs two tasks:</p>
+<ul>
+<li>It notifies the server that no more data is available</li>
+<li>It blocks until the server returns a<span> </span><kbd>StatsResponse</kbd></li>
+</ul>
+<p>Next, we will take a look at the server-side implementation for the aforementioned RPC:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">var _ StatsServiceServer = (*server)(nil)<br/><br/>func (*server) CalculateStats(statsSrv StatsService_CalculateStatsServer) error {<br/>    var observations []*Observation<br/>    for {<br/>        stat, err := statsSrv.Recv()<br/>        if err == nil {<br/>            if err == io.EOF {<br/>                return statsSrv.SendAndClose(calcStats(observations))<br/>            }<br/><br/>            return err<br/>        }<br/>        observations = append(observations, stat)<br/>    }<br/>}</pre></div>
+<p>The server reads incoming<span> </span><kbd>Observation</kbd><span> </span>instances from the stream that's passed as an argument to<span> </span><kbd>CalculateStats</kbd><span> </span>and appends them to a slice. Once the server detects (via the presence of an<span> </span><kbd>io.EOF</kbd><span> </span>error) that the client has transmitted all data, it passes the collected observations slice to the<span> </span><kbd>calcStats</kbd><span> </span>helper, which calculates the statistics <span>for the batch and returns them as a</span><span> </span><kbd>StatsResponse</kbd><span> message </span><span>that the server forwards</span><span> to the client.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Bi-directional streaming RPCs</h1>
+                </header>
+            
+            <article>
+                
+<p>The last RPC mode that we will explore is bi-directional streaming. This mode combines client- and server-side streaming and provides us with two independent channels where the client and server can <em>asynchronously</em> publish and consume messages.</p>
+<p>To understand how this mode works, let's examine the definition for an asynchronous <kbd>Echo</kbd> service:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message EchoMessage {<br/>  string message = 1;<br/>}<br/><br/>service EchoService {<br/>  rpc Echo (stream EchoMessage) returns (stream EchoMessage);<br/>}</pre></div>
+<p>The server-side logic for the echo service is not that interesting. As shown in the following code snippet, the server runs a <kbd>for</kbd> loop where it reads the next message from the client and echoes it back. The server's <kbd>for</kbd> loop keeps executing until the client terminates the RPC:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (*server) Echo(echoSrv EchoService_EchoServer) error {<br/>    for {<br/>        msg, err := echoSrv.Recv()<br/>        if err != nil {<br/>            if err == io.EOF {<br/>                return nil<br/>            }<br/>            return err<br/>        }<br/><br/>        if err := echoSrv.Send(msg); err != nil {<br/>            return err<br/>        }<br/>    }<br/>}</pre></div>
+<p>Now, let's take a look at the client implementation, which turns out to be a bit more convoluted since we need to deal with two asynchronous streams. In a typical bi-directional RPC implementation, we would spin up a go-routine to handle each end of the streams. However, to keep this example as simple as possible, we will only use a go-routine to process echo responses from the server, as shown in the following code snippet:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func (a *echoAPI) Echo(msgCount int) error {<br/>    stream, err := a.echoCLI.Echo(context.Background())<br/>    if err != nil {<br/>        return err<br/>    }<br/><br/>    errCh := make(chan error, 1)<br/>    go processEcho(stream, errCh)<br/>    if err := sendEcho(stream, msgCount); err != nil {<br/>        return err<br/>    }<br/>    for err := range errCh {<br/>        return err<br/>    }<br/>    return nil<br/>}</pre></div>
+<p>As shown in the preceding code snippet, the client invokes the<span> </span><kbd>Echo</kbd><span> </span>method on the echo service client and obtains a helper object (assigned to a variable called<span> </span><kbd>stream</kbd>) to assist us with sending and receiving streaming data to and from the server. We then spin up a go-routine to execute<span> </span><kbd>processEcho</kbd>, which is the function that's responsible for handling incoming echo responses. The function receives the<span> </span><kbd>stream</kbd><span> </span>object we obtained as an argument and a buffered error channel for reporting received errors.</p>
+<p>The following code shows the implementation of<span> </span><kbd>processEcho</kbd>:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func processEcho(stream EchoService_EchoClient, errCh chan&lt;- error) {<br/>    defer close(errCh)<br/>    for {<br/>        msg, err := stream.Recv()<br/>        if err != nil {<br/>            if err != io.EOF {<br/>                errCh &lt;- err<br/>            }<br/>            return<br/>        }<br/>        fmt.Printf("Received echo for: %q\n", msg)<br/>    }<br/>}</pre></div>
+<p>The receiving end is almost identical to the server-side implementation. We keep reading echo messages from the stream until we get an error. If the<span> </span><kbd>Recv</kbd><span> </span>method returns an error other than<span> </span><kbd>io.EOF</kbd><span>, </span>we write it to the error channel prior to returning it.</p>
+<p>Note that, in the preceding code snippet, the error channel is<span> </span><em>always closed</em><span> </span>when the function returns. The<span> </span><kbd>Echo</kbd><span> </span>method exploits this behavior so that it blocks until<span> </span><kbd>processEcho</kbd><span> </span>returns and dequeues emitted errors by using a <kbd>for</kbd> loop to range on<span> </span><kbd>errCh</kbd>.</p>
+<p>While the<span> </span><kbd>processEcho</kbd><span> </span>function is running in the background, the code calls out to<span> </span><kbd>sendEcho</kbd>,<span> a </span><em>synchronous</em><span> </span>function that sends out<span> </span><kbd>msgCount</kbd><span> </span>echo requests and then returns:</p>
+<div class="sourceCode">
+<pre class="sourceCode go">func sendEcho(stream EchoService_EchoClient, msgCount int) error {<br/>    for i := 0; i &lt; msgCount; i++ {<br/>        if err := stream.Send(&amp;EchoMessage{Message: fmt.Sprint(i)}); err != nil {<br/>            return err<br/>        }<br/>    }<br/>    return stream.CloseSend()<br/>}</pre></div>
+<p>So, how do we terminate this RPC? The call to the<span> </span><kbd>CloseSend</kbd><span> </span>method terminates the upstream channel to the server and causes the<span> </span><kbd>Recv</kbd><span> </span>method in the<span> </span><em>server-side</em><span> </span>code to return an<span> </span><kbd>io.EOF</kbd><span> </span>error. This triggers the server handler to exit and subsequently close its downstream channel to the client.</p>
+<p>The<span> </span><kbd>sendEcho</kbd><span> </span>function returns to<span> </span><kbd>Echo</kbd><span>, </span>which then waits for<span> </span><kbd>processEcho</kbd><span> </span>to exit. As soon as the server terminates the downstream channel, the<span> </span><kbd>Recv</kbd><span> </span>call in<span> </span><kbd>processEcho</kbd><span> </span>will also return an<span> </span><kbd>io.EOF</kbd><span> </span>error and cause the<span> </span><kbd>processEcho</kbd><span> </span>go-routine to return. This last step unblocks the<span> </span><kbd>Echo</kbd><span> </span>call, which can now return to its caller.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Security considerations for gRPC APIs</h1>
+                </header>
+            
+            <article>
+                
+<p>The constructor for each of the RPC clients that the protoc compiler generated for you expects a<span> </span><kbd>grpc.Connection</kbd><span> </span>argument. This is intentional as a single remote server might expose multiple RPC services. Given that HTTP/2 supports request multiplexing, it makes sense to instantiate a single connection to the server and share it between the various RPC clients.</p>
+<p>So, how can we obtain a<span> </span><kbd>grpc.Connection</kbd><span> </span>instance? The<span> </span><kbd>grpc</kbd><span> </span>package provides a convenience helper called<span> </span><kbd>Dial</kbd><span>, </span>which handles all the low-level details for establishing a connection to a gRPC server. The<span> </span><kbd>Dial</kbd><span> </span>function expects the address of the gRPC server we want to connect to and a variadic list of<span> </span><kbd>grpc.DialOption</kbd><span> </span>values.</p>
+<p>At this point, it is important to note that the gRPC dialer assumes<span> </span>that the remote server will be secured with TLS and will fail to establish a connection if this happens not to be the case. We can definitely come up with scenarios where the use of TLS might not be required:</p>
+<ul>
+<li>We might be running a local gRPC server on our development machine</li>
+<li>We might spin up a gRPC server as part of a test</li>
+<li><span>All of our backend services might be running in a private subnet that can't be reached from the internet</span></li>
+</ul>
+<p><span>To cater for such use cases, we can force gRPC to establish connections to non-TLS servers by providing the</span><span> </span><kbd>grpc.WithInsecure()</kbd><span> </span><span>dial option to the</span><span> </span><kbd>Dial</kbd><span> </span><span>function.</span></p>
+<p>If you do opt for the recommended approach and use TLS everywhere, you will be pleasantly surprised to find that the methods for securing RESTful APIs that we discussed at the beginning of this chapter can also be applied to gRPC! The gRPC framework allows you to configure security at two different levels, namely, at the<span> </span><strong>connection</strong><span> </span>and at the<span> </span><strong>application</strong><span> </span>level.</p>
+<p>At the connection level, gRPC allows us to manually configure the options for the TLS handshake with the help of the<span> </span><kbd>grpc.WithTransportCredentials</kbd><span> </span>dial option, which takes a<span> </span><kbd>credentials.TransportCredentials</kbd><span> </span>argument. The<span> </span><kbd>grpc/credentials</kbd><span> </span>package contains helpers that produce<span> </span><kbd>TransportCredentials</kbd><span> </span>from certificates (if you wish to implement client authentication via provisioned TLS certificates) and<span> </span><kbd>tls.Config</kbd><span> </span>instances (for implementing server certificate pinning).</p>
+<p>As far as application-level security is concerned, gRPC offers the<span> </span><kbd>grpc.WithPerRPCCredentials</kbd><span> </span>dial option. This option accepts a<span> </span><kbd>credentials.PerRPCCredentials</kbd><span> </span>instance and allows gRPC clients to automatically inject the provided set of credentials into every outgoing RPC. The<span> </span><kbd>grpc/credentials/oauth</kbd><span> </span>package provides helpers for dealing with different authorization mechanisms. For instance, the<span> </span><kbd>oauth.NewOauthAccess</kbd><span> </span>function allows us to use an<span> </span><kbd>oauth2.Token</kbd><span> </span>instance that we have obtained via a three-legged OAuth2 flow with our RPCs.</p>
+<p>On the other end, the server uses specialized middleware (gRPC refers to middleware with the term<span> </span><em>request interceptors</em>) to access the credentials provided by clients and control access to RPC methods.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Decoupling Links 'R' Us components from the underlying data stores</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root"><span>Both the link-crawler component that we created in <a href="51dcc0d4-2ba3-4db9-83f7-fcf73a33aa74.xhtml">Chapter 7</a></span>, <em>Data-Processing Pipelines</em><span>, and the PageRank calculator component that we built in </span><a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml"/><a href="c505ec2d-0bd8-4edd-97e1-d06de2b326a5.xhtml">Chapter 8</a>, <em>Graph-Based Data Processing</em>, <span>were designed to work with one of the data store implementations from <a href="ce489d62-aaa3-4fbb-b239-c9de3daa9a8f.xhtml">Chapter 6</a>, <em>Building a Persistence Layer</em>.</span></p>
+<p class="mce-root"><span>To this end, when configuring these components, we are expected to provide suitable concrete data store implementations that satisfy the <kbd>graph.Graph</kbd> and <kbd>index.Indexer</kbd> interfaces.</span> <span>If we were building a monolithic application, we would normally be performing</span> <span>this bit of initialization inside the <kbd>main</kbd> package, as follows:</span></p>
+<ol>
+<li class="mce-root"><span>Import the package with the data store drivers we want to use in our application (for example, the <strong>CockroachDB </strong>backed link-graph and the <strong>Elasticsearch </strong>backed text indexer).</span></li>
+<li class="mce-root"><span>Create new driver instances and configure them accordingly with a static or externally provided driver-specific set of settings (for example, the endpoints for the CockroachDB or Elasticsearch cluster).</span></li>
+<li>Initialize the link-crawler and PageRank calculator components using the data store instances we just created. This works out of the box as all datastore implementations from <a href="ce489d62-aaa3-4fbb-b239-c9de3daa9a8f.xhtml">Chapter 6</a><span>, </span><em>Building a Persistence Layer</em><em>,</em> satisfy the aforementioned interfaces and can be directly assigned to the configuration objects that are passed as arguments to the component constructors.</li>
+</ol>
+<p class="mce-root"><span>As we will see in the next chapter, we can make our application a bit more flexible by having our code import the packages for all the supported</span><span> link-graph and text-indexer provider implementations and dynamically instantiate one of them at runtime after consulting the value of a command-line flag.</span></p>
+<p>One of the issues with this approach is that it introduces a strong coupling to a particular data store implementation. What if our design requirements involve the creation of multiple applications that all need to use the same datastore providers?</p>
+<p>To apply the aforementioned steps, we would need to duplicate the same initialization logic across all our applications. That would violate the <strong>Don't Repeat Yourself</strong> (<strong>DRY</strong>) principle and make our code base harder to maintain. Moreover, think about the amount of effort that would be required if we are asked to add support for a new data store implementation. We would essentially need to modify and recompile all our applications!</p>
+<p>Given the list of problems related to having a strong coupling between applications and data stores, what options do we, as software engineers, have to reduce or ideally eliminate this coupling when designing new systems? An elegant solution would be to create a standalone proxy service that provides access to a particular data store implementation through a REST or (preferably) gRPC-based API. This pattern allows us to effectively switch to a different data store at any point in time without having to recompile any of our applications that consume the API.</p>
+<p>In the last part of this chapter, we will apply what we have learned so far and build gRPC-based APIs so that we can access the link-graph and text-indexer components over the network. To keep things as consistent as possible, both the RPC names and the field list of the messages that are exchanged between the client and the server will <em>mimic</em> the signatures of the methods defined by the <kbd>graph.Graph</kbd> and <kbd>index.Indexer</kbd> interfaces.</p>
+<p>In accordance with the instructions from the previous sections, we will be using the protocol buffer definition language to specify the RPCs for our APIs.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining RPCs for accessing a remote link-graph instance</h1>
+                </header>
+            
+            <article>
+                
+<p>The first API that we will be designing will grant our project's applications access to any concrete link-graph implementation that satisfies the <kbd>graph.Graph</kbd> interface over a network link. The following snippet outlines the protocol buffer definitions for the RPC endpoints that we will need:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">syntax="proto3";<br/>package proto;<br/><br/>import "google/protobuf/timestamp.proto";<br/>import "google/protobuf/empty.proto";<br/><br/>service LinkGraph {<br/>  rpc UpsertLink(Link) returns (Link);<br/>  rpc UpsertEdge(Edge) returns (Edge);<br/>  rpc RemoveStaleEdges(RemoveStaleEdgesQuery) returns (google.protobuf.Empty);<br/>  rpc Links(Range) returns (stream Link);<br/>  rpc Edges(Range) returns (stream Edge);<br/>}</pre></div>
+<p>The<span> </span><kbd>UpsertLink</kbd><span> </span>call inserts a new link to the graph or updates the details of an existing link. The call receives and returns a<span> </span><kbd>Link</kbd><span> </span>message, whose definition is shown in the following snippet:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message Link {<br/>  bytes uuid = 1;<br/>  string url = 2;<br/>  google.protobuf.Timestamp retrieved_at = 3;<br/>}</pre></div>
+<p>The <kbd>Link</kbd> message includes the following bits of information:</p>
+<ul>
+<li>The UUID of the link. <span>Given that protocol buffers do not</span> offer a native type for storing UUIDs (16-byte values), we will be representing them as a <em>byte slice</em>.</li>
+<li>The link's URL.</li>
+<li>The timestamp when the link was last retrieved by the crawler.</li>
+</ul>
+<p>The<span> </span><kbd>UpsertEdge</kbd><span> </span>call inserts a new edge to the graph or updates the details of an existing edge. The call receives and returns an<span> </span><kbd>Edge</kbd><span> </span>message with the following definition:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message Edge {<br/>  bytes uuid = 1;<br/>  bytes src_uuid = 2;<br/>  bytes dst_uuid = 3;<br/>  google.protobuf.Timestamp updated_at = 4;<br/>}</pre></div>
+<p>Each<span> </span><kbd>Edge</kbd><span> </span>message includes the following bits of information:</p>
+<ul>
+<li>The UUID of the edge</li>
+<li>The UUIDs of the source and destination vertices</li>
+<li>A timestamp indicating when the edge was last updated by the crawler</li>
+</ul>
+<p>The next call on our list is<span> </span><kbd>RemoveStaleEdges</kbd>. As you may recall from <a href="51dcc0d4-2ba3-4db9-83f7-fcf73a33aa74.xhtml">Chapter 7</a>, <em>Data-Processing Pipelines</em><span>,</span> this call is required by the web-crawler component to discard missing (stale) edges every time it retrieves the latest contents of a web page in the link-graph.</p>
+<p>What's interesting about this<span> </span><span>particular RPC is that while it a</span><span>ccepts a</span><span> </span><kbd>RemoveStaleEdgesQuery</kbd><span> </span><span>mess</span><span>age as input, it doesn't rea</span><span>lly need to return a result to the caller. However, since gRPC mandates that all RPCs return some message to the caller, we will use </span><kbd>google.protobuf.Empty</kbd> <span>(</span><span>a placeholder type for an empty/void message) as the RPC's return type.</span></p>
+<p><span>Let's take a quick look at the definition of the <kbd>RemoveStaleEdgesQuery</kbd> message:</span></p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message RemoveStaleEdgesQuery {<br/>  bytes from_uuid = 1;<br/>  google.protobuf.Timestamp updated_before = 2;<br/>}</pre></div>
+<p>The last two methods on our RPC list are<span> </span><kbd>Links</kbd><span> </span>and<span> </span><kbd>Edges</kbd><span>. Both calls expect the client to provide a <kbd>Range</kbd> message as input. This message allows clients to specify the set of arguments that the server will pass through to the similarly-named method of the underlying concrete link-graph implementation, namely, t</span><span>he UUID range for selecting the set of entities (links or edges) to return and a</span><span> cutoff timestamp for filtering entities with a more recent last retrieved/updated value.</span></p>
+<p>The following snippet outlines the definition of the <kbd>Range</kbd> message:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto"><a><span class="kw">message</span> Range {</a>
+<a>  <span class="dt">bytes</span> from_uuid = <span class="dv">1</span>;</a>
+<a>  <span class="dt">bytes</span> to_uuid = <span class="dv">2</span>;</a>
+
+<a>  <span class="co">// Return results before this filter timestamp.</span></a>
+<a>  google.protobuf.Timestamp filter = <span class="dv">3</span>;</a>
+<a>}</a></pre></div>
+<p>Up to this point, all the <span>RPCs that we have examined are unary. However, the</span><span> </span><kbd>Links</kbd><span> </span><span>and</span><span> </span><kbd>Edges</kbd><span> </span><span>calls differ in that they are declared as <em>server-streaming</em> RPCs. The use of streaming allows clients to process the returned list of links and edges more efficiently.</span></p>
+<p>In the next section, we will examine the RPC definitions for accessing the text-indexer.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Defining RPCs for accessing a text-indexer instance</h1>
+                </header>
+            
+            <article>
+                
+<p><span>The second API </span><span>that we will be designing will grant our project's applications access to any concrete link-graph implementation th</span><span>at satisfies the </span><kbd>index.Indexer</kbd><span> interface over a network link. The following snippet outlines the protocol buffer definitions for the RPC endpoints that we will need:</span></p>
+<div class="sourceCode">
+<pre class="sourceCode proto">syntax="proto3";<br/>package proto;<br/><br/>import "google/protobuf/timestamp.proto";<br/>import "google/protobuf/empty.proto";<br/><br/>service TextIndexer {<br/>  rpc Index(Document) returns (Document);<br/>  rpc UpdateScore(UpdateScoreRequest) returns (google.protobuf.Empty);<br/>  rpc Search(Query) returns (stream QueryResult);<br/>}</pre></div>
+<p>The<span> </span><kbd>Index</kbd><span> </span>method inserts a document into the search index or triggers a reindexing operation if the document already exists. As you can see by its method definition, the call expects and returns a<span> </span><kbd>Document</kbd><span> </span>message, which is shown in the following code snippet:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message Document {<br/>  bytes link_id = 1;<br/>  string url = 2;<br/>  string title = 3;<br/>  string content = 4;<br/>  google.protobuf.Timestamp indexed_at = 5;<br/>}</pre></div>
+<p>A successful call to<span> </span><kbd>Index</kbd><span> </span>will return the same<span> </span><kbd>Document</kbd><span> </span>that was passed as input. However, the document will also have the <kbd>indexed_at</kbd> field populated/updated by the remote server.</p>
+<p>The next call that we will be examining is<span> </span><kbd>UpdateScore</kbd>. This call will be used by the PageRank calculator component to set the PageRank score for a particular document. The call accepts an<span> </span><kbd>UpdateScoreRequest</kbd><span> message </span>and returns nothing (hence the use of the<span> </span><kbd>google.protobuf.Empty</kbd><span> </span>placeholder message):</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message UpdateScoreRequest {<br/>  bytes link_id = 1;<br/>  double page_rank_score = 2;<br/>}</pre></div>
+<p>The last, and more interesting, RPC method that we will be discussing is<span> </span><kbd>Search</kbd>. Calls to<span> </span><kbd>Search</kbd><span> </span>accept a<span> </span><kbd>Query</kbd><span> </span>message as input and return a <em>stream</em> of<span> </span><kbd>QueryResult</kbd><span> </span>responses:</p>
+<div class="sourceCode">
+<pre class="sourceCode proto">message Query {<br/>  Type type = 1;<br/>  string expression = 2;<br/>  uint64 offset = 3;<br/>  enum Type {<br/>    MATCH = 0;<br/>    PHRASE = 1;<br/>  }<br/>}<br/><br/>message QueryResult {<br/>  oneof result {<br/>    uint64 doc_count = 1;<br/>    Document doc = 2;<br/>  }<br/>}</pre></div>
+<p>As you can see, the message definitions for<span> </span><kbd>Query</kbd><span> </span>and<span> </span><kbd>QueryResult</kbd><span> </span>are a bit more complicated. To begin with, the<span> </span><kbd>Query</kbd><span> </span>message defines a nested enumeration for specifying the type of query to be executed. By default, the query expression is treated as a regular keyword-based search (<kbd>MATCH</kbd> is the default value for the <kbd>type</kbd> field).</p>
+<p>However, the caller can also request a phrase-based search by specifying <kbd>PHRASE</kbd> as the value of the <kbd>type</kbd> field. Furthermore, callers are also allowed to specify an offset and instruct the server to skip a number of results from the top of the returned result set. This mechanism can be used by clients to implement pagination.</p>
+<p>The<span> </span><kbd>QueryResult</kbd><span> </span>message uses the <strong>one-of</strong> feature of protocol buffers. This message can either contain a<span> </span><kbd>uint64</kbd><span> </span>value that describes the total number of documents matched by the query or the next<span> </span><kbd>Document</kbd><span> </span>from the result set. Our server implementation will use the following simple protocol to stream results to the client:</p>
+<ul>
+<li>The <em>first</em> message in the result stream will <em>always</em> describe the total number of results for the search. If no documents matched the search query, the server will indicate this by setting the <kbd>doc_count</kbd> field to the value <kbd>0</kbd>.</li>
+<li>Each subsequent message will push the <kbd>Document</kbd> that matches the client.</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Creating high-level clients for accessing data stores over gRPC </h1>
+                </header>
+            
+            <article>
+                
+<p>The <em>protoc</em> compiler, given the RPC definitions from the previous two sections as input, will <span>generate a client and the required server stubs for the data store proxy service.</span></p>
+<p>From the perspective of the API server, each RPC method is nothing more than a wrapper for invoking the similarly-named method of the underlying concrete store implementation that we configured the server to use. More specifically, to implement the RPC method called <strong>X</strong>, we perform the following steps:</p>
+<ol>
+<li>Convert the fields of the RPC's input message (where required) into the values expected by the wrapped method, <em>X.</em></li>
+<li>Invoke X while watching out for any errors.</li>
+</ol>
+<ol start="3">
+<li>Convert and pack the output of X into the appropriate return message for the RPC.</li>
+<li>Return the generated response to the client.</li>
+</ol>
+<p>As you can probably tell, our server implementation will mostly consist of boring boilerplate code that uses the recipe we just described as a template. To conserve some space, we will omit the implementation details from this book. However, you can take a look at the full source code for the two API servers by examining the <kbd>server.go</kbd> files in the <kbd>Chapter09/linksrus/linkgraphapi</kbd> and <kbd>Chapter09/linksrus/textindexerapi</kbd> packages, which can be found in this book's GitHub repository.</p>
+<p class="mce-root">With the RPC server in place, our applications can establish a connection to it and use the gRPC client that the <em>protoc</em> compiler generated for us to access the link-graph and text-indexer components on the other end. An unfortunate caveat of our current implementation is that since the auto-generated gRPC clients do not implement the <span><kbd>graph.Graph</kbd> and <kbd>index.Indexer</kbd> interfaces, we cannot use them a</span>s drop-in replacements for configuring the crawler and PageRank calculator components.</p>
+<p>Fortunately, there is an elegant way to work around this inconvenience! The package for each API will also need to define a<span> </span><em>high-level</em><span> </span>client that<span> </span><em>wraps</em><span> </span>the gRPC client that the protoc compiler generated for us and implements, depending on the API, either the<span> </span><kbd>graph.Graph</kbd><span> interface </span>or the<span> </span><kbd>index.Indexer</kbd><span> </span>interface.</p>
+<p>Behind the scenes, the high-level client will transparently handle all interactions with the remote gRPC server. While this approach does require additional development effort, it makes the high-level client appear as yet another graph or indexer implementation that we can inject into the <strong>Links 'R' Us components</strong> without requiring any code changes. In<span> </span><a href="dfb5c555-2534-4bac-b661-34cb9e7a3da8.xhtml">Chapter 11</a>, <em>Splitting Monoliths into Microservices,</em><span> </span>we will be exploiting this trick to split the Links 'R' Us project into a set of microservices!</p>
+<p><span>In a similar fashion to the server implementation, the high-level client also consists of quite a bit of repetitive boilerplate code, so in the interest of brevity, we will also omit its listing from this chapter. </span><span>The full source code for the two high-level clients can be found in a file called </span><kbd>client.go</kbd>, which is <span>in the same location as the server implementation. </span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In the first part of this chapter, we discussed the key principles behind RESTful APIs. We focused on effective strategies for handling hot topics such as security and versioning. Then, we analyzed the pros and cons of RESTful APIs compared to the RPC-base paradigm used by the gRPC framework and highlighted the key differences that make gRPC more suitable for building high-performance services.</p>
+<p>Now that you're at the end of this chapter, you should be familiar with the protocol buffer definition language and know how to leverage the various features supported by the gRPC framework for building high-performance secure APIs based on the RPC pattern.</p>
+<p>In the next chapter, we will find out how we can perform hermetic builds of our software, package it as a container image, and deploy it on a Kubernetes cluster.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol type="1">
+<li>Describe the CRUD endpoints for a user entity.</li>
+<li>Explain how basic authentication over TLS can help us secure APIs.</li>
+<li>Are TLS connections immune to eavesdropping?</li>
+<li>Describe the steps in the three-legged OAuth2 flow.</li>
+<li>What is the benefit of using protocol buffers compared to JSON for request/response payloads?</li>
+<li>Describe the different RPC modes that are supported by gRPC.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li><em>A Go web development eco-system, designed to make your life easier;</em> refer to the following link for more information:<span> </span><a href="https://github.com/gobuffalo/buffalo">https://github.com/gobuffalo/buffalo</a>.</li>
+<li><em>A high performance, open-source universal RPC framework;</em> refer to the following link for more information:<span> </span><a href="https://www.grpc.io">https://www.grpc.io</a>.</li>
+<li><em>A high-performance HTTP request router that scales well</em>; refer to the following link for more information:<span> </span><a href="https://github.com/julienschmidt/httprouter">https://github.com/julienschmidt/httprouter</a>.</li>
+<li><em>A high productivity, full-stack web framework for the Go language; </em>refer to the following link for more information:<span> </span><a href="https://github.com/revel/revel">https://github.com/revel/revel</a>.</li>
+</ol>
+<ol start="5">
+<li><em>A powerful HTTP router and URL matcher for building Go web servers;</em> refer to the following link for more information:<span> </span><a href="https://github.com/gorilla/mux">https://github.com/gorilla/mux</a>.</li>
+<li><span class="smallcaps">Berners-Lee, T.</span>;<span> </span><span class="smallcaps">Fielding, R.</span>;<span> </span><span class="smallcaps">Masinter, L.</span>: RFC 3986, <strong>Uniform Resource Identifier</strong> (<strong>URI</strong>): Generic Syntax.</li>
+<li><em>Developer guide for protocol buffer v3;</em> refer to the following link for more information: <a href="https://developers.google.com/protocol-buffers/docs/proto3">https://developers.google.com/protocol-buffers/docs/proto3</a>.</li>
+<li><em>Fast HTTP package for Go. Tuned for high performance. Zero memory allocations in hot paths. Up to 10x faster than net/http</em>; refer to the following link for more information:<span> </span><a href="https://github.com/valyala/fasthttp">https://github.com/valyala/fasthttp</a>.</li>
+<li><em>Media Type Specifications and Registration Procedures;</em> refer to the following link for more information:<span> </span><a href="https://tools.ietf.org/html/rfc6838">https://tools.ietf.org/html/rfc6838</a>.</li>
+<li><em>The fastest full-featured web framework for Go; </em><span>refer to the following link for more information:</span><a href="https://github.com/gin-gonic/gin">https://github.com/gin-gonic/gin</a>.</li>
+<li><em>The meaning of the letter g in gRPC;</em> refer to the following link for more information: <a href="https://github.com/grpc/grpc/blob/master/doc/g_stands_for.md">https://github.com/grpc/grpc/blob/master/doc/g_stands_for.md</a>.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

@@ -1,0 +1,57 @@
+<html><head></head><body><div class="book" title="The io.Writer interface" id="22O7C1-9c484ed022e64a0fb0e1aebf8e05d4fd"><div class="book"><div class="book"><div class="book"><h1 class="title" id="calibre_pb_0"><a id="ch10lvl1sec66" class="calibre1"/>The io.Writer interface</h1></div></div></div><p class="calibre10">The <code class="email">io.Writer</code> interface, as shown in the following code, is just as simple as its reader counterpart:</p><pre class="programlisting">type Writer interface { 
+   Write(p []byte) (n int, err error) 
+} 
+</pre><p class="calibre10">The interface requires the implementation of a single method, <code class="email">Write(p []byte)(c int, e error)</code>, that copies data from the provided stream <code class="email">p</code> and <span class="strong"><em class="calibre11">writes</em></span> that data to a sink resource such as an in-memory structure, standard output, a file, a network connection, or any number of <code class="email">io.Writer</code> implementations that come with the Go standard library. The <code class="email">Write</code> method returns the number of bytes copied from <code class="email">p</code> followed by an <code class="email">error</code> value if any was encountered.</p><p class="calibre10">The following code snippet shows the implementation of the <code class="email">channelWriter</code> type, a writer that decomposes and serializes its stream that is sent over a Go channel as consecutive bytes:</p><pre class="programlisting">type channelWriter struct { 
+   Channel chan byte 
+} 
+ 
+func NewChannelWriter() *channelWriter { 
+   return &amp;channelWriter{ 
+         Channel: make(chan byte, 1024), 
+   } 
+} 
+ 
+func (c *channelWriter) Write(p []byte) (int, error) { 
+   if len(p) == 0 { 
+         return 0, nil 
+   } 
+ 
+   go func() { 
+         defer close(c.Channel) // when done 
+         for _, b := range p { 
+               c.Channel &lt;- b 
+         } 
+   }() 
+ 
+   return len(p), nil 
+} 
+ 
+</pre><p class="calibre10">golang.fyi/ch10/writer1.go</p><p class="calibre10">The <code class="email">Write</code> method uses a goroutine to copy each byte, from <code class="email">p</code>, and sends it across the <code class="email">c.Channel</code>. Upon completion, the goroutine closes the channel so that consumers are notified when to stop consuming from the channel. As an implementation convention, writers should not modify slice <code class="email">p</code> or hang on to it. When an error occurs, the writer should return the current number of bytes processed and an error.</p><p class="calibre10">Using the <code class="email">channelWriter</code> type is simple. You can invoke the <code class="email">Write()</code> method directly or, as is more common, use <code class="email">channelWriter</code> with other IO primitives in the API. For instance, the following snippet uses the <code class="email">fmt.Fprint</code> function to serialize the <code class="email">"Stream me!"</code> string as a sequence of bytes over a channel using <code class="email">channelWriter</code>:</p><pre class="programlisting">func main() { 
+   cw := NewChannelWriter() 
+   go func() { 
+         fmt.Fprint(cw, "Stream me!") 
+   }() 
+ 
+   for c := range cw.Channel { 
+         fmt.Printf("%c\n", c) 
+   } 
+} 
+</pre><p class="calibre10">golang.fyi/ch10/writer1.go</p><p class="calibre10">In the previous snippet, the serialized bytes, queued in the channel, are consumed using a <code class="email">for…range</code> statement as they are successively printed. The following snippet shows another example where the content of a file is serialized over a channel using the same <code class="email">channelWriter</code>. In this implementation, an <code class="email">io.File</code> value and <code class="email">io.Copy</code> function are used to source the data instead of the <code class="email">fmt.Fprint</code> function:</p><pre class="programlisting">func main() { 
+   cw := NewChannelWriter() 
+   file, err := os.Open("./writer2.go") 
+   if err != nil { 
+         fmt.Println("Error reading file:", err) 
+         os.Exit(1) 
+   } 
+   _, err = io.Copy(cw, file) 
+   if err != nil { 
+         fmt.Println("Error copying:", err) 
+         os.Exit(1) 
+   } 
+ 
+   // consume channel 
+   for c := range cw.Channel { 
+         fmt.Printf("%c\n", c) 
+   } 
+} 
+</pre><p class="calibre10">golang.fyi/ch10/writer2.go.</p></div></body></html>

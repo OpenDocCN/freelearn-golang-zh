@@ -1,0 +1,295 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer016">
+			<h1 id="_idParaDest-201" class="chapter-number"><a id="_idTextAnchor202"/>7</h1>
+			<h1 id="_idParaDest-202"><a id="_idTextAnchor203"/>Concurrency</h1>
+			<p>Concurrency is a core part of the Go language. Unlike many other languages that support concurrency via rich multi-threading libraries, Go provides relatively few language primitives to write <span class="No-Break">concurrent programs.</span></p>
+			<p>Let’s start by emphasizing that concurrency is <strong class="bold">not</strong> parallelism. Concurrency is about how you write programs; parallelism is about how programs run. A concurrent program specifies what parts of the program can run in parallel. Depending on the actual execution, concurrent parts of a program may run sequentially, concurrently using time-sharing, or in parallel. A correct concurrent program yields the same result regardless of how it <span class="No-Break">is run.</span></p>
+			<p>This chapter introduces some of the Go concurrency primitives using recipes. In this chapter, you will learn about <span class="No-Break">the following:</span></p>
+			<ul>
+				<li><span class="No-Break">Creating goroutines</span></li>
+				<li>Running multiple independent functions concurrently and waiting for them <span class="No-Break">to end</span></li>
+				<li>Sending and receiving data <span class="No-Break">using channels</span></li>
+				<li>Sending data to a channel from <span class="No-Break">multiple goroutines</span></li>
+				<li>Collecting the results of concurrent computations <span class="No-Break">using channels</span></li>
+				<li>Working with multiple channels using the <span class="No-Break"><strong class="source-inline">select</strong></span><span class="No-Break"> statement</span></li>
+				<li>Canceling <span class="No-Break">a goroutine</span></li>
+				<li>Detecting cancelation using <span class="No-Break">nonblocking </span><span class="No-Break"><strong class="source-inline">select</strong></span></li>
+				<li>Updating shared <span class="No-Break">variables concurrently</span></li>
+			</ul>
+			<h1 id="_idParaDest-203"><a id="_idTextAnchor204"/>Doing things concurrently using goroutines</h1>
+			<p>A goroutine is a <a id="_idIndexMarker274"/>function that runs concurrently with other goroutines. When a program starts, the Go runtime creates several goroutines. One of these goroutines runs the garbage collector. Another goroutine runs the <strong class="source-inline">main</strong> function. As the program executes, it creates more goroutines as necessary. A typical go program may have thousands <a id="_idIndexMarker275"/>of goroutines all running concurrently. The Go runtime schedules these goroutines to operating system threads. Each operating system thread is assigned a number of goroutines that it runs using time sharing. At any given moment, there can be as many active goroutines as the number of <span class="No-Break">logical processors:</span></p>
+			<pre class="source-code">
+Number of threads per core * Number of cores per CPU * Number of CPUs</pre>			<h2 id="_idParaDest-204"><a id="_idTextAnchor205"/>Creating goroutines</h2>
+			<p>Goroutines are <a id="_idIndexMarker276"/>an integral part of the Go language. You create goroutines using the <span class="No-Break"><strong class="source-inline">go</strong></span><span class="No-Break"> keyword.</span></p>
+			<h3>How to do it...</h3>
+			<p>Create goroutines using the <strong class="source-inline">go</strong> keyword followed by a <span class="No-Break">function call:</span></p>
+			<pre class="source-code">
+func f() {
+  // Do some work
+}
+func main() {
+  go f()
+  ...
+}</pre>			<p>When <strong class="source-inline">go f()</strong> is evaluated, the runtime creates a new goroutine and calls the <strong class="source-inline">f</strong> function. The goroutine running <strong class="source-inline">main</strong> also continues running. In other words, when the <strong class="source-inline">go</strong> keyword is evaluated, the program execution splits into two concurrent execution streams – one is the original execution stream (in the preceding example, the stream that is running <strong class="source-inline">main</strong>) and the other runs the function that comes after the <span class="No-Break"><strong class="source-inline">go</strong></span><span class="No-Break"> keyword.</span></p>
+			<p>The function can take arguments <span class="No-Break">if necessary:</span></p>
+			<pre class="source-code">
+func f(i int) {
+  // Do some work
+}
+func main() {
+  var x int
+  go f(x)
+  ...
+}</pre>			<p>The arguments to the function are evaluated before the goroutine starts. That is, the <strong class="source-inline">main</strong> goroutine first evaluates the argument of <strong class="source-inline">f</strong> (which is, in this case, the <strong class="source-inline">x</strong> value) and then creates a new goroutine and <span class="No-Break">runs </span><span class="No-Break"><strong class="source-inline">f</strong></span><span class="No-Break">.</span></p>
+			<p>It is common <a id="_idIndexMarker277"/>practice to use a closure to run goroutines. They provide the context necessary for understanding code. They also prevent passing many variables as arguments <span class="No-Break">to goroutines:</span></p>
+			<pre class="source-code">
+func main() {
+  var x int
+  var y int
+  ...
+  go func(i int) {
+    if y &gt; 0 {
+      // Do some work
+    }
+  }(x)
+  ...
+}</pre>			<p>Here, <strong class="source-inline">x</strong> is passed as <a id="_idIndexMarker278"/>an argument to the goroutine, but <strong class="source-inline">y</strong> <span class="No-Break">is captured.</span></p>
+			<p>When the function run by the <strong class="source-inline">go</strong> keyword ends, the <span class="No-Break">goroutine terminates.</span></p>
+			<h2 id="_idParaDest-205"><a id="_idTextAnchor206"/>Running multiple independent functions concurrently and waiting for them to complete</h2>
+			<p>When you <a id="_idIndexMarker279"/>have multiple independent functions that do not share data, you can use this recipe to run them concurrently. We will also use <strong class="source-inline">sync.WaitGroup</strong> to wait for the goroutines <span class="No-Break">to finish.</span></p>
+			<h3>How to do it...</h3>
+			<ol>
+				<li>Create an instance of <strong class="source-inline">sync.WaitGroup</strong> to wait <span class="No-Break">for goroutines:</span><pre class="source-code">
+wg := sync.WaitGroup{}</pre><p class="list-inset">A <strong class="source-inline">sync.WaitGroup</strong> is simply a thread-safe counter. We will use <strong class="source-inline">wg.Add(1)</strong> for each goroutine we create, and use <strong class="source-inline">wg.Done()</strong> to subtract 1 whenever a goroutine ends. Then we can wait for the waitgroup to reach zero, signaling the termination of <span class="No-Break">all goroutines.</span></p></li>				<li>For each function that will run concurrently, do <span class="No-Break">the following:</span><ul><li>Add 1 to the <span class="No-Break">wait group</span></li><li>Start a <span class="No-Break">new goroutine</span></li><li>Call <strong class="source-inline">defer wg.Done()</strong> to make sure you signal <span class="No-Break">goroutine termination</span><pre class="source-code">
+wg.Add(1)
+go func() {
+  defer wg.Done()
+  // Do work
+}()</pre></li></ul></li>			</ol>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">Instead of adding 1 to the wait group for every goroutine, you can simply add the number of goroutines. For instance, if you know that you will create 5 goroutines, you can simply do <strong class="source-inline">wg.Add(5)</strong> before creating the <span class="No-Break">first goroutine.</span></p>
+			<ol>
+				<li value="3">Wait for the goroutines <span class="No-Break">to end:</span><pre class="source-code">
+wg.Wait()</pre><p class="list-inset">This call will block until <strong class="source-inline">wg</strong> reaches zero, that is, until all goroutines <span class="No-Break">call </span><span class="No-Break"><strong class="source-inline">wg.Done()</strong></span><span class="No-Break">.</span></p></li>				<li>Now, you can use the results of all <span class="No-Break">the goroutines.</span><p class="list-inset">The crucial <a id="_idIndexMarker280"/>detail of this recipe is that all goroutines are independent, which means <span class="No-Break">the following:</span></p><p class="list-inset">All variables written by each goroutine are used exclusively by that goroutine until <strong class="source-inline">wg.Done()</strong>. Goroutines may read shared variables, but they cannot write to them. After <strong class="source-inline">wg.Done()</strong>, all goroutines are terminated and the variables they wrote can <span class="No-Break">be used.</span></p></li>
+				<li>No goroutine depends on the result of <span class="No-Break">another goroutine.</span></li>
+			</ol>
+			<p>You should not attempt to read the results of a goroutine before <strong class="source-inline">wg.Wait</strong>. That is a memory race with <span class="No-Break">undefined behavior.</span></p>
+			<p>A <strong class="bold">memory race</strong> happens when <a id="_idIndexMarker281"/>you write to a shared variable concurrently with other writes or reads. The result of a program containing a memory race <span class="No-Break">is undefined.</span></p>
+			<h1 id="_idParaDest-206"><a id="_idTextAnchor207"/>Communicating between goroutines using channels</h1>
+			<p>More <a id="_idIndexMarker282"/>often than not, multiple goroutines <a id="_idIndexMarker283"/>have to communicate and coordinate to distribute work, manage state, and collate results of computations. Channels are the preferred mechanism for this. A channel is a synchronization mechanism with an optional <span class="No-Break">fixed-size buffer.</span></p>
+			<p class="callout-heading">Tip: </p>
+			<p class="callout">The following recipes show channels that are closed. Closing a channel is a method for communicating end of data. If you do not close a channel, it will be garbage collected when it is no longer referenced. In other words, you don't need to close a channel if you don't need to signal end of data to <span class="No-Break">the receivers.</span></p>
+			<h2 id="_idParaDest-207"><a id="_idTextAnchor208"/>Sending and receiving data using channels</h2>
+			<p>A goroutine can send to a channel if there is another goroutine waiting to receive from it, or in the <a id="_idIndexMarker284"/>case of a buffered channel, there is space <a id="_idIndexMarker285"/>available in the channel buffer. Otherwise, the goroutine is blocked until it <span class="No-Break">can send.</span></p>
+			<p>A goroutine <a id="_idIndexMarker286"/>can receive from a channel if there <a id="_idIndexMarker287"/>is another goroutine waiting to send to it, or in the case of a buffered channel, there is data in the channel buffer. Otherwise, the receiver is blocked until it <span class="No-Break">can receive.</span></p>
+			<h3>How to do it...</h3>
+			<ol>
+				<li>Create a channel with the type of data it will pass. The following example creates a channel that can <span class="No-Break">pass strings.</span><pre class="source-code">
+ch := make(chan string)</pre></li>				<li>In a goroutine, send data elements to the channel. When all data elements are sent, close <span class="No-Break">the channel:</span><pre class="source-code">
+go func() {
+  for _, str := range stringData {
+     // Send the string to the channel. This will block until
+     // another goroutine can receive from the channel.
+     ch &lt;- str
+  }
+  // Close the channel when done. This is the way to signal the
+  // receiver goroutine that there is no more data available.
+  close(ch)
+}()</pre></li>				<li>Receive <a id="_idIndexMarker288"/>data from the channel in another <a id="_idIndexMarker289"/>goroutine. In the following <a id="_idIndexMarker290"/>example, the main goroutine receives <a id="_idIndexMarker291"/>strings from the channel and prints them. The <strong class="source-inline">for</strong> loop ends when the channel <span class="No-Break">is closed:</span><pre class="source-code">
+for str := range ch {
+  fmt.Println(str)
+}</pre></li>			</ol>
+			<h2 id="_idParaDest-208"><a id="_idTextAnchor209"/>Sending data to a channel from multiple goroutines</h2>
+			<p>There are <a id="_idIndexMarker292"/>cases where you have <a id="_idIndexMarker293"/>many goroutines working on a piece of a problem, and when they are done, they send the result using a channel. A problem with this situation is deciding when to close the channel. This recipe shows how it <span class="No-Break">is done.</span></p>
+			<h3>How to do it...</h3>
+			<ol>
+				<li>Create the result channel with the data type it <span class="No-Break">will pass:</span><pre class="source-code">
+ch := make(chan string)</pre></li>				<li>Create the listener goroutine and a wait group to wait for its completion later. This goroutine will be blocked until the other goroutines start <span class="No-Break">sending data:</span><pre class="source-code">
+// Allocate results
+results := make([]string,0)
+// WaitGroup will be used later to wait for the listener 
+// goroutine to end
+listenerWg := sync.WaitGroup{}
+listenerWg.Add(1)
+go func() {
+  defer listenerWg.Done()
+  // Collect results and store in a slice
+  for str:=range ch {
+    results=append(results,str)
+  }
+}()</pre></li>				<li>Create <a id="_idIndexMarker294"/>a wait group to keep <a id="_idIndexMarker295"/>track of the goroutines that will write to the result channel. Then, create goroutines that send to <span class="No-Break">the channel:</span><pre class="source-code">
+wg := sync.WaitGroup{}
+for _,input := range inputs {
+  wg.Add(1)
+  go func(data string) {
+    defer wg.Done()
+    ch &lt;- processInput(data)
+  }(input)
+}</pre></li>				<li>Wait for the processing goroutines to end and close the <span class="No-Break">result channel:</span><pre class="source-code">
+// Wait for all goroutines to end
+wg.Wait()
+// Close the channel to signal end of data
+// This will signal the listener goroutine that no more data 
+// will be arriving via the channel
+close(ch)</pre></li>				<li>Wait <a id="_idIndexMarker296"/>for the listener goroutine <span class="No-Break">to end:</span><pre class="source-code">
+listenerWg.Wait()</pre></li>			</ol>
+			<p>Now you <a id="_idIndexMarker297"/>can use the <span class="No-Break"><strong class="source-inline">results</strong></span><span class="No-Break"> slice.</span></p>
+			<h2 id="_idParaDest-209"><a id="_idTextAnchor210"/>Collecting the results of concurrent computations using channels</h2>
+			<p>Often, you <a id="_idIndexMarker298"/>have multiple goroutines working on parts of a problem and you have to collect the result of each goroutine to compile a single result object. Channels are the perfect mechanism <span class="No-Break">for this.</span></p>
+			<h3>How to do it...</h3>
+			<ol>
+				<li>Create a channel to collect the results of <span class="No-Break">the computation:</span><pre class="source-code">
+resultCh := make(chan int)</pre><p class="list-inset">In this example, the <strong class="source-inline">resultCh</strong> channel is a channel of <strong class="source-inline">int</strong> values. That is, the results of the computations will <span class="No-Break">be integers.</span></p></li>				<li>Create a <strong class="source-inline">sync.WaitGroup</strong> instance to wait for <span class="No-Break">the goroutines:</span><pre class="source-code">
+wg := sync.WaitGroup{}</pre></li>				<li>Distribute work among goroutines. Each goroutine should have access to the <strong class="source-inline">resultCh</strong>. Add each goroutine to the wait group, and make sure to call <strong class="source-inline">defer wg.Done()</strong> in <span class="No-Break">the goroutine.</span></li>
+				<li>Perform the computation in the goroutine, and send the result to <span class="No-Break">the </span><span class="No-Break"><strong class="source-inline">resultCh</strong></span><span class="No-Break">:</span><pre class="source-code">
+var inputs [][]int=[]int{...}
+...
+for i:=range inputs {
+  wg.Add(1)
+  go func(data []int) {
+     defer wg.Done()
+     // Perform the computation
+     // computeResult takes a []int, and returns int
+     // Send the result to resultCh
+     resultCh &lt;- computeResult(data)
+  }(inputs[i])
+}</pre></li>				<li>Here, you have to do two things: wait for all goroutines to complete and collect the <a id="_idIndexMarker299"/>results from the <strong class="source-inline">resultCh</strong>. There are two ways you can <span class="No-Break">do this:</span><ul><li>Collect the results while waiting for the goroutines to end concurrently. That is, create a goroutine and wait for the goroutines to end. When all goroutines are done, close <span class="No-Break">the channel:</span><pre class="source-code">
+go func() {
+  // Wait for the goroutines to end
+  wg.Wait()
+  // When all goroutines are done, close the channel
+  close(resultCh)
+}()
+// Create a slice to contain results of the computations
+results:=make([]int,0)
+// Collect the results from the `resultCh`
+// The for-loop will terminate when resultCh is closed
+for result:=range resultCh {
+  results=append(results,result)
+}</pre></li><li>Collect the results asynchronously while waiting for the goroutines to end. When <a id="_idIndexMarker300"/>all goroutines are completed, close the channel. However, when you close the channel, the goroutine that collects the results may still be running. We have to wait for that goroutine to end as well. We can use another wait group for <span class="No-Break">that purpose:</span><pre class="source-code">results:=make([]int,0)
+// Create a new wait group just for the result collection 
+// goroutine
+collectWg := sync.WaitGroup{}
+// Add the collection goroutine to the waitgroup
+collectWg.Add(1)
+go func() {
+  // Announce the completion of this goroutine
+  defer collectWg.Done()
+  // Collect results. The for-loop will terminate when resultCh 
+  // is closed.
+  for result:= range resultCh {
+    results=append(results,result)
+  }
+}()
+// Wait for the goroutines to end.
+wg.Wait()
+// Close the channel so the result collection goroutine can 
+// finish
+close(resultCh)
+// Now wait for the result collection goroutine to finish
+collectWg.Wait()
+// results slice is ready</pre></li></ul></li>			</ol>
+			<h1 id="_idParaDest-210"><a id="_idTextAnchor211"/>Working with multiple channels using the select statement</h1>
+			<p>You can only send data or receive data from a channel at any given time. If you are interacting <a id="_idIndexMarker301"/>with multiple goroutines (and thus, multiple concurrent events), you need a language construct that will let <a id="_idIndexMarker302"/>you interact with multiple channels at once. That construct is the <span class="No-Break"><strong class="source-inline">select</strong></span><span class="No-Break"> statement.</span></p>
+			<p>This section shows how <strong class="source-inline">select</strong> <span class="No-Break">is used.</span></p>
+			<h3>How to do it...</h3>
+			<p>A blocking <strong class="source-inline">select</strong> statement chooses an active case from zero or more cases. Each case is a channel send or channel receive event. If there are no active cases (that is, none of the channels can be sent to or received from), <strong class="source-inline">select</strong> <span class="No-Break">is blocked.</span></p>
+			<p>In the <a id="_idIndexMarker303"/>following example, the <strong class="source-inline">select</strong> statement waits to receive from one of two channels. The program <a id="_idIndexMarker304"/>receives from only one of the channels. If both channels are ready, one of the channels will be picked randomly. The other channel will be <span class="No-Break">left unread:</span></p>
+			<pre class="source-code">
+ch1:=make(chan int)
+ch2:=make(chan int)
+go func() {
+  ch1&lt;-1
+}()
+go func() {
+  ch2&lt;-2
+}()
+select {
+case data1:= &lt;- ch1:
+  fmt.Println("Read from channel 1: %v", data1)
+case data2:= &lt;- ch2:
+  fmt.Println("Read from channel 2: %v", data2)
+}</pre>			<h2 id="_idParaDest-211"><a id="_idTextAnchor212"/>Canceling goroutines</h2>
+			<p>Creating <a id="_idIndexMarker305"/>goroutines is easy and efficient in Go, but you also have to make sure your goroutines end eventually. If a goroutine is left running unintentionally, it is called a “leaked” goroutine. If a program keeps leaking goroutines, eventually it crashes with an <span class="No-Break">out-of-memory error.</span></p>
+			<p>Some goroutines perform a limited number of operations and terminate naturally, but some run indefinitely until an external stimulus is received. A common pattern for long-running goroutines to receive such stimulus is to use a <span class="No-Break"><strong class="source-inline">done</strong></span><span class="No-Break"> channel.</span></p>
+			<h3>How to do it...</h3>
+			<ol>
+				<li>Create a <strong class="source-inline">done</strong> channel with an empty <span class="No-Break">data type:</span><pre class="source-code">
+done:=make(chan struct{})</pre></li>				<li>Create a <a id="_idIndexMarker306"/>channel to provide input <span class="No-Break">to goroutines:</span><pre class="source-code">
+input := make(chan int)</pre></li>				<li>Create goroutines that look <span class="No-Break">like this:</span><pre class="source-code">
+go func() {
+  for {
+    select {
+      case data:= &lt;- input:
+        // Process data
+      case &lt;-done:
+        // Done signal. Terminate
+        return
+     }
+  }
+}()</pre></li>			</ol>
+			<p>To cancel the goroutine(s), simply close the <span class="No-Break"><strong class="source-inline">done</strong></span><span class="No-Break"> channel:</span></p>
+			<pre class="source-code">
+close(done)</pre>			<p>This will enable the <strong class="source-inline">case &lt;-done</strong> branch in all the goroutines that are listening to the <strong class="source-inline">done</strong> channel, and they <span class="No-Break">will terminate.</span></p>
+			<h2 id="_idParaDest-212"><a id="_idTextAnchor213"/>Detecting cancelation using nonblocking select</h2>
+			<p>A non-blocking <strong class="source-inline">select</strong> has a <strong class="source-inline">default</strong> case. When the <strong class="source-inline">select</strong> statement runs, it checks <a id="_idIndexMarker307"/>all the available cases, and if none of them are available, the <strong class="source-inline">default</strong> case is selected. This allows a <strong class="source-inline">select</strong> to continue <span class="No-Break">without blocking.</span></p>
+			<h3>How to do it...</h3>
+			<ol>
+				<li>Create a <strong class="source-inline">done</strong> channel with an empty <span class="No-Break">data type:</span><pre class="source-code">
+done:=make(chan struct{})</pre></li>				<li>Create goroutines that look <span class="No-Break">like this:</span><pre class="source-code">
+go func() {
+  for {
+    select {
+      case &lt;-done:
+        // Done signal. Terminate
+        return
+       default:
+         // Done signal is not sent. Continue
+     }
+     // Do work
+  }
+}()</pre></li>			</ol>
+			<p>To cancel the goroutine(s), simply close the <span class="No-Break"><strong class="source-inline">done</strong></span><span class="No-Break"> channel.</span></p>
+			<pre class="source-code">
+close(done)</pre>			<h1 id="_idParaDest-213"><a id="_idTextAnchor214"/>Sharing memory</h1>
+			<p>One of the most famous Go idioms is: “Do not communicate by sharing memory, share memory by communicating.” Channels are for sharing memory by communicating. Communicating <a id="_idIndexMarker308"/>by sharing memory is done using shared variables in multiple goroutines. Even though it is discouraged, there are many use cases where shared memory makes more sense than a channel. If at least one of the goroutines updates a shared variable that is read by other goroutines, you have to ensure that there are no <span class="No-Break">memory races.</span></p>
+			<p>A memory race happens when a goroutine updates a variable concurrently while another goroutine reads from it or writes to it. When this happens, there is no guarantee that the update to that variable will be seen by other goroutines. A famous example of this situation is the <span class="No-Break"><strong class="source-inline">busy-wait</strong></span><span class="No-Break"> loop:</span></p>
+			<pre class="source-code">
+func main() {
+  done:=false
+  go func() {
+    // Wait while done==false
+    for !done {}
+    fmt.Println("Done is true now")
+  }()
+  done=true
+  // Wait indefinitely
+  select{}
+}</pre>			<p>This program has a memory race. The <strong class="source-inline">done=true</strong> assignment is concurrent with the <strong class="source-inline">for !done</strong> loop. That means, even though the main goroutine runs <strong class="source-inline">done=true</strong>, the goroutine reading <strong class="source-inline">done</strong> may never see that update, staying in the <strong class="source-inline">for</strong> <span class="No-Break">loop indefinitely.</span></p>
+			<h2 id="_idParaDest-214"><a id="_idTextAnchor215"/>Updating shared variables concurrently</h2>
+			<p>The Go memory model guarantees that the effect of a variable write is visible to instructions <a id="_idIndexMarker309"/>that come after that write within that goroutine only. That is, if you update a shared variable, you have to use special tools to make that update visible to other goroutines. A simple way to ensure this is to use a mutex. Mutex stands for “mutual exclusion.” A mutex is a tool you can use to ensure <span class="No-Break">the following:</span></p>
+			<ul>
+				<li>Only one goroutine updates a variable at any <span class="No-Break">given time</span></li>
+				<li>Once that update is done and the mutex is released, all goroutines can see <span class="No-Break">that update</span></li>
+			</ul>
+			<p>In this recipe, we show how this <span class="No-Break">is done.</span></p>
+			<h3>How to do it...</h3>
+			<p>The section of a program that updates shared variables is a “critical section.” You use a mutex to ensure that only a single goroutine can enter its <span class="No-Break">critical section.</span></p>
+			<p>Declare a mutex to protect a <span class="No-Break">critical section:</span></p>
+			<pre class="source-code">
+// cacheMutex will be used to protect access to cache
+var cacheMutex sync.Mutex
+var cache map[string]any = map[string]any{}</pre>			<p>A mutex protects a set of shared variables. For instance, if you have goroutines that update a single integer, you declare a mutex for the critical sections that update that integer. You must use the same mutex every time you read or write that <span class="No-Break">integer value.</span></p>
+			<p>When updating the shared variable(s), first lock the mutex. Then perform the update and unlock <span class="No-Break">the mutex:</span></p>
+			<pre class="source-code">
+cacheMutex.Lock()
+cache[key]=value
+cacheMutex.Unlock()</pre>			<p>With this pattern, if multiple goroutines attempt to update <strong class="source-inline">cache</strong>, they will queue at <strong class="source-inline">cacheMutex.Lock()</strong> and only one will be allowed. When that goroutine performs the update, it will call <strong class="source-inline">cacheMutex.Unlock()</strong>, which will enable one of the waiting goroutines to acquire the lock and update the <span class="No-Break">cache again.</span></p>
+			<p>When reading <a id="_idIndexMarker310"/>the shared variable, first lock the mutex. Then perform the read, and then unlock <span class="No-Break">the mutex:</span></p>
+			<pre class="source-code">
+cacheMutex.Lock()
+cachedValue, cached := cache[key]
+cacheMutex.Unlock()
+if cached {
+  // Value found in cache
+}</pre>		</div>
+	</div></div></body></html>

@@ -1,0 +1,892 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Metrics Collection and Visualization</h1>
+                </header>
+            
+            <article>
+                
+<div class="packt_quote">"What's measured improves."</div>
+<div class="packt_quote CDPAlignRight CDPAlign"><span>- Peter Drucker</span></div>
+<p>In the previous chapters, we converted our initial monolithic application into a set of microservices that are now running distributed inside our Kubernetes cluster. This paradigm shift introduced a new item to our list of project requirements: as system operators, we must be able to monitor the health of each individual service and be notified when problems arise.</p>
+<p>We will begin this chapter by comparing the strengths and weaknesses of popular systems for capturing and aggregating metrics. Then we will focus our attention on Prometheus, a popular metrics collection system written entirely in Go. We will explore approaches for instrumenting our code to facilitate the efficient collection and export of metrics. In the last part of this chapter, we will investigate the use of Grafana for visualizing our metrics and the Alertmanager for handling, grouping, deduplicating, and routing incoming alerts to a set of notification system integrations.</p>
+<p>The following topics will be covered in this chapter:</p>
+<ul>
+<li>Explaining the differences between essential SRE terms such as SLIs, SLOs, and SLAs</li>
+<li>Comparison of push- and pull-based systems for metrics collection and an analysis of the pros and cons of each approach</li>
+<li>Setting up Prometheus and learning how to instrument your Go applications for collecting and exporting metrics</li>
+<li>Running Grafana as the visualization frontend for our metrics</li>
+<li>Using the Prometheus ecosystem tools to define and handle alerts</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>The full code for the topics that will be discussed in this chapter has been published in this book's GitHub repository under the<span> </span><kbd>Chapter13</kbd> folder.</p>
+<div class="packt_infobox">You can access this book's GitHub repository, which contains all the code and required resources for the chapters in this book, by pointing your web browser to the following URL: <a href="https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang">https://github.com/PacktPublishing/Hands-On-Software-Engineering-with-Golang</a>.</div>
+<p>To get you up and running as quickly as possible, each example project includes a<span> Makefile</span><span> </span><span>that defines the following set of targets:</span></p>
+<table style="border-collapse: collapse;width: 100%" border="1">
+<tbody>
+<tr>
+<td class="CDPAlignLeft CDPAlign"><strong>Makefile target</strong></td>
+<td class="CDPAlignLeft CDPAlign"><strong>Description</strong></td>
+</tr>
+<tr class="odd">
+<td><kbd>deps</kbd></td>
+<td>Install any required dependencies</td>
+</tr>
+<tr class="even">
+<td><kbd>test</kbd></td>
+<td>Run all tests and report coverage</td>
+</tr>
+<tr class="odd">
+<td><kbd>lint</kbd></td>
+<td>Check for lint errors</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>As with the other chapters in this book, you will need a fairly recent version of Go, which you can download from <a href="https://golang.org/dl">https://golang.org/dl</a><em>.</em></p>
+<p>To run some of the code in this chapter, you will need to have a working Docker <sup>[3]</sup> installation on your machine.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Monitoring from the perspective of a site reliability engineer</h1>
+                </header>
+            
+            <article>
+                
+<p>As we saw in <a href="5ef11f50-0620-4132-8bfe-c30d6c79f2f5.xhtml">Chapter 1</a>, <em>A Bird's-Eye View of Software Engineering</em>, monitoring the state and performance of software systems is one of the key responsibilities associated with the role of a <strong>site reliability engineer</strong> (<strong>SRE</strong>). Before we delve deeper into the topic of monitoring and alerting, we should probably take a few minutes and clarify some of the SRE-related terms that we will be using in the following sections.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Service-level indicators (SLIs)</h1>
+                </header>
+            
+            <article>
+                
+<p>An SLI is a type of metric that allows us to quantify the perceived quality of a service from the perspective of the end user. Let's take a look at some common types of SLIs that can be applied to cloud-based services:</p>
+<ul>
+<li><strong>Availability</strong><span> </span>is defined as the ratio of two quantities: the time that the service can be used by the end user/customer and the total time that the service is deployed (including any downtime). For example, if we were operating a service that was offline for maintenance for about<span> </span><em>53</em><span> </span>minutes over the course of the<span> </span><em>last year</em>, we could claim that the service had<span> </span><strong>99.99%</strong><span> </span>availability for the same period.</li>
+<li><strong>Throughput</strong><span> </span>is defined as the number of requests that a service processes in a given time period (for example, requests per second).</li>
+<li><strong>Latency</strong><span> </span>is yet another interesting SLI and is defined as the time it takes for the server to process an incoming request and return a response to the client.</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Service-level objectives (SLOs)</h1>
+                </header>
+            
+            <article>
+                
+<p>Back in <a href="6e4047ad-1fc1-4c3e-b90a-f27a62d06f17.xhtml">Chapter 5</a>, <em>The Links 'R' Us Project</em>, where the Links 'R' Us project was first introduced, we briefly discussed the concept of SLOs and even provided some example SLOs for the system we would be working on.</p>
+<div class="packt_infobox">An SLO is defined as the range of values for an SLI that allows us to deliver a particular level of service to an end user or customer.<br/>
+<br/>
+Depending on the underlying SLI, SLOs can either be specified either as a lower bound (SLI &gt;= target), an upper bound (SLI &lt;= target), or both (lower-bound &lt;= SLI &gt;= upper bound).</div>
+<p>SLO definitions generally consist of three parts: a description of the thing that we are measuring (the SLI), the expected service level expressed as a percentage, and the period where the measurement takes place. Let's take a quick look at some SLO examples:</p>
+<ul>
+<li>The system's uptime, when measured in a period of a single month, must be at least 99%</li>
+<li>The response time for 95% of service <span>requests </span>to X, when measured in a period of a year, must not exceed 100 ms</li>
+<li>The CPU utilization for the database, when measured in a period of a day, must be in the range [40%, 70%]</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Service-level agreements (SLAs)</h1>
+                </header>
+            
+            <article>
+                
+<p>An SLA is an implicit or explicit contract between a service provider and one or more service consumers. The SLA outlines a set of SLOs that have to be met and the consequences for both meeting and failing to meet them.</p>
+<p>Note that, depending on the type of service being offered, the role of the consumer can be fulfilled either by an external third party or an internal company stakeholder. In the former case, an SLA would typically define a list of financial penalties for failing to meet the agreed SLOs. In the latter case, SLA terms can be less strict but must nevertheless be factored in when authoring SLAs for other downstream services.</p>
+<p>Having understood these <span>SRE-related terms, let's move on to metrics.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Exploring options for collecting and aggregating metrics</h1>
+                </header>
+            
+            <article>
+                
+<p>The sheer complexity and level of customization that is inherent in modern, microservice-based systems has led to the development of specialized tooling to facilitate the collection and aggregation of metrics.</p>
+<p>In this section, we will be briefly discussing a few popular pieces of software for achieving this task.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Comparing push versus pull systems</h1>
+                </header>
+            
+            <article>
+                
+<p>Monitoring and metrics aggregation systems can be classified into two broad categories based on the entity that initiates the data collection:</p>
+<ul>
+<li>In a<span> </span><strong>push-based</strong><span> </span>system, the client (for example, the application or a data collection service running on a node) is responsible for transmitting the metrics data to the metrics aggregation system. Examples of such systems include StatsD<span> </span><sup><span class="citation">[11]</span></sup>, Graphite<span> </span><sup><span class="citation">[5]</span></sup><span>, </span>and<span> InfluxDB </span><sup><span class="citation">[6]</span></sup>.</li>
+<li>In a<span> </span><strong>pull-based</strong><span> </span>system, metrics collection is the responsibility of the metrics aggregation system. In an operation commonly referred to as<span> </span><em>scraping</em>, the metrics system initiates a connection to the metrics producers and retrieves the set of available metrics. Examples of such systems include Nagios<span> </span><sup><span class="citation">[7]</span></sup><span> </span>and Prometheus<span> </span><sup><span class="citation">[10]</span></sup>. We will be exploring Prometheus in more detail in the following section.</li>
+</ul>
+<p>Push- and pull-based systems come with their own set of pros and cons. From a software engineer's perspective, push systems are oftentimes considered to be easier to interface with. All of the aforementioned push system implementations support a text-based protocol for submitting metrics. You can simply open a socket (TCP or UDP) connection to the metrics collector and start submitting metric values. As a matter of fact, if we were using either StatsD or Graphite and wanted to increment a counter named<span> </span><kbd>requests</kbd>, we could do so using nothing more than the standard Unix command-line tools, like so:</p>
+<pre class="console"># Incrementing a statsd counter 
+echo "requests:1|c" | nc statsd.local 8125
+
+# Incrementing a graphite counter 
+echo "requests 1 `date +%s`" | nc graphite.local 2003</pre>
+<p>The lack of a proper flow control mechanism is one of the caveats associated with push-based systems. If the rate of metrics production suddenly spikes beyond the collector's ability to process, roll up, and/or index incoming metrics, it is quite possible that the collector will eventually become unavailable or respond to queries with severe lag.</p>
+<p>On the other hand, in a pull-based system, the ingestion rate for metrics is under the control of the collector. Collectors can react to sudden spikes in metric production rates by adjusting their scrape rates to compensate.</p>
+<div class="packt_infobox">Pull-based systems are generally considered to be more scalable than their push-based counterparts.<br/>
+<br/>
+For some anecdotal evidence on how a system such as Prometheus can be scaled up to support scraping a large number of nodes, I would definitely recommend checking out Mathew Campbell's fascinating talk on some of the strategies that are used by DigitalOcean to collect metrics at scale<span> </span><sup><span class="citation">[1]</span></sup>.</div>
+<p>Of course, pull-based systems come with their own set of cons. To begin with, in a pull-based system, the collector needs to be provided with a list of endpoints to scrape! This implies either the need for an operator to manually configure these endpoints or alludes to the availability of some kind of discovery mechanism for automating this process.</p>
+<p>Secondly, this model assumes that the collector can<span> </span><strong>always</strong><span> </span>establish a connection to the various endpoints. However, this may not always be possible! Consider a scenario where we want to scrape a service that has been deployed to a private subnet. That particular subnet is pretty much locked down and does not allow ingress traffic from the subnet that the collector is deployed to. In such a case, our only option would be to use a push-based mechanism to get the metrics out (while ingress traffic is blocked, egress traffic is typically allowed).</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Capturing metrics using Prometheus</h1>
+                </header>
+            
+            <article>
+                
+<p>Prometheus is a pull-based metrics collection system that was created at SoundCloud and subsequently released as open source. The following illustration (extracted from the official Prometheus documentation) describes the basic components that comprise the Prometheus ecosystem:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/953555ee-d13c-451e-a8d9-1a0da0b63260.png" style="width:55.00em;height:33.67em;"/></p>
+<div class="packt_figref CDPAlignCenter CDPAlign"><span>Figure 1:</span><span> </span>The Prometheus architecture</div>
+<p>Let's briefly describe the role of each component shown in the preceding diagram:</p>
+<ul>
+<li>The <strong>Prometheus server</strong> is the core component of Prometheus. Its primary responsibility is to periodically scrape the configured set of targets and persist any collected metrics into a time-series database. As a secondary task, the server evaluates an operator-defined list of alert rules and emits alert events each time any of those rules are satisfied.</li>
+<li>The <strong>Alertmanager</strong> component ingests any alerts emitted by the Prometheus server and sends notifications through one or more communication channels (for example, email, Slack, or a third-party pager service).</li>
+<li>The service discovery layer enables Prometheus to dynamically update the list of endpoints to scrape by querying an external service (for example, Consul<span> </span><sup><span class="citation">[2]</span></sup>) or an API such as the one provided by a container orchestration layer such as Kubernetes.</li>
+<li>The <strong>Pushgateway</strong> component emulates a push-based system for collecting metrics from sources that cannot be scraped. This includes both services that are not directly reachable (for example, due to strict network policies) by Prometheus, as well as short-lived batch jobs. These services can push their metrics stream to a gateway, which acts as an intermediate buffer that Prometheus can then scrape like any other endpoint.</li>
+<li>Clients retrieve data from Prometheus by submitting queries written in a bespoke query language referred to as <strong>PromQL</strong>. An example of such a client is <strong>Grafana</strong><span> </span><sup><span class="citation">[4]</span></sup>, an open source solution for querying and visualizing metrics.</li>
+</ul>
+<p>We will explore these components in more detail in the following sections.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Supported metric types</h1>
+                </header>
+            
+            <article>
+                
+<p>When it comes to a sophisticated metrics collection system such as Prometheus, you would normally expect support for a wide array of metric types. Unless you have prior experience using Prometheus, you will probably be surprised to find out that it only supports four types of metrics. In practice, however, when these metric types are combined with the expressiveness of the PromQL language, these are all we need to model any type of SLI we can think of! Here is the list of metrics supported by Prometheus:</p>
+<ul>
+<li><strong>Counters</strong>: A counter is a cumulative metric whose value<span> </span><em>increases monotonically</em><span> </span>over time. Counters can be used to track the number of requests to a service, the number of downloads for an application, and so on.</li>
+<li><strong>Gauges</strong>: A gauge tracks a single value that can go up or down. A common use case for gauges is to record usage (for example, CPU, memory, and load) stats about a server node and metrics such as the total number of users currently connected to a particular service.</li>
+<li><strong>Histograms</strong>: A histogram samples observations and assigns them to a preconfigured number of buckets. At the same time, it keeps track of the total number of items across all buckets, thus making it possible to calculate quantiles and/or aggregations for the histogram contents. Histograms can be used to answer queries such as, "what is the response time for serving 90% of requests in the last hour?"</li>
+<li><strong>Summaries</strong>: Summaries are similar to histograms in that both metric types support bucketing and the calculation of quantiles. However, summaries perform quantile calculations directly on the client and can be used as an alternative for reducing the query load on the server.</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Automating the detection of scrape targets</h1>
+                </header>
+            
+            <article>
+                
+<p>Prometheus's flexibility really shines when it comes to configuring the set of endpoints to be scraped. In this section, we will examine an indicative list of options for statically or dynamically configuring the set of endpoints that Prometheus pulls metrics from. For the full list of supported discovery options, you can refer to the Prometheus documentation<span> </span><sup><span class="citation">[8]</span></sup>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Static and file-based scrape target configuration</h1>
+                </header>
+            
+            <article>
+                
+<p>A static scrape configuration is considered the canonical way of providing scrape targets to Prometheus. The operator includes one or more static configuration blocks in the Prometheus configuration file that define the list of target hosts to be scraped and the set of labels to apply to the scraped metrics. You can see an example of such a block in the following code:</p>
+<div class="sourceCode">
+<pre class="sourceCode yaml"><a><span class="fu">static_configs:</span></a>
+<a>  <span class="kw">-</span> <span class="fu">targets:</span></a>
+<a>      <span class="kw">-</span> "<span class="st">host1"</span></a>
+<a>      <span class="kw">-</span> "<span class="st">host2"</span></a>
+<a>    <span class="fu">labels:</span></a>
+<a>      <span class="fu">service:</span><span class="at"> </span><span class="st">"my-service"</span></a></pre></div>
+<p>An issue with the static config approach is that after updating the Prometheus configuration files, we need to restart Prometheus so it can pick up the changes.</p>
+<p>A better alternative is to extract the static configuration blocks to an external file and then reference that file from within the Prometheus configuration via the<span> </span><kbd>file_sd_config</kbd><span> </span>option:</p>
+<div class="sourceCode">
+<pre class="sourceCode yaml"><a><span class="fu">file_sd_configs:</span></a>
+<a>  <span class="kw">-</span> <span class="fu">files:</span></a>
+<a>      <span class="kw">-</span> config.yaml</a>
+<a>    <span class="fu">refresh_interval:</span><span class="at"> "5m"</span></a></pre></div>
+<p>When file-based discovery is enabled, Prometheus will watch the specified set of files for changes and automatically reload their contents once a change has been detected.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Querying the underlying cloud provider</h1>
+                </header>
+            
+            <article>
+                
+<p>Out of the box, Prometheus can be configured to leverage the native APIs offered by cloud providers such as AWS, GCE, Azure, and OpenStack to detect provisioned compute node instances and make them available as targets for scraping.</p>
+<p>Each node discovered by Prometheus is automatically annotated with a series of<span> </span><em>provider-specific</em><span> </span>meta labels. These labels can then be referenced by operator-defined match rules to filter out any nodes that the operator is not interested in scraping.</p>
+<p>As an example, let's say that we only want to scrape the EC2 instances that contain a tag with the name<span> </span><kbd>scrape</kbd><span> </span>and the value<span> </span><kbd>true</kbd>. We can use a configuration block such as the following one to achieve this:</p>
+<div class="sourceCode">
+<pre class="sourceCode yaml"><a><span class="fu">ec2_sd_configs:</span></a>
+<a>  <span class="co"># omitted: EC2 access keys (see prometheus documentation)</span></a>
+<a>  <span class="fu">relabel_configs:</span></a>
+<a>    <span class="kw">-</span> <span class="fu">source_labels:</span><span class="at"> </span><span class="kw">["</span>__meta_ec2_tag_scrape"<span class="kw">]</span></a>
+<a>      <span class="fu">regex:</span><span class="at"> "</span><span class="ch">true"</span></a>
+<a>      <span class="fu">action:</span><span class="at"> "keep"</span></a></pre></div>
+<p>When Prometheus discovers a new EC2 instance, it will automatically iterate its set of tags and generate labels whose names follow the pattern<span> </span><kbd>__meta_ec2_tag_&lt;tagkey&gt;</kbd><span> </span>and set their value to the observed tag value. The filtering rule in the preceding snippet will discard any nodes where the value of the<span> </span><kbd>__meta_ec2_tag_scrape</kbd><span> </span>label does not match the provided regular expression.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Leveraging the API exposed by Kubernetes</h1>
+                </header>
+            
+            <article>
+                
+<p>The last scrape target discovery method that we will be discussing in this chapter is highly recommended for workloads running on top of Kubernetes, such as the Links 'R' Us project. Once enabled, Prometheus will invoke the API endpoints exposed by Kubernetes to obtain information about the resource types that the operator is interested in scraping.</p>
+<p>Prometheus can be configured to create scrape targets for the following types of Kubernetes resources:</p>
+<table style="border-collapse: collapse;width: 100%" border="1">
+<tbody>
+<tr>
+<td class="CDPAlignCenter CDPAlign"><strong>Resource Type</strong></td>
+<td class="CDPAlignCenter CDPAlign"><strong>Description</strong></td>
+</tr>
+<tr class="odd">
+<td><strong>node</strong></td>
+<td>Creates a scrape target for each node in the Kubernetes cluster and allows us to collect machine-level metrics that can be exported by running a tool such as node-exporter<span> </span><sup><span class="citation">[9]</span></sup>.</td>
+</tr>
+<tr class="even">
+<td><strong>service</strong></td>
+<td>Scans the Kubernetes<span> </span><kbd>Service</kbd><span> </span>resources and creates a scrape target for each exposed port. Prometheus will then attempt to pull any metrics exposed by the pods behind the service by performing periodic HTTP GET requests to each exposed port at the service's IP address. This approach relies on the fact that <kbd>Service</kbd> resources act as load balancers by delegating each incoming request to a different pod and might be a better-performing alternative compared to pulling metrics from all the pods at the same time.</td>
+</tr>
+<tr class="odd">
+<td><strong>pod</strong></td>
+<td>Discovers all Kubernetes<span> </span><kbd>Pod</kbd><span> </span>resources and creates a scrape target for each one of their containers. Prometheus will then perform periodic HTTP GET requests to pull the metrics out of each individual container in parallel.</td>
+</tr>
+<tr class="odd">
+<td><strong>ingress</strong></td>
+<td>Creates a target for each path on an<span> </span><kbd>Ingress</kbd><span> </span>resource.</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>In a similar fashion to the cloud-aware discovery implementation, Prometheus will annotate the discovered set of targets with a resource-specific set of meta labels. Based on the previous examples, can you guess what the following configuration block does?</p>
+<div class="sourceCode">
+<pre class="sourceCode yaml"><a><span class="fu">kubernetes_sd_configs:</span></a>
+<a>  <span class="co"># omitted: credentials and endpoints for accessing k8s (see prometheus documentation)</span></a>
+<a>  <span class="kw">-</span> <span class="fu">role:</span><span class="at"> endpoints</span></a>
+<a>    <span class="fu">relabel_configs:</span></a>
+<a>      <span class="kw">-</span> <span class="fu">source_labels:</span><span class="at"> </span><span class="kw">["</span>__meta_kubernetes_service_annotation_<strong>prometheus_scrape</strong>"<span class="kw">]</span></a>
+<a>        <span class="fu">action:</span><span class="at"> "keep"</span></a>
+<a>        <span class="fu">regex:</span><span class="at"> "</span><span class="ch">true"</span></a></pre></div>
+<p>Since we specified a<span> </span><kbd>role</kbd><span> </span>equal to<span> </span><kbd>endpoints</kbd>, Prometheus will obtain the list of pods associated with that service. Prometheus will then create a scrape target for<span> </span><em>each pod</em><span> </span>if <span>– </span>and only if <span>– </span>their parent<span> </span><strong>service</strong><span> </span>contains an annotation with the name<span> </span><kbd>prometheus_scrape</kbd><span> </span>and the value<span> </span><kbd>true</kbd>. This trick makes it really easy to enable automatic scraping for any service in our cluster simply by editing Kubernetes manifests.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Instrumenting Go code</h1>
+                </header>
+            
+            <article>
+                
+<p>In order for Prometheus to be able to scrape metrics from our deployed services, we need to perform the following sequence of steps:</p>
+<ol>
+<li>Define the metrics that we are interested in tracking.</li>
+<li>Instrument our code base so that it updates the values of the aforementioned metrics at the appropriate locations.</li>
+<li>Collect the metric data and make it available for scraping over HTTP.</li>
+</ol>
+<p>One of the key benefits of microservice-based architectures is that software engineers are no longer constrained by the use of a single programming language for building their services. It is quite common to see microservices written in Go communicating with other services written in Rust or Java. Nevertheless, the need to monitor services across the board still remains ubiquitous.</p>
+<p>To make it as easy as possible for software engineers to integrate with Prometheus, its authors provide client libraries for different programming languages. All these clients have one thing in common: they handle all the low-level details involved in registering and exporting Prometheus metrics.</p>
+<p>The examples in the following sections have a dependency on the official Go client package for Prometheus. You can install it by executing the following command:<span> </span></p>
+<pre>go get -u github.com/prometheus/client_golang/prometheus/...</pre>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Registering metrics with Prometheus</h1>
+                </header>
+            
+            <article>
+                
+<p><kbd>promauto</kbd><span> </span>is a subpackage of the Prometheus client that defines a set of convenience helpers for creating and registering metrics with the minimum possible amount of code. Each of the constructor functions from the<span> </span><kbd>promauto</kbd><span> </span>package returns a Prometheus metric instance that we can immediately use in our code.</p>
+<p>Let's take a quick look at how easy it is to register and populate some of the most common metrics types supported by Prometheus. The first metric type that we will be instantiating is a simple counter:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>numReqs := promauto.NewCounter(prometheus.CounterOpts{</a>
+<a>    Name: <span class="st">"app_reqs_total"</span>,</a>
+<a>    Help: <span class="st">"The total number of incoming requests"</span>,</a>
+<a>})</a>
+
+<a><span class="co">// Increment the counter.</span></a>
+<a>numReqs.Inc()</a>
+
+<a><span class="co">// Add a value to the counter.</span></a>
+<a>numReqs.Add(<span class="dv">42</span>)</a></pre></div>
+<p>Each Prometheus metric must be assigned a unique name. If we attempt to register a metric with the same name twice, we will get an error. What's more, when registering a new metric, we can optionally specify a help message that provides additional information about the metric's purpose.</p>
+<p>As shown in the preceding code snippet, once we obtain a counter instance, we can use the<span> </span><kbd>Inc</kbd><span> </span>method to increment its value and the<span> </span><kbd>Add</kbd><span> </span>method to add an arbitrary positive value to the counter.</p>
+<p>The next type of metric that we will be instantiating is a gauge. Gauges are quite similar to counters with the exception that their value can go either up or down. In addition to the<span> </span><kbd>Inc</kbd><span> </span>and<span> </span><kbd>Add</kbd><span> </span>methods, gauge instances also provide the<span> </span><kbd>Dec</kbd><span> </span>and<span> </span><kbd>Sub</kbd><span> </span>methods. The following block of code defines a gauge metric for tracking the number of pending items in a queue:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>queueLen := promauto.NewGauge(prometheus.GaugeOpts{</a>
+<a>    Name: <span class="st">"app_queue_len_total"</span>,</a>
+<a>    Help: <span class="st">"Total number of items in the queue."</span>,</a>
+<a>})</a>
+
+<a><span class="co">// Add items to the queue</span></a>
+<a>queueLen.Inc()</a>
+<a>queueLen.Add(<span class="dv">42</span>)</a>
+
+<a><span class="co">// Remove items from the queue</span></a>
+<a>queueLen.Sub(<span class="dv">42</span>)</a>
+<a>queueLen.Dec()</a></pre></div>
+<p>To conclude our experimentation with the different types of Prometheus metrics, we will create a histogram metric. The<span> </span><kbd>NewHistorgram</kbd><span> </span>constructor expects the caller to specify a strictly ascending list of<span> </span><kbd>float64</kbd><span> </span>values that describe the width of each bucket that's used by the histogram.</p>
+<p>The following example uses the<span> </span><kbd>LinearBuckets</kbd><span> </span>helper from the<span> </span><kbd>prometheus</kbd><span> </span>package to generate<span> </span><kbd>20</kbd><span> </span>distinct buckets with a width of <kbd>100</kbd><span> </span>units. The lower bound of the<span> </span><em>left-most</em><span> </span>histogram bucket will be set to the value<span> </span><kbd>0</kbd>:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>reqTimes := promauto.NewHistogram(prometheus.HistogramOpts{</a>
+<a>    Name:    <span class="st">"app_response_times"</span>,</a>
+<a>    Help:    <span class="st">"Distribution of application response times."</span>,</a>
+<a>    Buckets: prometheus.LinearBuckets(<span class="dv">0</span>, <span class="dv">100</span>, <span class="dv">20</span>),</a>
+<a>})</a>
+
+<a><span class="co">// Record a response time of 100ms</span></a>
+<a>reqTimes.Observe(<span class="dv">100</span>)</a></pre></div>
+<p>Adding values to a histogram instance is quite trivial. All we need to do is simply invoke its<span> </span><kbd>Observe</kbd><span> </span>method and pass the value we wish to track as an argument.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Vector-based metrics</h1>
+                </header>
+            
+            <article>
+                
+<p>One of the more interesting Prometheus features is its support for partitioning collected samples across one or more dimensions (<em>labels</em><span>, </span>in Prometheus terminology). If we opt to use this feature, instead of having a single metric instance, we can work with a<span> </span><strong>vector</strong><span> </span>of metric values.</p>
+<p>In the following example, we have just launched an A/B test for a new website layout and we are interested in tracking the number of user registrations for each of the page layouts that we are actively trialing:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>regCountVec := promauto.NewCounterVec(</a>
+<a>    prometheus.CounterOpts{</a>
+<a>        Name: <span class="st">"app_registrations_total"</span>,</a>
+<a>        Help: <span class="st">"Total number of registrations by A/B test layout."</span>,</a>
+<a>    },</a>
+<a>    []<span class="dt">string</span>{<span class="st">"layout"</span>},</a>
+<a>)</a>
+
+<a>regCountVec.WithLabelValues(<span class="st">"a"</span>).Inc()</a></pre></div>
+<p>This time, instead of a single counter, we will be creating a vector of counters where every sampled value will be automatically tagged with a label named<span> </span><kbd>layout</kbd>.</p>
+<p>To increment or add value to this metric, we need to obtain the correct counter by invoking the variadic<span> </span><kbd>WithLabelValues</kbd><span> </span>method on the<span> </span><kbd>regCountVec</kbd><span> </span>variable. This method expects a string value for each defined dimension and returns the counter instance that corresponds to the provided label values.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Exporting metrics for scraping</h1>
+                </header>
+            
+            <article>
+                
+<p>After registering our metrics with Prometheus and instrumenting our code to update them where needed, the only additional thing that we need to do is expose the collected values over HTTP so that Prometheus can scrape them.</p>
+<p>The<span> </span><kbd>promhttp</kbd><span> </span>subpackage from the Prometheus client package provides a convenience helper function called<span> </span><kbd>Handler</kbd><span> </span>that returns an <kbd>http.Handler</kbd><span> </span>instance that encapsulates all the required logic for exporting collected metrics in the format expected by Prometheus.</p>
+<p>The exported data will not only include the metrics that have been registered by the developer but it will also contain an extensive list of metrics that pertain to the Go runtime. Some examples of such metrics are as follows:</p>
+<ul>
+<li>The number of active goroutines</li>
+<li>Information about stack and heap allocation</li>
+<li>Performance statistics for the Go garbage collector</li>
+</ul>
+<p>The following example demonstrates a minimal, self-contained hello-world kind of application that defines a counter metric and exposes two HTTP routes:<span> </span><kbd>/ping</kbd><span> </span>and<span> </span><kbd>/metrics</kbd>. The handler for the first route increments the counter, while the latter exports the collected Prometheus metrics:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> main() {</a>
+<a>    <span class="co">// Create a prometheus counter to keep track of ping requests.</span></a>
+<a>    numPings := promauto.NewCounter(prometheus.CounterOpts{</a>
+<a>        Name: <span class="st">"pingapp_pings_total"</span>,</a>
+<a>        Help: <span class="st">"The total number of incoming ping requests"</span>,</a>
+<a>    })</a>
+
+<a>    http.Handle(<span class="st">"/metrics"</span>, promhttp.Handler())</a>
+<a>    http.Handle(<span class="st">"/ping"</span>, http.HandlerFunc(<span class="kw">func</span>(w http.ResponseWriter, _ *http.Request) {</a>
+<a>        numPings.Inc()</a>
+<a>        w.Write([]<span class="dt">byte</span>(<span class="st">"pong!</span><span class="ch">\n</span><span class="st">"</span>))</a>
+<a>    }))</a>
+
+<a>    log.Fatal(http.ListenAndServe(<span class="st">":8080"</span>, <span class="ot">nil</span>))</a>
+<a>}</a></pre></div>
+<p>Try to compile and run the preceding example. You can find its sources in the<span> </span><kbd>Chapter13/prom_http</kbd><span> </span>folder in this book's GitHub repository. While the example is running, switch to another Terminal and execute a few<span> </span><kbd>curl localhost:8080/ping</kbd><span> </span>commands to increment the <kbd>pingapp_pings_total</kbd> counter.</p>
+<p>Then, execute a<span> </span><kbd>curl localhost:8080/metrics</kbd><span> </span>command and examine the list of exported metrics. The following screenshot displays the last few lines of output upon executing the preceding command:</p>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/22c28d11-1d02-4142-894b-20fe34be89bc.png" style="width:67.75em;height:27.67em;"/></div>
+<div class="packt_figref CDPAlignCenter CDPAlign"><span>Figure 2:</span><span> </span><span>A subset of the metrics that have been exported by our example Go application</span></div>
+<p>As you can see, the output includes not only the current value of the <kbd>pingapp_pings_total</kbd> counter but also several other important metrics that the Prometheus client automatically captured from the Go runtime for us. </p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Visualizing collected metrics using Grafana</h1>
+                </header>
+            
+            <article>
+                
+<p>By this point, you should have already selected a suitable metrics collection solution for your applications and instrumented your code base to emit the metrics that you are interested in tracking. To make sense of the collected data and reason about it, we need to visualize it.</p>
+<p>For this task, we will be using Grafana<span> </span><sup><span class="citation">[4]</span></sup><span> </span>as our tool of choice. Grafana offers a convenient, end-to-end solution that can be used to retrieve metrics from a variety of different data sources and construct dashboards for visualizing them. The supported list of data sources includes Prometheus, <span>InfluxDB</span>, Graphite, Google Stackdriver, AWS CloudWatch, Azure Monitor, SQL databases (MySQL, Postgres, and SQL Server), and Elasticsearch.</p>
+<p>If you have already set up one of the preceding data sources and want to evaluate Grafana, the easiest way to do so is to spin up a Docker container using the following command:</p>
+<pre><strong>docker run -d \
+  -p 3000:3000 \
+  --name=grafana \
+  -e "GF_SECURITY_ADMIN_USER=admin" \
+  -e "GF_SECURITY_ADMIN_PASSWORD=secret" \
+  grafana/grafana</strong></pre>
+<p>You can then point your browser at<span> </span><kbd>http://localhost:3000</kbd>, log in with the preceding credentials, and follow one of the several comprehensive guides available at Grafana's website to configure your first dashboard.</p>
+<p>In terms of supported visualization widgets, the standard Grafana installation supports the following widget types:</p>
+<ul>
+<li><strong>Graph</strong>: A flexible visualization component that can plot single- and multi-series line charts or bar charts. Furthermore, graph widgets can be configured to display multiple series in overlapping or stacked mode.</li>
+<li><strong>Logs panel</strong>: A list of log entries that are obtained by a compatible data source (for example, Elasticsearch) whose contents are correlated with the information displayed by another widget.</li>
+<li><strong>Singlestat</strong>: A component that condenses a series into a single value by applying an aggregation function (for example, min, max, avg, and so on). This component may optionally be configured to display a sparkline chart or to be rendered as a gauge.</li>
+<li><strong>Heatmap</strong>: A specialized component that renders the changes in a histogram's set of values over time. As shown in the following screenshot, heatmaps comprise a set of vertical slices where each slice depicts the histogram values at a particular point in time. Contrary to a typical histogram plot, where bar heights represent the count of items in a particular bucket, heatmaps apply a color map to visualize the frequency of items within each vertical slice.</li>
+<li><strong>Table</strong>: A component that is best suited for rendering series in tabular format.</li>
+</ul>
+<p>The following screenshot demonstrates the built-in Grafana widgets as they would appear in an example dashboard:</p>
+<div class="CDPAlignCenter CDPAlign packt_figref"><img src="assets/97b28620-80fc-4f2c-b42c-6016705b374a.png" style="width:73.08em;height:27.83em;"/></div>
+<div class="CDPAlignCenter CDPAlign packt_figref"><span>Figure 3:</span><span> </span>An example dashboard built with Grafana</div>
+<p>Apart from the default, built-in widgets, the operator can install additional widget types by leveraging Grafana's plugin mechanism. Examples of such widgets include world map, radar, pie, and bubble charts.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using Prometheus as an end-to-end solution for alerting</h1>
+                </header>
+            
+            <article>
+                
+<p>By instrumenting our applications and deploying the necessary infrastructure for scraping metrics, we now have the means for evaluating the SLIs for each of our services. Once we define a suitable set of SLOs for each of the SLIs, the next item on our checklist is to deploy an alert system so that we can be automatically notified every time that our SLOs stop being met.</p>
+<div class="packt_infobox">A typical alert specification looks like this:<br/>
+<br/>
+<em>When the value of metric<span> </span><strong>X </strong>exceeds threshold<span> </span><strong>Y</strong><span> </span>for<span> </span><strong>Z</strong><span> </span>time units, then execute actions<span> </span><strong>a1, a2, a<sub>n</sub></strong></em></div>
+<p>What is the first thought that springs to mind when you hear a fire alarm going off? Most people will probably answer something along the lines of,<span> </span><em>there might be a fire nearby</em>. People are naturally conditioned to assume that alerts are always temporally correlated with an issue that must be addressed immediately.</p>
+<p>When it comes to monitoring the health of production systems, having alerts in place that require the immediate intervention of a human operator once they trigger is pretty much a standard operating procedure. However, this is not the only type of alert that an SRE might encounter when working on such a system. Oftentimes, being able to proactively detect and address issues before they get out of hand and become a risk for the stability of production systems is the only thing that stands between a peaceful night's sleep and that dreaded 2 AM page call.</p>
+<p>Here is an example of a proactive alert: an SRE sets up an alert that fires once the disk usage on a database node exceeds 80% of the available storage capacity. Note that when the alarm does fire, the database is still working without any issue. However, in this case, the SRE is provided with ample time to plan and execute the required set of steps (for example, schedule a maintenance window to resize the disk assigned to the DB) to rectify the issue with the minimum disruption possible to the database service.</p>
+<p>Contrast the preceding case with a different scenario where the SRE is paged because the database did run out of space and, as a result, several services with a downstream dependency on the database are now offline. This is a particularly stressful situation for an SRE to be in as the system is already experiencing downtime.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using Prometheus as a source for alert events</h1>
+                </header>
+            
+            <article>
+                
+<p>In order to use Prometheus as an alert-generating source, operators must define a collection of alert rules that Prometheus should monitor. The alert rule definitions live in external YAML files that are imported by the main Prometheus configuration file using a<span> </span><kbd>rule_files</kbd><span> </span>block, as follows:</p>
+<div class="sourceCode">
+<pre class="sourceCode yaml"><a><span class="co"># prometheus.yml</span></a>
+
+<a><span class="fu">global:</span></a>
+<a>  <span class="fu">scrape_interval:</span><span class="at">     15s</span></a>
+
+<a><span class="fu">rule_files:</span></a>
+<a>  <span class="kw">-</span> <span class="st">'alerts/*.yml'</span></a></pre></div>
+<p>Prometheus organizes multiple alert rules into<span> </span><strong>groups</strong>. Rules within a group are always evaluated<span> </span><em>sequentially</em><span> </span>while each group is evaluated in<span> </span><em>parallel</em>.</p>
+<p>Let's take a look at the structure of a simple alert definition. The following snippet defines an alert group with the name<span> </span><kbd>example</kbd><span> </span>that contains a single alert definition:</p>
+<div class="sourceCode">
+<pre class="sourceCode yaml"><a><span class="fu">groups:</span></a>
+<a><span class="kw">-</span> <span class="fu">name:</span><span class="at"> example</span></a>
+<a>  <span class="fu">rules:</span></a>
+<a>  <span class="kw">-</span> <span class="fu">alert:</span><span class="at"> InstanceDown</span></a>
+<a>    <span class="fu">expr:</span><span class="at"> up == 0</span></a>
+<a>    <span class="fu">for:</span><span class="at"> 5m</span></a>
+<a>    <span class="fu">labels:</span></a>
+<a>      <span class="fu">severity:</span><span class="at"> page</span></a>
+<a>    <span class="fu">annotations:</span></a>
+<a>      <span class="fu">playbook:</span><span class="at"> </span><span class="st">"https://sre.linkrus.com/playbooks/instance-down"</span></a></pre></div>
+<p>Each alert block must always be assigned a unique name, as well as a <strong>PromQL</strong> (short for <strong>Prometheus query language</strong>) expression that Prometheus will recalculate each time it evaluates the alert rule. In the preceding example, the rule expression is satisfied once the value of the<span> </span><kbd>up</kbd><span> </span>metric becomes equal to zero.</p>
+<p>The optional<span> </span><kbd>for</kbd><span> </span>clause can be used to defer the triggering of the alert until a particular time period elapses, during which the alert expression must always be satisfied. In this example, the alert will only fire if the<span> </span><kbd>up</kbd><span> </span>metric remains zero for at least 5 minutes.</p>
+<p>The<span> </span><kbd>labels</kbd><span> </span>block allows us to attach one or more labels to the alert. In this case, we tag the alert with a<span> </span><kbd>severity: page</kbd><span> </span>annotation to advise the component that's responsible for handling the alert that it should page the SRE that is currently on call.</p>
+<p>Finally, the<span> </span><kbd>annotations</kbd><span> </span>block allows the operator to store additional bits of information, such as detailed descriptions of the alert or a URL pointing to a playbook for dealing with this kind of alert.</p>
+<div class="packt_infobox">A playbook is a succinct document that distills the best practices for resolving a particular problem. These documents are authored in advance and are normally attached to all outgoing notifications that are triggered due to an alert.<br/>
+<br/>
+When an SRE gets paged, being able to access the playbook associated with a particular alert is an invaluable asset for quickly diagnosing the root cause of the problem and reducing the <strong>mean time to resolution</strong> (<strong>MTTR</strong>).</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Handling alert events</h1>
+                </header>
+            
+            <article>
+                
+<p>Prometheus will periodically evaluate the configured set of alert rules and emit alert events when the preconditions for a rule are met. By design, the Prometheus server is only responsible for emitting alert events; it does not include any logic whatsoever for processing alerts.</p>
+<p>The actual processing of emitted alert events is handled by the Alertmanager component. The Alertmanager ingests the alert events emitted by Prometheus and is responsible for grouping, deduplicating, and routing each alert to the appropriate notification integrations (referred to as<span> </span><strong>receivers</strong><span> </span>in Alertmanager terminology).</p>
+<p>We will begin our brief tour of the Alertmanager component by elaborating on how operators can use its built-in grouping and filtering functionality to manage incoming alert events. Next, we will learn about the basics of defining alert receivers and configuring routing rules to ensure that alerts are always delivered to the correct receiver.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Grouping alerts together</h1>
+                </header>
+            
+            <article>
+                
+<p>Dealing with a large volume of alerts that fire concurrently certainly seems like a daunting task from an SRE's point of view. To cut through the noise, Alertmanager allows operators to specify a set of rules for grouping together alerts based on the content of the labels that have been assigned to each alert event by Prometheus.</p>
+<p>To understand how alert grouping works, let's picture a scenario where 100 microservices are all trying to connect to a Kafka queue that is currently unavailable.<span> </span><em>Each</em> of the services fires a high-priority alert, which, in turn, causes a new page notification to be sent to the SRE that is currently on-call. As a result, the SRE will get swamped with hundreds of page notifications about exactly the same issue!</p>
+<p>To avoid situations like this, a much better solution would be to edit the Prometheus alert rule definition and ensure that all alert events for the queue service are annotated with a particular label, for example, <kbd>component=kafka</kbd>. Then, we can instruct the Alertmanager to group alerts based on the value of the<span> </span><kbd>component</kbd><span> </span>label and consolidate all those related to Kafka into a<span> </span><em>single page notification</em>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Selectively muting alerts</h1>
+                </header>
+            
+            <article>
+                
+<p>Another handy Alertmanager feature that you should be aware of is<span> </span><strong>alert inhibition</strong>. This feature allows the operator to<span> </span><em>mute</em><span> </span>notifications for a set of alerts when a specific alert is currently firing.</p>
+<p>When the Alertmanager loads its configuration file, it looks for the list of alert inhibition rules under the top-level<span> </span><kbd>inhibit_rules</kbd><span> </span>key. Each rule entry must adhere to the following schema:</p>
+<div class="sourceCode">
+<pre class="sourceCode yaml"><a><span class="fu">source_match:</span></a>
+<a>  <span class="kw">[</span> <span class="fu">&lt;labelname&gt;:</span><span class="at"> &lt;labelvalue&gt;</span><span class="kw">,</span> ... <span class="kw">]</span></a>
+<a><span class="fu">source_match_re:</span></a>
+<a>  <span class="kw">[</span> <span class="fu">&lt;labelname&gt;:</span><span class="at"> &lt;regex&gt;</span><span class="kw">,</span> ... <span class="kw">]</span></a>
+
+<a><span class="fu">target_match:</span></a>
+<a>  <span class="kw">[</span> <span class="fu">&lt;labelname&gt;:</span><span class="at"> &lt;labelvalue&gt;</span><span class="kw">,</span> ... <span class="kw">]</span></a>
+<a><span class="fu">target_match_re:</span></a>
+<a>  <span class="kw">[</span> <span class="fu">&lt;labelname&gt;:</span><span class="at"> &lt;regex&gt;</span><span class="kw">,</span> ... <span class="kw">]</span></a>
+
+<a><span class="kw">[</span> <span class="fu">equal:</span><span class="at"> </span><span class="st">'['</span> <span class="er">&lt;labelname&gt;</span><span class="kw">,</span> ... <span class="st">']'</span> <span class="kw">]</span></a></pre></div>
+<p>The<span> </span><kbd>source_match</kbd><span> </span>and<span> </span><kbd>source_match_re</kbd><span> </span>blocks work as selectors for the alert that activates the inhibition rule. The difference between the two blocks is that<span> </span><kbd>source_match</kbd><span> </span>attempts an exact match, whereas<span> </span><kbd>source_math_re</kbd><span> </span>matches label values of incoming alerts against a regular expression.</p>
+<p>The<span> </span><kbd>target_match</kbd><span> </span>and<span> </span><kbd>target_match_re</kbd><span> </span>blocks are used to select the set of alerts that will be suppressed while the inhibition rule is active.</p>
+<p>Finally, the<span> </span><kbd>equal</kbd><span> </span>block prevents the inhibition rule from activating unless the source and target rules have the same value for the specified labels.</p>
+<div class="packt_tip">To prevent an alert from inhibiting itself, alerts that match both the source and the target side of a rule are not allowed to be inhibited.</div>
+<p>As a proof of concept, let's try to define a rule that suppresses any alert that fires during the weekend. A prerequisite for setting up this rule is to create a Prometheus alert that<span> </span><strong>only</strong><span> </span>fires during the weekend. Then, we can add the following block to the Alertmanager's configuration file:</p>
+<div class="sourceCode">
+<pre class="sourceCode yaml"><a><span class="fu">inhibit_rules:</span></a>
+<a>  <span class="kw">-</span> <span class="fu">source_match:</span></a>
+<a>      <span class="fu">alertname:</span><span class="at"> Weekend</span></a>
+<a>    <span class="fu">target_match_re:</span></a>
+<a>      <span class="fu">alertname:</span><span class="at"> </span><span class="st">'*'</span></a></pre></div>
+<p>When the<span> </span><kbd>Weekend</kbd><span> </span>alert is firing, any other alert (excluding itself) will be automatically muted!</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Configuring alert receivers</h1>
+                </header>
+            
+            <article>
+                
+<p>A receiver is nothing more than a fancy way of referring to a collection of notification integrations that can send out alerts through various channels. Out of the box, the Alertmanager supports the following integrations:</p>
+<ul>
+<li><strong>Email</strong>: Send out an email with alert details</li>
+<li><strong>Slack/Hipchat/WeChat</strong>: Post alert details to a chat service</li>
+<li><strong>PagerDuty/Opsgenie/VictorOps</strong>: Send a page notification to the SRE currently on call</li>
+<li><strong>WebHooks</strong>: An escape hatch for implementing custom integrations</li>
+</ul>
+<p>When the Alertmanager loads its configuration file, it looks for the list of receiver definitions under the top-level<span> </span><kbd>receivers</kbd><span> </span>key. Each receiver block must adhere to the following schema:</p>
+<div class="sourceCode">
+<pre class="sourceCode yaml"><a><span class="fu">name:</span><span class="at"> &lt;string&gt;</span></a>
+<a><span class="fu">email_configs:</span></a>
+<a>  <span class="kw">[</span> - &lt;email_config&gt;<span class="kw">,</span> ... <span class="kw">]</span></a>
+<a><span class="fu">pagerduty_configs:</span></a>
+<a>  <span class="kw">[</span> - &lt;pagerduty_config&gt;<span class="kw">,</span> ... <span class="kw">]</span></a>
+<a><span class="fu">slack_configs:</span></a>
+<a>  <span class="kw">[</span> - &lt;slack_config&gt;<span class="kw">,</span> ... <span class="kw">]</span></a>
+<a><span class="fu">opsgenie_configs:</span></a>
+<a>  <span class="kw">[</span> - &lt;opsgenie_config&gt;<span class="kw">,</span> ... <span class="kw">]</span></a>
+<a><span class="fu">webhook_configs:</span></a>
+<a>  <span class="kw">[</span> - &lt;webhook_config&gt;<span class="kw">,</span> ... <span class="kw">]</span></a>
+<a><span class="co"># omitted for brevity: configs for additional integrations</span></a></pre></div>
+<p>Each receiver must be assigned a unique name that, as we will see in the following section, can be referenced by one or more routing rules. The operator must then specify a configuration for each notification mechanism that should be activated when an alert reaches the receiver.</p>
+<p>However, if the operator does not provide<span> </span><strong>any</strong><span> </span>configuration block, the receiver behaves like a black hole: any alert that reaches it simply gets dropped.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Routing alerts to receivers</h1>
+                </header>
+            
+            <article>
+                
+<p>Now, let's take a closer look at the tree-based mechanism used by the Alertmanager for routing incoming alerts to a particular receiver. The top-level section of the Alertmanager's configuration file must<span> </span><strong>always</strong><span> </span>define a<span> </span><kbd>route</kbd><span> </span>block. The block represents the root node of the tree and can contain the following set of fields:</p>
+<ul>
+<li><kbd>match</kbd>: Specifies a set of label values that must match the values from the incoming alert to consider the current route node as matched.</li>
+<li><kbd>match_re</kbd>: Similar to<span> </span><kbd>match</kbd><span>, </span>with the exception that label values are matched against a regular expression.</li>
+<li><kbd>receiver</kbd>: The name of the receiver to deliver the incoming alert to if the alert matches the current route.</li>
+<li><kbd>group_by</kbd>: A list of label names to group incoming alerts by.</li>
+<li><kbd>routes</kbd>: A set of child<span> </span><kbd>route</kbd><span> </span>blocks. If an alert does not match any of the child routes, it will be handled based on the configuration parameters of the current route.</li>
+</ul>
+<p>To understand how tree-based routing works in practice, let's step through a simple example. For the purpose of this example, the Alertmanager configuration file contains the following routing configurations:</p>
+<div class="sourceCode">
+<pre class="sourceCode yaml"><a><span class="fu">route:</span></a>
+<a>  <span class="fu">receiver:</span><span class="at"> </span><span class="st">'default'</span></a>
+<a>  <span class="co"># All alerts that do not match the following child routes</span></a>
+<a>  <span class="co"># will remain at the root node and be dispatched to 'default-receiver'.</span></a>
+<a>  <span class="fu">routes:</span></a>
+<a>  <span class="kw">-</span> <span class="fu">receiver:</span><span class="at"> </span><span class="st">'page-SRE-on-call'</span></a>
+<a>    <span class="fu">match_re:</span></a>
+<a>      <span class="fu">service:</span><span class="at"> cockroachdb|cassandra</span></a>
+<a>  <span class="kw">-</span> <span class="fu">receiver:</span><span class="at"> </span><span class="st">'notify-ops-channel-on-slack'</span></a>
+<a>    <span class="fu">group_by:</span><span class="at"> </span><span class="kw">[</span>environment<span class="kw">]</span></a>
+<a>    <span class="fu">match:</span></a>
+<a>      <span class="fu">team:</span><span class="at"> backend</span></a>
+
+<a><span class="fu">receivers:</span></a>
+<a>  <span class="co"># omitted: receiver definitions</span></a></pre></div>
+<p>Let's see how the Alertmanager figures out the appropriate receiver for various incoming alerts by inspecting their label annotations:</p>
+<ul>
+<li>If an incoming alert includes a<span> </span><kbd>service</kbd><span> </span>label whose value matches either<span> </span><kbd>cockroachdb</kbd><span> </span>or<span> </span><kbd>cassandra</kbd>, the Alertmanager will dispatch the alert to the<span> </span><kbd>page-SRE-on-call</kbd><span> </span>receiver.</li>
+<li>On the other hand, if the alert includes a<span> </span><kbd>team</kbd><span> </span>label whose value is equal to<span> </span><kbd>backend</kbd>, the Alertmanager will dispatch it to the<span> </span><kbd>notify-ops-channel-on-slack</kbd><span> </span>receiver.</li>
+<li>Any other incoming alert that doesn't match any of the two child routes will be dispatched to the<span> </span><kbd>default</kbd><span> </span>receiver by default.</li>
+</ul>
+<p>This completes our tour of the Alertmanager tool. Granted, configuring alert rules for your applications can, at first, seem like a daunting task. Hopefully, the knowledge you've obtained by reading this chapter will allow you to begin experimenting with Prometheus and set up a few rudimentary Alertmanager test rules. With a little bit of practice and once you get the hang of the rule syntax, you will find that writing more sophisticated rules for monitoring your production applications will become a breeze!</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>At the start of this chapter, we talked about the pros and cons of using a metrics collection system such as Prometheus to scrape and aggregate metrics data from not only our deployed applications but also from our infrastructure (for example, Kubernetes master/worker nodes).</p>
+<p>Then, we learned how to leverage the official Prometheus client package for Go to instrument our code and export the collected metrics over HTTP so that they can be scraped by Prometheus. Next, we extolled the benefits of using Grafana for building dashboards by pulling in metrics from heterogeneous sources. In the final part of this chapter, we learned how to define alert rules in Prometheus and gained a solid understanding of using the Alertmanager tool to group, deduplicate, and route alert events that are emitted by Prometheus.</p>
+<p>By exploiting the knowledge gained from this chapter, you will be able to instrument your Go code-base and ensure that important metrics for your applications' state and performance can be collected, aggregated and visualized. Moreover, if your current role also includes SRE responsibilities, you can subsequently feed these metrics into an alerting system and receive real-time notifications when the SLAs and SLOs for your services are not met.</p>
+<p>Next up, we will cover a few interesting ideas for extending what we have built in this book so as to further your understanding of the material.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol type="1">
+<li>What is the difference between an SLI and an SLO?</li>
+<li>Explain how SLAs work.</li>
+<li>What is the difference between a push- and pull-based metrics collection system?</li>
+<li>Would you use a push- or pull-based system to scrape data from a tightly locked down (that is, no ingress) subnet?</li>
+<li>What is the difference between a Prometheus counter and a gauge metric?</li>
+<li>Why is it important for page notifications to be accompanied by a link to a playbook?</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ul>
+<li><span class="smallcaps">Campbell, Matthew</span>:<span> </span><em>Scaling to a Million Machines with Prometheus</em> (PromCon 2016): <a href="https://promcon.io/2016-berlin/talks/scaling-to-a-million-machines-with-prometheus">https://promcon.io/2016-berlin/talks/scaling-to-a-million-machines-with-prometheus</a></li>
+<li><strong>Consul</strong>: Secure service networking:<span> </span><a href="https://consul.io">https://consul.io</a></li>
+<li><strong>Docker</strong>: Enterprise container platform:<span> </span><a href="https://www.docker.com">https://www.docker.com</a></li>
+<li><strong>Grafana</strong>: The open observability platform:<span> </span><a href="https://grafana.com/">https://grafana.com/</a></li>
+<li><strong>Graphite</strong>: An enterprise-ready monitoring tool that runs equally well on cheap hardware or a cloud infrastructure:<span> </span><a href="https://graphiteapp.org/">https://graphiteapp.org/</a></li>
+<li><strong>InfluxDB</strong>: A time-series database designed to handle high write and query loads:<span> </span><a href="https://www.influxdata.com/products/influxdb-overview">https://www.influxdata.com/products/influxdb-overview</a></li>
+<li><strong>Nagios</strong>: The industry standard In IT infrastructure monitoring: <a href="https://www.nagios.org">https://www.nagios.org</a></li>
+<li><strong>Prometheus</strong>: Configuration options: <a href="https://prometheus.io/docs/prometheus/latest/configuration/configuration">https://prometheus.io/docs/prometheus/latest/configuration/configuration</a></li>
+<li><strong>Prometheus</strong>: Exporter for machine metrics: <a href="https://github.com/prometheus/node_exporter">https://github.com/prometheus/node_exporter</a></li>
+<li><strong>Prometheus</strong>: Monitoring system and time-series database: <a href="https://prometheus.io">https://prometheus.io</a></li>
+<li><strong>StatsD</strong>: Daemon for easy but powerful stats aggregation: <a href="https://github.com/statsd/statsd">https://github.com/statsd/statsd</a></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

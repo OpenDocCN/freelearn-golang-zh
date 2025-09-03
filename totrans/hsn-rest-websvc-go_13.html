@@ -1,0 +1,550 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deploying REST Services on Amazon Web Services</h1>
+                </header>
+            
+            <article>
+                
+<p>After preparing a deployable ecosystem, we have to host that ecosystem on a cloud provider to make <strong>application programming interface</strong> (<strong>API</strong>) endpoints visible to the public internet. We need to leverage cloud services such as <strong>Amazon Web Services</strong> (<strong>AWS</strong>) <strong>Elastic Compute Cloud</strong> (<strong>EC2</strong>) to deploy web services.</p>
+<p class="mce-root">The journey doesn't end right after deployment. We have to track our API usage and performance for a better understanding of the clients. Who are the clients that are connecting to an API? How frequent are their requests? How many failed authorizations and so on are important factors for fine-tuning an API? For better security, an API server should not be directly exposed to the public internet.</p>
+<p class="mce-root">In this chapter, we will explore AWS. However, sticking to a single cloud provider can be a problem for migration later. So, we will use a tool called Terraform to define and create our resources. Terraform is an <strong>Infrastructure as Code</strong> (<strong>IaC</strong>) tool that is cloud-agnostic. We provision an EC2 instance and an API Gateway in order to properly deploy our <strong>Representational State Transfer</strong> (<strong>REST</strong>) services.</p>
+<p>In this chapter, we will cover the following topics:</p>
+<ul>
+<li>Basics for working with AWS</li>
+<li>IaC with Terraform</li>
+<li>Why is an API Gateway required?</li>
+<li>Introducing AWS API Gateway</li>
+<li>Other API Gateways</li>
+</ul>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements </h1>
+                </header>
+            
+            <article>
+                
+<p>The following software should be pre-installed for running the code samples:</p>
+<ul>
+<li>Operating system: Linux (Ubuntu 18.04)/Windows 10/Mac OS<span> X</span>&gt;= 10.13</li>
+<li>Go stable version compiler &gt;= 1.13.5</li>
+<li>Dep: A dependency management tool for Go &gt;= 0.5.3</li>
+<li>Docker version &gt;= 18.09.2</li>
+<li>Terraform version &gt;= 0.12.18</li>
+</ul>
+<p><span>You can download the code for this chapter from </span><a href="https://github.com/PacktPublishing/Hands-On-Restful-Web-services-with-Go/tree/master/chapter13" target="_blank">https://github.com/PacktPublishing/Hands-On-Restful-Web-services-with-Go/tree/master/chapter13</a><span>. Clone the code, and use the code samples in the</span><span> </span><kbd>chapter13</kbd> <span>directory.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Basics for working with AWS </h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">AWS is a cloud provider that manages the infrastructure for cloud applications. The other big players are Microsoft Azure and <strong>Google Cloud Platform</strong> (<strong>GCP</strong>). Each of them is equipped with many diverse solutions for managing a variety of artifacts, such as the following:</p>
+<ul>
+<li>Applications</li>
+<li>Databases</li>
+<li>Message queues</li>
+<li>Network</li>
+<li>Docker image management</li>
+<li>Event buses</li>
+</ul>
+<p>There are multiple types of managed services for running applications. We'll discuss a few in the next section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managed services for applications from AWS</h1>
+                </header>
+            
+            <article>
+                
+<p>An application should be hosted on a cloud server to serve an API to the public internet. That server can be an independent machine or a container. AWS provides a standalone server called a <strong>virtual machine </strong>(<strong>VM</strong>), in the form of EC2. AWS EC2 is a managed service that provides easy creation and teardown of VMs.</p>
+<p class="mce-root"/>
+<p><span><strong>Elastic Container Service</strong> </span>(<strong>ECS</strong>), another managed service from AWS, allows developers to run their applications in containers. A Go application can be bundled into a Docker image and deployed on AWS ECS.</p>
+<p><strong>AWS Lambda</strong> is another managed service that can run serverless functions. This is a service that runs Go functions. These functions are short-lived and suitable for use cases such as <strong>Extract-Transform-Load</strong> (<strong>ETL) </strong>on data. A lambda function definition takes compiled Go code and can run thousands of lambda instances on demand.</p>
+<p>Depending on the use case, we should pick the right service for running our application. The Docker container-based ECS is preferable over EC2 for running long-running services as well as short-lived applications because of its simplified build, push, and deploy cycle.</p>
+<p>In this chapter, we will try to leverage AWS EC2 to deploy an API server. Next, we secure our server using Amazon API Gateway. The following chart can guide you about picking the right AWS service for managing a Go application:</p>
+<table border="1" style="border-collapse: collapse;width: 100%">
+<tbody>
+<tr>
+<td><strong>Type</strong></td>
+<td><strong>Where To Use</strong></td>
+</tr>
+<tr>
+<td><kbd>AWS Lambda</kbd></td>
+<td>Functions that live less than 15 minutes (as per the time of writing)</td>
+</tr>
+<tr>
+<td><kbd>AWS ECS</kbd></td>
+<td>Short-lived and long-running services with AWS-managed containers</td>
+</tr>
+<tr>
+<td><kbd>AWS EC2</kbd></td>
+<td>Long-running services with a self-managed VM</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>In the next section, we'll see how to set up an AWS Free Tier account. We will use that account for all our code examples in this chapter.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Setting up an AWS account</h1>
+                </header>
+            
+            <article>
+                
+<p>We need an AWS account to work on this chapter. If you don't have one, you can try AWS for 1 year, using the Free Tier program: <a href="https://aws.amazon.com/free/" target="_blank">https://aws.amazon.com/free/</a>.<a href="https://aws.amazon.com/free/"/></p>
+<p>After signing up for the Free Tier, we can get access to our AWS account by setting a password. AWS accounts have a custom URL, where account administrators and other users can log in to the account dashboard: <a href="https://console.aws.amazon.com/billing/home?#/account" target="_blank">https://console.aws.amazon.com/billing/home?#/account</a>.</p>
+<p>All the main services are free, but with a few limits. So, always monitor the free-tier usage of AWS services while testing. AWS offers a unique model of roles called <strong>Identity and Access Management</strong> (<strong>IAM</strong>). This enables new users to be created and gives permissions to various services.</p>
+<p>After we set up our AWS account, we should create IAM users and roles. But for the sake of simplicity, we will proceed with the account we created previously, where the creator is automatically an admin. We should allow programmatic access to our AWS account in order to deploy applications.</p>
+<p>There are three ways we can interact with AWS to provision managed services:</p>
+<ul>
+<li>AWS console</li>
+<li>AWS <strong>Command-Line Interface</strong> (<strong>CLI</strong>) tool</li>
+<li>Third-party <strong>Software Development Kit</strong> (<strong>SDK</strong>)</li>
+</ul>
+<p>In the first option, a user logs in to an AWS account and manually configures the AWS resources. In the second one, a user can install the client on their machine and manage resources using a command-line API. The third option is very low-level, where third-party libraries wrap the AWS API and provide a clean interface.</p>
+<p>For the second and third options, a security credential has to be generated. A security credential consists of two keys:</p>
+<ul>
+<li>Access Key ID</li>
+<li>Secret access key</li>
+</ul>
+<p>This security credential is used to authenticate any third-party applications with AWS. It can be obtained by navigating to <span class="packt_screen">IAM| Users| User| Name| Security Credentials</span> on the AWS account and performing a <span class="packt_screen">Create Access Key</span> operation.</p>
+<p>Creating an <kbd>access_key_id</kbd> also generates a <kbd>secret_access_key</kbd>. These should be stored in a safe place. If you lose your secret key, you have to delete it from the IAM security credentials and create a new one.</p>
+<p>Once a user obtains an access key ID and a secret access key successfully, they should create two files in the <kbd>.aws</kbd> directory in the <kbd>home</kbd> path.</p>
+<p>On Linux and <span>Mac OS</span><span> X</span>, create two files with the names <kbd>credentials</kbd> and <kbd>config</kbd>: </p>
+<ul>
+<li><kbd>~/.aws/credentials</kbd>:</li>
+</ul>
+<pre style="padding-left: 60px">[default]<br/>aws_access_key_id=YOUR_ACCESS_KEY_ID<br/>aws_secret_access_key=YOUR_SECRET_KEY</pre>
+<ul>
+<li><kbd>~/.aws/config</kbd>:</li>
+</ul>
+<pre class="mce-root" style="padding-left: 60px">[default]<br/>region=eu-central-1<br/>output=json</pre>
+<p><span>The credential file holds information about the access key and the secret access key in order to authenticate with AWS. </span><span>The configuration file configures settings such as the AWS region in operation and the AWS CLI output format, such as JSON, XML, and so on.</span></p>
+<p>On Windows, files should be created in <kbd>C:\&gt; dir "%UserProfile%\.aws"</kbd>.</p>
+<div class="packt_infobox">You have to replace the <kbd>YOUR_ACCESS_KEY_ID</kbd> and  <kbd>YOUR_SECRET_KEY</kbd> variables with actual security credentials from your AWS account.</div>
+<p>The region in the configuration file is the geographical location where the application is hosted. In the preceding configuration, we picked <span class="packt_screen">Frankfurt(eu-central-1)</span> as the preferred region. You should select the region that's closed to the client.</p>
+<p>Our goal is to run an application behind the API Gateway on AWS. Instead of doing that manually from the AWS console, we are going to use a tool called Terraform. Terraform provides IaC, where we can have Terraform scripts record the resource creation on AWS. AWS provides an in-house IaC solution called <strong>CloudFormation</strong>. Terraform is much simpler—as well as less verbose—than AWS CloudFormation. In the next section, we'll explore Terraform and its internals.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">IaC with Terraform</h1>
+                </header>
+            
+            <article>
+                
+<p><strong>Terraform</strong> is a software tool for provisioning infrastructure on cloud platforms, including AWS. Using Terraform, we can create, configure, or delete <span>resources</span>. Terraform allows automatic resource provisioning compared to the AWS Console. When compared to low-level REST APIs and SDKs, Terraform has a clean, high-level API. Terraform stores the current state of provisioned infrastructure in a state file.</p>
+<p>Let's say the infrastructure provisioned on an account should be replicated on another account as part of disaster recovery. If we do not have IaC, all resources have to be reconfigured manually. However, if the whole infrastructure is modeled in the form of Terraform scripts, then it is easy to replay the infrastructure on any number of accounts. This approach is very readable and maintainable compared to hand-wiring infrastructure on the AWS console.</p>
+<p>Terraform provisions almost all AWS managed services on the Cloud. It should be run from a local machine. It generates state files while provisioning. See the following diagram for provisioning direction:</p>
+<div class="CDPAlignCenter CDPAlign packt_figref"><img src="assets/33ebc2b1-eda6-439e-b579-ee40bfd9dcf7.png"/></div>
+<p>A Terraform installation binary for all platforms can be obtained here: <a href="https://www.terraform.io/downloads.html" target="_blank">https://www.terraform.io/downloads.html</a>.</p>
+<p>For Linux and <span>Mac OS</span><span> X</span>, copy the executable to the respective binary paths so that it is available system-wide. Confirm your installation with this command. It prints out the <kbd>version</kbd> of the <kbd>Terraform</kbd> software you've installed:</p>
+<pre>terraform version<br/>Terraform v0.12.18</pre>
+<p>To give a brisk introduction to Terraform, let us provision an EC2 instance for our REST API server using the following steps:</p>
+<ol>
+<li>Create a project directory called <kbd>intro</kbd> to hold the script for the provisioning EC2 instance, like this:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>mkdir -p $GOPATH/src/github.com/git-user/chapter13/intro</strong></pre>
+<ol start="2">
+<li>All Terraform files have a <kbd>.tf</kbd> file extension. So, add a script called <kbd>api_server.tf</kbd>, like this:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>touch $GOPATH/src/github.com/git-user/chapter13/intro/api_server.tf</strong></pre>
+<ol start="3">
+<li>The language syntax of a Terraform file looks like this:</li>
+</ol>
+<pre style="padding-left: 60px">&lt;BLOCK TYPE&gt; "&lt;BLOCK LABEL&gt;" "&lt;BLOCK LABEL&gt;" {<br/>  # Block body<br/>  &lt;IDENTIFIER&gt; = &lt;EXPRESSION&gt; # Argument<br/>}</pre>
+<p style="padding-left: 60px">As we can see, a Terraform script is made up of four fundamental building blocks:</p>
+<ul>
+<li style="padding-left: 60px"><strong>Block Type</strong>: A set of predefined block types by Terraform—for example, resource and data.</li>
+<li style="padding-left: 60px"><strong>Block Label</strong>: The namespace of a block type in a Terraform script.</li>
+<li style="padding-left: 60px"><strong>Identifier</strong>: The variable inside a block.</li>
+<li style="padding-left: 60px"><strong>Expression</strong>: The value of the variable inside a block.</li>
+</ul>
+<p style="padding-left: 60px">You can check out all the possible values of these four entities in the Terraform configuration language at <a href="https://www.terraform.io/docs/configuration/index.html" target="_blank">https://www.terraform.io/docs/configuration/index.html</a><span>.</span></p>
+<ol start="4">
+<li>Now comes the actual script, <kbd>api_server.tf</kbd>. It should have two blocks, <kbd>provider</kbd> and <kbd>resource</kbd> like so:</li>
+</ol>
+<pre style="padding-left: 60px">provider "aws" {<br/>  profile    = "default"<br/>  region     = "eu-central-1"<br/><br/>}<br/><br/>resource "aws_instance" "api_server" {<br/>  ami           = "ami-03818140b4ac9ae2b"<br/>  instance_type = "t2.micro"<br/>}</pre>
+<p style="padding-left: 60px">The <kbd>provider</kbd> block defines the type of cloud provider to use and configures the security credentials and region. The <kbd>resource</kbd> block is used to define the type of resource to be provisioned and its attributes. Here, we are provisioning an EC2 instance, thus we provided <kbd>aws_instance</kbd> as the resource type. The <kbd>api_server</kbd> is the name of the instance that gets created. There are many instance types provided by EC2. Here, we use the smaller-capacity instance called <kbd>t2.micro</kbd>.</p>
+<p style="padding-left: 60px">AWS uses an <strong>Amazon Machine Image</strong> (<strong>AMI</strong>) to create a virtual machine. We picked Ubuntu 18.04 as the <kbd>ami-03818140b4ac9ae2b</kbd> <span>operating system image </span>in the Terraform file. You can find the AMI image closest to your region here: <a href="https://cloud-images.ubuntu.com/locator/ec2/" target="_blank">https://cloud-images.ubuntu.com/locator/ec2/</a>.</p>
+<p style="padding-left: 60px">The attributes can change according to the resource type. So, if we pick a different resource, we have to check the Terraform documentation for appropriate attributes. In the preceding resource block, we only defined two attributes: <kbd>ami</kbd> and <kbd>instance_type</kbd>. Those two attributes are mandatory for the AWS EC2 API. All other attributes—such as network, security groups, and CPU—default to reasonable values.</p>
+<ol start="5">
+<li>Now, run the script from the <kbd>intro</kbd> directory, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">terraform apply</pre>
+<ol start="6">
+<li class="mce-root">The script outputs the following message, and also asks for confirmation of the <kbd>apply</kbd> process:</li>
+</ol>
+<pre style="padding-left: 60px">Do you want to perform these actions?<br/>  Terraform will perform the actions described above.<br/>  Only 'yes' will be accepted to approve.<br/><br/>  Enter a value: yes<br/><br/>aws_instance.api_server: Creating...<br/>aws_instance.api_server: Still creating... [10s elapsed]<br/>aws_instance.api_server: Still creating... [20s elapsed]<br/>aws_instance.api_server: Creation complete after 24s [id=i-07a023fc92b73fc06]</pre>
+<p class="mce-root" style="padding-left: 60px">It successfully created the <span class="packt_screen">EC2 instance</span>. We can navigate to the <span class="packt_screen">EC2 section</span> on the <span class="packt_screen">AWS</span> console to see our instance up and running, as shown in the following screenshot:</p>
+<div class="CDPAlignCenter CDPAlign packt_figref"><img src="assets/846fd16e-1287-408a-878b-ccf8f1b7551f.png"/></div>
+<p class="mce-root">Details such as <span class="packt_screen">Availability Zone</span>, <span class="packt_screen">Public IP</span>, and so on are automatically assigned because we didn't specify them as attributes in the Terraform file. AWS creates a default <strong>Virtual Private Cloud</strong> (<strong>VPC</strong>), subnets, and a public <strong>Domain Name System</strong> (<strong>DNS</strong>).</p>
+<p class="mce-root">If you observe carefully, <kbd>terraform apply</kbd> generates the following additional files in the directory:</p>
+<ul>
+<li><kbd>terraform.tfstate</kbd>: This holds the JSON plan that is executed with AWS.</li>
+<li><kbd>.terraform</kbd>: This is a directory that holds plugins, depending on the provider. In our case, the provider type is AWS.</li>
+</ul>
+<p>Terraform installs a provider-related executable in the project's <kbd>.terraform</kbd> directory. This is to reduce the file size of the Terraform binary, which excludes the packages for compiling scripts to other cloud providers.</p>
+<div class="packt_infobox">The plugin version in <kbd>.terraform/plugins</kbd> also has a version. You should have the latest plugin to benefit from up-to-date Terraform syntax. Otherwise, the syntax for referencing one resource in another may raise errors. To be safe, please upgrade the plugin to the latest version using this command: <kbd>terraform 0.12upgrade</kbd>.</div>
+<p class="mce-root"/>
+<p>We have successfully provisioned an EC2 instance, but it is useless until we can SSH into it. For that, we should provide a key pair. Let's look at the steps to do that, as follows: </p>
+<ol>
+<li>You can generate a public/private key pair on your local machine like this:</li>
+</ol>
+<pre class="mce-root" style="padding-left: 60px"><span>ssh-keygen -t rsa -b 4096</span></pre>
+<ol>
+<li style="list-style-type: none">This generates public and private key files in the <kbd>~/.ssh</kbd> directory. A public key is for other parties to encrypt data, and a private key is for the owner to decrypt that data. Your public key file's default name is <kbd><span>id_rsa.pub</span></kbd> . </li>
+<li><span>Create a new resource type called</span> <kbd>aws_key_pair</kbd> <span>in the</span> <kbd>api_server.tf</kbd><span> file, like this:</span></li>
+</ol>
+<pre style="padding-left: 60px">resource "aws_key_pair" "api_server_key" {<br/>  key_name   = "api-server-key"<br/>  public_key = "ssh-rsa ABCD...XYZ naren@Narens-MacBook-Air.local"<br/>}</pre>
+<p style="padding-left: 60px">In the preceding block, Terraform creates a new AWS key-pair resource called <kbd>api_server_key</kbd>. It takes a <kbd>key_name</kbd> and a <kbd>public_key</kbd>. This is your newly created public key. AWS adds this key to <kbd>~/.ssh/known_hosts</kbd> on an EC2 instance so that you can log in to the VM once the provision is successful.</p>
+<ol start="3">
+<li>Next, we should link this newly created resource to our main resource <kbd>aws_instance</kbd>, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">resource "aws_instance" "api_server" {<br/>  ...<br/>  key_name      = aws_key_pair.api_server_key.key_name<br/>}</pre>
+<ol start="4">
+<li>Now, we can see the plan that Terraform executes with the <kbd>terraform plan</kbd> command, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">terraform plan<br/>Refreshing Terraform state in-memory prior to plan...<br/>The refreshed state will be used to calculate this plan,<br/>but will not be persisted to local or remote state storage.<br/><br/>aws_instance.api_server: Refreshing state... [id=i-07a023fc92b73fc06]<br/><br/>------------------------------------------------------------------------<br/><br/>An execution plan has been generated and is shown below.<br/>Resource actions are indicated with the following symbols:<br/> + create<br/><br/>Terraform will perform the following actions:<br/><br/> # aws_instance.api_server must be replaced<br/>-/+ resource "aws_instance" "api_server" {<br/> ...<br/> + key_name = "api-server-key" # forces replacement<br/> ...<br/>}<br/><br/> # aws_key_pair.api_server_key will be created</pre>
+<p style="padding-left: 60px">As it clearly states in the preceding log, Terraform performs the creation of one new resource, <kbd>aws_key_pair</kbd>, and recreates the server. The Terraform <kbd>plan</kbd> step is a good way to inspect changes before applying them on AWS.</p>
+<ol start="5">
+<li>Now, let us actually apply the changes with the <kbd>terraform apply</kbd> command, as follows:</li>
+</ol>
+<pre style="padding-left: 60px">terraform apply<br/>...<br/>aws_key_pair.api_server_key: Creating...<br/>aws_key_pair.api_server_key: Creation complete after 1s [id=api-server-key]<br/>aws_instance.api_server: Destroying... [id=i-07a023fc92b73fc06]<br/>aws_instance.api_server: Still destroying... [id=i-07a023fc92b73fc06, 30s elapsed]<br/>aws_instance.api_server: Destruction complete after 30s<br/>aws_instance.api_server: Creating...<br/>aws_instance.api_server: Still creating... [30s elapsed]<br/>aws_instance.api_server: Creation complete after 33s [id=i-050d7ec98b4d6a814]</pre>
+<ol start="6">
+<li>Next, in the <span class="packt_screen">AWS</span> account console (browser), navigate to the <span class="packt_screen">EC2| NETWORK &amp; SECURITY| Key Pairs</span> section. Y<span>ou will find the newly added key pair there, as shown in the following screenshot:</span></li>
+</ol>
+<div class="CDPAlignCenter CDPAlign"><img src="assets/77b9c398-3eb8-448a-85e7-4d04f88501ea.png"/></div>
+<ol start="7">
+<li>Now, in order to SSH into our EC2 instance, we need the public DNS of the instance. We can get the public DNS either from the AWS console or from the <kbd>terraform.tfstate</kbd> file.</li>
+<li>The public DNS, in our case, is <kbd>ec2-52-59-192-138.eu-central-1.compute.amazonaws.com</kbd>. We can now SSH into this system as a Ubuntu user, like this:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>ssh ubuntu@ec2-52-59-192-138.eu-central-1.compute.amazonaws.com</strong><br/><br/><strong>Welcome to Ubuntu 18.04.3 LTS (GNU/Linux 4.15.0-1052-aws x86_64)</strong><br/><strong> ....</strong><br/><br/><strong>52 packages can be updated.</strong><br/><strong>0 updates are security updates.</strong></pre>
+<p style="padding-left: 60px">This command picks the <kbd>~/.ssh</kbd> folder and locates the private key. It then does a handshake with the public key we linked with the EC2 instance.</p>
+<p style="padding-left: 60px">The Ubuntu image comes almost zero configured. Software such as the Go compiler, Docker, and docker-compose is not installed by default on the Ubuntu EC2 instance. We have to install them before deploying our application. Make sure you SSH into the machine.</p>
+<ol start="9">
+<li>Install the latest version of the Go compiler and Docker, like this:<strong><br/></strong></li>
+</ol>
+<pre style="padding-left: 60px"><strong>sudo snap install go --classic<br/>sudo snap install </strong><strong>docker</strong></pre>
+<ol start="10">
+<li>Install <kbd>docker-compose</kbd>, as follows:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>sudo pip install docker-compose</strong></pre>
+<div class="packt_tip">As you may have notice, the username we used for SSH is <kbd>ubuntu</kbd>. It depends on the AMI used for instance provision. For example, if the image is an Amazon Linux Image, then the SSH username will be <kbd>ec2-user</kbd>.</div>
+<p>In the next section, we'll walk through the deployment of a REST API on an EC2 instance. We will use the previously provisioned machine in our journey.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deploying a service on EC2</h1>
+                </header>
+            
+            <article>
+                
+<p>So far we've provisioned an EC2 instance with a public DNS. Now, we need an API to deploy on the instance. Let us use the <kbd>bookServer</kbd> <span>containerized application </span>from <a href="da5ccac6-f448-4cf5-bb81-5d3839d2240c.xhtml" target="_blank">Chapter 12</a>, <em>Containerizing REST Services for Deployment</em>. There, we developed a Go API server that serves book details on an endpoint. In this section, let us try to deploy that ecosystem on an AWS EC2 instance. Let's look at the steps to deploy <kbd>bookServer</kbd> on AWS EC2, as follows:</p>
+<ol>
+<li>Copy the code from <kbd>chapter12/deploySetup</kbd> into the <kbd>/home/ubuntu</kbd> directory of the instance. You can do that using the <kbd>scp</kbd> command, like this:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>scp -r $GOPATH/src/github.com/git-user/chapter12/deploySetup ubuntu@ec2-52-59-192-138.eu-central-1.compute.amazonaws.com:/home/ubuntu</strong></pre>
+<p class="mce-root"/>
+<p style="padding-left: 60px">This command copies the source code from <a href="da5ccac6-f448-4cf5-bb81-5d3839d2240c.xhtml" target="_blank">Chapter 12</a>, <em>Containerizing REST Services for Deployment</em>,<em> </em>to the target instance. We have our application code ready. The code has a <kbd>Makefile</kbd> that builds the Go binary and deploys various containers.</p>
+<ol start="2">
+<li>If you remember building the <kbd>deploySetup</kbd> application from <a href="da5ccac6-f448-4cf5-bb81-5d3839d2240c.xhtml" target="_blank">Chapter 12</a>, <em>Containerizing REST Services for Deployment</em>, then you'll remember that we can launch nginx, the application server, and <kbd>supervisord</kbd> using the <kbd>make</kbd> command, as follows:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>sudo make</strong></pre>
+<ol start="3">
+<li>This step builds and starts Docker containers in the background, as shown here:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>Creating deploysetup_app_1 ... done</strong><br/><strong>Creating deploysetup_nginx_1 ... done</strong></pre>
+<div class="packt_infobox">We need to use <kbd>sudo make</kbd> instead of <kbd>make</kbd> because of user permissions. The default <kbd>ubuntu</kbd> user doesn't have permissions to the Docker daemon by default.</div>
+<ol start="4">
+<li>Now, the nginx container and app container are up and running. We can confirm this with the <kbd>docker ps</kbd> command, as shown in the following code block:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>sudo docker ps</strong><br/><br/><strong>CONTAINER ID        IMAGE               COMMAND                  CREATED             STATUS              PORTS                                      NAMES</strong><br/><strong>a016732f8174        nginx:alpine        "nginx -g 'daemon of…"   2 minutes ago       Up 2 minutes        0.0.0.0:80-&gt;80/tcp, 0.0.0.0:443-&gt;443/tcp   deploysetup_nginx_1</strong><br/><strong>29b75b09082d        deploysetup_app     "/usr/bin/supervisor…"   2 minutes ago       Up 2 minutes        8000/tcp                                   deploysetup_app_1</strong></pre>
+<p style="padding-left: 60px">This shows that our nginx and app containers are up and running on the EC2 instance, and nginx is serving on port <kbd>80</kbd>.</p>
+<ol start="5">
+<li>Get the public IP from the AWS console or the <kbd>terraform.tfstate</kbd> file.</li>
+</ol>
+<div class="packt_tip">Always confirm the ports that have been exposed for Docker containers. The format <kbd>0.0.0.0:80-&gt;80/tcp</kbd> means the container TCP port <kbd>80</kbd> forwards packets to the host port <kbd>80</kbd>. In our case, the host is an EC2 instance and the container is nginx.</div>
+<p style="padding-left: 60px">In our case, the instance's public IP is <kbd>52.59.192.138</kbd>. Refer to the following screenshot to see where we can find out the <span class="packt_screen">public IP</span> from the <span class="packt_screen">AWS</span> console <span class="packt_screen">EC2 instances</span> section:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/d0c339c0-a385-40c2-b165-e759991ed3b0.png"/></p>
+<ol start="6">
+<li>Make a <kbd>curl</kbd> request to the <kbd>http://public-ip/api/books</kbd> endpoint from your host machine (not from the EC2 instance). You'll get a JSON response back from the server, as follows:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>curl http://52.59.192.138/api/books</strong><br/><br/><strong>{"ID":123,"ISBN":"0-201-03801-3","Author":"Donald Knuth","PublishedYear":"1968"}</strong></pre>
+<p>Hurray! Our API has been published to the web and is accessible worldwide. Here, nginx is acting as an entry point to HTTP requests. The setup we deployed is a minimal way to publish an API on AWS. In a real-world scenario, you have to do a few more things, such as the following, to secure the API:</p>
+<ol>
+<li>Serve requests on HTTPS (by adding certificates)</li>
+<li>Configure the VPC, subnets, and security groups properly</li>
+</ol>
+<p>Adding the preceding recommendations to our EC2 instance is out of the scope of this book. Please refer to the AWS documentation on these topics for more information.</p>
+<p>In the next section, we'll configure our EC2 instance with Amazon API Gateway. As we discussed at the beginning of this chapter, an AWS Gateway is a primary way to secure EC2 instances.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Why is an API Gateway required?</h1>
+                </header>
+            
+            <article>
+                
+<p>Suppose a company named <kbd>XYZ</kbd> developed an API for its internal purposes. There are two ways in which it exposes that API for external use:</p>
+<ul>
+<li>It exposes it using authentication from known clients.</li>
+<li>It exposes it as an API as a service.</li>
+</ul>
+<p>In the first case, this API is consumed by the other services inside the company. Since they are internal, we don't restrict access. But in the second case, since the API details are given to the outside world, we need a broker in-between to check and validate the requests. This broker is the API Gateway. An API Gateway is a broker that sits in-between the client and the server and forwards the request to the server, on the passing of specific conditions.</p>
+<p>Now, the company <kbd>XYZ</kbd> has an API written in Go and also in Java. There are a few common things that apply to any API:</p>
+<ul>
+<li>Authentication</li>
+<li>Logging of requests and responses</li>
+</ul>
+<p>Without an API Gateway, we need to write another server that tracks things such as requests and authentication of the API. This can be hectic to implement and maintain when new APIs keep being added to the organization. To take care of these basic things, an API Gateway is a fine piece of middleware.</p>
+<p class="mce-root"/>
+<p>Basically, an API Gateway does these things:</p>
+<ul>
+<li>Logging</li>
+<li>Security</li>
+<li>Traffic control</li>
+<li>Middleware</li>
+</ul>
+<p>Logging is the way in which we track requests and responses. In contrast to application-level logging, which happens in the Go web server, an API Gateway can support organization-level logging across multiple applications.</p>
+<p>Authentication is a part of securing applications. It can be basic authentication, token-based authentication, OAuth2.0, and so on. It is essential to restrict access to the API for valid customers/clients.</p>
+<p>Traffic control comes into play when an API is a paid service. When an organization sells data as an API, it needs to limit the operations per client. For example, a client can make 10,000 API requests per month. The rate can be set according to the plan the client has opted for. This is a very important feature.</p>
+<p>Middleware is for modifying the request before it hits the application server or for modifying the response before it is sent back to the client.</p>
+<p>Take a look at the following diagram:</p>
+<div class="CDPAlignCenter CDPAlign packt_figref"><img src="assets/b421c07d-fa75-4a71-8ee2-2b9b2b7223ca.png" style="width:33.25em;height:23.75em;"/></div>
+<p class="CDPAlignCenter CDPAlign CDPAlignLeft">The preceding diagram depicts an <strong>API Gateway</strong> accepting all <strong>client</strong> requests. The API Gateway can forward requests to respective API servers based on HTTP headers, URL path prefix, or IP address. Once the API server finishes its job, the <strong>API Gateway</strong> collects an intermediate response and returns it to the <strong>Client</strong>. In this chapter, we'll try to leverage Amazon API Gateway.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Introducing Amazon API Gateway</h1>
+                </header>
+            
+            <article>
+                
+<p>Amazon API Gateway has the following features:</p>
+<ul>
+<li>Reverse proxy service</li>
+<li>Rate limiting</li>
+<li>Monitoring</li>
+<li>Authentication</li>
+</ul>
+<p><strong>Reverse proxying</strong> is the process of passing a REST API request to another endpoint. Amazon API Gateway can register a REST endpoint with a custom path and method. It forwards a matching request to the application server. It can also authenticate using AWS user credentials, as well as security tokens. The user has to be created on AWS <span>IAM</span> in order to access the API.</p>
+<p class="mce-root">Monitoring is possible by writing Gateway rules. The logs can be directed to AWS CloudWatch, which is another Amazon-offered service. When there are suspicious incoming requests, the Gateway can also raise a CloudWatch alarm. A CloudWatch alarm is a notification for special situations. These notifications can trigger other actions, such as sending an email or logging an event.</p>
+<p class="CDPAlignLeft CDPAlign">Now, let us provision an API Gateway for our EC2 instance. The architecture diagram looks like this:</p>
+<div class="CDPAlignCenter CDPAlign packt_figref"><img src="assets/94e89dba-b3fb-4c2b-9d9b-b5d3baedd344.png"/></div>
+<p>In the preceding diagram, the Amazon API Gateway defines methods and integrations. The target is an EC2 instance where a <kbd>books</kbd> API is deployed. We should configure six types of components to run API Gateway on AWS. Those are as follows:</p>
+<ul>
+<li>Gateway REST API</li>
+<li>Gateway Method Request</li>
+<li>Gateway Method Response</li>
+<li>Gateway Integration Request</li>
+<li>Gateway Integration Response</li>
+<li>Gateway Deployment</li>
+</ul>
+<p class="mce-root"/>
+<p>Why do we have to create the preceding components? The Amazon API Gateway architecture defines these components in its design. See the following diagram to see how an API is represented on Amazon API Gateway:</p>
+<div class="CDPAlignCenter CDPAlign packt_figref"><img src="assets/d505974d-9119-47f8-8426-3d921edecf71.png"/></div>
+<p>The <strong><span class="packt_screen">Client</span></strong> request is sent through the <strong><span class="packt_screen">Gateway Method Request</span></strong> and <strong><span class="packt_screen">Integration Request</span></strong> stages. The <span class="packt_screen">Integration Request</span> stage then forwards the request to a configured API endpoint. That endpoint will be <kbd>/api/books</kbd> with the <kbd>GET</kbd> method and will be running on an EC2 instance. This finishes the request life cycle.</p>
+<p>Next, the endpoint returns a response from the EC2 instance. This response is forwarded to the <strong><span class="packt_screen">Integration Response</span></strong> stage and then to the <strong><span class="packt_screen">Gateway Method Response</span></strong> stage. This finishes the response life cycle.</p>
+<p>Each stage can be configured further to transform responses into different formats. For simplicity, we leave the default settings as they are for each stage. In the next section, we'll try to build the preceding components in Terraform.</p>
+<div class="mce-root packt_tip">Manually create the API Gateway for our API in the AWS console before writing Terraform scripts. This helps you understand the basic vocabulary of Amazon API Gateway.</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deploying our service behind Amazon API Gateway</h1>
+                </header>
+            
+            <article>
+                
+<p>Pausing the theory, let us quickly jump into an example. Our goal is to set up the API Gateway for the previously deployed <kbd>books</kbd> API as a target. Follow these steps:</p>
+<ol>
+<li>Let us create a new project and write a new Terraform script that creates and deploys an API on Amazon API Gateway, as follows:</li>
+</ol>
+<pre style="padding-left: 60px"><strong>touch $GOPATH/src/github.com/git-user/chapter13/intro/api_gateway.tf</strong></pre>
+<p style="padding-left: 60px"><span>It also links our EC2 instance and API endpoints.</span></p>
+<ol start="2">
+<li>Let us add the Gateway REST API component to the script:</li>
+</ol>
+<pre style="padding-left: 60px">// New API on Amazon API Gateway<br/>resource "aws_api_gateway_rest_api" "test" {<br/>  name        = "EC2Example"<br/>  description = "Terraform EC2 REST API Example"<br/>  endpoint_configuration {<br/>    types = ["REGIONAL"]<br/>  }<br/>}</pre>
+<p style="padding-left: 60px"><span>It takes a few important attributes, as follows:</span></p>
+<ul>
+<li style="padding-left: 60px"><kbd>name</kbd>: Name of the API</li>
+<li style="padding-left: 60px"><kbd>description</kbd>: Text about the API</li>
+<li style="padding-left: 60px"><kbd>endpoint_configuration</kbd>: Defines which mode of the API to publish (<kbd>REGIONAL</kbd><span> </span>or<span> </span><kbd>EDGE</kbd>)</li>
+</ul>
+<p style="padding-left: 60px">These details are used to identify an API in the Amazon API Gateway. We named our API <kbd>EC2Example</kbd>. The <kbd>aws_api_gateway_rest_api</kbd> resource type is a Terraform resource type. Our resource name is <kbd>test</kbd>. From here on, we will see similar names for all other resource types we create.</p>
+<p style="padding-left: 60px">When AWS creates the <kbd>aws_api_gateway_rest_api</kbd> component, it also creates a default Gateway Resource on AWS. A Gateway Resource is a relative path for endpoints we configure as part of the integration.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<ol start="3">
+<li>Next, we have to create a gateway method called <kbd>test</kbd>. It takes the <kbd>rest_api_id</kbd>, <kbd>resource_id</kbd>, and <kbd>http_method</kbd> attributes. These three attributes are common for all components. Let us call these <kbd>DEFAULT_ATTRIBUTES</kbd>.</li>
+<li>In addition, we set <kbd>Authorization=NONE</kbd> on this component. If we set authorization to <kbd>AWS_IAM</kbd><span>, then a client has to provide AWS access keys and a token along with the request. We are disabling the gateway authentication for now, as shown in the following code block:</span></li>
+</ol>
+<pre style="padding-left: 60px">// Method request configuration<br/>resource "aws_api_gateway_method" "test" {<br/>   rest_api_id   = aws_api_gateway_rest_api.test.id<br/>   resource_id   = aws_api_gateway_rest_api.test.root_resource_id<br/>   http_method   = "GET"<br/><br/>   authorization = "NONE"<br/> }</pre>
+<ol start="5">
+<li class="mce-root">After adding the method request, we should add the method response component. This also takes <kbd>DEFAULT_ATTRIBUTES</kbd> plus <kbd>status_code</kbd>. That means whenever a method response receives <kbd>200</kbd> <kbd>OK</kbd> from an integration response, it passes it to the client as a successful message, as shown in the following code block:</li>
+</ol>
+<pre style="padding-left: 60px">// Method response configuration<br/>resource "aws_api_gateway_method_response" "test" {<br/>  rest_api_id = aws_api_gateway_rest_api.test.id<br/>  resource_id = aws_api_gateway_rest_api.test.root_resource_id<br/>  http_method = aws_api_gateway_method.test.http_method<br/><br/>  status_code = "200"<br/>}</pre>
+<ol start="6">
+<li>Next, add the integration components. There are two integration components, as we recollect from the API architecture diagram in the previous section. The <kbd>integration response</kbd> component is similar to the <kbd>method_response</kbd> component, as shown in the following code block:</li>
+</ol>
+<pre style="padding-left: 60px">// Integration response configuration<br/>resource "aws_api_gateway_integration_response" "MyDemoIntegrationResponse" {<br/>  rest_api_id = aws_api_gateway_rest_api.test.id<br/>  resource_id = aws_api_gateway_rest_api.test.root_resource_id<br/>  http_method = aws_api_gateway_method.test.http_method<br/><br/>  status_code = aws_api_gateway_method_response.test.status_code<br/>}</pre>
+<p>The main link between the API Gateway and our API running on an EC2 instance is created in the <kbd>integration request</kbd> component. It takes <kbd>DEFAULT_ATTRIBUTES</kbd>, plus three important attributes:</p>
+<ul>
+<li>
+<div>
+<div><kbd><span>integration_http_method</span></kbd>: Decides which HTTP method should be called on the endpoint</div>
+</div>
+</li>
+<li><kbd>type</kbd>: Denotes which type of endpoint is being used: <kbd>HTTP</kbd>, <kbd>Lambda</kbd>, or <kbd>AWS_PROXY</kbd></li>
+<li><kbd>uri</kbd>: The actual reference of the endpoint</li>
+</ul>
+<p>In our case, because we want to link the Gateway and the EC2 instance, we use <kbd>HTTP</kbd> as our <kbd>type</kbd>, and the public DNS of our EC2 instance as <kbd>uri</kbd>. The Terraform block looks like this:</p>
+<pre style="padding-left: 30px">// Integration request configuration<br/>resource "aws_api_gateway_integration" "test" {<br/>   rest_api_id = aws_api_gateway_rest_api.test.id<br/>   resource_id = aws_api_gateway_method.test.resource_id<br/>   http_method = aws_api_gateway_method.test.http_method<br/><br/>   integration_http_method = "GET"<br/>   type                    = "HTTP"<br/>   uri                     = "http://${aws_instance.api_server.public_dns}/api/books"<br/> <br/>}</pre>
+<p>We have set <kbd>integration_http_method</kbd> to <kbd>GET</kbd> because our <kbd>books</kbd> API only has an endpoint with the GET method. For the <kbd>uri</kbd> attribute value, we are referencing <kbd>public_dns</kbd> from the <kbd>aws_instance.api_server</kbd> EC2 instance resource. Since both the Terraform scripts— <kbd>api_server.tf</kbd> and <kbd>api_gateway.tf</kbd>—are in the same <kbd>intro</kbd> project directory, we can import the resources from another.</p>
+<p>This finishes all five crucial components of the API. We have to deploy the API using a test environment. Terraform provides a resource type called <kbd>aws_api_gateway_deployment</kbd> to create a deployment. Deployments are useful for testing or publishing Amazon API Gateway endpoints to the web. The deployment takes the following attributes:</p>
+<pre>// Deploy API on Gateway with test environment<br/>resource "aws_api_gateway_deployment" "test" {<br/>   depends_on = [<br/>     aws_api_gateway_integration.test<br/>   ]<br/><br/>   rest_api_id = aws_api_gateway_rest_api.test.id<br/>   stage_name  = "test"<br/> }</pre>
+<p>A deployment also depends on an <kbd>integration request</kbd>, so we added a <kbd>depends_on</kbd> attribute. The <kbd>stage_name</kbd> attribute can take stage, <kbd>"test"</kbd>, or prod environment types. This finishes our API Gateway creation. Let us run the script to create and deploy our API on Amazon API Gateway, as follows:</p>
+<pre>terraform apply -auto-approve<br/><br/>aws_key_pair.api_server_key: Refreshing state... [id=api-server-key]<br/>aws_instance.api_server: Refreshing state... [id=i-050d7ec98b4d6a814]<br/>aws_api_gateway_rest_api.test: Creating...<br/>aws_api_gateway_method.test: Creating...<br/>aws_api_gateway_method.test: Creation complete after 1s [id=agm-kvp9kg9jv6-hognbzcre0-GET]<br/>aws_api_gateway_method_response.test: Creating...<br/>aws_api_gateway_integration.test: Creating...<br/>aws_api_gateway_method_response.test: Creation complete after 0s [id=agmr-kvp9kg9jv6-hognbzcre0-GET-200]<br/>aws_api_gateway_integration_response.MyDemoIntegrationResponse: Creating...<br/>aws_api_gateway_integration.test: Creation complete after 0s [id=agi-kvp9kg9jv6-hognbzcre0-GET]<br/>aws_api_gateway_deployment.test: Creating...<br/>.....<br/><br/></pre>
+<p>Now, where can clients access the new URL of the API Gateway? You can get the <kbd>invoke_url</kbd> from the <kbd>terraform.tfstate</kbd> file, like this:</p>
+<pre>    {<br/>      "mode": "managed",<br/>      "type": "aws_api_gateway_deployment",<br/>      "name": "test",<br/>      "provider": "provider.aws",<br/>      "instances": [<br/>        {<br/>          "schema_version": 0,<br/>          "attributes": {<br/>            ......<br/>            "invoke_url":"https://kvp9kg9jv6.execute-api.eu-central-<br/>            1.amazonaws.com/test",<br/>            ......<br/>          },<br/>            ......<br/>        }<br/>      ]<br/>    }</pre>
+<p><kbd>invoke_url</kbd> is the API Gateway endpoint. This endpoint should be attached to a custom domain while publishing an API. If you make a <kbd>curl</kbd> request to the preceding URL, you should receive books as a JSON response, as follows:</p>
+<pre>curl https://kvp9kg9jv6.execute-api.eu-central-1.amazonaws.com/test<br/><br/>{"ID":123,"ISBN":"0-201-03801-3","Author":"Donald Knuth","PublishedYear":"1968"}</pre>
+<p>This confirms that all the components are functioning properly and that all requests/responses are routed through API Gateway. You can define many such endpoints and configure components to achieve the desired behavior. Adding authentication is left as an exercise to you.</p>
+<div class="packt_tip">Tip for solving this exercise: Try to modify the right component to authenticate and authorize client requests.</div>
+<p>In the next section, we'll mention other important API Gateways that are available.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Other API Gateways</h1>
+                </header>
+            
+            <article>
+                
+<p>There are many other API Gateway providers available in the market. As we mentioned earlier, all gateways provide the same set of features. Similar to AWS API Gateway, Apigee is another well-known API Gateway technology that is a part of Google Cloud. The problem with cloud providers is that they can cause vendor lock (that is, they cannot easily migrate to another platform). There are many open source API Gateways available on the market.</p>
+<p>The right way to pick an API Gateway depends on the conditions of the business. If the API server is living on the AWS cloud, AWS API Gateway is a nice choice. For a company that can manage a gateway by itself, it is worth trying the following open source alternatives:</p>
+<ul>
+<li>Kubernetes</li>
+<li>Kong</li>
+<li>Tyk</li>
+<li>KrakenD</li>
+</ul>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>There is no best choice, but if workloads are not so big, nginx can also be used as an API Gateway. See <a href="https://www.nginx.com/learn/api-gateway/" target="_blank">https://www.nginx.com/learn/api-gateway/</a> for more details.</p>
+<p>Kubernetes (<a href="https://kubernetes.io/" target="_blank">https://kubernetes.io/</a>) can be a wise choice for those who like to manage the API Gateway by themselves. Also, another good reason to use Kubernetes is that it is getting widely adapted.</p>
+<p>Amazon also provides the <strong>Elastic Kubernetes Service</strong> (<strong>EKS</strong>) for running highly available clusters over different regions. With EKS, the API Gateway is included as an installed component.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p class="mce-root">In this chapter, we started with the basics of working with AWS. Amazon provides a free-tier to experiment with their cloud. Once we sign up for the free-tier, we should get access to the AWS console and be able to create security credentials. These security credentials are required for applications to access AWS.</p>
+<p>We then saw how a tool such as Terraform can provision cloud resources. We picked AWS EC2 as our choice to deploy an API. We wrote a Terraform script to provision an EC2 instance, along with a key pair. This key pair was required to log in to the instance.</p>
+<p>Once we were able to log in to the EC2 instance, we installed all the dependencies for our API server. We reused the project code from <a href="da5ccac6-f448-4cf5-bb81-5d3839d2240c.xhtml" target="_blank">Chapter 12</a>, <em>Containerizing REST Services for Deployment</em>, where we prepared an API ecosystem. We successfully deployed the <kbd>books</kbd> API from the EC2 instance.</p>
+<p>A simple API server has fewer capabilities in terms of rate-limiting to clients, authentication, and authorization. We need a dedicated API Gateway that can pass the requests to the API server. AWS provides a managed gateway solution called <kbd>Amazon API Gateway</kbd>. We saw the architecture of Amazon API Gateway and provisioned an API on the gateway using Terraform. The architecture has six important components, which discussed in detail.</p>
+<p>Finally, we mentioned other gateway solutions available in the market. In the next chapter, we will discuss API authentication patterns, including <strong>JSON Web Token</strong><span> (</span><strong>JWT</strong><span>) authentication,</span> in detail. </p>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

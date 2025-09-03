@@ -1,0 +1,379 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer032">
+			<h1 id="_idParaDest-422" class="chapter-number"><a id="_idTextAnchor423"/>17</h1>
+			<h1 id="_idParaDest-423"><a id="_idTextAnchor424"/>Testing, Benchmarking, and Profiling</h1>
+			<p>Having tests and benchmarks for your code will help you in several ways. During development, tests ensure that what you are developing works and that you do not break existing functionality as part of your development work. Benchmarks ensure that your program stays within certain resource and time constraints. After the development is complete, the same tests and benchmarks will ensure that any maintenance work (bug fixes, feature enhancements, etc.) does not introduce bugs in existing functionality. So, you should consider writing tests and benchmarks as a core development activity, and develop both your program and its <span class="No-Break">tests together.</span></p>
+			<p>Testing should focus on testing the expected behavior when everything works (“happy path testing”) as well as when things fail. It should not focus on testing all possible execution paths. Tests developed to exercise all possible implementation choices quickly become harder to maintain than the program itself. You should find a balance between practicality and <span class="No-Break">test coverage.</span></p>
+			<p>This section shows idiomatic ways of dealing with several common testing and benchmarking scenarios. These are the topics covered in <span class="No-Break">this chapter:</span></p>
+			<ul>
+				<li>Working with <span class="No-Break">unit tests</span></li>
+				<li>Writing <span class="No-Break">unit tests</span></li>
+				<li>Running <span class="No-Break">unit tests</span></li>
+				<li>Logging <span class="No-Break">in tests</span></li>
+				<li><span class="No-Break">Skipping tests</span></li>
+				<li>Testing <span class="No-Break">HTTP servers</span></li>
+				<li>Testing <span class="No-Break">HTTP handlers</span></li>
+				<li>Checking <span class="No-Break">test coverage</span></li>
+				<li><span class="No-Break">Benchmarking</span></li>
+				<li><span class="No-Break">Writing benchmarks</span></li>
+				<li>Writing multiple benchmarks with different <span class="No-Break">input sizes</span></li>
+				<li><span class="No-Break">Running benchmarks</span></li>
+				<li><span class="No-Break">Profiling</span></li>
+			</ul>
+			<h1 id="_idParaDest-424"><a id="_idTextAnchor425"/>Working with unit tests</h1>
+			<p>We will work on an <a id="_idIndexMarker695"/>example function that sorts <strong class="source-inline">time.Time</strong> values in ascending or descending order, which is <span class="No-Break">given here:</span></p>
+			<pre class="source-code">
+package sort
+import (
+  "sort"
+  "time"
+)
+// Sort times in ascending or descending order
+func SortTimes(input []time.Time, asc bool) []time.Time {
+  output := make([]time.Time, len(input))
+  copy(output, input)
+  if asc {
+    sort.Slice(output, func(i, j int) bool {
+      return output[i].Before(output[j])
+    })
+    return output
+  }
+  sort.Slice(output, func(i, j int) bool {
+    return output[j].Before(output[i])
+  })
+  return output
+}</pre>			<p>We will use the built-in testing tools provided by the Go build system and the standard library. For this, let’s suppose we stored the preceding function in a file called <strong class="source-inline">sort.go</strong>. Then, the unit tests for this function will be in a file called <strong class="source-inline">sort_test.go</strong> in the same directory as <strong class="source-inline">sort.go</strong>. The Go build system will recognize source files that <a id="_idIndexMarker696"/>end with <strong class="source-inline">_test.go</strong> as unit tests, and will exclude them from <span class="No-Break">regular builds.</span></p>
+			<h1 id="_idParaDest-425"><a id="_idTextAnchor426"/>Writing a unit test</h1>
+			<p>A unit test ideally<a id="_idIndexMarker697"/> tests whether a single unit (a function, a group of interrelated functions, or the methods of a type) behaves <span class="No-Break">as expected.</span></p>
+			<h2 id="_idParaDest-426"><a id="_idTextAnchor427"/>How to do it...</h2>
+			<ol>
+				<li>Create unit test files with the <strong class="source-inline">_test.go</strong> suffix. For <strong class="source-inline">sort.go</strong>, we create <strong class="source-inline">sort_test.go</strong>. The files that end with <strong class="source-inline">_test.go</strong> will be excluded from a <span class="No-Break">regular build:</span><pre class="source-code">
+package sort</pre></li>			</ol>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">You can also write tests in a separate test package that ends with <strong class="source-inline">_test</strong>. In this example, it becomes <strong class="source-inline">package sort_test</strong>. Writing tests in a separate package allows you to test the functions of a package as they are seen from the outside because you will not have access to the unexported names of the package under test. You will have to import the package <span class="No-Break">under test.</span></p>
+			<ol>
+				<li value="2">The Go testing system will run functions that follow the <strong class="source-inline">Test&lt;Feature&gt;(*testing.T)</strong> pattern. Declare a test function that fits this pattern, and write a unit test that exercises <span class="No-Break">a behavior:</span><pre class="source-code">
+func TestSortTimesAscending(t *testing.T) {
+    // 2.a Prepare input data
+    input := []time.Time{
+        time.Date(2023, 2, 1, 12, 8, 37, 0, time.Local),
+        time.Date(2021, 5, 6, 9, 48, 11, 0, time.Local),
+        time.Date(2022, 11, 13, 17, 13, 54, 0, time.Local),
+        time.Date(2022, 6, 23, 22, 29, 28, 0, time.Local),
+        time.Date(2023, 3, 17, 4, 5, 9, 0, time.Local),
+    }
+    // 2.b Call the function under test
+    output := SortTimes(input, true)
+    // 2.c Make sure the output is what is expected
+    for i := 1; i &lt; len(output); i++ {
+        if !output[i-1].Before(output[i]) {
+            t.Error("Wrong order")
+        }
+    }
+}</pre></li>				<li>The layout of<a id="_idIndexMarker698"/> a test function usually follows <span class="No-Break">this structure:</span><ul><li>Prepare input data and any necessary environment in which the function under test <span class="No-Break">will run</span></li><li>Call the function under test with the <span class="No-Break">necessary input</span></li><li>Make sure the function under test returned the correct result or behaved <span class="No-Break">as expected</span></li></ul></li>
+				<li>If the test detects errors, notify the testing system that the test failed using the <strong class="source-inline">t.Error</strong> family <a id="_idIndexMarker699"/><span class="No-Break">of functions.</span></li>
+			</ol>
+			<h1 id="_idParaDest-427"><a id="_idTextAnchor428"/>Running unit tests</h1>
+			<p>Use the Go build<a id="_idIndexMarker700"/> system tools to run <span class="No-Break">unit tests.</span></p>
+			<h2 id="_idParaDest-428"><a id="_idTextAnchor429"/>How to do it...</h2>
+			<ol>
+				<li>To run all unit tests in the current package, input <span class="No-Break">the following:</span><pre class="source-code">
+go test
+PASS
+ok  github.com/PacktPublishing/Go-Recipes-for-Developers/src/chp17/sorting/sort    0.001s</pre></li>				<li>To run all unit tests in a package, input <span class="No-Break">the following:</span><pre class="source-code">
+go test &lt;packageName&gt;</pre><p class="list-inset">Or, input <span class="No-Break">the following:</span></p><pre class="source-code">go test ./&lt;folder&gt;</pre><p class="list-inset">Here is <span class="No-Break">an example:</span></p><pre class="source-code">go test github.com/PacktPublishing/Go-Recipes-for-Developers/src/chp17/sorting/sort</pre><p class="list-inset">Or, you can input <span class="No-Break">the following:</span></p><pre class="source-code">go test ./sorting</pre></li>				<li>To run all unit tests in all packages of a module recursively, input <span class="No-Break">the following:</span><pre class="source-code">
+go test ./...</pre><p class="list-inset">Do this from the root directory of <span class="No-Break">the module.</span></p></li>				<li>To run a single test in the current package, input <span class="No-Break">the following:</span><pre class="source-code">
+go test -run TestSortTimesAscending</pre><p class="list-inset">This form treats the test name after the <strong class="source-inline">-run</strong> flag as a regular expression and runs all tests that contain that string. For instance, <strong class="source-inline">go test -run Sort</strong> will run all tests whose name has <strong class="source-inline">Sort</strong> in them. If you want to run a specific test only, construct the regular <span class="No-Break">expression accordingly:</span></p><pre class="source-code">go test -run ^TestSortTimesAscending$</pre><p class="list-inset">Here, <strong class="source-inline">^</strong> denotes the string beginning and <strong class="source-inline">$</strong> denotes the string end symbols used in <span class="No-Break">regular expressions.</span></p><p class="list-inset">For instance, the<a id="_idIndexMarker701"/> following will run all tests that end <span class="No-Break">with </span><span class="No-Break"><strong class="source-inline">Ascending</strong></span><span class="No-Break">:</span></p><pre class="source-code">go test -run Ascending$</pre></li>			</ol>
+			<h1 id="_idParaDest-429"><a id="_idTextAnchor430"/>Logging in tests</h1>
+			<p>Often additional logging<a id="_idIndexMarker702"/> functionality is useful for tests to show the state of critical variables, especially if a failure occurs. By default, the Go test executor does not print any logging information if tests pass, but if a test fails, the logging information is also included in <span class="No-Break">the output.</span></p>
+			<h2 id="_idParaDest-430"><a id="_idTextAnchor431"/>How to do it...</h2>
+			<ol>
+				<li>Use <strong class="source-inline">testing.T.Log</strong> and <strong class="source-inline">testing.T.Logf</strong> functions to record log messages <span class="No-Break">in tests:</span><pre class="source-code">
+func TestSortTimeAscending(t *testing.T) {
+  ...
+  t.Logf("Input: %v",input)
+  output:=SortTimes(input,true)
+  t.Logf("Output: %v", output)</pre></li>				<li>Run the tests. If the test passes, no log information will be printed. If the test fails, logs will <span class="No-Break">be printed.</span><p class="list-inset">To run the tests<a id="_idIndexMarker703"/> with logs, use the <strong class="source-inline">-</strong><span class="No-Break"><strong class="source-inline">v</strong></span><span class="No-Break"> flag:</span></p><pre class="source-code">
+$ go test -v
+=== RUN   TestSortTimesAscending
+    sort_test.go:17: Input: [2023-02-01 12:08:37 -0700 MST 2021-05-06 09:48:11 -0600 MDT 2022-11-13 17:13:54 -0700 MST 2022-06-23 22:29:28 -0600 MDT 2023-03-17 04:05:09 -0600 MDT]
+    sort_test.go:19: Output: [2021-05-06 09:48:11 -0600 MDT 2022-06-23 22:29:28 -0600 MDT 2022-11-13 17:13:54 -0700 MST 2023-02-01 12:08:37 -0700 MST 2023-03-17 04:05:09 -0600 MDT]
+--- PASS: TestSortTimesAscending (0.00s)</pre></li>			</ol>
+			<h1 id="_idParaDest-431"><a id="_idTextAnchor432"/>Skipping tests</h1>
+			<p>You can skip certain <a id="_idIndexMarker704"/>tests based on an input flag. This feature lets you have a quick test where only a subset of the tests are run and a comprehensive test where all the tests <span class="No-Break">are run.</span></p>
+			<h2 id="_idParaDest-432"><a id="_idTextAnchor433"/>How to do it...</h2>
+			<ol>
+				<li>Check the <strong class="source-inline">testing.Short()</strong> flag for tests that should be excluded from short <span class="No-Break">test runs:</span><pre class="source-code">
+func TestService(t *testing.T) {
+  if testing.Short() {
+    t.Skip("Service")
+  }
+  ...
+}</pre></li>				<li>Run tests<a id="_idIndexMarker705"/> with the <span class="No-Break"><strong class="source-inline">test.short</strong></span><span class="No-Break"> flag:</span><pre class="source-code">
+$ go test -test.short -v
+=== RUN   TestService
+    service_test.go:15: Service
+--- SKIP: TestService (0.00s)
+=== RUN   TestHandler
+--- PASS: TestHandler (0.00s)
+PASS</pre></li>			</ol>
+			<h1 id="_idParaDest-433"><a id="_idTextAnchor434"/>Testing HTTP servers</h1>
+			<p>The <strong class="source-inline">net/http/httptest</strong> package <a id="_idIndexMarker706"/>complements the <strong class="source-inline">testing</strong> package by providing HTTP server testing facilities that allow you to create test HTTP <span class="No-Break">servers quickly.</span></p>
+			<p>For this section, suppose we extend our sorting function by converting it to an HTTP service, as <span class="No-Break">given here:</span></p>
+			<pre class="source-code">
+package service
+import (
+    "encoding/json"
+    "io"
+    "net/http"
+    "time"
+    "github.com/PacktPublishing/Go-Recipes-for-Developers/src/chp17/
+    sorting/sort"
+)
+// Common handler function for parsing the input, sorting, and 
+// preparing the output
+func HandleSort(w http.ResponseWriter, req *http.Request, ascending bool) {
+    var input []time.Time
+    data, err := io.ReadAll(req.Body)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+    if err := json.Unmarshal(data, &amp;input); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+    output := sort.SortTimes(input, ascending)
+    data, err = json.Marshal(output)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    w.Header().Set("Content-Type", "application/json")
+    w.Write(data)
+}
+// Prepares a multiplexer that handles POST /sort/asc and POST /sort/
+// desc endpoints
+func GetServeMux() *http.ServeMux {
+    mux := http.NewServeMux()
+    mux.HandleFunc("POST /sort/asc", func(w http.ResponseWriter, req 
+    *http.Request) {
+        HandleSort(w, req, true)
+    })
+    mux.HandleFunc("POST /sort/desc", func(w http.ResponseWriter, req 
+    *http.Request) {
+        HandleSort(w, req, false)
+    })
+    return mux
+}</pre>			<p>The <strong class="source-inline">GetServeMux</strong> function prepares a request multiplexer that handles <strong class="source-inline">POST /sort/asc</strong> and <strong class="source-inline">POST /sort/desc</strong> HTTP endpoints for ascending and descending sort requests <a id="_idIndexMarker707"/>respectively. The input is a JSON array of time values. The handler returns a sorted <span class="No-Break">JSON array.</span></p>
+			<h2 id="_idParaDest-434"><a id="_idTextAnchor435"/>How to do it...</h2>
+			<ol>
+				<li>Use the <strong class="source-inline">net/http/httptest</strong> package that includes support for a <span class="No-Break">test server:</span><pre class="source-code">
+import (
+  "net/http/httptest"
+  "testing"
+  ...
+)</pre></li>				<li>In the test function, create a handler or multiplexer, and use that to create a test server. Make sure the server shuts down when the test ends -- use <span class="No-Break"><strong class="source-inline">defer server.Close()</strong></span><span class="No-Break">:</span><pre class="source-code">
+func TestService(t *testing.T) {
+  mux := GetServeMux()
+  server := httptest.NewServer(mux)
+  defer server.Close()</pre></li>				<li>Call the server using <strong class="source-inline">server.URL</strong>. This is initialized to use an unallocated local port by the <strong class="source-inline">httptest.NewServer</strong> function. In the following example, we are sending an invalid input to the server to verify if the server returns <span class="No-Break">an error:</span><pre class="source-code">
+rsp, err := http.Post(server.URL+"/sort/asc", "application/json", strings.NewReader("test"))
+if err != nil {
+  t.Error(err)
+  return
+}
+// Must return http error
+if rsp.StatusCode/100 == 2 {
+  t.Errorf("Error was expected")
+  return
+}</pre><p class="list-inset">Note that the <strong class="source-inline">http.Post</strong> function <a id="_idIndexMarker708"/>does not return an error. An error from <strong class="source-inline">http.Post</strong> would mean the <strong class="source-inline">POST</strong> operation failed. In this case, the <strong class="source-inline">POST</strong> operation was successful, but an HTTP error status <span class="No-Break">was returned.</span></p></li>				<li>You can issue multiple calls to the server to test different inputs and check <span class="No-Break">the output:</span><pre class="source-code">
+data, err := json.Marshal([]time.Time{
+  time.Date(2023, 2, 1, 12, 8, 37, 0, time.Local),
+  time.Date(2021, 5, 6, 9, 48, 11, 0, time.Local),
+  time.Date(2022, 11, 13, 17, 13, 54, 0, time.Local),
+  time.Date(2022, 6, 23, 22, 29, 28, 0, time.Local),
+  time.Date(2023, 3, 17, 4, 5, 9, 0, time.Local),
+))
+if err != nil {
+  t.Error(err)
+  return
+}
+rsp, err = http.Post(server.URL+"/sort/asc", "application/json", bytes.NewReader(data))
+if err != nil {
+  t.Error(err)
+  return
+}
+defer rsp.Body.Close()
+if rsp.StatusCode != 200 {
+  t.Errorf("Expected status code 200, got %d", rsp.StatusCode)
+  return
+}
+var output []time.Time
+if err := json.NewDecoder(rsp.Body).Decode(&amp;output); err != nil {
+  t.Error(err)
+  return
+}
+for i := 1; i &lt; len(output); i++ {
+  if !output[i-1].Before(output[i]) {
+    t.Errorf("Wrong order")
+  }
+}</pre></li>			</ol>
+			<h1 id="_idParaDest-435"><a id="_idTextAnchor436"/>Testing HTTP handlers</h1>
+			<p>The <strong class="source-inline">net/http/httptest</strong> package <a id="_idIndexMarker709"/>also contains <strong class="source-inline">ResponseRecorder</strong>, which can be used as <strong class="source-inline">http.ResponseWriter</strong> for HTTP handlers to test a single handler without creating <span class="No-Break">a server.</span></p>
+			<h2 id="_idParaDest-436"><a id="_idTextAnchor437"/>How to do it...</h2>
+			<ol>
+				<li><span class="No-Break">Create </span><span class="No-Break"><strong class="source-inline">ResponseRecorder</strong></span><span class="No-Break">:</span><pre class="source-code">
+func TestHandler(t *testing.T) {
+  w := httptest.NewRecorder()</pre></li>				<li>Call the handler, passing the response recorder instead <span class="No-Break">of </span><span class="No-Break"><strong class="source-inline">http.ResponseWriter</strong></span><span class="No-Break">:</span><pre class="source-code">
+data, err := json.Marshal([]time.Time{
+  time.Date(2023, 2, 1, 12, 8, 37, 0, time.Local),
+  time.Date(2021, 5, 6, 9, 48, 11, 0, time.Local),
+  time.Date(2022, 11, 13, 17, 13, 54, 0, time.Local),
+  time.Date(2022, 6, 23, 22, 29, 28, 0, time.Local),
+  time.Date(2023, 3, 17, 4, 5, 9, 0, time.Local),
+})
+if err != nil {
+  t.Error(err)
+  return
+}
+req, _ := http.NewRequest("POST", "localhost/sort/asc", bytes.NewReader(data))
+req.Header.Set("Content-Type", "application/json")
+HandleSort(w, req, true)</pre></li>				<li>The response recorder stores the HTTP response built by the handler. Validate that the<a id="_idIndexMarker710"/> response <span class="No-Break">is correct:</span><pre class="source-code">
+if w.Result().StatusCode != 200 {
+  t.Errorf("Expecting HTTP 200, got %d", w.Result().StatusCode)
+  return
+}
+var output []time.Time
+if err := json.NewDecoder(w.Result().Body).Decode(&amp;output); err != nil {
+  t.Error(err)
+  return
+}
+for i := 1; i &lt; len(output); i++ {
+  if !output[i-1].Before(output[i]) {
+    t.Errorf("Wrong order")
+  }
+}</pre></li>			</ol>
+			<h1 id="_idParaDest-437"><a id="_idTextAnchor438"/>Checking test coverage</h1>
+			<p>A test coverage report<a id="_idIndexMarker711"/> shows which lines of source code were covered <span class="No-Break">by tests.</span></p>
+			<h2 id="_idParaDest-438"><a id="_idTextAnchor439"/>How to do it...</h2>
+			<ol>
+				<li>To get a quick coverage result, run tests with the <span class="No-Break"><strong class="source-inline">cover</strong></span><span class="No-Break"> flag:</span><pre class="source-code">
+$ go test -cover
+PASS
+coverage: 76.2% of statements</pre></li>				<li>To write a test coverage profile to a separate file so you can get detailed reports on it, give the test run a cover profile <span class="No-Break">file name:</span><pre class="source-code">
+$ go test -coverprofile=cover.out
+PASS
+coverage: 76.2% of statements</pre><p class="list-inset">Then, you can see the coverage report in your <span class="No-Break">browser using:</span></p><pre class="source-code">$ go tool cover -html=cover.out</pre><p class="list-inset">This command opens the browser and allows you to see which lines were covered <span class="No-Break">by tests.</span></p></li>			</ol>
+			<h1 id="_idParaDest-439"><a id="_idTextAnchor440"/>Benchmarking</h1>
+			<p>Unit tests check correctness while benchmarks check performance and <span class="No-Break">memory usage.</span></p>
+			<h1 id="_idParaDest-440"><a id="_idTextAnchor441"/>Writing benchmarks</h1>
+			<p>Similar to a unit test, benchmarks<a id="_idIndexMarker712"/> are stored in the <strong class="source-inline">_test.go</strong> files, but these functions start with <strong class="source-inline">Benchmark</strong> instead of <strong class="source-inline">Test</strong>. A benchmark is given a number <strong class="source-inline">N</strong> where you repeat the same operation <strong class="source-inline">N</strong> times while the runtime is measuring <span class="No-Break">the performance.</span></p>
+			<h2 id="_idParaDest-441"><a id="_idTextAnchor442"/>How to do it...</h2>
+			<ol>
+				<li>Create a benchmark function in one of the <strong class="source-inline">_test.go</strong> files. The following example is in the <span class="No-Break"><strong class="source-inline">sort_test.go</strong></span><span class="No-Break"> file:</span><pre class="source-code">
+func BenchmarkSortAscending(b *testing.B) {</pre></li>				<li>Do the setup before the benchmark loop, otherwise, you will be benchmarking the setup code as well, not the <span class="No-Break">actual algorithm:</span><pre class="source-code">
+input := []time.Time{
+  time.Date(2023, 2, 1, 12, 8, 37, 0, time.Local),
+  time.Date(2021, 5, 6, 9, 48, 11, 0, time.Local),
+  time.Date(2022, 11, 13, 17, 13, 54, 0, time.Local),
+  time.Date(2022, 6, 23, 22, 29, 28, 0, time.Local),
+  time.Date(2023, 3, 17, 4, 5, 9, 0, time.Local),
+}</pre></li>				<li>Write a <strong class="source-inline">for</strong> loop <a id="_idIndexMarker713"/>iterating <strong class="source-inline">b.N</strong> times and perform the operation that will <span class="No-Break">be benchmarked:</span><pre class="source-code">
+for i := 0; i &lt; b.N; i++ {
+  SortTimes(input, true)
+}</pre></li>			</ol>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">Avoid logging or printing data in <span class="No-Break">benchmark loops.</span></p>
+			<h1 id="_idParaDest-442"><a id="_idTextAnchor443"/>Writing multiple benchmarks with different input sizes</h1>
+			<p>You usually want to<a id="_idIndexMarker714"/> see the behavior of your algorithms with different input sizes. The Go testing framework only provides the number of times a benchmark should run, not with what input size. Use the following pattern to exercise different <span class="No-Break">input sizes.</span></p>
+			<h2 id="_idParaDest-443"><a id="_idTextAnchor444"/>How to do it...</h2>
+			<ol>
+				<li>Define an unexported parameterized benchmark function that accepts input size information or inputs of different sizes. The following example gets the number of items and sort direction as arguments, and creates a randomly shuffled input slice with the given size before performing <span class="No-Break">the benchmark:</span><pre class="source-code">
+func benchmarkSort(b *testing.B, nItems int, asc bool) {
+    input := make([]time.Time, nItems)
+    t := time.Now().UnixNano()
+    for i := 0; i &lt; nItems; i++ {
+        input[i] = time.Unix(0, t-int64(i))
+    }
+    rand.Shuffle(len(input), func(i, j int) { input[i], input[j] 
+    = input[j], input[i] })
+    for i := 0; i &lt; b.N; i++ {
+        SortTimes(input, asc)
+    }
+}</pre></li>				<li>Define exported benchmark functions by calling the common benchmark with <span class="No-Break">different values:</span><pre class="source-code">
+func BenchmarkSort1000Ascending(b *testing.B)  { benchmarkSort(b, 1000, true) }
+func BenchmarkSort100Ascending(b *testing.B)   { benchmarkSort(b, 100, true) }
+func BenchmarkSort10Ascending(b *testing.B)    { benchmarkSort(b, 10, true) }
+func BenchmarkSort1000Descending(b *testing.B) { benchmarkSort(b, 1000, false) }
+func BenchmarkSort100Descending(b *testing.B)  { benchmarkSort(b, 100, false) }
+func BenchmarkSort10Descending(b *testing.B)   { benchmarkSort(b, 10, false) }</pre></li>			</ol>
+			<h1 id="_idParaDest-444"><a id="_idTextAnchor445"/>Running benchmarks</h1>
+			<p>Go tooling runs unit<a id="_idIndexMarker715"/> tests before running benchmarks -- there is no point in benchmarking <span class="No-Break">failing code.</span></p>
+			<h2 id="_idParaDest-445"><a id="_idTextAnchor446"/>How to do it...</h2>
+			<ol>
+				<li>Use the <strong class="source-inline">go test -bench=&lt;regexp&gt;</strong> tool. To run all benchmarks, use the <span class="No-Break">following command:</span><pre class="source-code">
+go test -bench=.</pre></li>				<li>Enter a benchmark regular expression if you want to run a subset of the benchmarks. The following only runs benchmarks containing <strong class="source-inline">1000</strong> in <span class="No-Break">their names:</span><pre class="source-code">
+go test -bench=1000
+goos: linux
+goarch: amd64
+pkg: github.com/PacktPublishing/Go-Recipes-for-Developers/src/chp17/sorting/sort
+cpu: AMD Ryzen 5 7530U with Radeon Graphics
+BenchmarkSort1000Ascending-12             9753        105997 ns/op
+BenchmarkSort1000Descending-12             9813        105192 ns/op
+PASS</pre></li>			</ol>
+			<h1 id="_idParaDest-446"><a id="_idTextAnchor447"/>Profiling</h1>
+			<p>A profiler samples a <a id="_idIndexMarker716"/>running program to find how much time is spent in certain functions. You can profile a benchmark, create a profile, and then inspect that profile to find bottlenecks in <span class="No-Break">your programs.</span></p>
+			<h2 id="_idParaDest-447"><a id="_idTextAnchor448"/>How to do it…</h2>
+			<p>To get a CPU profile and analyze it, follow <span class="No-Break">these steps:</span></p>
+			<ol>
+				<li>Run benchmarks with the <span class="No-Break"><strong class="source-inline">cpuprofile</strong></span><span class="No-Break"> flag:</span><pre class="source-code">
+$ go test -bench=1000Ascending --cpuprofile=profile
+goos: linux
+goarch: amd64
+pkg: github.com/PacktPublishing/Go-Recipes-for-Developers/src/chp17/sorting/sort
+cpu: AMD Ryzen 5 7530U with Radeon Graphics
+BenchmarkSort1000Ascending-12           10000        106509 ns/op</pre></li>				<li>Start the <strong class="source-inline">pprof</strong> tool using <span class="No-Break">the profile:</span><pre class="source-code">
+$ go tool pprof profile
+File: sort.test
+Type: cpu</pre></li>				<li>Use the <strong class="source-inline">topN</strong> command to see the top <strong class="source-inline">N</strong> samples in <span class="No-Break">the profile:</span><pre class="source-code">
+(pprof) top5
+Showing nodes accounting for 780ms, 71.56% of 1090ms total
+Showing top 5 nodes out of 47
+      flat  flat%   sum%        cum   cum%
+     250ms 22.94% 22.94%      360ms 33.03%  github.com/PacktPublishing/Go-Recipes-for-Developers/src/chp17/sorting/sort.SortTimes.func1
+     230ms 21.10% 44.04%      620ms 56.88%  sort.partition_func
+     120ms 11.01% 55.05%      120ms 11.01%  runtime.memmove
+      90ms  8.26% 63.30%      340ms 31.19%  internal/
+      reflectlite.Swapper.func9
+      90ms  8.26% 71.56%      230ms 21.10%  internal/
+      reflectlite.typedmemmove</pre><p class="list-inset">This shows that most time is spent in the anonymous function that compares two time values. The <strong class="source-inline">flat</strong> column shows how much time is spent in a function, excluding the<a id="_idIndexMarker717"/> time spent in functions called by it. <strong class="source-inline">cum</strong>, which stands for cumulative, includes the time spent in a function, defined as the point in time the function returned minus the point in time the function started running. That is, the cumulative value includes the time spent in the functions called by the function. For example <strong class="source-inline">sort.partition_func</strong> ran for <strong class="source-inline">620ms</strong>, but only <strong class="source-inline">230ms</strong> of that time was spent in <strong class="source-inline">sort.partition_func</strong> and the remaining time was spent in functions called <span class="No-Break">by </span><span class="No-Break"><strong class="source-inline">sort.partition_func</strong></span><span class="No-Break">.</span></p></li>				<li>Use the <strong class="source-inline">web</strong> command to see a visual representation of the call graph and how much time is spent on <span class="No-Break">each function.</span></li>
+			</ol>
+			<p>To get a memory profile and analyze it, follow <span class="No-Break">these steps:</span></p>
+			<ol>
+				<li>Run benchmarks with the <span class="No-Break"><strong class="source-inline">memprofile</strong></span><span class="No-Break"> flag:</span><pre class="source-code">
+$ go test -bench=1000Ascending --memprofile=mem
+goos: linux
+goarch: amd64
+pkg: github.com/PacktPublishing/Go-Recipes-for-Developers/src/chp17/sorting/sort
+cpu: AMD Ryzen 5 7530U with Radeon Graphics
+BenchmarkSort1000Ascending-12           10000        106509 ns/op</pre></li>				<li>Start the <strong class="source-inline">pprof</strong> tool using <span class="No-Break">the profile:</span><pre class="source-code">
+$ go tool pprof mem
+File: sort.test
+Type: alloc_space</pre></li>				<li>Use the <strong class="source-inline">topN</strong> command to<a id="_idIndexMarker718"/> see the top <strong class="source-inline">N</strong> samples in <span class="No-Break">the profile:</span><pre class="source-code">
+pprof) top5
+Showing nodes accounting for 493.37MB, 99.90% of 493.87MB total
+Dropped 2 nodes (cum &lt;= 2.47MB)
+      flat  flat%   sum%        cum   cum%
+  492.86MB 99.80% 99.80%   493.36MB 99.90%  github.com/PacktPublishing/Go-Recipes-for-Developers/src/chp17/sorting/sort.SortTimes
+    0.51MB   0.1% 99.90%   493.87MB   100%  github.com/PacktPublishing/Go-Recipes-for-Developers/src/chp17/sorting/sort.benchmarkSort
+         0     0% 99.90%   493.87MB   100%  github.com/PacktPublishing/Go-Recipes-for-Developers/src/chp17/sorting/sort.BenchmarkSort1000Ascending
+         0     0% 99.90%   493.87MB   100%  testing.(*B).launch
+         0     0% 99.90%   493.87MB   100%  testing.(*B).runN</pre><p class="list-inset">Similar to the CPU profile output, this table shows how much memory was allocated to each function. Again, <strong class="source-inline">flat</strong> refers to memory allocated in that function only, and <strong class="source-inline">cum</strong> refers to memory allocated in that function and any function called by that function. Here, you can see that <strong class="source-inline">sort.SortTimes</strong> is the function that allocates most of the memory. This is because it first creates a copy of the slice and then <span class="No-Break">sorts it.</span></p></li>				<li>Use the <strong class="source-inline">web</strong> command<a id="_idIndexMarker719"/> to see a visual representation of the <span class="No-Break">memory allocations.</span></li>
+			</ol>
+			<h2 id="_idParaDest-448"><a id="_idTextAnchor449"/>See also</h2>
+			<ul>
+				<li>The definitive guide to profiling Go Programs is available <span class="No-Break">at </span><a href="https://go.dev/blog/pprof"><span class="No-Break">https://go.dev/blog/pprof</span></a></li>
+				<li>The <strong class="source-inline">pprof</strong> README explains the node and edge <span class="No-Break">representations: </span><a href="https://github.com/google/pprof/blob/main/doc/README.md"><span class="No-Break">https://github.com/google/pprof/blob/main/doc/README.md</span></a></li>
+			</ul>
+		</div>
+	</div></div></body></html>

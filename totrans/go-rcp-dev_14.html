@@ -1,0 +1,644 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer029">
+			<h1 id="_idParaDest-368" class="chapter-number"><a id="_idTextAnchor369"/>14</h1>
+			<h1 id="_idParaDest-369"><a id="_idTextAnchor370"/>Streaming Input/Output</h1>
+			<p>There is flexibility and elegance in simplicity. Unlike several languages that decided to implement a feature-rich streaming framework, Go chose a simple capability-based approach: a reader is something from which you read bytes, and a writer is something to which you write bytes. In-memory buffers, files, network connections, and so on are all readers and writers, defined by <strong class="source-inline">io.Reader</strong> and <strong class="source-inline">io.Writer</strong>. A file is also an <strong class="source-inline">io.Seeker</strong>, as you can randomly change the reading/writing location, but a network connection is not. A file and a network connection can be closed, so they are both <strong class="source-inline">io.Closer</strong>, but a memory buffer is not. Such simple and elegant abstractions are the key to writing algorithms that can be used in <span class="No-Break">different contexts.</span></p>
+			<p>In this chapter, we will look at some recipes showing how this capability-based streaming framework can be used idiomatically. We will also look at how to work with files and the filesystem. The recipes covered in this chapter are in the following <span class="No-Break">main sections:</span></p>
+			<ul>
+				<li><span class="No-Break">Readers/writers</span></li>
+				<li>Working <span class="No-Break">with files</span></li>
+				<li>Working with <span class="No-Break">binary data</span></li>
+				<li><span class="No-Break">Copying data</span></li>
+				<li>Working with <span class="No-Break">the filesystem</span></li>
+				<li>Working <span class="No-Break">with pipes</span></li>
+			</ul>
+			<h1 id="_idParaDest-370"><a id="_idTextAnchor371"/>Readers/writers</h1>
+			<p>Remember, Go uses <a id="_idIndexMarker575"/>a structural type system. This makes any data type that implements <strong class="source-inline">Read([]byte) (int,error)</strong> an <strong class="source-inline">io.Reader</strong>, and any data type that implements <strong class="source-inline">Write([]byte) (int,error)</strong> an <strong class="source-inline">io.Writer</strong>. There are many uses of this property in the standard library. In this recipe, we will look at some of the common uses of readers <span class="No-Break">and writers.</span></p>
+			<h2 id="_idParaDest-371"><a id="_idTextAnchor372"/>Reading data from a reader</h2>
+			<p>An <strong class="source-inline">io.Reader</strong> fills a byte slice you pass to it. By passing a slice, you actually pass two pieces of <a id="_idIndexMarker576"/>information: how much you want to read (the length of the slice) and where to put the data that was read (the underlying array of <span class="No-Break">the slice).</span></p>
+			<h3>How to do it...</h3>
+			<ol>
+				<li>Create a byte slice large enough to hold the data you want <span class="No-Break">to read:</span><pre class="source-code">
+buffer := make([]byte,1024)</pre></li>				<li>Read the data into the <span class="No-Break">byte slice:</span><pre class="source-code">
+nRead, err := reader.Read(buffer)</pre></li>				<li>Check how much was read. The number of bytes actually read may be smaller than the <span class="No-Break">buffer size:</span><pre class="source-code">
+buffer = buffer[:nRead]</pre></li>				<li>Check the error. If the error is <strong class="source-inline">io.EOF</strong>, then the reader reached the end of the stream. If the error is something else, handle the error or <span class="No-Break">return it:</span><pre class="source-code">
+if errors.Is(err,io.EOF) {
+  // End of file reached. Return data
+  return buffer, nil
+}
+if err!=nil {
+  // Some other error, handle it or return
+  return nil,err
+}</pre></li>			</ol>
+			<p>Note the ordering of <em class="italic">steps 3</em> and <em class="italic">4</em>. Returning <strong class="source-inline">io.EOF</strong> is not necessarily an error, it simply means the end of the file has been reached or the network connection has been closed, so you <a id="_idIndexMarker577"/>should stop reading. There is probably some data read in the buffer, and you should process that data. The reader returns how much data <span class="No-Break">was read.</span></p>
+			<h2 id="_idParaDest-372"><a id="_idTextAnchor373"/>Writing data to a writer</h2>
+			<ol>
+				<li>Encode <a id="_idIndexMarker578"/>the data you want to write as a byte slice; for instance, use <strong class="source-inline">json.Marshal</strong> to get the JSON representation of your data as <span class="No-Break">a </span><span class="No-Break"><strong class="source-inline">[]byte</strong></span><span class="No-Break">:</span><pre class="source-code">
+buffer, err:=json.Marshal(data)
+if err!=nil {
+  return err
+}</pre></li>				<li>Write the <span class="No-Break">encoded </span><span class="No-Break">data:</span><pre class="source-code">
+_, err:= writer.Write(buffer)
+if err!=nil {
+  return err
+}</pre></li>				<li>Check and <span class="No-Break">handle errors.</span></li>
+			</ol>
+			<p class="callout-heading">Warning</p>
+			<p class="callout">Unlike a reader, all errors returned from a writer should be treated as errors. A writer does not return <strong class="source-inline">io.EOF</strong>. Even when there is an error, a write may have written some part of <span class="No-Break">the data.</span></p>
+			<h2 id="_idParaDest-373"><a id="_idTextAnchor374"/>Reading from and writing to a byte slice</h2>
+			<p>A reader <a id="_idIndexMarker579"/>or a writer does not have to be a file or a network connection. This <a id="_idIndexMarker580"/>section shows how you can work with byte slices as readers <span class="No-Break">and writers.</span></p>
+			<h3>How to do it...</h3>
+			<ul>
+				<li>To create a reader from a <strong class="source-inline">[]byte</strong>, use <strong class="source-inline">bytes.NewReader</strong>. The following example marshals a data structure to JSON (which returns a <strong class="source-inline">[]byte</strong>), then sends that <strong class="source-inline">[]byte</strong> to an HTTP <strong class="source-inline">POST</strong> request by creating a reader <span class="No-Break">from it:</span><pre class="source-code">
+data, err:=json.Marshal(myStruct)
+if err!=nil {
+  return err
+}
+rsp, err:=http.Post(postUrl, "application/json", bytes.NewReader(data))</pre></li>				<li>To use a <strong class="source-inline">[]byte</strong> as a writer, use <strong class="source-inline">bytes.Buffer</strong>. The buffer will append to the underlying byte slice as you write to it. When you are done, you can get the contents of <span class="No-Break">the buffer:</span><pre class="source-code">
+buffer := &amp;bytes.Buffer{}
+encoder := json.NewEncoder(buffer)
+if err:=encoder.Encode(myStruct); err!=nil {
+   return err
+}
+data := buffer.Bytes()</pre></li>			</ul>
+			<p>A <strong class="source-inline">bytes.Buffer</strong> is also an <strong class="source-inline">io.Reader</strong>, with a separate read location. Writing to a <strong class="source-inline">bytes.Buffer</strong> appends to the end of the underlying slice. Reading from a <strong class="source-inline">bytes.Buffer</strong> starts reading from the beginning of the underlying slice. Because of this, you can read the bytes you wrote, <span class="No-Break">as follows:</span></p>
+			<pre class="source-code">
+buffer := &amp;bytes.Buffer{}
+encoder := json.NewEncoder(buffer)
+if err:=encoder.Encode(myStruct); err!=nil {
+   return err
+}
+rsp,err:=http.Post(postUrl, "application/json", buffer)</pre>			<h2 id="_idParaDest-374"><a id="_idTextAnchor375"/>Reading from and writing to a string</h2>
+			<p>To create <a id="_idIndexMarker581"/>a reader from a string, use <strong class="source-inline">strings.NewReader</strong>, <span class="No-Break">as follows:</span></p>
+			<pre class="source-code">
+rsp, err:=http.Post(postUrl,"application/json",strings.NewReader(`{"key":"value"}`))</pre>			<p>Do <em class="italic">not</em> use <strong class="source-inline">bytes.NewReader([]byte(stringValue))</strong> instead of <strong class="source-inline">strings.NewReader(stringValue)</strong>. The former copies the contents of the string to <a id="_idIndexMarker582"/>create a byte slice. The latter accesses the underlying bytes <span class="No-Break">without copying.</span></p>
+			<p>To use a string as an <strong class="source-inline">io.Writer</strong>, use <strong class="source-inline">strings.Builder</strong>. For instance, as an <strong class="source-inline">io.Writer</strong>, <strong class="source-inline">strings.Builder</strong> can be passed to the <strong class="source-inline">fmt.Fprint</strong> family <span class="No-Break">of functions:</span></p>
+			<pre class="source-code">
+query:=strings.Builder{}
+args:=make([]interface{},0)
+query.WriteString("SELECT id,name FROM users ")
+if !createdAt.IsZero() {
+  args=append(args,createdAt)
+  fmt.Fprintf(&amp;query,"where createdAt &lt; $%d",len(args))
+}
+rows, err:=tx.Query(ctx,query.String(),args...)</pre>			<h1 id="_idParaDest-375"><a id="_idTextAnchor376"/>Working with files</h1>
+			<p>Files are <a id="_idIndexMarker583"/>simply sequences of bytes on a storage system. There are two ways of working with files: as a random access byte sequence or as a stream of bytes. We will look at both types of recipes in <span class="No-Break">this section.</span></p>
+			<h2 id="_idParaDest-376"><a id="_idTextAnchor377"/>Creating and opening files</h2>
+			<p>To work <a id="_idIndexMarker584"/>with the contents of a file, you first have to open it or create it. This <a id="_idIndexMarker585"/>recipe shows how that can <span class="No-Break">be done.</span></p>
+			<h3>How to do it...</h3>
+			<p>To open an existing file for reading, <span class="No-Break">use </span><span class="No-Break"><strong class="source-inline">os.Open</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+file, err := os.Open(fileName)
+if err!=nil {
+ // handle error
+}</pre>			<p>You can read data from the returned file object, and when you are done, you should close it using <strong class="source-inline">file.Close()</strong>. So, you can use it as an <strong class="source-inline">io.Reader</strong> or <strong class="source-inline">io.ReadCloser</strong> (there are more interfaces that <strong class="source-inline">*</strong><span class="No-Break"><strong class="source-inline">os.File</strong></span><span class="No-Break"> implements!)</span></p>
+			<p>If you attempt to write to the file, you will receive an error from the write operation. On my Linux system, this error is a <strong class="source-inline">*fs.PathError</strong> message saying <strong class="source-inline">bad </strong><span class="No-Break"><strong class="source-inline">file descriptor</strong></span><span class="No-Break">.</span></p>
+			<p>To create a new file or to overwrite an existing one, <span class="No-Break">use </span><span class="No-Break"><strong class="source-inline">os.Create</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+file, err := os.Create(fileName)
+if err!=nil {
+  // handle error
+}</pre>			<p>If the above call is successful, the returned file can be read from or written to. The file is created with <strong class="source-inline">0o666 &amp; ^umask</strong>. If the file already existed before this call, it will be truncated to a length <span class="No-Break">of </span><span class="No-Break"><strong class="source-inline">0</strong></span><span class="No-Break">.</span></p>
+			<p class="callout-heading">Tip</p>
+			<p class="callout"><strong class="source-inline">umask</strong> defines the set of permissions applications cannot set on files. In the preceding text, <strong class="source-inline">0o666</strong> means that the owner, group, and others can read and write the file. A <strong class="source-inline">umask</strong> value of <strong class="source-inline">0o022</strong>, for instance, will change the file mode from <strong class="source-inline">0o666</strong> to <strong class="source-inline">0o644</strong>, which means the owner can read and write, but the group and others can <span class="No-Break">only read.</span></p>
+			<p>To open <a id="_idIndexMarker586"/>an existing file for reading/writing, use <strong class="source-inline">os.OpenFile</strong>. This is the <a id="_idIndexMarker587"/>most general form of the open/create family <span class="No-Break">of functions:</span></p>
+			<ul>
+				<li>To open an existing file for both reading and writing, use <span class="No-Break">the following:</span><pre class="source-code">
+file, err := os.OpenFile(fileName,os.O_RDWR, 0)</pre><p class="list-inset">The last argument is <strong class="source-inline">0</strong>. This argument is only used when creating the file is an option. We will see this case <span class="No-Break">later shortly.</span></p></li>				<li>To open an existing file for reading only, use <span class="No-Break">the following:</span><pre class="source-code">
+file, err := os.OpenFile(fileName,os.O_RDONLY, 0)</pre></li>				<li>To open an existing file for writing only, use <span class="No-Break">the following:</span><pre class="source-code">
+file, err := os.OpenFile(fileName,os.O_WRONLY, 0)</pre></li>				<li>To open an existing file for appending only, use <span class="No-Break">the following:</span><pre class="source-code">
+file, err := os.OpenFile(fileName,os.O_WRONLY|os.O_APPEND, 0)</pre><p class="list-inset">Trying to write somewhere other than the end of the file <span class="No-Break">will fail.</span></p></li>				<li>To open an existing file or to create one if it does not exist, use <span class="No-Break">the following:</span><pre class="source-code">
+file, err := os.OpenFile(fileName,os.O_RDWR|os.O_CREATE, 0o644)</pre><p class="list-inset">The above operation will open the file for reading and writing if it exists. If the file does not exist, it will be created using the <strong class="source-inline">0o644 &amp; ^umask</strong> permission bits. <strong class="source-inline">0o644</strong> means the owner can read/write (<strong class="source-inline">06</strong>), users from the same group can read (<strong class="source-inline">04</strong>), and other users can <span class="No-Break">read (</span><span class="No-Break"><strong class="source-inline">04</strong></span><span class="No-Break">).</span></p></li>			</ul>
+			<p>The following is equivalent to <strong class="source-inline">os.Create</strong>; that is, truncate and open the file if it exists but create if it <span class="No-Break">does not:</span></p>
+			<pre class="source-code">
+file, err:= os.Open(fileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC,0o644)</pre>			<p>If you <a id="_idIndexMarker588"/>want to create the file only if it does not exist, use the “<span class="No-Break">exclusive” bit:</span></p>
+			<pre class="source-code">
+file, err := os.Open(fileName, os.O_RDWR|os.O_CREATE|os.O_EXCL,0o644)</pre>			<p>This call <a id="_idIndexMarker589"/>will fail if the file <span class="No-Break">already exists.</span></p>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">This is a common way of ensuring a single instance of a process is running, or to lock a resource if it is not locked. For instance, if you want to lock a directory, you can use this call to create a lock file. It will fail if some other process already locked it (created the file <span class="No-Break">before you.)</span></p>
+			<h2 id="_idParaDest-377"><a id="_idTextAnchor378"/>Closing a file</h2>
+			<p>There are <a id="_idIndexMarker590"/>two reasons why you should always explicitly close files <span class="No-Break">you open:</span></p>
+			<ul>
+				<li>All data stored in buffers are flushed when you close <span class="No-Break">the file.</span></li>
+				<li>There are limits to how many files you can keep open at any given time. These limits change from platform <span class="No-Break">to platform.</span></li>
+			</ul>
+			<p>The following steps show how you can do <span class="No-Break">this consistently.</span></p>
+			<h3>How to do it...</h3>
+			<p>When you are done working with a file, close it. Use <strong class="source-inline">defer file.Close()</strong> <span class="No-Break">where possible:</span></p>
+			<pre class="source-code">
+file, err:=os.Open(fileName)
+if err!=nil {
+  // handle error
+}
+defer file.Close()
+// Work with the file</pre>			<p>Do <em class="italic">not</em> rely on <strong class="source-inline">defer</strong> if you are working with many files. Do not <span class="No-Break">do this:</span></p>
+			<pre class="source-code">
+for _,fileName:=range files {
+   file, err:=os.Open(fileName)
+   if err!=nil {
+     // handle error
+   }
+   defer file.Close()
+   // Work with file
+}</pre>			<p>Deferred calls <a id="_idIndexMarker591"/>will execute when the function returns, not when the block in which you used them ends. The above code will keep all the files open until the function returns, and if there is a large number of files, <strong class="source-inline">os.Open</strong> will start failing once you pass the open file limit. You can do one of two things. The first is to explicitly close the file for all <span class="No-Break">exit points:</span></p>
+			<pre class="source-code">
+for _,fileName:=range files {
+   file, err:=os.Open(fileName)
+   if err!=nil {
+     return err
+   }
+   // Work with file
+   err:=useFile(file)
+   if err!=nil {
+     file.Close()
+     return err
+   }
+   err:=useFileAgain(file)
+   if err!=nil {
+     file.Close()
+     return err
+   }
+   // Do more work
+   file.Close()
+}</pre>			<p>The <a id="_idIndexMarker592"/>second is to use a closure <span class="No-Break">with </span><span class="No-Break"><strong class="source-inline">defer</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+for _,fileName:=range files {
+   file, err:=os.Open(fileName)
+   if err!=nil {
+     return err
+   }
+   err=func() error {
+     defer file.Close()
+     // Work with file
+     err:=useFile(file)
+     if err!=nil {
+       return err
+     }
+     err:=useFileAgain(file)
+     if err!=nil {
+       return err
+     }
+     // Do more work
+     return nil
+   }()
+   if err!=nil {
+     return err
+   }
+}</pre>			<p class="callout-heading">Tip</p>
+			<p class="callout"> Files are garbage collected. If you open/create files and then work with file descriptors directly instead of using <strong class="source-inline">*os.File</strong>, the garbage collector is not your friend. Use <strong class="source-inline">runtime.KeepAlive(file)</strong> to prevent the garbage collector from closing the file while you’re working with it through the file descriptor and/or syscalls. Avoid relying on the garbage collector to close your files. Always close <span class="No-Break">files explicitly.</span></p>
+			<h2 id="_idParaDest-378"><a id="_idTextAnchor379"/>Reading/writing data from/to files</h2>
+			<p>When you <a id="_idIndexMarker593"/>open a file for reading and writing, the operating system keeps the <strong class="bold">current location</strong> within the file. Read and write operations <a id="_idIndexMarker594"/>are performed at that current location, and once you read or write some data, the current location advances to accommodate the data read or written. For instance, if you open a file for reading, the current location is set to an offset of <strong class="source-inline">0</strong>. Then if you read 10 bytes from the file, the current location becomes <strong class="source-inline">10</strong> (assuming the file is larger than 10 bytes). The next time you read from the file or write to it, you will read the contents or write starting from an offset of <strong class="source-inline">10</strong>. Keep this behavior in mind, especially if you are mixing reads and writes to <span class="No-Break">a file.</span></p>
+			<h3>How to do it...</h3>
+			<ul>
+				<li>To read some data starting from the current location, <span class="No-Break">use </span><span class="No-Break"><strong class="source-inline">file.Read</strong></span><span class="No-Break">:</span><pre class="source-code">
+file, err:=os.Open(fileName)
+if err!=nil {
+  return err
+}
+// Current location: 0
+buffer:=make([]byte,100)
+// Read 100 bytes
+n, err:=file.Read(buffer)
+// Current location: n
+// n tells how many bytes actually read
+data:=buffer[:n]
+if err!=nil {
+  if errors.Is(err, io.EOF) {
+  }
+}</pre><p class="list-inset">The <a id="_idIndexMarker595"/>ordering of checking for <strong class="source-inline">n</strong> (the number of bytes read) and checking whether there was an error is important. An <strong class="source-inline">io.Reader</strong> may do a partial read and return the number of bytes read along <a id="_idIndexMarker596"/>with an error. That error may be <strong class="source-inline">io.EOF</strong>, signifying that the file has less data than you attempted to read. For instance, a file with 10 bytes will return <strong class="source-inline">n=10</strong> and <strong class="source-inline">err=io.EOF</strong>. Also note that this behavior is dependent on the current location of the file. The following code segment reads the file as a slice of <span class="No-Break">byte slices:</span></p><pre class="source-code">slices := make([][]byte,0)
+for {
+  buffer:=make([]byte,1024)
+  n, err:=file.Read(buffer)
+  if n&gt;0 {
+    slices=append(slices,buffer[:n])
+    buffer=make([]byte,1024)
+  }
+  if err!=nil {
+    if errors.Is(err,io.EOF) {
+      break
+    }
+    return err
+  }
+}</pre><p class="list-inset">If the <a id="_idIndexMarker597"/>current location in the file is <strong class="source-inline">0</strong> when the preceding <a id="_idIndexMarker598"/>code begins, after every read operation, the current location will progress by <strong class="source-inline">n</strong>. Note that all the byte slices will be <strong class="source-inline">1024</strong> bytes except the last. The last slice can be anywhere from <strong class="source-inline">1</strong> to <strong class="source-inline">1024</strong> bytes, depending on the <span class="No-Break">file size.</span></p></li>				<li>Writing to a file is <span class="No-Break">done similarly:</span><pre class="source-code">
+buffer:=[]byte("Hello world!")
+n, err:=io.Write(buffer)
+if err!=nil {
+  return err
+}</pre><p class="list-inset">A write operation will not return <strong class="source-inline">io.EOF</strong>. If you write past the end of the file, the file will be enlarged to accommodate the written bytes. If the write operation cannot write all the given bytes, the error will always be non-nil, and you should check and handle <span class="No-Break">the error.</span></p><p class="list-inset">If the <a id="_idIndexMarker599"/>current location is <strong class="source-inline">0</strong> at the beginning, it will be <strong class="source-inline">n</strong> after the <span class="No-Break">write operation.</span></p></li>				<li>To read <a id="_idIndexMarker600"/>everything from a file, <span class="No-Break">use </span><span class="No-Break"><strong class="source-inline">os.ReadFile</strong></span><span class="No-Break">:</span><pre class="source-code">
+data, err:= os.ReadFile("config.yaml")
+if err!=nil {
+  // Handle error
+}</pre></li>			</ul>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">Be careful when using <strong class="source-inline">os.ReadFile</strong>. It allocates a <strong class="source-inline">[]byte</strong> that is the size of the file. Use this function only if you are sure the file you are reading is of a <span class="No-Break">reasonable size.</span></p>
+			<ul>
+				<li>To read a large file in fixed-size chunks, allocate a fixed-size buffer and read iteratively until <strong class="source-inline">io.EOF</strong> <span class="No-Break">is returned:</span><pre class="source-code">
+// Read file in 10K chunks
+buf:=make([]byte,10240)
+for {
+  n, err:=file.Read(buf)
+  if n&gt;0 {
+    // Process buffer contents:
+    processData(buf[:n])
+  }
+  // Check for errors. Check for io.EOF and handle it
+  if err!=nil {
+    if errors.Is(err,io.EOF) {
+      // End of file. We are done
+      break
+    }
+    // Some other error
+    return err
+  }
+}</pre></li>				<li>To write <a id="_idIndexMarker601"/>a byte <a id="_idIndexMarker602"/>slice to a new file, <span class="No-Break">use </span><span class="No-Break"><strong class="source-inline">os.WriteFile</strong></span><span class="No-Break">:</span><pre class="source-code">
+err:=os.WriteFile("config.yaml", data, 0o644)</pre></li>			</ul>
+			<h2 id="_idParaDest-379"><a id="_idTextAnchor380"/>Reading/writing from/to a specific location</h2>
+			<p>We talked <a id="_idIndexMarker603"/>about the concept of the <strong class="bold">current location</strong> previously. This <a id="_idIndexMarker604"/>section is about moving the current location to start reading or writing from a random location in <span class="No-Break">a file.</span></p>
+			<h3>How to do it...</h3>
+			<p>You may change the current location <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">File.Seek</strong></span><span class="No-Break">.</span></p>
+			<ul>
+				<li>To set the current location relative to the beginning of the file, use <span class="No-Break">the following:</span><pre class="source-code">
+// Move to offset 100 in file
+newLocation, err := file.Seek(100,io.SeekStart)</pre><p class="list-inset">The returned <strong class="source-inline">newLocation</strong> is the new current location of the file. Subsequent read or write operations will read from or write to <span class="No-Break">that location.</span></p></li>				<li>To set the current location relative to the end of the file, use <span class="No-Break">the following:</span><pre class="source-code">
+// Move to the end of the file:
+newLocation, err := file.Seek(0,io.SeekEnd)</pre><p class="list-inset">This is also a quick way of determining the current file size, as <strong class="source-inline">newLocation</strong> is 0 bytes ahead of the end of <span class="No-Break">the file.</span></p></li>				<li>You can <a id="_idIndexMarker605"/>seek beyond the end of the file. Reading from such <a id="_idIndexMarker606"/>a location will read 0 bytes. Writing to such a location will extend the file size to accommodate the data written at <span class="No-Break">that location:</span><pre class="source-code">
+// Go to 100 after the end of file and write 1 byte
+newLocation, err:=file.Seek(100, io.SeekEnd)
+if err!=nil {
+  panic(err)
+}
+// Write 1 byte.
+file.Write([]byte{0})
+// The file is 101 bytes larger now.</pre></li>			</ul>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">When you extend a file like this, the area between the end of the file and the newly written bytes is filled with 0s. The underlying platform may implement this as a <strong class="bold">hole</strong>; that is, the area that is not written may not be <span class="No-Break">actually allocated.</span></p>
+			<ul>
+				<li><strong class="source-inline">os.File</strong> supports additional methods for such random access. <strong class="source-inline">File.WriteAt</strong> will write data to the given location (relative to the beginning of the file) without moving the current location. <strong class="source-inline">File.ReadAt</strong> will read from the given location without moving the <span class="No-Break">current location:</span><pre class="source-code">
+// Go to offset 1000
+_,err:=file.Seek(1000,io.SeekStart)
+// Write "Hello world" to offset 10.
+n, err:=file.WriteAt([]byte("Hello world!"),10)
+if err!=nil {
+  panic(err)
+}
+// Write to offset 1000, because WriteAt does not move
+// the current location
+_,err:=file.WriteAt([]byte{"offset 1000")
+buffer:=make([]byte,5)
+file.ReadAt(buffer,10)
+fmt.Println(string(buffer))
+// Prints "Hello"</pre></li>			</ul>
+			<h2 id="_idParaDest-380"><a id="_idTextAnchor381"/>Changing the file size</h2>
+			<p>Extending a <a id="_idIndexMarker607"/>file is usually achieved by writing more data to the end of it, but how can you shrink an existing file? This recipe describes different ways to change the <span class="No-Break">file size.</span></p>
+			<h3>How to do it...</h3>
+			<ul>
+				<li>To truncate a file to a size of <strong class="source-inline">0</strong>, you can open a file with the <span class="No-Break">truncate flag:</span><pre class="source-code">
+file, err:=os.OpenFile("test.txt", os.O_RDWR|os.O_TRUNC,0o644)
+// File is opened and truncated to 0 size</pre></li>				<li>If the file is already open, you can use <strong class="source-inline">File.Truncate</strong> to set the file size. <strong class="source-inline">File.Truncate</strong> works both ways – you can extend a file or you can <span class="No-Break">shrink it:</span><pre class="source-code">
+// Truncate the file to 0-size
+err:=file.Truncate(0)
+if err!=nil {
+  panic(err)
+}
+// Extend the file to 100-bytes
+err=file.Truncate(100)
+if err!=nil {
+  panic(err)
+}</pre></li>				<li>You can also <a id="_idIndexMarker608"/>extend a file by appending to it. You can do this in one of two ways. You can open the file <span class="No-Break">for append-only:</span><pre class="source-code">
+file, err:=os.OpenFile("test.txt", os.O_WRONLY|os.O_APPEND,0)
+// File is opened for writing, current location is set to the
+// end of the file</pre><p class="list-inset">If you open a file append-only, you cannot read/write from other locations of the file, you can only append <span class="No-Break">to it.</span></p></li>				<li>Alternatively, you can seek the end of the file and start <span class="No-Break">writing there:</span><pre class="source-code">
+// Seek to the end
+_,err:=file.Seek(0,io.SeekEnd)
+if err!=nil {
+  panic(err)
+}
+// Write new data to the end of the file
+_,err:=file.Write(data)</pre></li>			</ul>
+			<h2 id="_idParaDest-381"><a id="_idTextAnchor382"/>Finding the file size</h2>
+			<p>If the file <a id="_idIndexMarker609"/>is open, you can obtain the file size <span class="No-Break">as follows:</span></p>
+			<pre class="source-code">
+fileSize, err:= file.Seek(0,io.SeekEnd)</pre>			<p>This will return the current file size, including any data that was appended but not <span class="No-Break">yet flushed.</span></p>
+			<p>The above operation will move the file pointer to the end of the file. To preserve the current location, use <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+// Get current location
+currentLocation, err:=file.Seek(0,io.SeekCurrent)
+if err!=nil {
+  return err
+}
+// Find file size
+fileSize, err:=file.Seek(0,io.SeekEnd)
+if err!=nil {
+  return err
+}
+// Move back to the saved location
+_,err:=file.Seek(currentLocation,io.SeekStart)
+if err!=nil {
+  return err
+}</pre>			<p>If the file is not open, <span class="No-Break">use </span><span class="No-Break"><strong class="source-inline">os.Stat</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+fileInfo, err:=os.Stat(fileName)
+if err!=nil {
+  return err
+}
+fileSize := fileInfo.Size()</pre>			<p class="callout-heading">Tip</p>
+			<p class="callout">If you have <a id="_idIndexMarker610"/>the file open and you appended data to the file, the file size reported by <strong class="source-inline">os.Stat</strong> may be different from the file size you obtained by <strong class="source-inline">File.Seek</strong>. The <strong class="source-inline">os.Stat</strong> function reads the file information from the directory. The <strong class="source-inline">File.Seek</strong> method uses process-specific file information that may not have been reflected in the directory <span class="No-Break">entry yet.</span></p>
+			<h1 id="_idParaDest-382"><a id="_idTextAnchor383"/>Working with binary data</h1>
+			<p>If you need to send a piece of data over a network connection or store it in a file, you first have to encode it (or serialize it, or marshal it.) This is necessary because the system at the other <a id="_idIndexMarker611"/>end of the network connection or the application that will read the file you wrote may be running on a different platform. A portable, easy-to-debug but not necessarily efficient way to do this is to use text-based encodings such as JSON. If performance is paramount or when the use case demands it, you use <span class="No-Break">binary encoding.</span></p>
+			<p>There are <a id="_idIndexMarker612"/>many high-level binary encoding schemes. Gob (<a href="https://pkg.go.dev/encoding/gob">https://pkg.go.dev/encoding/gob</a>) is a Go-specific encoding scheme that <a id="_idIndexMarker613"/>can be used for networking applications. Protocol buffers (<a href="https://protobuf.dev">https://protobuf.dev</a>) provide a language-neutral, extensible, schema-driven mechanism for encoding structured data. There are more. Here, we will look at the basics of binary encoding that every software engineer should <span class="No-Break">know about.</span></p>
+			<p>Encoding data involves transforming data elements into a stream of bytes. If you have a data element that is a single byte or a data element that is already a sequence of bytes, you can encode them verbatim. When working with multi-byte data types (<strong class="source-inline">int16</strong>, <strong class="source-inline">int32</strong>, <strong class="source-inline">int64</strong>, etc.), how you order those bytes becomes important. For example, if you have an <strong class="source-inline">int16</strong> value of <strong class="source-inline">0xABCD</strong>, how should you encode those bytes as a <strong class="source-inline">[]byte</strong>? There are <span class="No-Break">two options:</span></p>
+			<ul>
+				<li><strong class="bold">Little-endian</strong>: <strong class="source-inline">0xABCD</strong> is encoded as <strong class="source-inline">[]</strong><span class="No-Break"><strong class="source-inline">byte{0xCD, 0xAB}</strong></span></li>
+				<li><strong class="bold">Big-endian</strong>: <strong class="source-inline">0xABCD</strong> is encoded as <strong class="source-inline">[]</strong><span class="No-Break"><strong class="source-inline">byte{0xAB, 0xCD}</strong></span></li>
+			</ul>
+			<p>Similarly, a 32-bit integer, <strong class="source-inline">0x01234567</strong>, encoded in little-endian byte order gives <strong class="source-inline">[]byte{0x67,0x45,0x23,0x01}</strong> and encoded in big-endian byte ordering gives <strong class="source-inline">[]byte{0x01,0x23,0x45,0x67}</strong>. Most modern hardware uses little-endian byte ordering to represent values in memory. Network protocols (such as IP) tend to <span class="No-Break">use big-endian.</span></p>
+			<h2 id="_idParaDest-383"><a id="_idTextAnchor384"/>How to do it...</h2>
+			<p>There are <a id="_idIndexMarker614"/>two main approaches to encoding <span class="No-Break">binary data:</span></p>
+			<ul>
+				<li>The first is <a id="_idIndexMarker615"/>using a fixed structure. In this approach, the ordering and type of data fields are fixed. For instance, the IPv4 header defines where every header field starts and ends. There is no way to omit a field or add extensions in this approach. An example is shown in <span class="No-Break"><em class="italic">Figure 14</em></span><span class="No-Break"><em class="italic">.1</em></span><span class="No-Break">.</span></li>
+			</ul>
+			<div>
+				<div id="_idContainer027" class="IMG---Figure">
+					<img src="image/B21961_14_01.jpg" alt="Figure 14.1: Fixed-length encoding example" width="693" height="190"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.1: Fixed-length encoding example</p>
+			<ul>
+				<li>The second is using a <a id="_idIndexMarker616"/>dynamic encoding scheme, such as <strong class="bold">length value</strong> (<strong class="bold">LV</strong>) or <strong class="bold">tag length value</strong> (<strong class="bold">TLV</strong>). In this scheme, the encoded data is <a id="_idIndexMarker617"/>not fixed in length, but it is self-describing. A tag defines the data type and/or data element, an optional length defines the length of data, and value is the value of the data element. For instance, a common approach to LV encoding strings is to first encode the length of the string, and then the bytes of the string itself. A TLV encoding of the string would first write a tag denoting the value as a <strong class="source-inline">string</strong> field, then the length, and then the string itself. An example TLV encoding scheme is shown in <span class="No-Break"><em class="italic">Figure 14</em></span><span class="No-Break"><em class="italic">.2</em></span><span class="No-Break">.</span></li>
+			</ul>
+			<div>
+				<div id="_idContainer028" class="IMG---Figure">
+					<img src="image/B21961_14_02.jpg" alt="Figure 14.2: TLV encoding example" width="732" height="267"/>
+				</div>
+			</div>
+			<p class="IMG---Caption" lang="en-US" xml:lang="en-US">Figure 14.2: TLV encoding example</p>
+			<p>This example <a id="_idIndexMarker618"/>uses 16-bit string length and 64-bit slice <span class="No-Break">length encoding.</span></p>
+			<p>Use <strong class="source-inline">encoding/binary</strong> to encode data in big-endian or little-endian <span class="No-Break">byte ordering.</span></p>
+			<p>For fixed-length encoding, you can use <strong class="source-inline">encoding.Write</strong> to encode, and <strong class="source-inline">encoding.Read</strong> to <span class="No-Break">decode data:</span></p>
+			<pre class="source-code">
+type Data struct {
+  IntValue int64
+  BoolValue bool
+  ArrayValue [2]int64
+}
+func main() {
+  output := bytes.Buffer{}
+  data:=Data{
+    IntValue: 1,
+    BoolValue: true,
+    ArrayValue: [2]int64{1,2},
+  }
+  // Encode data using big endian byte order
+  binary.Write(&amp;output, binary.BigEndian, data)
+  stream := output.Bytes()
+  fmt.Printf("Big endian encoded data   : %v\n", stream)
+  // Decode data
+  var value1 Data
+  binary.Read(bytes.NewReader(stream), binary.BigEndian, &amp;value1)
+  fmt.Printf("Decoded data: %v\n", value1)
+  // Encode data using little endian byte order
+  output = bytes.Buffer{}
+  binary.Write(&amp;output, binary.LittleEndian, data)
+  stream = output.Bytes()
+  fmt.Printf("Little endian encoded data: %v\n", stream)
+  // Decode data
+  var value2 Data
+  binary.Read(bytes.NewReader(stream), binary.LittleEndian, &amp;value2)
+  fmt.Printf("Decoded data: %v\n", value2)
+}</pre>			<p>This program outputs <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+Big endian encoded data   : [0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 2]
+Decoded data: {1 true [1 2]}
+Little endian encoded data: [1 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 0 2 0 0 0 0 0 0 0]
+Decoded data: {1 true [1 2]}</pre>			<p>Take special <a id="_idIndexMarker619"/>care when defining the <strong class="source-inline">Data</strong> structure. You cannot use variable length or platform-specific types if you want to use <strong class="source-inline">encoding.Read</strong> <span class="No-Break">or </span><span class="No-Break"><strong class="source-inline">encoding.Write</strong></span><span class="No-Break">:</span></p>
+			<ul>
+				<li>No <strong class="source-inline">int</strong> because the size of <strong class="source-inline">int</strong> <span class="No-Break">is platform-specific</span></li>
+				<li><span class="No-Break">No slices</span></li>
+				<li><span class="No-Break">No maps</span></li>
+				<li><span class="No-Break">No strings</span></li>
+			</ul>
+			<p>How can we encode these values, then? Let’s take a look at an LV encoding scheme to encode a <span class="No-Break">string value:</span></p>
+			<pre class="source-code">
+func EncodeString(s string) []byte {
+  // Allocate the output buffer for string length (int16) + 
+  // len(string)
+  buffer:=make([]byte, 0, len(s)+2)
+  // Encode the length little endian - 2 bytes
+  binary.LittleEndian.PutUint16(buffer,uint16(len(s)))
+  // Copy the string bytes
+  copy(buffer[2:],[]byte(s))
+  return buffer
+}</pre>			<p>Here is <a id="_idIndexMarker620"/>one to decode a <span class="No-Break">string value:</span></p>
+			<pre class="source-code">
+func DecodeString(input []byte) (string, error) {
+     // Read the string length. It must be at least 2 bytes
+     if len(input) &lt; 2 {
+          return "", fmt.Errorf("invalid input")
+     }
+     n := binary.LittleEndian.Uint16(input)
+     if int(n)+2 &gt; len(input) {
+          return "", fmt.Errorf("invalid input")
+     }
+     return string(input[2 : n+2]), nil
+}</pre>			<h1 id="_idParaDest-384"><a id="_idTextAnchor385"/>Copying data</h1>
+			<p><strong class="source-inline">io.Copy</strong> reads data from a reader and writes it to a writer until one of the operations fails or the reader returns <strong class="source-inline">io.EOF</strong>. There are many use cases where you need to get chunks of <a id="_idIndexMarker621"/>data from a reader and send it to a writer. <strong class="source-inline">io.Copy</strong> works at an abstract layer that allows you to copy data from a file to a network connection, or from a string to a file. It also performs capability-based optimizations to minimize data copying. For instance, if the platform supports the splice system call, <strong class="source-inline">io.Copy</strong> can use it to bypass buffer usage. In this section, we will see some uses <span class="No-Break">of </span><span class="No-Break"><strong class="source-inline">io.Copy</strong></span><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-385"><a id="_idTextAnchor386"/>Copying files</h2>
+			<h3>How to do it...</h3>
+			<p>To copy <a id="_idIndexMarker622"/>a file, follow <span class="No-Break">these steps:</span></p>
+			<ol>
+				<li>Open the <span class="No-Break">source file.</span></li>
+				<li>Create the <span class="No-Break">target file.</span></li>
+				<li>Use <strong class="source-inline">io.Copy</strong> to <span class="No-Break">copy data.</span></li>
+				<li>Close <span class="No-Break">both files.</span></li>
+			</ol>
+			<p>These <a id="_idIndexMarker623"/>steps are <span class="No-Break">illustrated here:</span></p>
+			<pre class="source-code">
+sourceFile, err:=os.Open(sourceFileName)
+if err!=nil {
+  panic(err)
+}
+defer sourceFile.Close()
+targetFile, err:=os.Create(targetFileName)
+if err!=nil {
+  panic(err)
+}
+defer targetFile.Close()
+if _,err:=io.Copy(targetFile,sourceFile);err!=nil {
+  panic(err)
+}</pre>			<p>Since <strong class="source-inline">io.Copy</strong> works with <strong class="source-inline">io.Reader</strong> and <strong class="source-inline">io.Writer</strong>, any object implementing these interfaces can be used as the source or the target. For example, the following code segment returns a file as a response to an <span class="No-Break">HTTP request:</span></p>
+			<pre class="source-code">
+// Handle GET /path/{fileName}
+func HandleGetImage(w http.ResponseWriter, req *http.Request) {
+  // Get the file name from the request
+  file, err:=os.Open(req.PathValue("fileName"))
+  if err!=nil {
+    http.Error(w,err.Error(),http.StatusNotFound)
+    return
+  }
+  defer file.Close()
+  // Write file contents to the response writer
+  io.Copy(w,file)
+}</pre>			<h1 id="_idParaDest-386"><a id="_idTextAnchor387"/>Working with the filesystem</h1>
+			<p>There are <a id="_idIndexMarker624"/>many aspects of filesystems that are platform-specific. This section talks about portable ways of working <span class="No-Break">with filesystems.</span></p>
+			<h2 id="_idParaDest-387"><a id="_idTextAnchor388"/>Working with filenames</h2>
+			<p>Use <strong class="source-inline">path/filepath</strong> package to <a id="_idIndexMarker625"/>work with filenames in a <span class="No-Break">portable way.</span></p>
+			<h3>How do to it...</h3>
+			<ul>
+				<li>To build a path from several path segments, <span class="No-Break">use </span><span class="No-Break"><strong class="source-inline">filepath.Join</strong></span><span class="No-Break">:</span><pre class="source-code">
+fmt.Println(filepath.Join("/a/b/","/c/d")
+// Prints /a/b/c
+fmt.Println(filepath.Join("/a/b/c/d/","../../x")
+// Prints a/b/x</pre><p class="list-inset">Note that <strong class="source-inline">filepath.Join</strong> does not allow consecutive separators, and interprets <strong class="source-inline">".."</strong> <span class="No-Break">correctly.</span></p></li>				<li>To split a path to its directory and filename parts, <span class="No-Break">use </span><span class="No-Break"><strong class="source-inline">filepath.Split</strong></span><span class="No-Break">:</span><pre class="source-code">
+fmt.Println(filepath.Split("/home/bserdar/work.txt"))
+// dir: "/home/bserdar" file: "work.txt"
+fmt.Println(filepath.Split("/home/bserdar/projects/"))
+// dir: "/home/bserdar/projects/" file: ""</pre></li>				<li>Avoid using <a id="_idIndexMarker626"/>path separators (<strong class="source-inline">/</strong> and <strong class="source-inline">\</strong>) in your code. Use <strong class="source-inline">filepath.Separator</strong>, which is a platform-specific <span class="No-Break">rune value.</span></li>
+			</ul>
+			<h2 id="_idParaDest-388"><a id="_idTextAnchor389"/>Creating temporary directories and files</h2>
+			<p>Sometimes, you <a id="_idIndexMarker627"/>will need to create unique <a id="_idIndexMarker628"/>directory names and filenames, mostly for <span class="No-Break">temporary data.</span></p>
+			<h3>How to do it...</h3>
+			<ul>
+				<li>To create a temporary directory under the platform-specific default directory for temporary files, <span class="No-Break">use </span><span class="No-Break"><strong class="source-inline">os.MkdirTemp("",prefix)</strong></span><span class="No-Break">:</span><pre class="source-code">
+dir, err:=os.MkdirTemp("","tempdir")
+if err!=nil {
+  // Handle error
+}
+// Clean up when done
+defer os.RemoveAll(dir)
+fmt.Println(dir)
+// Prints /tmp/example10287493</pre><p class="list-inset">The created name is unique. If there are multiple calls to create a temporary directory, each will generate a <span class="No-Break">unique name.</span></p></li>				<li>To create a temporary directory under a specific directory, <span class="No-Break">use </span><span class="No-Break"><strong class="source-inline">os.MkdirTemp(dir,prefix)</strong></span><span class="No-Break">:</span><pre class="source-code">
+// Create a temporary directory under the current directory
+dir, err:=os.MkdirTemp(".","tempdir")
+if err!=nil {
+  // Handle error
+}
+// Cleanup when done
+defer os.RemoveAll(dir)</pre></li>				<li>To create <a id="_idIndexMarker629"/>a temporary directory <a id="_idIndexMarker630"/>with the random part of the name not as a suffix, use <strong class="source-inline">*</strong>. The random string replaces the last <strong class="source-inline">*</strong> <span class="No-Break">character:</span><pre class="source-code">
+dir, err:=os.MkdirTemp(".", "myapp.*.txt")
+if err!=nil {
+  // Handle error
+}
+defer os.RemoveAll(dir)
+fmt.Println(dir)
+// Prints ./myapp.13984873.txt</pre></li>				<li>To create a temporary file, use <strong class="source-inline">os.CreateTemp</strong>. A unique file is created and opened for reading and writing. The name of the created file can be obtained from the returned <span class="No-Break"><strong class="source-inline">file.Name</strong></span><span class="No-Break"> value:</span><pre class="source-code">
+file, err:=os.CreateTemp("","app.*.txt")
+if err!=nil {
+  // Handle error
+}
+fmt.Println("Temp file", file.Name)
+// Cleanup when done
+defer os.Remove(file.Name)
+defer file.Close()</pre></li>			</ul>
+			<p>Similar to <strong class="source-inline">os.MkdirTemp</strong>, if the filename contains <strong class="source-inline">*</strong>, a random string is inserted in place of <a id="_idIndexMarker631"/>the last <strong class="source-inline">*</strong> character. If the filename <a id="_idIndexMarker632"/>does not contain <strong class="source-inline">*</strong>, the random string is appended at the end of <span class="No-Break">the name.</span></p>
+			<h2 id="_idParaDest-389"><a id="_idTextAnchor390"/>Reading directories</h2>
+			<p>Use <strong class="source-inline">os.ReadDir</strong> to list <a id="_idIndexMarker633"/>or discover files under <span class="No-Break">a directory.</span></p>
+			<h3>How to do it...</h3>
+			<ul>
+				<li>Call <strong class="source-inline">os.ReadDir</strong> to get the contents of a directory. This returns directory entries in order sorted <span class="No-Break">by name:</span><pre class="source-code">
+entries, err:=os.ReadDir(".")
+if err!=nil {
+  // handle error
+}
+for _, entry:=range entries {
+   // Name contains the file name only, not the directory
+   name := entry.Name()
+   if entry.IsDir() {
+     // This is a directory
+   } else {
+     // This is not a directory. Does not mean it is a regular 
+     // file Can be a named pipe, device, etc.
+   }
+}</pre><p class="list-inset">You may notice that <strong class="source-inline">os.ReadDir</strong> is not your best bet if you are dealing with potentially large directories. It returns an unbounded slice, and it also spends time <span class="No-Break">sorting it.</span></p></li>				<li>For performance <a id="_idIndexMarker634"/>and memory-conscious applications, open the directory and read it <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">File.ReadDir</strong></span><span class="No-Break">:</span><pre class="source-code">
+// Open the directory
+dir, err:= os.Open("/tmp")
+if err!=nil {
+  panic(err)
+}
+defer dir.Close()
+// Read directory entries unordered, 10 at a time
+for {
+  entries, err:=dir.ReadDir(10)
+  // Are we done reading
+  if errors.Is(err, io.EOF) {
+    break
+  }
+  if err!=nil {
+    panic(err)
+  }
+  // There are at most 10 fileInfo entries
+  for _,entry:=range entries {
+    // Process the entry
+  }
+}</pre></li>				<li>To recursively <a id="_idIndexMarker635"/>iterate directory entries in a portable way, use <strong class="source-inline">io.fs.WalkDir</strong>. This function uses <strong class="source-inline">"/"</strong> as the path separator regardless of the platform. The following example prints all the files under <strong class="source-inline">/tmp</strong>, <span class="No-Break">skipping directories:</span><pre class="source-code">
+err:=fs.WalkDir(os.DirFS("/"), "/tmp", func(path string,d fs.DirEntry,err error) error {
+  if err!=nil {
+     fmt.Println("Error during directory traversal", err)
+     return err
+  }
+  if !d.IsDir() {
+    // This is not  a directory
+    fmt.Println(filepath.Join(path,d))
+  }
+  return nil
+})</pre></li>				<li>To recursively iterate directory entries, use <strong class="source-inline">filepath.WalkDir</strong>. This function uses a platform-specific path separator. The following example prints all directories under <strong class="source-inline">/</strong><span class="No-Break"><strong class="source-inline">tmp</strong></span><span class="No-Break"> recursively:</span><pre class="source-code">
+err:=filepath.WalkDir("/tmp", func(path string,d fs.DirEntry,err error) error {
+  if err!=nil {
+     fmt.Println("Error during directory traversal", err)
+     return err
+  }
+  if d.IsDir() {
+    // This is a directory
+    fmt.Println(filepath.Join(path,d), " directory")
+  }
+  return nil
+})</pre></li>			</ul>
+			<h1 id="_idParaDest-390"><a id="_idTextAnchor391"/>Working with pipes</h1>
+			<p>If you have a <a id="_idIndexMarker636"/>piece of code that expects a reader and another piece of code that expects a writer, you can connect the two <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">io.Pipe</strong></span><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-391"><a id="_idTextAnchor392"/>Connecting code expecting a reader with code expecting a writer</h2>
+			<p>A good example of this use case is preparing an HTTP <strong class="source-inline">POST</strong> request, which requires a reader. If you <a id="_idIndexMarker637"/>have all of the data available, or if you already have a reader (such as <strong class="source-inline">os.File</strong>), you can use that. However, if the data is produced by a function that takes a writer, use <span class="No-Break">a pipe.</span></p>
+			<h3>How to do it...</h3>
+			<p>A pipe is a <a id="_idIndexMarker638"/>synchronously connected reader and writer. That is, if you write to a pipe, there must be a reader consuming from it concurrently. So make sure you put the data-producing side (where you use the writer) in a different goroutine than the data-consuming side (where you use <span class="No-Break">the reader).</span></p>
+			<ul>
+				<li>Create a pipe reader and pipe writer <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">io.Pipe</strong></span><span class="No-Break">:</span><pre class="source-code">
+pipeReader, pipeWriter := io.Pipe()</pre><p class="list-inset"><strong class="source-inline">pipeReader</strong> will read everything written <span class="No-Break">to </span><span class="No-Break"><strong class="source-inline">pipeWriter</strong></span><span class="No-Break">.</span></p></li>				<li>Use <strong class="source-inline">pipeWriter</strong> to produce <a id="_idIndexMarker639"/>data in a goroutine. When everything is written, <span class="No-Break">close </span><span class="No-Break"><strong class="source-inline">pipeWriter</strong></span><span class="No-Break">:</span><pre class="source-code">
+go func() {
+  // Close the writer side, so the reader knows when it is done
+  defer pipeWriter.Close()
+  encoder:=json.NewEncoder(pipeWriter)
+  if err:=encoder.Encode(payload); err!=nil {
+    if errors.Is(err,io.ErrClosedPipe) {
+      // The reader side terminated with error
+    } else {
+      // Handle error
+    }
+  }
+}()</pre></li>				<li>Use <strong class="source-inline">pipeReader</strong> where <a id="_idIndexMarker640"/>a reader is needed. If the function fails and not everything in the pipe can be consumed, close <strong class="source-inline">pipeReader</strong> so the writer <span class="No-Break">can terminate:</span><pre class="source-code">
+if _, err:= http.Post(serverURL, "application/json", pipeReader); err!=nil {
+  // Close the reader, so the writing goroutine terminates
+  pipeReader.Close()
+  // Handle error
+}</pre></li>			</ul>
+			<p>Above, the goroutine that encodes the JSON data will block until the <strong class="source-inline">POST</strong> request establishes a connection and streams the data. If there is an error during this process, <strong class="source-inline">pipeReader.Close()</strong> ensures that the goroutine that encodes JSON data does <span class="No-Break">not leak.</span></p>
+			<h2 id="_idParaDest-392"><a id="_idTextAnchor393"/>Intercepting a reader using TeeReader</h2>
+			<p>In plumbing, a tee pipe is a fitting that has a T shape. It splits the flow into two. <strong class="source-inline">TeeReader</strong> takes its <a id="_idIndexMarker641"/>name from that. An <strong class="source-inline">io.TeeReader(r io.Reader, w io.Writer) io.Reader</strong> function returns a new reader that reads from <strong class="source-inline">r</strong> at the same time as writing whatever it read to <strong class="source-inline">w</strong>. This is very useful for intercepting the data going through <span class="No-Break">a reader.</span></p>
+			<h3>How to do it...</h3>
+			<ol>
+				<li>Create <span class="No-Break">a pipe:</span><pre class="source-code">
+pipeReader, pipeWriter := io.Pipe()</pre></li>				<li>Create a <strong class="source-inline">TeeReader</strong> from another reader, using <strong class="source-inline">pipeWriter</strong> as the writer that will <span class="No-Break">receive data:</span><pre class="source-code">
+file, err:=os.Open(dataFile)
+if err!=nil {
+  // Handle error
+}
+defer file.Close()
+tee := io.TeeReader(file, pipeWriter)</pre><p class="list-inset">At this stage, reading some data from <strong class="source-inline">tee</strong> will read data from <strong class="source-inline">file</strong> and write that data <span class="No-Break">to </span><span class="No-Break"><strong class="source-inline">pipeWriter</strong></span><span class="No-Break">.</span></p></li>				<li>Use <strong class="source-inline">pipeReader</strong> in a separate goroutine to process data read from the <span class="No-Break">original reader:</span><pre class="source-code">
+go func() {
+  // Copy the file to stdout
+  io.Copy(os.Stdout,pipeReader)
+}()</pre></li>				<li>Use <a id="_idIndexMarker642"/>the <strong class="source-inline">TeeReader</strong> to read <span class="No-Break">the data:</span><pre class="source-code">
+_,err:=http.Post(serverURL, "text/plain", tee)
+if err!=nil {
+  // Make sure pipe is closed
+  pipeReader.Close()
+}</pre></li>			</ol>
+			<p>Note that working with a pipe requires at least one other goroutine where writing to or reading from the pipe happens. In case of error, make sure all goroutines working with the pipe terminate by closing one end of <span class="No-Break">the pipe.</span></p>
+		</div>
+	</div></div></body></html>

@@ -1,0 +1,844 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Dependency Management</h1>
+                </header>
+            
+            <article>
+                
+<div class="packt_quote">"If at first you don't succeed, call it version 1.0."<br/></div>
+<div class="packt_quote CDPAlignRight CDPAlign">- Pat Rice</div>
+<p>Being strong believers in the SOLID principles we discussed in the previous chapter, several prominent figures in the Go community strongly advise software engineers to organize their code into self-contained and reusable packages.</p>
+<p>When our code imports an external package, its dependency graph is augmented not only with the imported package but also with its set of transitive dependencies—that is, any other packages (and<span> </span><em>their</em><span> </span>dependencies) required by the packages that we import. As our projects grow larger in size, it becomes necessary to efficiently manage the versions of all our dependencies to ensure that changes in upstream transitive dependencies do not cause unexpected side effects (crashes, changes in behavior, and so on) to our own programs.</p>
+<p>In this chapter, we will focus on the following topics:</p>
+<ul>
+<li>The importance of versioning for software</li>
+<li>Ways to apply semantic versioning for Go packages</li>
+<li>Strategies for managing the source code for multiversioned packages and tools that allow you to import a particular package version from your code</li>
+<li>The pros and cons of dependency vendoring and how it can be used to facilitate repeatable builds</li>
+<li>The most popular approaches and tools for vendoring Go packages</li>
+</ul>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">What's all the fuss about software versioning?</h1>
+                </header>
+            
+            <article>
+                
+<p>The idea of versioning is ingrained into everything around us. People all over the world are accustomed to using various forms of versioning on a daily basis. Note that I am not just talking about software here. The vast majority of physical products that you are using are associated with some sort of versioning scheme. Uses of versioning range from your computer's CPU to your mobile phone, and from the revision of the algorithm book on your bookshelf to your favorite superhero (or alternatively light-saber-wielding rebel) movie.</p>
+<p>When we move to the realm of software, the concept of versioning becomes even more important. Nowadays, as more and more software engineers ascribe to the<span> </span><em>release fast</em><span> </span>mantra, having a sane versioning system in place makes it possible to do the following:</p>
+<ul>
+<li>Validate that a particular piece of software can be used as a safe drop-in replacement for an older piece of software that we are using as part of our production systems. This is especially important from a security standpoint, as<span> </span><em>all</em><span> </span>software, unless formally verified, may contain potential security bugs that can be discovered at any point in time—even weeks or years after it has been deployed to production. It is therefore of paramount importance for us to be able to mitigate such issues by upgrading to a newer release as soon as bug fixes become available.</li>
+<li>Pin down each dependency of our applications to a particular package version. This is a key prerequisite for setting up CI pipelines to implement the concept of repeatable builds. Having access to repeatable builds makes it possible to recompile, at any time, an exact copy of the software that a customer runs in production and use it as a reference when investigating bug reports.</li>
+</ul>
+<p>In the following sections, we will delve into the details behind <em>semantic versioning</em>, a very popular approach for not only managing the version of your software packages but also for notifying the users that depend on them of upcoming and potentially breaking changes.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Semantic versioning</h1>
+                </header>
+            
+            <article>
+                
+<p><strong>Semantic versioning</strong><span> </span><sup><span class="citation">[11]</span></sup><span> </span>is a widely popular system for describing software versions in a way that makes it quite straightforward for the intended software users to figure out which versions are safe to upgrade to and which versions contain breaking API changes and therefore require development effort and time when upgrading.</p>
+<p class="mce-root"/>
+<div class="packt_infobox">Semantic versions are formatted as follows:
+<p><kbd>MAJOR.MINOR.PATCH</kbd></p>
+<p>Depending on the use case, additional suffixes may be optionally appended to indicate a prerelease (for example, alpha, beta, or RC (or release candidate)) or to convey other build-related information (for example, the Git SHA for the branch that is used to build a release or perhaps a timestamp for when the build artifacts were generated).</p>
+</div>
+<p>When working with Go packages, the three-component approach employed by semantic versioning makes it easy for package authors to let users of the package know what<span> </span><em>type</em><span> </span>of changes each release contains. For example, the<span> </span><kbd>PATCH</kbd><span> </span>field is incremented whenever a<span> </span><em>backward-compatible bug fix</em><span> </span>is applied to the code. Conversely, the<span> </span><kbd>MINOR</kbd><span> </span>field is incremented when<span> </span><em>new functionality</em><span> </span>gets added to a package, but, most importantly, only when this new functionality is added in a manner that ensures that the new version<span> </span><em>remains backward compatible</em><span> </span>with older package versions. Of course, as packages evolve over time, it is inevitable that at some point some breaking changes will have to be introduced. For instance, an existing function signature may need to be changed to support additional use cases. For those kinds of scenarios, the<span> </span><kbd>MAJOR</kbd><span> </span>component of the version string will need to be incremented.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Comparing semantic versions</h1>
+                </header>
+            
+            <article>
+                
+<p>If we are given two semantic versions,<span> </span><kbd>a.b.c</kbd><span> </span>and<span> </span><kbd>x.y.z</kbd><em>,</em><span> </span>how can we tell which one is more recent? To compare two semantic versions, we need to compare each one of their individual components from<span> </span>left to right. Here is a short piece of code demonstrating how we can compare two semantic versions:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="co">// SemVer contains the major, minor, patch components of a semantic version<br/>// string.</span></a>
+<a><span class="kw">type</span> SemVer [<span class="dv">3</span>]<span class="dt">int</span></a>
+
+<a><span class="co">// GreaterThan returns true if the receiver version is greater than other.</span></a>
+<a><span class="kw">func</span> (sv SemVer) GreaterThan(other SemVer) <span class="dt">bool</span> {</a>
+<a>    <span class="kw">for</span> i, v := <span class="kw">range</span> sv {</a>
+<a>        <span class="kw">if</span> v != other[i] {</a>
+<a>            <span class="kw">return</span> v &gt; other[i]</a>
+<a>        }</a>
+<a>    }</a>
+
+<a>    <span class="kw">return</span> <span class="ot">false</span></a>
+<a>}</a></pre></div>
+<p class="mce-root"/>
+<p>Comparing or sorting semantic versions is quite an easy task for humans to perform, but nevertheless, as is evident in the preceding code snippet, it requires additional effort when performed by machines.</p>
+<p>You have probably encountered this problem first hand if you have ever worked on makefile rules that check for the presence of a minimum version of a particular library or if you have ever attempted to sort a list of folders that follow this versioning scheme using the standard command-line tools. This is considered a caveat of semantic versioning compared to alternative versioning schemes that are either based on monotonically increasing build numbers or build dates in the<span> </span><kbd>YYYMMDD</kbd><span> </span>format.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Applying semantic versioning to Go packages</h1>
+                </header>
+            
+            <article>
+                
+<p>The semantic versioning definition that we discussed in the previous section left a few questions unanswered. To begin with, what should be the<span> </span><em>initial</em><span> </span>version number for a new package? What is more, as an external user of the package, how would we know when the package API has been stable enough for us to use it safely in our code?</p>
+<p>There is no better way to answer these questions than with the help of a small example. Let's consider the following code snippet from an as<span> </span><em>yet unreleased</em><span> </span>package that deals with weather predictions:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">package</span> weather</a>
+
+<a><span class="co">// Prediction describes a weather prediction.</span></a>
+<a><span class="kw">type</span> Prediction <span class="dt">uint8</span></a>
+
+<a><span class="co">// The supported weather prediction types.</span></a>
+<a><span class="kw">const</span> (</a>
+<a>    Sunny Prediction = <span class="ot">iota</span></a>
+<a>    Rain</a>
+<a>    Overcast</a>
+<a>    Snow</a>
+<a>    Unknown</a>
+<a>)</a>
+
+<a><span class="co">// predictAtCoords returns a weather prediction for the specified GPS coordinates.</span></a>
+<a><span class="kw">func</span> predictAtCoords(lat, long <span class="dt">float64</span>) (Prediction, <span class="dt">error</span>) { <span class="co">// ... }</span></a></pre></div>
+<p class="mce-root"/>
+<p>Since we are talking about a brand new package, we need to decide on an<span> </span><em>initial</em><span> </span>version string. Given that the package is not exposing any public interface, we can start with<span> </span><em>0.1.0</em><span> </span>as our initial version number. The<span> </span><em>0</em><span> </span>value for the major version component serves as a warning to potential users of the package that it is still work in progress and the package implementation may frequently change in potentially breaking ways. In other words:<span> </span><em>use the package at your own risk</em>.</p>
+<p>After a few iterations and extensive refactoring of the package code (each time bumping the<span> </span><em>minor</em><span> </span>version of the package), we eventually reach version<span> </span><em>0.9.0</em>. At this point, we decide that the package is safe to use<span> </span><em>internally</em><span> </span>on our production systems. To this end, we need to expose a<span> </span><em>public API</em><span> </span>so that our existing Go packages can interface with the new package. This is facilitated by a simple rename operation—change<span> </span><kbd>predictAtCoords</kbd><span> </span>to<span> </span><kbd>PredictAtCoords</kbd><span> </span>(and of course update all relevant unit tests), as shown in the following code block:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="co">// PredictAtCoords returns a weather prediction for the specified GPS coordinates.</span></a>
+<a><span class="kw">func</span> PredictAtCoords(lat, long <span class="dt">float64</span>) (Prediction, <span class="dt">error</span>) {</a>
+<a>    <span class="co">// ...</span></a>
+<a>}</a></pre></div>
+<p>Following a successful rollout to production, we should feel comfortable enough to make this package publicly available so other people can import and use it. The package is released as version<span> </span><em>1.0.0</em><span> </span>and it turns out to be a big hit in the weather-forecasting community!</p>
+<p>That is, until one day, when a user of the package opens a GitHub issue with a bug:<span> </span><em>passing a certain combination of lat/long parameters causes</em> <kbd>PredictAtCoords</kbd> <em>to panic</em>. We revisit the code, create a reproducer for the bug, and after a bit of digging around, we discover the root cause for the bug: the lack of proper checks allows a division by zero to occur. The fix is quite simple and does not alter the functionality of the package in any way, so we bump the<span> </span><em>patch</em><span> </span>version of the package and release<span> </span><em>1.0.1</em>.</p>
+<p>As more and more people start depending on our released package, we start receiving requests to add new features, for instance: to predict the weather for a location identified by a <em>plus code</em> <sup>[<span class="citation">10]</span></sup>. To implement this new feature, we introduce a new public function to the package:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="co">// PredictAtPlusCode the weather at the location specified by a plus code.</span></a>
+<a><span class="kw">func</span> PredictAtPlusCode(code <span class="dt">string</span>) (Prediction, <span class="dt">error</span>) {</a>
+<a>    <span class="co">// ...</span></a>
+<a>}</a></pre></div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>This change introduces new functionality to the package, but the package itself is still backward compatible with older versions. Therefore, we now need to bump the<span> </span><em>minor</em><span> </span>version component and release version<span> </span><em>1.1.1</em><span> </span>of the package. Similarly, we add functions for predicting the weather for a city or a specific address. After each addition, we make sure to bump the<span> </span><em>minor</em><span> </span>version of our package.</p>
+<p>So far, so good. However, after a careful inspection of the code in our latest package version, we notice that the current implementation involves quite a bit of repetition—the public API consists of a set of functions that perform more or less the same task: predict the weather at a<span> </span><em>location</em>. The only difference is that each function expects the location to be encoded in a particular way (that is, as GPS coordinates, a plus code, or an address).</p>
+<p>In an attempt to simplify the package API and apply the<span> </span><strong>interface segregation principle</strong><span> </span>(<strong>ISP</strong>), as we discussed in <a href="96fb70cb-8134-4156-bd3e-48ca53224683.xhtml">Chapter 2</a>, <em>Best Practices for Writing Clean and Maintainable Go Code</em>, we decide to introduce a series of<span> </span><em>breaking</em><span> </span>API changes. To begin with, we define the<span> </span><kbd>Locator</kbd><span> </span>interface, which provides a necessary abstraction for converting locations into a set of GPS coordinates. Secondly, we replace the various <kbd>PredictAtXYZ</kbd> functions from the package with a new function called<span> </span><kbd>Predict</kbd><span> </span>that receives a<span> </span><kbd>Locator</kbd><span> </span>instance as its argument:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">package</span> weather </a>
+
+<a><span class="co">// Locator is implemented by objects that can represent a location as a</span></a>
+<a><span class="co">// pair of GPS coordinates.</span></a>
+<a><span class="kw">type</span> Locator <span class="kw">interface</span> {</a>
+<a>    Coords() (<span class="dt">float64</span>, <span class="dt">float64</span>, <span class="dt">error</span>)</a>
+<a>}</a>
+
+<a><span class="co">// Predict the weather at the specified location.</span></a>
+<a><span class="kw">func</span> Predict(loc Locator) (Prediction, <span class="dt">error</span>) {</a>
+<a>    coords, err := loc.Coords()</a>
+<a>    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> Unknown, err</a>
+<a>    }</a>
+<a>    <span class="co">// ...</span></a>
+<a>}</a></pre></div>
+<p>By refactoring<span> </span><kbd>Predict</kbd><span>, </span>as shown in the preceding code, we can now extract the various types that can be used to represent locations into their own standalone package, aptly called<span> </span><kbd>location</kbd>:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">package</span> location</a>
+
+<a><span class="co">// GPSCoords holds a lat/long coordinate pair.</span></a>
+<a><span class="kw">type</span> GPSCoords [<span class="dv">2</span>]<span class="dt">float64</span></a>
+
+<a><span class="co">// PlusCode encodes a location using a plus code.</span></a>
+<a><span class="kw">type</span> PlusCode <span class="dt">string</span></a>
+
+<a><span class="co">// Address encapsulates the components of an address.</span></a>
+<a><span class="kw">type</span> Address <span class="kw">struct</span> {</a>
+<a>    Street   <span class="dt">string</span></a>
+<a>    City     <span class="dt">string</span></a>
+<a>    PostCode <span class="dt">string</span></a>
+<a>    Country  <span class="dt">string</span></a>
+<a>}</a></pre></div>
+<p>Thanks to the magic of implicit interfaces, all we need to do to use these new types with the<span> </span><kbd>Predict</kbd><span> </span>function is to add methods that satisfy the<span> </span><kbd>Locator</kbd><span> </span>interface from the<span> </span><kbd>weather</kbd><span> </span>package:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">func</span> (g GPSCoords) Coords() (<span class="dt">float64</span>, <span class="dt">float64</span>, <span class="dt">error</span>) { </a>
+<a>    <span class="kw">return</span> g[<span class="dv">0</span>], g[<span class="dv">1</span>], <span class="ot">nil</span> </a>
+<a>}</a>
+
+<a><span class="kw">func</span> (pc PlusCode) Coords() (<span class="dt">float64</span>, <span class="dt">float64</span>, <span class="dt">error</span>) { </a>
+<a>    <span class="co">// Decode plus code to gps coordinates...  </span></a>
+<a>}</a>
+
+<a><span class="kw">func</span> (a Address) Coords() (<span class="dt">float64</span>, <span class="dt">float64</span>, <span class="dt">error</span>) { </a>
+<a>    <span class="co">// Use an external geocoding service to convert the address into a set </span></a>
+<a>    <span class="co">// of GPS coordinates...</span></a>
+<a>}</a></pre></div>
+<p>This change definitely improves the quality of the weather package, but at the cost of breaking backward compatibility. To indicate this to the users of the package, we bump the<span> </span><em>major</em><span> </span>version component and publish version<span> </span><em>2.0.0</em><span> </span>of the package.</p>
+<p>By adopting semantic versioning for our packages, we not only allow package users to select which API version they want to work with, but also offer them the flexibility to upgrade to a newer package version at their own pace without any risk of breaking existing production systems.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Managing the source code for multiple package versions</h1>
+                </header>
+            
+            <article>
+                
+<p>One thing that may have you as odd about the previous section is the fact that while I keep going on about the<span> </span><em>publishing</em><span> </span>version <kbd>x.y.z</kbd> of the weather package, the section content itself is devoid of any information regarding the actual <em>process</em> involved in publishing a package.</p>
+<p>At this point, you might also be asking yourself the question,<em><span> </span><span>if we have released multiple major versions of a package, how do we manage the source cod</span><span>e for each released versi</span></em><span><em>on?</em> After all, as the package authors, we can opt to maintain and support several major or major/minor combinations of package versions in parallel and each version can potentially follow its own release cycle. For example, we can work on extending the API for the</span><span> </span><em>2.x.x</em><span> </span><span>line while still continuing to fix bugs or apply security patches to the</span><span> </span><em>1.x.x</em><span> </span><span>line. And how are the end users expected to import a particular version of a Go package?</span></p>
+<p>To answer all these questions, we need to explore a few alternative approaches to versioning Go packages <span>in depth</span><span>.</span></p>
+<p> </p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Single repository with versioned folders</h1>
+                </header>
+            
+            <article>
+                
+<p>Using a single repository with versioned folders requires us to maintain the source code for all supported versions within a<span> </span><em>single</em><span> </span>repository. The simplest way to achieve this is to create a folder for each version at the root of the repository and copy all the version-specific files and subpackages inside.</p>
+<p>Let's revisit the<span> </span><kbd>weather</kbd><span> </span>package example from the previous section. Let's assume that we use<span> </span>Git as our VCS and that we host our package on GitHub under the<span> </span><kbd>weather-as-a-service</kbd><span> </span>account in a repository called<span> </span><kbd>weather</kbd>. The following flowchart<span> </span>illustrates how the folder layout would look using this approach:</p>
+<div class="mce-root CDPAlignCenter CDPAlign packt_figref"><img src="assets/87683c40-568a-463c-95a3-2779754eaa8e.png" style="width:50.42em;height:9.25em;"/></div>
+<div class="mce-root CDPAlignCenter CDPAlign packt_figref"><span>Figure 1:</span><span> </span>Managing multiple versions of a package in a single repository</div>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<p>It is important to point out that even though the<span> </span><kbd>weather.go</kbd><span> </span>files are located under the<span> </span><kbd>v1</kbd><span> </span>and<span> </span><kbd>v2</kbd><span> </span>folders,<span> </span><em>both</em><span> </span>of them declare a package named<span> </span><kbd>weather</kbd>. This trick allows users of the package to explicitly select which package version they want to import and refer to its contents using the<span> </span><kbd>weather</kbd><span> </span>selector, as illustrated in the following code block:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">import</span> (</a>
+<a>    <span class="st">"fmt"</span></a>
+
+<a>    <span class="st">"github.com/weather-as-a-service/weather/v2"</span></a>
+<a>    <span class="st">"github.com/weather-as-a-service/weather/v2/location"</span></a>
+<a>)</a>
+
+<a><span class="kw">func</span> makePrediction() <span class="dt">error</span>{</a>
+<a>    loc := location.PlusCode(<span class="st">"9C3XGV00+"</span>)</a>
+<a>    pred, err := weather.Predict(loc)</a>
+<a>    <span class="kw">if</span> err != <span class="ot">nil</span> {</a>
+<a>        <span class="kw">return</span> err </a>
+<a>    }</a>
+<a>    fmt.Printf(<span class="st">"The weather prediction for London is: %v"</span>, pred)</a>
+<a>}</a></pre></div>
+<p>This approach has a few benefits, both for package authors and for the intended end users of the package:</p>
+<ul>
+<li>The use of a single repository for all versions makes maintenance easier, as package authors can work on each version of the package in isolation.</li>
+<li>The repository always contains the latest release for each package version. The end users of the package can use a single command to get/update<span> </span><em>all</em><span> </span>versions of the package (for example, <kbd>go get -u github.com/weather-as-a-service/weather</kbd>).</li>
+<li>As the end user of the package, you have the option (although it is probably something you should probably avoid) to import and use<span> </span><em>different</em><span> </span>versions of the same package from within the same code base.</li>
+</ul>
+<p class="mce-root"/>
+<p>On the other hand, there are some caveats associated with this approach:</p>
+<ul>
+<li>Code duplication! Each versioned folder includes a full copy of the package implementation, which may also include one or more subpackages. This could prove to be a challenge for the package authors, especially if a security issue is identified whose fix requires patching the same code in different folders.</li>
+<li>As an end user of the package, how would you know whether a particular package utilizes this particular versioning scheme, or which versions are available to use? To answer these questions you would most likely need to visit the repository page on GitHub and examine the folder structure.</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Single repository – multiple branches</h1>
+                </header>
+            
+            <article>
+                
+<p>A much better approach would be to still use a single repository but maintain a<span> </span><em>different branch</em><span> </span>(in Git terminology) for each major package version, extra feature, or development branches for ongoing work. If we were to apply this approach to the case of the weather package that we discussed before, our repository would normally contain the following branches:</p>
+<ul>
+<li><kbd>v1</kbd>: This is the branch where the released<span> </span><em>1.x.y</em><span> </span>line of the weather package is located.</li>
+<li><kbd>v2</kbd>: Another branch for the<span> </span><em>2.x.y</em><span> </span>release of the weather package.</li>
+<li><kbd>develop</kbd>: Code in development branches is generally considered to be work in progress, and therefore unstable for use. Eventually, once the code stabilizes, it will be merged back into one or more of the stable release branches.</li>
+</ul>
+<p>Similar to the versioned folder approach, the multibranch approach also ensures that the tip or head of each release branch contains the<span> </span><em>latest</em><span> </span>release version for a package; however, it is sometimes useful to be able to refer to an older semantic version of the package. A typical use case for this is repeatable builds, where we always want to compile against a specific version of the package and not the latest, albeit stable, version from a particular package line.</p>
+<p>To satisfy the preceding requirement, we can exploit the VCS's capability to<span> </span><em>tag</em><span> </span>each release so we can easily locate it in the future without having to scan the commit history. I am using Git as an example here as it is my preferred VCS, but concepts such as tagging generalize to other VCS as well (tags in SVN, labels in Perforce, and so on).</p>
+<p>This leads us to yet another question: if each version has its own branch, how do we import it from our code? If we are talking about a public package that is hosted on GitHub, the answer is that we need to use a redirect service such, as <kbd>gopkg.in</kbd><span> </span><sup><span class="citation">[7]</span></sup>.</p>
+<p class="mce-root"/>
+<p class="mce-root"/>
+<div class="packt_infobox">The <kbd>gopkg.in</kbd> service functions as a proxy for redirecting Go tools to the sources that correspond to a <em>specific</em> version of a Go package. The service achieves this by exposing a series of <em>versioned</em> URLs that, when accessed by <kbd>go get</kbd>, automatically resolve to a particular branch or tag within the repository where the package is hosted.<br/>
+<br/>
+<span>This convention not only yields cleaner and shorter package URLs, but </span><span>more importantly, </span><span>it also ensures that dependent packages can cleanly compile using the latest minor version of the packages they depend on, even if new major versions of those packages get released.<br/>
+<br/></span> What's more, when the same URLs are accessed via a web browser, users are presented with a neat landing page that provides additional information regarding the purpose of the package and the commands needed to fetch or import it. The same page also contains links to the package sources and documentation.</div>
+<p><span>For example, w</span>hen you visit a <kbd>gopkg.in</kbd> URL for a particular package with your browser for the popular logging package called<span> </span><kbd>logrus</kbd>, you will see a page that looks similar to the following screenshot. <span>The left side of the page displays the <kbd>import</kbd> command that we need to use for the selected version of the package. </span><span>The panel on the right side of the page states the available package versions (in this example:</span> <span class="packt_screen">v1 </span><span>and</span> <span class="packt_screen">v0</span><span>) and the actual branch or tag that they resolve to:</span></p>
+<p class="mce-root CDPAlignCenter CDPAlign"><img src="assets/0e43f8a3-c15b-4707-b97b-bc46cfc8ca6f.png" style="width:37.17em;height:22.00em;"/></p>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign"><span>Figure 2:</span><span> </span>The gopkg.in page for the popular logrus package</div>
+<p>Let's go back to the weather example from the previous section and update the imports to use <kbd>gopkg.in</kbd> URLs:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">import</span> (</a>
+<a>    <span class="st">"fmt"</span></a>
+
+<a>    <span class="st">"gopkg.in/weather-as-a-service/weather.v2"</span></a>
+<a>    <span class="st">"gopkg.in/weather-as-a-service/weather.v2/location"</span></a>
+<a>)</a></pre></div>
+<p>If we run<span> </span><kbd>go get -u ...</kbd><span> </span>within the folder where the preceding example lives, it will always pull the<span> </span><em>latest</em><span> </span><em>v2</em><span> </span>version of the weather package. You may be wondering how <kbd>gopkg.in</kbd> knows which one is the latest version and where that version lives. In order to correctly resolve a version request, <kbd>gopkg.in</kbd> first parses the list of available branches and tags for the project. Depending on the version selector suffix (the <kbd>.v2</kbd>, in this example), <kbd>gopkg.in</kbd> will always attempt to return the highest matching version of the package whose<span> </span><em>major</em><span> </span>version component matches the requested selector. This implies that the service is not only capable of working with the other versioning schemes we briefly mentioned before (for example, monotonically increasing build or version numbers, timestamps, and so on), but that it is also smart enough to parse and compare semantic versions of packages.</p>
+<p>For example, let's assume that the weather package repository contains the following mix of tags and branches:</p>
+<table style="border-collapse: collapse;width: 100%" border="1">
+<tbody>
+<tr>
+<td class="CDPAlignLeft CDPAlign"><strong>Name</strong></td>
+<td class="CDPAlignLeft CDPAlign"><strong>Type</strong></td>
+<td class="CDPAlignLeft CDPAlign"><strong>Notes</strong></td>
+</tr>
+<tr class="odd">
+<td>v1.0.10</td>
+<td>Tag</td>
+<td/>
+</tr>
+<tr class="even">
+<td>v1.1.9</td>
+<td>Tag</td>
+<td/>
+</tr>
+<tr class="odd">
+<td>v1</td>
+<td>Branch</td>
+<td>Contents match v1.1.0 tag</td>
+</tr>
+<tr class="even">
+<td>v2.0</td>
+<td>Tag</td>
+<td/>
+</tr>
+<tr class="odd">
+<td>v3~dev</td>
+<td>Branch</td>
+<td>Development branch for the upcoming v3</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>This is how <kbd>gopkg.in</kbd> would resolve the preceding imports depending on the value of the version selector suffix:</p>
+<table style="border-collapse: collapse;width: 100%" border="1">
+<tbody>
+<tr>
+<td class="CDPAlignLeft CDPAlign"><strong>Selector</strong></td>
+<td class="CDPAlignLeft CDPAlign"><strong>Resolves to</strong></td>
+</tr>
+<tr class="odd">
+<td>v1</td>
+<td>v.1.1.9 (Tag)</td>
+</tr>
+<tr class="even">
+<td>v2</td>
+<td>v2.0 (Tag)</td>
+</tr>
+<tr class="odd">
+<td>v3</td>
+<td>v3~dev (Branch)</td>
+</tr>
+</tbody>
+</table>
+<p class="mce-root"/>
+<div class="packt_tip">To make a project compatible with the <kbd>gopkg.in</kbd> service, you need to make sure that either your branches or your tags match the expected patterns that <kbd>gopkg.in</kbd> looks for: <kbd>vx</kbd>, <kbd>vx.y</kbd>, <kbd>vx.y.z</kbd>, and so on.
+<p>As the majority of the software engineering teams are quite opinionated when it comes to selecting a development flow (for example, Git flow versus GitHub flow) or branch naming conventions, my personal recommendation would be to stick to using tags for labeling package versions using the format that <kbd>gopkg.in</kbd> expects.</p>
+</div>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Vendoring – the good, the bad, and the ugly</h1>
+                </header>
+            
+            <article>
+                
+<p>The fact that services such as <kbd>gopkg.in</kbd> always redirect the<span> </span><kbd>go get</kbd><span> </span>tool to the<span> </span><em>latest</em><span> </span>available major version for a given version selector is, technically speaking, a show-stopper for engineering teams that endeavor to set up a development pipeline that guarantees repeatable builds. The typical CI pipeline will always pull both compile and test dependencies via a command such as<span> </span><kbd>go get -t -u ...</kbd><span> </span>prior to building the final output artifact. As a result, even if your code has not changed between builds, your service or application binary may be different because of changes in the dependencies that get pulled in.</p>
+<p>However, what if I told you that there<span> </span><em>is</em><span> </span>actually a way to retain the benefits of lazy package resolution<span> </span><em>and</em><span> </span>at the same time have the flexibility to<span> </span><em>pin down</em><span> </span>package versions for each build? The mechanism that will assist us in this matter is called<span> </span><strong>vendoring</strong>.</p>
+<div class="packt_infobox">In the context of Go programming, we refer to<span> </span>vendoring<span> </span>as the<span> </span><em>process</em><span> </span>where<span> </span><strong>immutable</strong><span> </span>snapshots (also known as<span> </span><strong>vendored dependencies</strong>) for all nodes in the import graph of a Go application get created. The vendored dependencies are used instead of the original imported packages whenever a Go application is compiled.</div>
+<p>As we will see in the following sections, there are a few different approaches to creating dependency snapshots:</p>
+<ul>
+<li>Fork the repository that contains each imported dependency and update the import statements in the code base to point to the forked resources.</li>
+<li>Create a manifest that includes the current (that is, at the time a snapshot is made) commit identifiers (for example, Git SHAs) for each imported package and its transitive dependencies. The manifest, a small, human-readable YAML- or JSON-based file is generally committed to the VCS and used to fetch the appropriate versions of each dependency prior to invoking the compiler.</li>
+<li>Cache the imported dependencies locally (typically in a folder called<span> </span><kbd>vendor</kbd>) and commit them together with the project files to the VCS. Contrary to the preceding approaches, local caching enables us to check out our project and immediately compile it without having to fetch any dependencies first.</li>
+</ul>
+<p>Before we dive a bit deeper into each one of these approaches, let's take a few minutes to discuss the pros and cons of dependency vendoring.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Benefits of vendoring dependencies</h1>
+                </header>
+            
+            <article>
+                
+<p>First and foremost, the key promise of vendoring is nothing other than the capability to run reproducible builds. Many customers, especially larger corporations, tend to stick to stable or LTS releases for the software they deploy and forego upgrading their systems unless it's absolutely necessary. Being able to check out the exact software version that a customer uses and generate a bit-for-bit identical binary for use in a test environment is an invaluable tool for any field engineer attempting to diagnose and reproduce bugs that the customers are facing.</p>
+<p>Another benefit of vendoring is that it serves as a safety net in case an upstream dependency suddenly disappears from the place where it is hosted (for example, a GitHub or GitLab repository), thereby breaking builds for software that depends on it. If you are thinking that this is a highly unlikely scenario, let me take you back to 2016 and share an interesting engineering horror story from the world of Node.js!</p>
+<p>You may have heard of the now-infamous<span> </span><em>left-pad</em><span> </span>package. In case you haven't, it is just a single-function package that, as you can probably figure out by its name, provides a function to pad a string up to a specific length with a specific character. Nothing really scary so far... except that this small package was a direct dependency of over 500 packages, which in turn were transient dependencies of several other packages, and so on. Everything went fine until one day, the left-pad package maintainer received a cease-and-desist letter for one of his other<span> </span>packages and decided, as a form of protest, to take down<span> </span><em>all</em><span> of </span>his packages, including left-pad.</p>
+<p>Now, picture the chaos that ensued as peoples' CI builds started breaking one after the other. But engineering teams that had been judiciously vendoring their dependencies were not affected by this issue at all.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Is vendoring always a good idea?</h1>
+                </header>
+            
+            <article>
+                
+<p>The previous section went into great effort to extol the virtues of vendoring. But is vendoring the panacea for all dependency management problems? This section attempts to dig a bit deeper into some of the caveats associated with vendoring.</p>
+<p>One common problem across engineering teams is that in spite of the fact that engineers are keen on vendoring their dependencies, they often<span> </span><em>forget</em><span> </span>to periodically refresh them. As I argued in a previous section, all code can contain potential security bugs. It is therefore likely that some <span>security bugs </span><span>(perhaps from a transitive dependency of an imported package) will eventually end up in production.</span></p>
+<p>Security-related or not, when bugs are reported to the package maintainers, a fix is usually promptly released and the package version is incremented accordingly (that is, if a package is using semantic versioning). As large-scale projects tend to import a large volume of packages, it is not feasible to monitor each imported package's repository for security fixes. Even if this was possible, we couldn't realistically do this for their transitive dependencies. As a result, production code can remain unpatched for a long time even though the affected upstream packages have already been patched.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Strategies and tools for vendoring dependencies</h1>
+                </header>
+            
+            <article>
+                
+<p>Initially, Go had no support for vendoring packages. This made sense at the time, as Google, the primary user of Go, would host all of their package dependencies in a single repository (commonly referred to as a mono-repo).</p>
+<p>However, as the Go community began growing and more and more companies began porting their code bases to Go, dependency management became an issue. With the release of Go 1.5, the Go team added experimental support for<span> </span><em>vendoring folders</em>. Users could enable this feature by defining an environment variable named<span> </span><kbd>GO15VENDOREXPERIMENT</kbd><em>.</em></p>
+<p>When this feature is enabled, each time the Go compiler attempts to resolve an import, it will<span> </span><em>first</em><span> </span>check whether the imported package exists inside the vendor folder and use it if found; otherwise, it will proceed, as usual, to scan each entry in the<span> </span><kbd>$GOPATH</kbd><span> </span>looking for the package.</p>
+<p>As soon as this functionality became available, multiple third parties spearheaded initiatives to produce tools that took advantage of it. The brief, but not exhaustive, list of now deprecated tools for dealing with dependencies includes <kbd><span>godep</span></kbd><span> </span><sup><span class="citation">[5]</span></sup><span>,</span><span> </span><kbd><span>govendor</span></kbd><span> </span><sup><span class="citation">[9]</span></sup><span>,</span><span> </span><kbd><span>glide</span></kbd><span> </span><span class="citation"><sup>[3]</sup>,</span><span> </span><span>and</span><span> </span><kbd><span>gvt</span></kbd> <sup><span class="citation">[4]</span></sup><span>.</span> </p>
+<p>Nowadays, tooling around vendoring is much more streamlined. The following sections explore the recommended approaches to vendoring Go packages <span>at the time of writing</span><span>:</span></p>
+<ul>
+<li>The<span> </span><em>dep</em><span> </span>tool</li>
+<li><em>Go modules</em></li>
+<li>Manual forking of dependencies</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The dep tool</h1>
+                </header>
+            
+            <article>
+                
+<p>The Go team—being well aware that having several competing tools for managing dependencies could result in the fragmentation of the Go ecosystem and encumber the growth of the Go community—decided to assemble a committee and produce an official specification document detailing the way to move forward regarding Go package dependency management. The dep tool<span> </span><sup><span class="citation">[2]</span></sup> is the first tool that conforms to the published specification. It began its life some time around 2017 as an <em>official experiment</em> that was made available to users who upgraded to Go 1.9.</p>
+<p>The dep tool provides precompiled binaries for various operating systems; however, it is probably easier to build it from the source by running<span> </span><kbd>go get -u github.com/golang/dep/cmd/dep</kbd>. The first time that you want to use the dep tool for one of your projects, you need to run<span> </span><kbd>dep init</kbd><span> </span>within the root folder of the project to initialize the dep tool's state. Unless your import graph is shallow and small in size, this step will take a bit of time, as dep does the following:</p>
+<ul>
+<li>Identifies all imported packages, their transitive dependencies, and whether or not they also use dep.</li>
+<li>Selects the highest possible version for each node in the dependency graph.</li>
+<li>Downloads the selected packages to the<span> </span><kbd>vendor</kbd><span> </span>folder that lives in the project's root folder. Dep will additionally cache the downloaded packages locally at<span> </span><kbd>$GOPATH/pkg/dep/sources</kbd><span> </span>to speed up dependency lookups for other projects that might also be using dep.</li>
+</ul>
+<p>If<span> </span><em>none</em><span> </span>of the dependencies uses dep, then the selected version is simply the<span> </span><em>current</em><span> </span>version of each dependency as it appears in<span> </span><kbd>$GOPATH</kbd>. Things get a bit more interesting when some (or all) of the imported dependencies also use dep. In that case, dep treats the versions requested by each dep-enabled package as constraints that are then fed into the constraint solver engine that is bundled with the dep tool.</p>
+<div class="packt_infobox">Constraint solver engines, such as the one used by the dep tool, transform the list of input constraints into a Boolean <strong>satisfiability problem</strong> (<strong>SAT</strong>) and then attempt to identify a solution, if one exists. SAT problems are typically represented as complex Boolean expressions; the solver's job is to find the right combination of values for the expression variables so that the expression evaluates to<span> </span><kbd>TRUE</kbd>.
+<p>For example, given the expression <kbd>((A and B) or C) and not D</kbd>, here is a subset of the total solutions that a SAT could suggest:</p>
+<table style="border-collapse: collapse;width: 100%" border="1">
+<tbody>
+<tr>
+<td><strong>Solution</strong></td>
+<td><strong>A</strong></td>
+<td><strong>B</strong></td>
+<td><strong>C</strong></td>
+<td><strong>D</strong></td>
+</tr>
+<tr class="odd">
+<td>1</td>
+<td>TRUE</td>
+<td>TRUE</td>
+<td>FALSE</td>
+<td>FALSE</td>
+</tr>
+<tr class="even">
+<td>2</td>
+<td>FALSE</td>
+<td>FALSE</td>
+<td>TRUE</td>
+<td>FALSE</td>
+</tr>
+<tr class="odd">
+<td>3</td>
+<td>TRUE</td>
+<td>FALSE</td>
+<td>TRUE</td>
+<td>FALSE</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>SAT solving is one of the first problems that have been proven to be NP-complete<span> </span><sup><span class="citation">[1]</span></sup>. Over the course of the years, several algorithms have been proposed that can scale to larger SAT problems and yield solutions in a reasonable amount of time. The particular SAT solver implementation used by the dep tool is based on a variant of the<span> </span><strong>conflict-driven clause learning</strong><span> </span>(<strong>CDCL</strong>) algorithm<span> </span><sup><span class="citation">[12]</span></sup><span> </span>that has been tweaked to work for the Go package management use case. If all this has piqued your interest, you can take a look at its implementation, which is in the<span> </span><a href="https://github.com/golang/dep/tree/master/gps">github.com/golang/dep/gps</a><span> </span>package.</p>
+</div>
+<p>The output of the dep constraints solver is the<span> </span><em>highest possible supported</em><span> </span>version across<span> </span><em>all</em><span> </span>dependencies. The dep tool creates two text-based files in the project's root folder that the user<span> </span><em>must</em><span> </span>commit to their VCS:<span> </span><kbd>Gopkg.toml</kbd><em><span> </span></em>and<em><span> </span></em><kbd>Gopkg.lock</kbd>. To speed up CI builds, users may also<span> </span><em>optionally</em><span> </span>commit the populated<span> </span><kbd>vendor </kbd>folder to version control. Alternatively, assuming that both <kbd>Gopkg.toml</kbd> and <kbd>Gopkg.lock</kbd> are available, a prebuild hook can populate the vendor folder on the fly by running<span> </span><kbd>dep ensure -vendor-only</kbd>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The Gopkg.toml file</h1>
+                </header>
+            
+            <article>
+                
+<p>The<span> </span><kbd>Gopkg.toml</kbd><span> </span>file serves as a manifest for controlling the dep tool's behavior. The<span> </span><kbd>dep init</kbd><span> </span>invocation will analyze the import graph of the project and produce a <kbd>Gopkg.toml</kbd> file with an initial set of constraints. From that point on, whenever a constraint needs to be updated (usually to bump the minimum supported version), users need to<span> </span><em>manually</em><span> </span>modify the generated <kbd>Gopkg.toml</kbd> file.</p>
+<p>So what does the content of a <kbd>Gopkg.toml</kbd> file look like? <kbd>Gopkg.toml</kbd> files are composed of a list of blocks or stanzas. Each stanza contains one of the dep-supported rule types. The most frequently used rule types are as follows:</p>
+<ul>
+<li><strong>Constraints</strong>, which specify the range of compatible dependency versions</li>
+<li><strong>Overrides</strong><span>, which </span>can force a particular package version when the dep tool cannot automatically find a version that satisfies the aggregated set of constraints specified by multiple <kbd>Gopkg.toml</kbd> files</li>
+</ul>
+<p>For the full list of supported rule types that the dep tool recognizes, you can refer to the <kbd>Gopkg.toml</kbd> format specification document<span> </span><sup><span class="citation">[8]</span></sup>. The following example defines a constraint that instructs go dep to fetch the package sources from the<span> </span><kbd>master</kbd><span> </span>branch of the package's GitHub repository:</p>
+<pre class="toml">[[constraint]]
+  name = "github.com/sirupsen/logrus"
+  branch = "master"</pre>
+<p>Alternatively, instead of<span> </span><kbd>branch</kbd>, a constraint rule can include one of the following two keywords:<span> </span><kbd>revision</kbd> or <kbd>version</kbd>.</p>
+<p>The<span> </span><kbd>revision</kbd><span> </span>keyword allows a package dependency to be pinned down to a particular commit identifier (for example, a Git SHA). It exists for compatibility purposes, and dep users are strongly encouraged to avoid using it unless there is no better way to describe a version.</p>
+<p>On the other hand, the<span> </span><kbd>version</kbd><span> </span>keyword is much more versatile in that it allows us to target a specific VCS tag or semantic version range. The following table lists the operators that dep understands when processing version-based constraints. If the version string <em>does not</em> contain an operator, the dep tool will work as if the caret (<kbd>^</kbd>) operator was used. For example, dep would interpret version<span> </span><kbd>1.2.5</kbd><span> </span>as if the following constraint had been specified instead:<span> </span><kbd>&gt;= 1.2.5 and &lt; 1.3</kbd>.</p>
+<table style="border-collapse: collapse;width: 100%" border="1">
+<tbody>
+<tr>
+<td><strong>Operator</strong></td>
+<td><strong>Description</strong></td>
+<td><strong>Example</strong></td>
+<td><strong>Constraint interpretation</strong></td>
+</tr>
+<tr class="odd">
+<td>=</td>
+<td>Equals</td>
+<td>"=1.2.4"</td>
+<td>Select version 1.2.4</td>
+</tr>
+<tr class="even">
+<td>!=</td>
+<td>Not equal</td>
+<td>"!=0.1"</td>
+<td>Exclude version 0.1</td>
+</tr>
+<tr class="odd">
+<td>&gt;</td>
+<td>Greater than</td>
+<td>"&gt;1.2"</td>
+<td>Versions newer than 1.3.0</td>
+</tr>
+<tr class="even">
+<td>&lt;</td>
+<td>Less than</td>
+<td>"&lt;2.0"</td>
+<td>Versions older than 2.0.0</td>
+</tr>
+<tr class="odd">
+<td>-</td>
+<td>Literal range</td>
+<td>"1.2-1.4"</td>
+<td>Versions &gt;= 1.2 and &lt;= 1.4</td>
+</tr>
+<tr class="even">
+<td>~</td>
+<td>Minor range</td>
+<td>"~1.2.5"</td>
+<td>Versions &gt;= 1.2.5 and &lt; 1.3</td>
+</tr>
+<tr class="odd">
+<td>^</td>
+<td>Major range</td>
+<td>"~1.2.5"</td>
+<td>Versions &gt;= 1.2.5 and &lt; 2</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>One other quite helpful keyword that you may encounter when working with <kbd>Gopkg.toml</kbd> files is the<span> </span><kbd>source</kbd><span> </span>keyword. The default behavior of the dep tool is to fetch package sources from the repository whose name matches the package name specified by the constraint.</p>
+<p>There are some cases, however, where we may want to pull the package from a different location. One scenario where this can happen is if we have forked the imported package, pushed some experimental changes, and want to try them out in a code base that imports the original package. To demonstrate this, let's edit the <kbd>Gopkg.toml</kbd> file from the preceding example and have it pull the master branch from<span> </span><kbd>github.com/achilleasa/logrus</kbd> instead of <kbd>github.com/sirupsen/logrus</kbd>:</p>
+<pre class="toml">[[constraint]]
+  name = "github.com/sirupsen/logrus"
+  branch = "master"
+
+  # Pull the package sources from this alternative repository
+  source = "github.com/achilleasa/logrus" </pre>
+<p>As we mentioned at the beginning of the section, the <kbd>Gopkg.toml</kbd> file is only a manifest that users can change at will. For the changes to actually take effect, we need to run<span> </span><kbd>dep ensure</kbd><span> </span>to do the following:</p>
+<ul>
+<li>Scan the code for any new dependencies</li>
+<li>Invoke the constraints solver to calculate the required version for each dependency</li>
+<li>Figure out which of the packages in the<span> </span><kbd>vendor </kbd>folder are stale and update them</li>
+<li>Update the<span> </span><kbd>Gopkg.lock</kbd><span> </span>file</li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The Gopkg.lock file</h1>
+                </header>
+            
+            <article>
+                
+<p>The second file that gets generated by the dep tool when running either<span> </span><kbd>dep init</kbd><span> </span>or<span> </span><kbd>dep ensure</kbd><span> </span>is called<span> </span><kbd>Gopkg.lock</kbd>. As you can probably tell by its extension, it is something that is not meant to be modified by end users.</p>
+<p>The <kbd>Gopkg.lock</kbd> file stores a textual representation of the dep tool's constraint solver output. More specifically, it includes the complete list of dependencies, both direct and transient, that are required for compiling the project source code. Each dependency is pinned down to the particular commit identifier (for example, a Git SHA) that, according to the solver, satisfies all constraints that were supplied to it by the dep tool.</p>
+<p>By committing the <kbd>Gopkg.lock</kbd> file to the VCS, the dep support in Go 1.9+ guarantees that we can produce repeatable builds, provided, of course, that all referenced dependencies remain available.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Go modules – the way forward</h1>
+                </header>
+            
+            <article>
+                
+<p>One limitation of the dep tool is that it does not let us use multiple major versions of a package in our projects, as each path to an imported package must be unique. The following diagram<span> </span>illustrates a simple scenario where packages<span> </span><span class="packt_screen">A</span> and <span class="packt_screen">B</span><span> </span>depend on the same version of package <span class="packt_screen">C</span>:</p>
+<p class="mce-root CDPAlignCenter CDPAlign"><img src="assets/781d9b9b-f9e3-4d9c-aeb9-8b809c389ad5.png" style="width:12.92em;height:7.08em;"/></p>
+<div class="mce-root CDPAlignCenter CDPAlign packt_figref"><span>Figure</span> 3: Two packages importing the same version of the C package</div>
+<p>Let's say now that we want to test drive<span> </span><em>v2.0.0</em>, the new major version of the<strong><span> </span></strong><span class="packt_screen">C</span><strong><span> </span></strong>package. The point here is to<span> </span><em>gradually update</em><span> </span>the packages importing<span> </span><span class="packt_screen">C</span><span> </span>to import the new major version in order to assess that everything works as expected. So we update the <kbd>Gopkg.toml</kbd> file in<span> </span><span class="packt_screen">B</span> to reference the new major version of <span class="packt_screen">C</span>. Our dependency tree now looks as follows:</p>
+<p class="mce-root CDPAlignCenter CDPAlign"><img src="assets/da8920a4-d755-4ed6-9dc3-99b6b0d18ade.png" style="width:12.92em;height:7.00em;"/></p>
+<div class="mce-root packt_figref CDPAlignCenter CDPAlign">Figure 4: Each package imports a different version of the C package</div>
+<p>This change causes no problems for packages <span class="packt_screen">A</span> and <span class="packt_screen">B</span> as their import graphs are disjointed; each package references a different version of <span class="packt_screen">C</span>. Then, we decide to introduce a new package, say <span class="packt_screen">D</span>,<span> </span>into the picture, which imports<span> </span><em>both</em><span> </span><span class="packt_screen">A</span> and <span class="packt_screen">B</span> (as shown in the following figure). Now we have a problem! As both packages cannot use the<span> </span><em>same</em><span> </span>import path, the Go compiler will now bail out with an error when we try to build<span> </span><span class="packt_screen">D</span>:</p>
+<p class="mce-root CDPAlignCenter CDPAlign"><img src="assets/020e823e-caa2-4c77-8472-f20680a03f7d.png" style="width:19.67em;height:9.33em;"/></p>
+<div class="mce-root CDPAlignCenter CDPAlign packt_figref"><span>Figure </span><span>5:</span><span> </span>Package D imports both A and B, which depend on different major versions of C. This causes a conflict and prevents us from building D</div>
+<p>The only way to make the preceding use case work with the dep tool is to change the constraints (<kbd>Gopkg.toml</kbd>) file for<span> </span><em>all</em><span> </span>packages (<span class="packt_screen">A</span> and B in this case) to depend on<span> </span><em>v2.0.0</em><span> </span>of package <span class="packt_screen">C</span>. It goes without saying that this is not a solution that can scale to projects that import a large number of packages. With that in mind, the Go team led an initiative to come up with an official vendoring solution that could support scenarios such as the preceding one.</p>
+<p>Go modules were introduced as an experimental feature in Go 1.11 that users could enable via the <kbd>GO111MODULE</kbd> environment variable (for example, <kbd>export GO111MODULE=on</kbd>). At the time of writing, the current Go version is 1.12.5, and Go modules are expected to be finalized just in time for the release of Go 1.13. The major difference of Go modules compared to the dep tool are as follows:</p>
+<ul>
+<li>Go modules fully integrate with the various commands, such as<span> </span><kbd>go get</kbd>,<span> </span><kbd>go build</kbd><span>, </span>and<span> </span><kbd>go test</kbd>.</li>
+<li>While the dep tool selects the <em>highest</em> common version for a package, Go modules select the <em>minimum</em> viable version.</li>
+<li>Go modules support multiversioned dependencies.</li>
+<li>Go modules do away with the<span> </span><kbd>vendor</kbd><span> </span>folder, which is used by the dep tool. For backward-compatibility purposes, Go modules come with an extra command to populate the<span> </span><kbd>vendor</kbd><span> </span>folder:<span> </span><kbd>go mod vendor</kbd>.</li>
+</ul>
+<p>The following simple example uses the popular<span> </span><kbd>go-yaml</kbd><span> </span>package to read a YAML stream from the standard input and output it as a Go map:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a><span class="kw">package</span> main</a>
+
+<a><span class="kw">import</span> (</a>
+<a>    <span class="st">"fmt"</span></a>
+<a>    <span class="st">"os"</span></a>
+
+<a>    <span class="st">"github.com/go-yaml/yaml"</span></a>
+<a>)</a>
+
+<a><span class="kw">func</span> main() {</a>
+<a>    <span class="kw">var</span> data <span class="kw">map</span>[<span class="dt">string</span>]<span class="kw">interface</span>{}</a>
+<a>    <span class="kw">if</span> err := yaml.NewDecoder(os.Stdin).Decode(&amp;data); err == <span class="ot">nil</span> {</a>
+<a>        fmt.Printf(<span class="st">"%v</span><span class="ch">\n</span><span class="st">"</span>, data)</a>
+<a>    }</a>
+<a>}</a></pre></div>
+<p>To begin using Go modules, we first need to declare a new Go module by running<span> </span><kbd>go mod init parser</kbd><span> </span>in the folder where the preceding example is located. This will generate a file called<span> </span><kbd>go.mod</kbd>. Its initial contents look pretty boring:</p>
+<div class="sourceCode">
+<pre class="sourceCode yaml"><a>module parser</a>
+
+<a>go 1.12</a></pre></div>
+<p>The real magic happens when we try to run a command such as<span> </span><kbd>go build</kbd>:</p>
+<pre class="console">$ go build
+go: finding github.com/go-yaml/yaml v2.1.0+incompatible
+go: downloading github.com/go-yaml/yaml v2.1.0+incompatible
+go: extracting github.com/go-yaml/yaml v2.1.0+incompatible</pre>
+<p>As you can see, Go realized that we needed to fetch a new dependency, so it tried to work out the<span> </span><em>current</em><span> </span>version of the<span> <kbd>go-</kbd></span><kbd>yaml</kbd><span> </span>package and resolved it to<span> </span><em>v2.1.0</em>. It then proceeded to download the package and cache it locally under<span> </span><kbd>$GOPATH/pkg/mod</kbd>.</p>
+<p class="mce-root"/>
+<p>If you list the contents of the project's folder, you will notice a new file called<span> </span><kbd>go.sum</kbd>. This file stores the cryptographic hashes of the dependencies that have been downloaded and serves as a safeguard for ensuring that the contents of the packages have not been modified between builds (that is, a package maintainer force-pushed some changes, overwriting the previous version); a very useful feature when aiming for repeatable builds.</p>
+<p>The<span> </span><kbd>go.mod</kbd><span> </span>and<span> </span><kbd>go.sum</kbd><span> </span>files serve the same purpose as the<span> </span><kbd>Gopkg.toml</kbd> and <kbd>Gopkg.lock</kbd> files used by the dep tool, and they also need to be committed to your version control system.</p>
+<p>Whenever a new dependency gets added, a line is appended to the<span> </span><kbd>go.mod</kbd><span> </span>file. In this case, the added line reads<span> </span><kbd>require github.com/go-yaml/yaml v2.1.0+incompatible</kbd>. Each<span> </span><kbd>require </kbd>line in the<span> </span><kbd>go.mod</kbd><span> </span>file defines the<span> </span><em>minimum</em><span> </span>supported version for a particular dependency. So, from our module's perspective,<span> </span><kbd>v2.1.0 </kbd>of the<span> </span><kbd>go-yaml/yaml</kbd><span> </span>package is the<span> </span><em>minimum</em><span> </span>version requirement for building the module. Even if a newer version is available, Go will<span> </span><em>always</em><span> </span>use this particular version unless we run one of the following commands:</p>
+<ul>
+<li><kbd>go get -u</kbd>: To upgrade to the most recent minor or patch release</li>
+<li><kbd>go get -u=patch</kbd>: To upgrade to the most recent patch release</li>
+<li><kbd>go get package-name@version</kbd>: To force the specified version for the package</li>
+</ul>
+<p>Now that we have a basic understanding of how Go modules work, let's revisit our initial use case: how can we use two different major versions of the same package inside our code base? As I mentioned before, Go import paths must be unique; that's something that is set in stone and cannot be overridden.</p>
+<p>The<span> </span><kbd>+incompatible</kbd><span> </span>suffix in the<span> </span><kbd>require</kbd> line indicates that while this package defines a valid semantic version, it hasn't actively opted in to using Go modules by defining its own<span> </span><kbd>go.mod </kbd>file. If, however, a new version appeared in the future (say, v4) that did provide a<span> </span><kbd>go.mod</kbd><span> </span>file, Go modules would allow us to import it via a mechanism referred to as<span> </span><em>semantic import versioning</em>. To put it in layman's terms, semantic import paths are just regular import paths that also carry an additional<span> </span><em>version suffix</em>. The suffix addition creates a unique path for the package and effectively allows us to import and use multiple versions of the package even within the same file:</p>
+<div class="sourceCode">
+<pre class="sourceCode go"><a>import (</a>
+<a>    <span class="st">"gi</span><span class="st">thub.com/go-yaml/yaml"</span> <span class="co">// V2.1.0</span></a>
+<a>    v4 <span class="st">"github.com/go-yaml/yaml/v4"</span> <span class="co">// The V4 version of the package.</span></a>
+<a>)</a></pre></div>
+<p>That concludes our short tour of Go modules. A deep dive into all operations and patterns supported by the Go modules extension is outside of the scope of this book; however, if you are interested in learning more about using Go modules, you can find a great amount of information by browsing the relevant articles on the Golang blog<span> </span><sup>[6]</sup>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Fork packages</h1>
+                </header>
+            
+            <article>
+                
+<p>With the<span> </span>dep tool and<span> </span>Go modules at our disposal, why would we ever need to manually fork any of the packages we depend on? Before we answer this question, let me first elaborate on how this process works.</p>
+<p>Firstly, we need to fork the dependency we are interested in. If the package sources are available on a platform such as GitHub, GitLab, or BitBucket, then forking the package is as simple as visiting the repository page and clicking a button (see the following screenshot); otherwise, we would need to rely on the functionality provided by our preferred VCS to persist a copy of the dependency to a location under our control:</p>
+<div class="mce-root CDPAlignCenter CDPAlign packt_figref"><img src="assets/61cabb4a-cf10-4027-8adb-79bf97b6abe1.png" style="width:57.67em;height:6.58em;"/></div>
+<div class="mce-root CDPAlignCenter CDPAlign packt_figref"><span>Figure 6:</span><span> </span>Forking a package repository on a platform such as GitHub, GitLab, or BitBucket is as simple as clicking a button</div>
+<p>After forking the repo, we would need to scan through the code base and replace the imports for the original package to point to our forked version. Of course, a much better alternative would be to use the<span> </span>dep tool's provided escape hatch for overriding the source for a package dependency. In the latter case, we wouldn't need to modify any of the import statements in our code.</p>
+<p>That brings us back to the original question: why fork in the first place? When working for companies that process sensitive data, such as the ones that operate in the fintech or healthcare domains, it is quite common to have an in-house security team that must audit each imported dependency for potential security flaws before the engineering teams are allowed to use it in their code.</p>
+<p>Performing a full security audit on a package is quite a lengthy process; it stands to reason that auditing each package from scratch each time a new release becomes available is neither feasible nor cost-effective. As a result, security teams seek to amortize the initial audit cost by forking packages, performing a full audit, and then vet and cherry-pick any upstream changes.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we discussed the reasons that necessitate the use of versioning for not only the packages that our code imports, but also the code itself that we, as software engineers, author. We then defined the concept of semantic versioning and the circumstances where each component of a semantic version needs to be incremented.</p>
+<p>The meat of the chapter dealt with the concepts of vendoring as the primary mechanism for ensuring repeatable builds for our projects. After elaborating on the pros and cons of vendoring as a process, we examined the current state of vendoring in the Go ecosystem and provided a brief tour of the state-of-the-art tools (<em>dep</em><span> </span>and<span> </span><em>Go modules</em>) that engineers should use to manage their package dependencies.</p>
+<p>Of course, as our code base evolves and the version requirements for our imports change over time, it is likely that, at some point, a newer version of one of the packages we depend on will break our code. Obviously, we want to be able to catch such regressions as early as possible. One way to achieve this, and the central theme of the next chapter, is to have a solid testing infrastructure in place.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol type="1">
+<li>Why is software versioning important?</li>
+<li>What does a semantic version look like and when are its individual components incremented?</li>
+<li>Which component of a package's semantic version would you increment in the following cases?
+<ol>
+<li>A new API is introduced.</li>
+<li>An existing API is modified and a new,<span> </span><em>required</em><span> </span>parameter is added to it.</li>
+<li>A fix for a security bug is committed.</li>
+</ol>
+</li>
+<li>Name some alternative versioning schemes that we could use besides semantic versioning.</li>
+<li>What are the pros and cons of vendoring?</li>
+<li>Name some of the differences between the dep tool and Go modules.</li>
+</ol>
+<p class="mce-root"/>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li><span class="smallcaps">Cook, Stephen A.,</span> 'The Complexity of Theorem-proving Procedures', <em>Proceedings of the Third Annual ACM Symposium on Theory of Computing</em>,<span> </span>STOC '71. New York, NY, USA, ACM, 1971, S. 151–8</li>
+<li>dep: a dependency management tool for Go:<span> </span><a href="https://github.com/golang/dep">https://github.com/golang/dep</a></li>
+<li>glide: <a href="https://github.com/Masterminds/glide">https://github.com/Masterminds/glide</a></li>
+<li>gvt: <a href="https://github.com/FiloSottile/gvt">https://github.com/FiloSottile/gvt</a></li>
+<li>godep:<span> </span><a href="https://github.com/tools/godep">https://github.com/tools/godep</a></li>
+<li>Golang blog: using Go modules:<span> </span><a href="https://blog.golang.org/using-go-modules">https://blog.golang.org/using-go-modules</a></li>
+<li><kbd>Gopkg.in</kbd>: stable APIs for the Go language:<span> </span><a href="https://labix.org/gopkg.in">https://labix.org/gopkg.in</a></li>
+<li><kbd>Gopkg.toml</kbd> format specification:<span> </span><a href="https://golang.github.io/dep/docs/Gopkg.toml.html">https://golang.github.io/dep/docs/Gopkg.toml.html</a></li>
+<li>govendor: <a href="https://github.com/kardianos/govendor">https://github.com/kardianos/govendor</a></li>
+<li>Plus codes: short codes for locations, for places that don't have their own street address:<span> </span><a href="https://plus.codes/">https://plus.codes/</a></li>
+<li>Semantic versioning 2.0.0:<span> </span><a href="https://semver.org/">https://semver.org/</a></li>
+<li>Silva, João P. Marques; Lynce, Inês; Malik, Sharad, <span class="smallcaps">Biere, A.</span>;<span> </span><span class="smallcaps">Heule, M.</span><span> </span>;<span> </span><span class="smallcaps">Maaren, H. van</span>;<span> </span><span class="smallcaps">Walsh, T.</span><span> </span>(Hrsg.)<span class="smallcaps">,</span><span> 'Conflict-Driven Clause Learning SAT Solvers'</span>,<span> </span><em>Handbook of Satisfiability,<span> </span>Frontiers in Artificial Intelligence and Applications</em>, Bd. 185 : IOS Press, 2009, ISBN 978-1-58603-929-5 (<a href="https://www.worldcat.org/title/handbook-of-satisfiability/oclc/840409693">https://www.worldcat.org/title/handbook-of-satisfiability/oclc/840409693</a>), S. 131–53</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>

@@ -1,0 +1,40 @@
+<html><head></head><body>
+<div class="book" title="Reading votes from Twitter">
+<div class="book" title="Gracefully starting and stopping programs"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_5"><a id="ch05lvl2sec0054" class="calibre1"/>Gracefully starting and stopping programs</h2></div></div></div><p class="calibre10">When our program is terminated, we want to do a few things before actually exiting, namely closing our connection to Twitter and stopping the NSQ publisher (which actually deregisters its interest in the queue). To achieve this, we have to override the default <span class="strong"><em class="calibre11">Ctrl + C</em></span> behavior.</p><div class="informaltable" title="Tip"><h3 class="title2"><a id="tip88" class="calibre1"/>Tip</h3><p class="calibre10">The upcoming code blocks all go inside the <code class="email">main</code> function; they are broken up so that we can discuss each section before continuing.</p></div><p class="calibre10">Add the following code inside the <code class="email">main</code> function:</p><pre class="programlisting">var stoplock sync.Mutex // protects stop 
+stop := false 
+stopChan := make(chan struct{}, 1) 
+signalChan := make(chan os.Signal, 1) 
+go func() {  
+  &lt;-signalChan 
+  stoplock.Lock() 
+  stop = true 
+  stoplock.Unlock() 
+  log.Println("Stopping...") 
+  stopChan &lt;- struct{}{} 
+  closeConn() 
+}() 
+signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM) 
+</pre><p class="calibre10">Here, we create a stop <code class="email">bool</code> with an associated <code class="email">sync.Mutex</code> function so that we can access it from many goroutines at the same time. We then create two more signal channels, <code class="email">stopChan</code> and <code class="email">signalChan</code>, and use <code class="email">signal.Notify</code> to ask Go to send the signal down <code class="email">signalChan</code> when someone tries to halt the program (either with the <code class="email">SIGINT</code> interrupt or the <code class="email">SIGTERM</code> termination POSIX signals). The <code class="email">stopChan</code> function is how we indicate that we want our processes to terminate, and we pass it as an argument to <code class="email">startTwitterStream</code> later.</p><p class="calibre10">We then run a goroutine that blocks waiting for the signal by trying to read from <code class="email">signalChan</code>; this is what the <code class="email">&lt;-</code> operator does in this case (it's trying to read from the channel). Since we don't care about the type of signal, we don't bother capturing the object returned on the channel. Once a signal is received, we set <code class="email">stop</code> to <code class="email">true</code> and close the connection. Only when one of the specified signals is sent will the rest of the goroutine code run, which is how we are able to perform teardown code before exiting the program.</p><p class="calibre10">Add the following piece of code (inside the main function) to open and defer the closing of the database connection:</p><pre class="programlisting">if err := dialdb(); err != nil { 
+  log.Fatalln("failed to dial MongoDB:", err) 
+} 
+defer closedb() 
+</pre><p class="calibre10">Since the <code class="email">readFromTwitter</code> method reloads the options from the database each time and because we want to keep our program updated without having to restart it, we are going to introduce one final goroutine. This goroutine will simply call <code class="email">closeConn</code> every minute, causing the connection to die and cause <code class="email">readFromTwitter</code> to be called all over again. Insert the following code at the bottom of the <code class="email">main</code> function to start all of these processes and then wait for them to gracefully stop:</p><pre class="programlisting">// start things 
+votes := make(chan string) // chan for votes 
+publisherStoppedChan := publishVotes(votes) 
+twitterStoppedChan := startTwitterStream(stopChan, votes) 
+go func() { 
+  for { 
+    time.Sleep(1 * time.Minute) 
+    closeConn() 
+    stoplock.Lock() 
+    if stop { 
+      stoplock.Unlock() 
+      return 
+    } 
+    stoplock.Unlock() 
+  } 
+}() 
+&lt;-twitterStoppedChan 
+close(votes) 
+&lt;-publisherStoppedChan 
+</pre><p class="calibre10">First, we make the <code class="email">votes</code> channel that we have been talking about throughout this section, which is a simple channel of strings. Note that it is neither a send (<code class="email">chan&lt;-</code>) nor a receive (<code class="email">&lt;-chan</code>) channel; in fact, making such channels makes little sense. We then call <code class="email">publishVotes</code>, passing in the <code class="email">votes</code> channel for it to receive from and capturing the returned stop signal channel as <code class="email">publisherStoppedChan</code>. Similarly, we call <code class="email">startTwitterStream</code>, passing in our <code class="email">stopChan</code> function from the beginning of the <code class="email">main</code> function and the <code class="email">votes</code> channel for it to send to while capturing the resulting stop signal channel as <code class="email">twitterStoppedChan</code>.</p><p class="calibre10">We then start our refresher goroutine, which immediately enters an infinite <code class="email">for</code> loop before sleeping for a minute and closing the connection via the call to <code class="email">closeConn</code>. If the stop <code class="email">bool</code> has been set to true (in that previous goroutine), we will break the loop and exit; otherwise, we will loop around and wait another minute before closing the connection again. The use of <code class="email">stoplock</code> is important because we have two goroutines that might try to access the stop variable at the same time, but we want to avoid collisions.</p><p class="calibre10">Once the goroutine has started, we block <code class="email">twitterStoppedChan</code> by attempting to read from it. When successful (which means the signal was sent on <code class="email">stopChan</code>), we close the <code class="email">votes</code> channel, which will cause the publisher's <code class="email">for...range</code> loop to exit and the publisher itself to stop, after which the signal will be sent on <code class="email">publisherStoppedChan</code>, which we wait for before exiting.</p></div></div></body></html>

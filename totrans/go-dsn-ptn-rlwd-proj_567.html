@@ -1,0 +1,80 @@
+<html><head></head><body>
+<div class="book" title="Mutexes">
+<div class="book" title="Presenting the race detector"><div class="book"><div class="book"><div class="book"><h2 class="title1" id="calibre_pb_2"><a id="ch08lvl2sec0203" class="calibre1"/>Presenting the race detector</h2></div></div></div><p class="calibre10">We already know what a race condition is. To recap, it is used when two processes try to access the same resource at the same time with one or more writing operations (both processes writing or one process writing while the other reads) involved at that precise moment.</p><p class="calibre10">Go has a very handy tool to help diagnose race conditions, that you can run in your tests or your main application directly. So let's reuse the example we just wrote for the <span class="strong"><em class="calibre11">mutexes</em></span> section and run it with the race detector. This is as simple as adding the <code class="email">-race</code> command-line flag to the command execution of our program:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ go run -race main.go </strong></span>
+<span class="strong"><strong class="calibre2">10</strong></span>
+</pre><p class="calibre10">Well, not very impressive is it? But in fact it is telling us that it has not detected a potential race condition in the code of this program. Let's make the detector of <code class="email">-race</code> flag warn us of a possible race condition by not locking <code class="email">counter</code> before we modify it:</p><pre class="programlisting">for i := 0; i &lt; 10; i++ { 
+  go func(i int) { 
+    //counter.Lock() 
+    counter.value++ 
+    //counter.Unlock() 
+  }(i) 
+} 
+</pre><p class="calibre10">Inside the <code class="email">for</code> loop, comment the <code class="email">Lock</code> and <code class="email">Unlock</code> calls before and after adding <code class="email">1</code> to the field value. This will introduce a race condition. Let's run the same program again with the race flag activated:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ go run -race main.go </strong></span>
+<span class="strong"><strong class="calibre2">==================</strong></span>
+<span class="strong"><strong class="calibre2">WARNING: DATA RACE</strong></span>
+<span class="strong"><strong class="calibre2">Read at 0x00c42007a068 by goroutine 6:</strong></span>
+<span class="strong"><strong class="calibre2">  main.main.func1()</strong></span>
+<span class="strong"><strong class="calibre2">      [some_path]/concurrency/locks/main.go:19 +0x44</strong></span>
+<span class="strong"><strong class="calibre2">Previous write at 0x00c42007a068 by goroutine 5:</strong></span>
+<span class="strong"><strong class="calibre2">  main.main.func1()</strong></span>
+<span class="strong"><strong class="calibre2">      [some_path]/concurrency/locks/main.go:19 +0x60</strong></span>
+<span class="strong"><strong class="calibre2">Goroutine 6 (running) created at:</strong></span>
+<span class="strong"><strong class="calibre2">  main.main()</strong></span>
+<span class="strong"><strong class="calibre2">      [some_path]/concurrency/locks/main.go:21 +0xb6</strong></span>
+<span class="strong"><strong class="calibre2">Goroutine 5 (finished) created at:</strong></span>
+<span class="strong"><strong class="calibre2">  main.main()</strong></span>
+<span class="strong"><strong class="calibre2">      [some_path]/concurrency/locks/main.go:21 +0xb6</strong></span>
+<span class="strong"><strong class="calibre2">==================</strong></span>
+<span class="strong"><strong class="calibre2">10</strong></span>
+<span class="strong"><strong class="calibre2">Found 1 data race(s)</strong></span>
+<span class="strong"><strong class="calibre2">exit status 66</strong></span>
+</pre><p class="calibre10">I have reduced the output a bit to see things more clearly. We can see a big, uppercase message reading <code class="email">WARNING: DATA RACE</code>. But this output is very easy to reason with. First, it is telling us that some memory position represented by <span class="strong"><em class="calibre11">line 19</em></span> on our <code class="email">main.go</code> file is reading some variable. But there is also a write operation in <span class="strong"><em class="calibre11">line 19</em></span> of the same file!</p><p class="calibre10">This is because a "<code class="email">++</code>" operation requires a read of the current value and a write to add one to it. That's why the race condition is in the same line, because every time it's executed it reads and writes the field in the <code class="email">Counter</code> structure.</p><p class="calibre10">But let's keep in mind that the race detector works at runtime. It doesn't analyze our code statically! What does it mean? It means that we can have a potential race condition in our design that the race detector will not detect. For example:</p><pre class="programlisting">package main 
+ 
+import "sync" 
+ 
+type Counter struct { 
+  sync.Mutex 
+  value int 
+} 
+ 
+func main() { 
+  counter := Counter{} 
+ 
+  for i := 0; i &lt; 1; i++ { 
+    go func(i int) { 
+      counter.value++ 
+    }(i) 
+  } 
+} 
+</pre><p class="calibre10">We will leave the code as shown in the preceding example. We will take all locks and unlocks from the code and launch a single Goroutine to update the <code class="email">value</code> field:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ go run -race main.go</strong></span>
+<span class="strong"><strong class="calibre2">$</strong></span>
+</pre><p class="calibre10">No warnings, so the code is correct. Well, we know, by design, it's not. We can raise the number of Goroutines executed to two and see what happens:</p><pre class="programlisting">for i := 0; i &lt; 2; i++ { 
+  go func(i int) { 
+    counter.value++ 
+  }(i) 
+} 
+</pre><p class="calibre10">Let's execute the program again:</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ go run -race main.go</strong></span>
+<span class="strong"><strong class="calibre2">WARNING: DATA RACE</strong></span>
+<span class="strong"><strong class="calibre2">Read at 0x00c42007a008 by goroutine 6:</strong></span>
+<span class="strong"><strong class="calibre2">  main.main.func1()</strong></span>
+<span class="strong"><strong class="calibre2">    [some_path]concurrency/race_detector/main.go:15 +0x44</strong></span>
+<span class="strong"><strong class="calibre2">Previous write at 0x00c42007a008 by goroutine 5:</strong></span>
+<span class="strong"><strong class="calibre2">  main.main.func1()</strong></span>
+<span class="strong"><strong class="calibre2">    [some_path]/concurrency/race_detector/main.go:15 +0x60</strong></span>
+<span class="strong"><strong class="calibre2">Goroutine 6 (running) created at:</strong></span>
+<span class="strong"><strong class="calibre2">  main.main()</strong></span>
+<span class="strong"><strong class="calibre2">    [some_path]/concurrency/race_detector/main.go:16 +0xad</strong></span>
+<span class="strong"><strong class="calibre2">Goroutine 5 (finished) created at:</strong></span>
+<span class="strong"><strong class="calibre2">  main.main()</strong></span>
+<span class="strong"><strong class="calibre2">    [some_path]/concurrency/race_detector/main.go:16 +0xad</strong></span>
+<span class="strong"><strong class="calibre2">==================</strong></span>
+<span class="strong"><strong class="calibre2">Found 1 data race(s)</strong></span>
+<span class="strong"><strong class="calibre2">exit status 66</strong></span>
+</pre><p class="calibre10">Now yes, the race condition is detected. But what if we reduce the number of processors in use to just one? Will we have a race condition too?</p><pre class="programlisting">
+<span class="strong"><strong class="calibre2">$ GOMAXPROCS=1 go run -race main.go</strong></span>
+<span class="strong"><strong class="calibre2">$</strong></span>
+</pre><p class="calibre10">It seems that no race condition has been detected. This is because the scheduler executed one Goroutine first and then the other, so, finally, the race condition didn't occur. But with a higher number of Goroutines it will also warn us about a race condition, even using only one core.</p><p class="calibre10">So, the race detector can help us to detect race conditions that are happening in our code, but it won't protect us from a bad design that is not immediately executing race conditions. A very useful feature that can save us from lots of headaches.</p></div></div></body></html>

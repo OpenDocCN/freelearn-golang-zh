@@ -1,0 +1,414 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer030">
+			<h1 id="_idParaDest-393" class="chapter-number"><a id="_idTextAnchor394"/>15</h1>
+			<h1 id="_idParaDest-394"><a id="_idTextAnchor395"/>Databases</h1>
+			<p>Most applications have to work with at least one type of database. SQL databases are common enough that the Go standard library offers a unified way to connect and use them. This chapter shows some of the patterns you can use to work with the standard library implementation of the <span class="No-Break">SQL package.</span></p>
+			<p>Many databases offer nonstandard extensions, in terms of both functionality and query language. Even if you use the standard library to interface with a database, you should always check the vendor-specific database driver to understand potential limitations, implementation differences, and the supported <span class="No-Break">SQL dialect.</span></p>
+			<p>Here, it might be useful to mention NoSQL databases. The Go standard library does not offer a NoSQL database package. This is because, unlike SQL, most NoSQL databases have nonstandard query languages that are purpose-built for the specific database. NoSQL databases built for specific workloads perform much better than a general-purpose SQL database. If you are using such a database, refer to its documentation. However, many of the concepts presented in this chapter will apply to some degree to NoSQL databases <span class="No-Break">as well.</span></p>
+			<p>This chapter has the <span class="No-Break">following recipes:</span></p>
+			<ul>
+				<li>Connecting to <span class="No-Break">a database</span></li>
+				<li>Running <span class="No-Break">SQL statements</span></li>
+				<li>Running SQL statements without <span class="No-Break">explicit transactions</span></li>
+				<li>Running SQL statements <span class="No-Break">with transactions</span></li>
+				<li>Running prepared statements within <span class="No-Break">a transaction</span></li>
+				<li>Getting values from <span class="No-Break">a query</span></li>
+				<li>Dynamically building <span class="No-Break">SQL statements</span></li>
+				<li>Building <span class="No-Break"><strong class="source-inline">UPDATE</strong></span><span class="No-Break"> statements</span></li>
+				<li>Building <span class="No-Break"><strong class="source-inline">WHERE</strong></span><span class="No-Break"> clauses</span></li>
+			</ul>
+			<h1 id="_idParaDest-395"><a id="_idTextAnchor396"/>Connecting to a database</h1>
+			<p>There are two ways<a id="_idIndexMarker643"/> you can incorporate a database into your applications: you can use a database server or an embedded database. Let’s start by defining what <span class="No-Break">those are.</span></p>
+			<p>A database server runs as a separate process on the same or a different host but is independent of your application. Usually, your application connects to this database server through a network connection, so you have to know its network address and port. There is usually a library you have to import into your program, a “database driver” specific to the database server you use. This driver provides the interface between your application and the database by managing the connections, queries, transactions, and <span class="No-Break">so on.</span></p>
+			<p>An embedded database is not a separate process. It is included in your application as a library and runs in the same address space. A database driver acts as an adapter that presents a standard interface (i.e., using the <strong class="source-inline">database/sql</strong> package) to the application. When using an embedded database, you have to be mindful of the resources you share with other processes. Many embedded databases will not let multiple programs access the same <span class="No-Break">underlying data.</span></p>
+			<p>Before performing any operations, you must connect to the database server (such as a MySQL or PostgreSQL server) or to the embedded database engine (such <span class="No-Break">as SQLite).</span></p>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">This page contains a list of SQL <span class="No-Break">drivers: </span><a href="https://go.dev/wiki/SQLDrivers"><span class="No-Break">https://go.dev/wiki/SQLDrivers</span></a><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-396"><a id="_idTextAnchor397"/>How to do it...</h2>
+			<p>Find the database-specific driver you need. This driver may be provided by the database vendor or published as an open source project. Import this database driver in the <span class="No-Break"><strong class="source-inline">main</strong></span><span class="No-Break"> package.</span></p>
+			<p>You need a driver-specific driver name and connection string to connect to the database server or the embedded database engine. If you are connecting to a database server, this connection string usually includes the host/port information, authentication information, and connection options. If this is an embedded database engine, it may include filename/directory information. Then, you either call <strong class="source-inline">sql.Open</strong> or use a driver-specific connection function that returns <span class="No-Break">a </span><span class="No-Break"><strong class="source-inline">*sql.DB</strong></span><span class="No-Break">.</span></p>
+			<p>A database driver may defer the actual connection to the first database operation. That is, connecting to a database using <strong class="source-inline">sql.Open</strong> may not actually connect immediately. To ensure you are connected to the database, use <strong class="source-inline">DB.Ping</strong>. An embedded database driver usually would not require <span class="No-Break">a ping.</span></p>
+			<p>The following is<a id="_idIndexMarker644"/> an example showing a connection to a <span class="No-Break">MySQL database:</span></p>
+			<pre class="source-code">
+package main
+import (
+    "fmt"
+    "database/sql"
+    "context"
+    // Import the mysql driver
+    _ "github.com/go-sql-driver/mysql"
+)
+func main() {
+    // Use mysql driver name and driver specific connection string
+    db, err := sql.Open("mysql", "username:password@tcp(host:port)/
+    databaseName")
+    if err != nil {
+        panic(err.Error())
+    }
+    defer db.Close()
+    // Check if database connection succeeded, with 5 second timeout
+    ctx, cancel := context.WithTimeout(context.
+    Background(),5*time,Second)
+    defer cancel()
+    if err:=db.PingContext(ctx); err!=nil {
+        panic(err)
+    }
+    fmt.Println("Success!")
+}</pre>			<p>The following is an <a id="_idIndexMarker645"/>example showing a connection to an in-memory SQLite database using a <span class="No-Break">local file:</span></p>
+			<pre class="source-code">
+package main
+import (
+    "database/sql"
+    "fmt"
+    "os"
+    // Import the database driver
+    _ "github.com/mattn/go-sqlite3"
+)
+func main() {
+    // Open the sqlite database using the given local file ./database.
+    // db
+    db, err := sql.Open("sqlite3", "./database.db")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer db.Close()
+    // You don't need to ping an embedded database
+}</pre>			<p class="callout-heading">Tip</p>
+			<p class="callout">Note the use of blank identifier, <strong class="source-inline">_</strong>, for the database driver import. That means the package is imported only for its side effects, which, in this case, are the <strong class="source-inline">init()</strong> functions that register the database driver. For instance, importing the <strong class="source-inline">go-sqlite3</strong> package in <strong class="source-inline">main</strong> causes the <strong class="source-inline">init()</strong> function declared in <strong class="source-inline">go-sqlite3</strong> to<a id="_idIndexMarker646"/> register itself with the <span class="No-Break">name </span><span class="No-Break"><strong class="source-inline">sqlite3</strong></span><span class="No-Break">.</span></p>
+			<h1 id="_idParaDest-397"><a id="_idTextAnchor398"/>Running SQL statements</h1>
+			<p>After acquiring<a id="_idIndexMarker647"/> an instance of <strong class="source-inline">*sql.DB</strong>, you can run SQL statements to modify or query data. These queries are simply SQL strings, but the flavor of SQL varies between <span class="No-Break">database vendors.</span></p>
+			<h2 id="_idParaDest-398"><a id="_idTextAnchor399"/>Running SQL statements without explicit transactions</h2>
+			<p>When interacting <a id="_idIndexMarker648"/>with a database, an important consideration is determining transaction boundaries. If you need to perform a single operation, such as inserting a row or running a query, you usually do not need to create a transaction explicitly. You can execute a single SQL statement that will start and end the transaction. However, if you have multiple SQL statements that should either run as an atomic unit or not run at all, you have to use <span class="No-Break">a transaction.</span></p>
+			<h3>How to do it...</h3>
+			<ol>
+				<li>To run a SQL statement to update data, use <strong class="source-inline">DB.Exec</strong> <span class="No-Break">or </span><span class="No-Break"><strong class="source-inline">DB.ExecContext</strong></span><span class="No-Break">:</span><pre class="source-code">
+result, err:=db.ExecContext(ctx,`UPDATE users SET user.last_login=? WHERE user_id=?",time.Now(), userId)
+if err!=nil {
+  // Handle error
+}
+n, err:=result.RowsAffected()
+if err!=nil {
+  // Handle error
+}
+if n!=1 {
+  return errors.New("Cannot update last login time")
+}</pre><p class="list-inset">To run the same statement <a id="_idIndexMarker649"/>multiple times with different values, use a prepared statement. A prepared statement usually sends the statement to the database server where it is parsed and prepared. Then, you can simply run this parsed statement with different arguments, bypassing the parsing and optimization stages of the <span class="No-Break">database engine.</span></p><p class="list-inset">You should close the prepared statement when you are done <span class="No-Break">using it:</span></p><pre class="source-code">func AddUsers(db *sql.DB, users []User) error {
+  stmt, err := db.Prepare(`INSERT INTO users (user_name,email) 
+  VALUES (?,?)`)
+  if err!=nil {
+    return err
+  }
+  // Close the prepared statement when done
+  defer stmt.Close()
+  for _,user:=range users {
+    // Run the prepared statement with different arguments
+    _, err := stmt.Exec(user.Name,user.Email)
+    if err!=nil {
+      return err
+    }
+  }
+  return nil
+}</pre></li>			</ol>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">You can create prepared statements after connecting to the database and use them in your program until the program ends. Prepared statements can be executed from multiple <span class="No-Break">goroutines concurrently.</span></p>
+			<p class="list-inset">To run a query that <a id="_idIndexMarker650"/>returns results, use <strong class="source-inline">DB.Query</strong> or <strong class="source-inline">DB.QueryContext</strong>. To run a query that is expected to return at most one row, you can use the <strong class="source-inline">DB.QueryRow</strong> or <strong class="source-inline">DB.QueryRowContext</strong> <span class="No-Break">convenience functions.</span></p>
+			<p class="list-inset">The <strong class="source-inline">DB.Query</strong> and <strong class="source-inline">DB.QueryContext</strong> methods return a <strong class="source-inline">*sql.Rows</strong> object that is essentially a uni-directional cursor over the results of a query. This provides an interface that allows you to process large result sets without loading all results to the memory. Database engines usually return the results in batches, and the <strong class="source-inline">*sql.Rows</strong> object allows you to go through the result rows one by one, fetching results in batches <span class="No-Break">as necessary.</span></p>
+			<p class="list-inset">Another thing to keep in mind is that many database engines defer the actual execution of the query until you start fetching the results. In other words, just because you ran a query, does not mean that the query is actually evaluated by the server. The query<a id="_idIndexMarker651"/> evaluation may happen when you fetch the first <span class="No-Break">result row:</span></p>
+			<pre class="source-code">
+func GetUserNamesLoggedInAfter(db *sql.DB, after time.Time) ([]string,error) {
+  rows, err:=db.Query(`SELECT users.user_name FROM users WHERE 
+  last_login &gt; ?`, after)
+  if err!=nil {
+    return nil,err
+  }
+  defer rows.Close()
+  names:=make([]string,0)
+  for rows.Next() {
+    var name string
+    if err:=rows.Scan(&amp;name); err!=nil {
+      return nil,err
+    }
+    names=append(names,name)
+  }
+  // Check if iteration produced any errors
+  if err:=rows.Err(); err!=nil {
+    return nil,err
+  }
+  return names,nil
+}</pre>			<p class="list-inset">If the expected result set has at most one row (in other words, you are looking for a specific object that may or may not be there), you can shorten the above pattern by using <strong class="source-inline">DB.QueryRow</strong> or <strong class="source-inline">DB.QueryRowContext</strong>. You can determine whether the operation found the row by checking whether the returned <a id="_idIndexMarker652"/>error <span class="No-Break">is </span><span class="No-Break"><strong class="source-inline">sql.ErrNoRows</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+func GetUserByID(db *sql.DB, id string) (*User, error) {
+  var user User
+  err:=db.QueryRow(`SELECT user_id, user_name, last_login FROM 
+  users WHERE user_id=?`,id).
+    Scan(&amp;user.Id, &amp;user.Name, &amp;user.LastLogin)
+  if errors.Is(err,sql.ErrNoRows) {
+    return nil,nil
+  }
+  if err!=nil {
+    return nil,err
+  }
+  return &amp;user,nil
+}</pre>			<p class="list-inset">Never use values provided by a user, read from a configuration file, or received from an API request to build a SQL statement without validating first. Use query arguments to <a id="_idIndexMarker653"/>avoid SQL <span class="No-Break">injection attacks.</span></p>
+			<h2 id="_idParaDest-399"><a id="_idTextAnchor400"/>Running SQL statements with transactions</h2>
+			<p>If you need to perform<a id="_idIndexMarker654"/> multiple updates atomically, you must execute those updates in a transaction. In this context, atomically means either all updates complete successfully or none of <span class="No-Break">them complete.</span></p>
+			<p>The transaction isolation level determines how other concurrent transactions see the updates performed within a transaction. You can find many resources that describe transaction isolation levels. Here, I will provide a summary to help you decide which isolation level is best for your <span class="No-Break">use case:</span></p>
+			<ul>
+				<li><strong class="source-inline">sql.LevelReadUncommitted</strong>: This is the lowest transaction isolation level. A transaction may see uncommitted changes performed by another transaction. Another transaction may read some uncommitted data and perform business logic based on what was read. and the uncommitted data may be rolled back, invalidating the <span class="No-Break">business logic.</span></li>
+				<li><strong class="source-inline">sql.ReadCommitted</strong>: A transaction reads only committed changes performed by another transaction. That means if one transaction attempts to read/write data that is being modified by another transaction, the first transaction has to wait until the second transaction completes. However, once a transaction in the ReadCommitted isolation level reads data, another transaction may <span class="No-Break">change it.</span></li>
+				<li><strong class="source-inline">sql.RepeatableRead</strong>: A transaction reads only committed changes performed by another transaction. Furthermore, the value read by the transaction in the RepeatableRead isolation level is guaranteed to remain unchanged until <a id="_idIndexMarker655"/>the transaction is committed or rolled back. Any other transaction attempting to modify data read by a repeatable-read transaction will wait until the repeatable-read transaction ends. However, this isolation level does not prevent another transaction from inserting rows into a table that satisfy the query criteria of a repeatable-read transaction, so querying the same table with range queries may yield <span class="No-Break">different results.</span></li>
+				<li><strong class="source-inline">sql.Serializable</strong>: This is the highest transaction isolation level. A serializable transaction reads only committed changes, prevents other transactions from modifying data it reads, and prevents other transactions from inserting/updating/deleting rows that match the criteria of any of the queries performed within <span class="No-Break">the transaction.</span></li>
+			</ul>
+			<p>Level of concurrency decreases as the transaction isolation level increases. This also affects the performance: lower transaction isolation levels are faster. You have to select the isolation level carefully: choose the lowest isolation level that is safe for the operation. Usually, there is a driver-specific default isolation level that will be used if you do not specify a <span class="No-Break">level explicitly.</span></p>
+			<h3>How to do it...</h3>
+			<p>Start a transaction<a id="_idIndexMarker656"/> with the desired <span class="No-Break">isolation level:</span></p>
+			<pre class="source-code">
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+// 1. Start transaction
+tx, err := db.BeginTx(ctx, &amp;sql.TxOptions{
+  Isolation: sql.LevelReadCommitted,
+  })
+if err!=nil {
+  // Handle error
+}
+// 2. Call rollback with defer, so in case of error, transaction
+// rolls back
+defer tx.Rollback()</pre>			<p>Make sure the transaction either commits or rolls back. You can do this by deferring <strong class="source-inline">tx.Rollback</strong>. This causes the transaction to roll back if the function returns without committing it. If the transaction is successful, you commit the transaction. Once a transaction is committed, the deferred rollback does not have <span class="No-Break">any effect.</span></p>
+			<p>Perform database operations using the transaction. All database operations performed using the methods of <strong class="source-inline">*sql.Tx</strong> will be done within <span class="No-Break">the transaction:</span></p>
+			<pre class="source-code">
+_, err:= tx.Exec(`UPDATE users SET user.last_login=? WHERE user_id=?",time.Now()`, userId)
+if err!=nil {
+  // Do not commit, handle error
+}</pre>			<p>If there are no errors, commit<a id="_idIndexMarker657"/> <span class="No-Break">the transaction:</span></p>
+			<pre class="source-code">
+tx.Commit()</pre>			<p class="callout-heading">Tip</p>
+			<p class="callout">Some database drivers may roll back and cancel a transaction when a query cannot complete due to a constraint violation, such as a duplicate value on a unique index. Check your driver documentation to see whether it performs <span class="No-Break">an auto-rollback.</span></p>
+			<h1 id="_idParaDest-400"><a id="_idTextAnchor401"/>Running prepared statements within a transaction</h1>
+			<p>A statement<a id="_idIndexMarker658"/> can be prepared by calling the <strong class="source-inline">*sql.Tx.Prepare</strong> or <strong class="source-inline">*sql.Tx.PrepareContext</strong> method of the transaction struct. The prepared statement returned by these two will be associated with that transaction only. That is, you cannot prepare a statement using one transaction and use that statement for <span class="No-Break">another transaction.</span></p>
+			<h2 id="_idParaDest-401"><a id="_idTextAnchor402"/>How to do it...</h2>
+			<p>There are two ways you can use prepared statements in <span class="No-Break">a transaction.</span></p>
+			<p>The first is using a statement prepared <span class="No-Break">by </span><span class="No-Break"><strong class="source-inline">*DB</strong></span><span class="No-Break">:</span></p>
+			<ol>
+				<li>Prepare the statement using <strong class="source-inline">DB.Prepare</strong> <span class="No-Break">or </span><span class="No-Break"><strong class="source-inline">DB.PrepareContext</strong></span><span class="No-Break">.</span></li>
+				<li>Get a transaction-specific copy of <span class="No-Break">the transaction:</span><pre class="source-code">
+txStmt := tx.Stmt(stmt)</pre></li>				<li>Run the operations using the <span class="No-Break">new statement.</span></li>
+				<li>The second is using a statement prepared <span class="No-Break">by </span><span class="No-Break"><strong class="source-inline">*Tx</strong></span><span class="No-Break">:</span></li>
+				<li>Prepare the statement using <strong class="source-inline">Tx.Prepare</strong> <span class="No-Break">or </span><span class="No-Break"><strong class="source-inline">Tx.PrepareContext</strong></span><span class="No-Break">.</span></li>
+				<li>Run the<a id="_idIndexMarker659"/> operations using <span class="No-Break">this statement.</span></li>
+			</ol>
+			<h1 id="_idParaDest-402"><a id="_idTextAnchor403"/>Getting values from a query</h1>
+			<p>A SQL query returns <strong class="source-inline">*sql.Rows</strong>, or if you use the <strong class="source-inline">QueryRow</strong> methods, it returns <strong class="source-inline">*sql.Row</strong>. The next<a id="_idIndexMarker660"/> thing you have to do is iterate over the rows and scan the values into <span class="No-Break">Go variables.</span></p>
+			<h2 id="_idParaDest-403"><a id="_idTextAnchor404"/>How to do it...</h2>
+			<p>Running <strong class="source-inline">Query</strong> or <strong class="source-inline">QueryContext</strong> implies you are expecting zero or more rows from the query. Because of that, it <span class="No-Break">returns </span><span class="No-Break"><strong class="source-inline">*sql.Rows</strong></span><span class="No-Break">.</span></p>
+			<p>For the code snippets in this section, we use the following <span class="No-Break"><strong class="source-inline">User</strong></span><span class="No-Break"> struct:</span></p>
+			<pre class="source-code">
+type User struct {
+  ID        uint64
+  Name      string
+  LastLogin time.Time
+  AvatarURL string
+}</pre>			<p>This is used with the following <span class="No-Break">table definition:</span></p>
+			<pre class="source-code">
+CREATE TABLE users (
+  user_id int not null,
+  user_name varchar(32) not null,
+  last_login timestamp null,
+  avatar_url varchar(128) null
+)</pre>			<p>Iterate through the rows and work with each individual result row. In the following example, the query returns zero or more rows. The first call to <strong class="source-inline">rows.Next</strong> moves to the first row in the result set, and each subsequent call to <strong class="source-inline">rows.Next</strong> moves to the next row. This allows for the use of a <strong class="source-inline">for</strong> statement, as in the <span class="No-Break">following example:</span></p>
+			<pre class="source-code">
+rows, err := db.Query(`SELECT user_id, user_name, last_login, avatar_url FROM users WHERE last_login &gt; ?`, after)
+if err!=nil {
+  return err
+}
+// Close the rows object when done
+defer rows.Close()
+for rows.Next() {
+  // Retrieve data from this row
+}</pre>			<p>For each <a id="_idIndexMarker661"/>row, use <strong class="source-inline">Scan</strong> to copy data into <span class="No-Break">Go variables:</span></p>
+			<pre class="source-code">
+users:=make([]User,0)
+for rows.Next() {
+  // Retrieve data from this row
+  var user User
+  // avatar column is nullable, so we pass a *string instead of string
+  var avatarURL *string
+  if err:=rows.Scan(
+    &amp;user.ID,
+    &amp;user.Name,
+    &amp;user.LastLogin,
+    &amp;avatarURL);err!=nil {
+      return err
+    }
+    // avatar URL can be nil in the db
+    if avatarURL!=nil {
+      user.AvatarURL=*avatarURL
+    }
+    users=append(users,user)
+}</pre>			<p>The order of arguments to <strong class="source-inline">Scan</strong> must match the order of columns retrieved from the <strong class="source-inline">SELECT</strong> statement. That is, the first argument, <strong class="source-inline">&amp;user.ID</strong>, corresponds to the <strong class="source-inline">user_id</strong> column; the next argument, <strong class="source-inline">&amp;user.Name</strong>, corresponds to the <strong class="source-inline">user_name</strong> column; and so on. The number of arguments to <strong class="source-inline">Scan</strong> thus must be equal to the number of <span class="No-Break">columns fetched.</span></p>
+			<p>The SQL driver performs the translation from database-native types to Go data types. If the translation results in data or precision loss, the driver usually returns an error. For instance, if you try to scan a large integer value into an <strong class="source-inline">int16</strong> variable and the translation cannot represent the value, <strong class="source-inline">Scan</strong> returns <span class="No-Break">an error.</span></p>
+			<p>If the database <a id="_idIndexMarker662"/>column is defined as nullable (in this example, <strong class="source-inline">avatar_url varchar(128) NULL</strong>), and if the data value retrieved from the database is null, then the Go value must be able to accommodate the null value. For instance, if we used <strong class="source-inline">&amp;user.AvatarURL</strong> in <strong class="source-inline">Scan</strong> and the value in the database was null, then <strong class="source-inline">Scan</strong> would have returned an error complaining that a null value cannot be scanned to a string. To prevent such errors, we used <strong class="source-inline">*string</strong> instead of <strong class="source-inline">string</strong>. In general, if the underlying database column is nullable, you should use a pointer in <strong class="source-inline">Scan</strong> for <span class="No-Break">that column.</span></p>
+			<p>Check for errors after fetching <span class="No-Break">all rows:</span></p>
+			<pre class="source-code">
+// Check if there was an error during iteration
+if err:=rows.Err(); err!=nil {
+  return err
+}</pre>			<p>Close <strong class="source-inline">*sql.Rows</strong>. This is usually done with a <strong class="source-inline">defer rows.Close()</strong> statement <span class="No-Break">as previously.</span></p>
+			<p>Running <strong class="source-inline">QueryRow</strong> or <strong class="source-inline">QueryRowContext</strong> implies you are expecting zero or one row from the query. Then, return a <strong class="source-inline">*sql.Row</strong> object that you can use to scan values and check <span class="No-Break">for errors.</span></p>
+			<p>Run <strong class="source-inline">QueryRow</strong> or <strong class="source-inline">QueryRowContext</strong>, and scan the values as <span class="No-Break">described previously:</span></p>
+			<pre class="source-code">
+var user User
+row:=db.QueryRow(`SELECT user_id, user_name, last_login, avatar_url FROM users WHERE user_id = ?`, id)
+if err:=row.Scan(
+   &amp;user.ID,
+   &amp;user.Name,
+   &amp;user.LastLogin,
+   &amp;avatarURL);err!=nil {
+  return err
+}
+return user</pre>			<p>If there is an error <a id="_idIndexMarker663"/>during query execution, it will be returned by <span class="No-Break">the row.</span></p>
+			<h1 id="_idParaDest-404"><a id="_idTextAnchor405"/>Dynamically building SQL statements</h1>
+			<p>In any nontrivial<a id="_idIndexMarker664"/> application using a SQL database, you will have to build SQL statements dynamically. This becomes necessary for cases such as <span class="No-Break">the following:</span></p>
+			<ul>
+				<li>Using flexible search criteria that may change based on user input <span class="No-Break">or requests</span></li>
+				<li>Optionally joining multiple tables based on <span class="No-Break">requested fields</span></li>
+				<li>Selectively updating a subset <span class="No-Break">of columns</span></li>
+				<li>Inserting a variable number <span class="No-Break">of columns</span></li>
+			</ul>
+			<p>This section shows<a id="_idIndexMarker665"/> several common methods to build SQL statements for different <span class="No-Break">use cases.</span></p>
+			<p class="callout-heading">Tip</p>
+			<p class="callout">There are many open source query builder packages. You might want to explore those packages before writing <span class="No-Break">your own.</span></p>
+			<h1 id="_idParaDest-405"><a id="_idTextAnchor406"/>Building UPDATE statements</h1>
+			<p>If you need to update<a id="_idIndexMarker666"/> a given number of columns of a table without modifying others, you can follow the pattern given in <span class="No-Break">this section.</span></p>
+			<h2 id="_idParaDest-406"><a id="_idTextAnchor407"/>How to do it...</h2>
+			<ol>
+				<li>You need two pieces of information to run an <span class="No-Break">UPDATE statement:</span><ul><li><strong class="bold">The data to update</strong>: A common way of describing such information is to use pointers to represent updated values. Consider the <span class="No-Break">following example:</span><pre class="source-code">
+type UpdateUserRequest struct {
+  Name *string
+  LastLogin *time.Time
+  AvatarURL *string
+}</pre></li></ul><p class="list-inset">Here, a column will only be updated if the corresponding field is not null.  For instance, with the following instance of <strong class="source-inline">UpdateUserRequest</strong>, only the <strong class="source-inline">LastLogin</strong> and <strong class="source-inline">AvatarURL</strong> fields will <span class="No-Break">be updated:</span></p><pre class="source-code">now:=time.Now()
+urlString:="https://example.org/avatar.jpg"
+update:=UpdateUserRequest {
+  LastLogin: &amp;now,
+  AvatarURL: &amp;urlString,
+}</pre><ul><li><strong class="bold">The record locator</strong>: This is usually the unique identifier of the row that needs to be updated. However, it is also common to use a query that will locate <span class="No-Break">multiple records.</span></li></ul><p class="list-inset">With this information, a common way to write an update function is <span class="No-Break">as follows:</span></p><pre class="source-code">func UpdateUser(ctx context.Context, db *sql.DB, userId uint64, req *UpdateUserRequest) error {
+  ...
+}</pre><p class="list-inset">In the preceding code, the record locator <span class="No-Break">is </span><span class="No-Break"><strong class="source-inline">userId</strong></span><span class="No-Break">.</span></p><ul><li>Use <strong class="source-inline">strings.Builder</strong> to build the statement while keeping track of the query arguments in <span class="No-Break">a slice:</span><pre class="source-code">query:=strings.Builder{}
+args:=make([]interface{},0)
+// Start building the query. Be mindful of spaces to separate 
+// query clauses
+query.WriteString("UPDATE users SET ")</pre></li></ul></li>				<li>Create a <strong class="source-inline">SET</strong> clause <a id="_idIndexMarker667"/>for each column that needs to <span class="No-Break">be updated:</span><pre class="source-code">
+if req.Name != nil {
+  args=append(args,*req.Name)
+  query.WriteString("user_name=?")
+}
+if req.LastLogin!=nil {
+  if len(args)&gt;0 {
+    query.WriteString(",")
+  }
+  args=append(args,*req.LastLogin)
+  query.WriteString("last_login=?")
+}
+if req.AvatarURL!=nil {
+  if len(args)&gt;0 {
+    query.WriteString(",")
+  }
+  args=append(args,*req.AvatarURL)
+  query.WriteString("avatar_url=?")
+}</pre></li>				<li>Add the <span class="No-Break"><strong class="source-inline">WHERE</strong></span><span class="No-Break"> clause:</span><pre class="source-code">
+query.WriteString(" WHERE user_id=?")
+args=append(args,userId)</pre></li>				<li>Run <span class="No-Break">the statement:</span><pre class="source-code">
+_,err:=db.ExecContext(ctx,query.String(),args...)</pre></li>			</ol>
+			<p>Not all database drivers use <strong class="source-inline">?</strong> for query arguments. For example, one of the Postgres drivers uses <strong class="source-inline">$n</strong>, where <strong class="source-inline">n</strong> is a number<a id="_idIndexMarker668"/> starting from 1 giving the order of the argument. The algorithm is a bit different for <span class="No-Break">such drivers:</span></p>
+			<pre class="source-code">
+if req.Name != nil {
+  args=append(args,*req.Name)
+  fmt.Fprintf(&amp;query,"user_name=$%d",len(args))
+}
+if req.LastLogin!=nil {
+  if len(args)&gt;0 {
+    query.WriteString(",")
+  }
+  args=append(args,*req.LastLogin)
+  fmt.Fprintf(&amp;query,"last_login=$%d",len(args))
+}
+if req.AvatarURL!=nil {
+  if len(args)&gt;0 {
+    query.WriteString(",")
+  }
+  args=append(args,*req.AvatarURL)
+  fmt.Fprintf(&amp;query,"avatar_url=$%d",len(args))
+}</pre>			<h1 id="_idParaDest-407"><a id="_idTextAnchor408"/>Building WHERE clauses</h1>
+			<p>A <strong class="source-inline">WHERE</strong> clause can<a id="_idIndexMarker669"/> be a part of a <strong class="source-inline">SELECT</strong>, <strong class="source-inline">UPDATE</strong>, or <strong class="source-inline">DELETE</strong> statement. Here, I will show a <strong class="source-inline">SELECT</strong> example, and you can extend this to apply to <strong class="source-inline">UPDATE</strong> and <strong class="source-inline">DELETE</strong>. Be careful with the arguments as an <strong class="source-inline">UPDATE</strong> statement will include arguments for update column values <span class="No-Break">as well.</span></p>
+			<h2 id="_idParaDest-408"><a id="_idTextAnchor409"/>How to do it...</h2>
+			<p>This example shows the case where AND is used in the <span class="No-Break">search criteria:</span></p>
+			<ol>
+				<li>You need a data structure that gives which columns to include in the <strong class="source-inline">WHERE</strong> clause. Take the <span class="No-Break">following example:</span><pre class="source-code">
+type UserSearchRequest struct {
+  Ids            []uint64
+  Name           *string
+  LoggedInBefore *time.Time
+  LoggedInAfter  *time.Time
+  AvatarURL      *string
+}</pre><p class="list-inset">With this structure, the search function looks <span class="No-Break">as follows:</span></p><pre class="source-code">func SearchUsers(ctx context.Context, db *sql.DB, req *UserSearchRequest) ([]User,error) {
+  ...
+}</pre></li>				<li>Use <strong class="source-inline">strings.Builder</strong> to build the statement parts while keeping track of the query arguments in <span class="No-Break">a slice:</span><pre class="source-code">
+query:=strings.Builder{}
+where:= strings.Builder{}
+args:=make([]interface{},0)
+// Start building the query. Be mindful of spaces to separate 
+// query clauses
+query.WriteString("SELECT user_id, user_name, last_login, avatar_url FROM users ")</pre></li>				<li>Build a predicate<a id="_idIndexMarker670"/> for each <span class="No-Break">search item:</span><pre class="source-code">
+if len(req.Ids)&gt;0 {
+   // Add this to the WHERE clause with an AND
+   if where.Len()&gt;0 {
+      where.WriteString(" AND ")
+   }
+  // Build an IN clause.
+  // We have to add one argument for each id
+  where.WriteString("user_id IN (")
+  for i,id:=range req.Ids {
+    if i&gt;0 {
+      where.WriteString(",")
+    }
+    args=append(args,id)
+    where.WriteString("?")
+  }
+  where.WriteString(")")
+}
+if req.Name!=nil {
+  if where.Len()&gt;0 {
+    where.WriteString(" AND ")
+  }
+  args=append(args,*req.Name)
+  where.WriteString("user_name=?")
+}
+if req.LoggedInBefore!=nil {
+  if where.Len()&gt;0 {
+    where.WriteString(" AND ")
+  }
+  args=append(args,*req.LoggedInBefore)
+  where.WriteString("last_login&lt;?")
+}
+if req.LoggedInAfter!=nil {
+  if where.Len()&gt;0 {
+    where.WriteString(" AND ")
+  }
+  args=append(args,*req.LoggedInAfter)
+  where.WriteString("last_login&gt;?")
+}
+if req.AvatarURL!=nil {
+  if where.Len()&gt;0 {
+    where.WriteString(" AND ")
+  }
+  args=append(args,*req.AvatarURL)
+  where.WriteString("avatar_url=?")
+}</pre></li>				<li>Build and <a id="_idIndexMarker671"/>run <span class="No-Break">the query:</span><pre class="source-code">
+if where.Len()&gt;0 {
+  query.WriteString(" WHERE ")
+  query.WriteString(where.String())
+}
+rows, err:= db.QueryContext(ctx,query.String(), args...)</pre></li>			</ol>
+			<p>Again, not all database drivers use the <strong class="source-inline">?</strong> marker. See the previous section for an alternative if your database driver is one <span class="No-Break">of those.</span></p>
+		</div>
+	</div></div></body></html>

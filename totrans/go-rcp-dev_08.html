@@ -1,0 +1,304 @@
+<html><head></head><body><div id="book-content"><div id="sbo-rt-content"><div id="_idContainer017">
+			<h1 id="_idParaDest-215" class="chapter-number"><a id="_idTextAnchor216"/>8</h1>
+			<h1 id="_idParaDest-216"><a id="_idTextAnchor217"/>Errors and Panics</h1>
+			<p>Go error handling has been nothing but polarizing. Those who came from a background in languages with exception handling (such as Java) tend to hate it, and those who came from a background in languages where errors are values returned from functions (such as C) feel comfortable <span class="No-Break">with it.</span></p>
+			<p>Having a background in both, I am of the opinion that the explicit nature of error handling forces you to think about exceptional situations at every step of the development. Error generation, error passing, and error handling require the same type of discipline and scrutiny as the “happy path” (which is when no <span class="No-Break">errors happen).</span></p>
+			<p>If you noticed, I make a distinction between three phases of dealing <span class="No-Break">with </span><span class="No-Break">errors:</span></p>
+			<ul>
+				<li>Detection and generation of errors deal with detecting an exceptional situation and capturing <span class="No-Break">diagnostic information</span></li>
+				<li>Passing of errors deals with allowing errors to be propagated up the stack, optionally decorating them with <span class="No-Break">contextual information</span></li>
+				<li>Handling of errors deals with actually resolving the error, which may include terminating <span class="No-Break">the program</span></li>
+			</ul>
+			<p>In this chapter, you will learn about <span class="No-Break">the following:</span></p>
+			<ul>
+				<li>How to <span class="No-Break">generate errors</span></li>
+				<li>How to pass them by annotating them using <span class="No-Break">contextual information</span></li>
+				<li>How to <span class="No-Break">handle errors</span></li>
+				<li>Organizing errors in <span class="No-Break">a project</span></li>
+				<li>Dealing <span class="No-Break">with panics</span></li>
+			</ul>
+			<h1 id="_idParaDest-217"><a id="_idTextAnchor218"/>Returning and handling errors</h1>
+			<p>This recipe <a id="_idIndexMarker311"/>shows how to detect errors and how to wrap errors with <a id="_idIndexMarker312"/>additional <span class="No-Break">contextual information.</span></p>
+			<h2 id="_idParaDest-218"><a id="_idTextAnchor219"/>How to do it...</h2>
+			<p>Use the last return value of a function or method <span class="No-Break">for</span><span class="No-Break"> errors:</span></p>
+			<pre class="source-code">
+func DoesNotReturnError() {...}
+func MayReturnError() error {...}
+func MayReturnStringAndError() (string,error) {...}</pre>			<p>If the function or method is successful, it will return <strong class="source-inline">nil</strong> error. If an error condition is detected within the function or method, either return that error verbatim or wrap the error with another one containing <span class="No-Break">contextual information:</span></p>
+			<pre class="source-code">
+func LoadConfig(f string) (*Config, error) {
+   file, err:=os.Open(f)
+   if err!=nil {
+      return nil, fmt.Errorf("file %s: %w", f,err)
+   }
+   defer file.Close()
+   var cfg Config
+   err = json.NewDecoder(file).Decode(&amp;cfg)
+   if err!=nil {
+     return nil, fmt.Errorf("While unmarshaling %s: %w",f,err)
+   }
+   return &amp;cfg, nil
+}</pre>			<p class="callout-heading">Tip</p>
+			<p class="callout">Do not use <strong class="source-inline">panic</strong> as a replacement for error. <strong class="source-inline">panic</strong> should be used to signal a potential bug or unrecoverable situation. An error is used to signal a context-dependent situation, such as a missing file or <span class="No-Break">invalid input.</span></p>
+			<h2 id="_idParaDest-219"><a id="_idTextAnchor220"/>How it works...</h2>
+			<p>Go uses explicit <a id="_idIndexMarker313"/>error detection and handling. That means there is no implicit or hidden execution path for errors (such as throwing an exception). Go errors are <a id="_idIndexMarker314"/>simply interface values and an error being <strong class="source-inline">nil</strong> is interpreted as the absence of an error. The above function calls some file management functions that can return an error. When that happens (that is, when the function returns a non-<strong class="source-inline">nil</strong> error), this function simply wraps that error with additional information and returns it. The additional information allows the caller, and sometimes the user of the program to determine the correct course <span class="No-Break">of action.</span></p>
+			<h1 id="_idParaDest-220"><a id="_idTextAnchor221"/>Wrapping errors to add contextual information</h1>
+			<p>Using the standard library <strong class="source-inline">errors</strong> package, you can wrap an error with another error that <a id="_idIndexMarker315"/>contains additional contextual information. This package also provides facilities and conventions that will let you check if an error tree contains a particular error or extract a particular error from an <span class="No-Break">error tree.</span></p>
+			<h2 id="_idParaDest-221"><a id="_idTextAnchor222"/>How to do it...</h2>
+			<p>Add contextual information to an error using <strong class="source-inline">fmt.Errorf</strong>. In the following example, the returned error will contain the error returned from <strong class="source-inline">os.Open</strong>, and it will also include the <span class="No-Break">file name:</span></p>
+			<pre class="source-code">
+file, err := os.Open(fileName)
+if err!=nil {
+   return fmt.Errorf("%w: While opening %s",err,fileName)
+}</pre>			<p>Note the use of <strong class="source-inline">%w</strong> verb in <strong class="source-inline">fmt.Errorf</strong> above. The %w verb is used to create an error wrapping the one given as its argument. If we used %v or %s, the returned error would contain the text of the original error, but it would not <span class="No-Break">wrap it.</span></p>
+			<h1 id="_idParaDest-222"><a id="_idTextAnchor223"/>Comparing errors</h1>
+			<p>When you wrap an error with additional information, the new error value is not of the same type <a id="_idIndexMarker316"/>or value as the original error. For instance, <strong class="source-inline">os.Open</strong> may return <strong class="source-inline">os.ErrNotExist</strong> if the file is not found, and if you wrap this error with additional information, such as the file name, the caller of this function will need a way to get to the original error to handle it properly. This recipe shows how to deal with such wrapped <span class="No-Break">error values.</span></p>
+			<h2 id="_idParaDest-223"><a id="_idTextAnchor224"/>How to do it...</h2>
+			<p>Checking if there is an error or not is simple: check if an error value is <strong class="source-inline">nil</strong> <span class="No-Break">or not:</span></p>
+			<pre class="source-code">
+file, err := os.Open(fileName)
+if err!=nil {
+  // File could not be opened
+}</pre>			<p>Checking if an error is what you expect should be done <span class="No-Break">using </span><span class="No-Break"><strong class="source-inline">errors.Is</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+file, err := os.Open(fileName)
+if errors.Is(err,os.ErrNotExist) {
+  // File does not exist
+}</pre>			<h2 id="_idParaDest-224"><a id="_idTextAnchor225"/>How it works...</h2>
+			<p><strong class="source-inline">errors.Is(err,target error)</strong> compares if <strong class="source-inline">err</strong> is equal to <strong class="source-inline">target</strong> by doing <span class="No-Break">the following:</span></p>
+			<ol>
+				<li>It checks <span class="No-Break">if </span><span class="No-Break"><strong class="source-inline">err==target</strong></span><span class="No-Break">.</span></li>
+				<li>If that fails, it checks if <strong class="source-inline">err</strong> has an <strong class="source-inline">Is(error) bool</strong> method by <span class="No-Break">calling </span><span class="No-Break"><strong class="source-inline">err.Is(target)</strong></span><span class="No-Break">.</span></li>
+				<li>If that fails, it checks if <strong class="source-inline">err</strong> has an <strong class="source-inline">Unwrap() error</strong> method and <strong class="source-inline">err.Unwrap()</strong> is not <strong class="source-inline">nil</strong> by checking if <strong class="source-inline">err.Unwrap()</strong> is equal <span class="No-Break">to </span><span class="No-Break"><strong class="source-inline">target</strong></span><span class="No-Break">.</span></li>
+				<li>If that fails, it checks if <strong class="source-inline">err</strong> has an <strong class="source-inline">Unwrap() []error</strong> method, and if <strong class="source-inline">target</strong> is equal to any one of those <span class="No-Break">slice elements.</span></li>
+			</ol>
+			<p>The meaning of this is that if you wrap an error, the caller can still check if the wrapped error happened and <span class="No-Break">behave accordingly.</span></p>
+			<p>If you define <a id="_idIndexMarker317"/>an error using <strong class="source-inline">errors.New()</strong> or <strong class="source-inline">fmt.Errorf()</strong>, then the returned error interface contains a pointer to an object. In this case, the fact that two errors have the same string representation doesn’t mean that they are equal. The following program shows <span class="No-Break">this situation:</span></p>
+			<pre class="source-code">
+var e1 = errors.New("test")
+var e2 = errors.New("test")
+if e1 != e2 {
+   fmt.Println("Errors are different!")
+}</pre>			<p>Above, even though the error strings are the same, <strong class="source-inline">e1</strong> and <strong class="source-inline">e2</strong> are pointers pointing to different objects. The program will print <strong class="source-inline">Errors are different</strong>. Thus, declaring errors like the <span class="No-Break">following works:</span></p>
+			<pre class="source-code">
+var (
+  ErrNotFound = errors.New("Not found")
+)</pre>			<p>A comparison to <strong class="source-inline">ErrNotFound</strong> will compare if an error value is a pointer to the same object <span class="No-Break">as </span><span class="No-Break"><strong class="source-inline">ErrNotFound</strong></span><span class="No-Break">.</span></p>
+			<h1 id="_idParaDest-225"><a id="_idTextAnchor226"/>Structured errors</h1>
+			<p>A <strong class="bold">structured error</strong> provides <a id="_idIndexMarker318"/>contextual information that can be crucial in handling the errors before they reach the user of a program. This recipe shows how such errors can <span class="No-Break">be used.</span></p>
+			<h2 id="_idParaDest-226"><a id="_idTextAnchor227"/>How to do it...</h2>
+			<ol>
+				<li>Define a struct containing metadata that captures the <span class="No-Break">error situation.</span></li>
+				<li>Implement the <strong class="source-inline">Error() string</strong> method to make it <span class="No-Break">an </span><span class="No-Break"><strong class="source-inline">error</strong></span><span class="No-Break">.</span></li>
+				<li>If the error can wrap other errors, include an <strong class="source-inline">error</strong> or <strong class="source-inline">[]error</strong> to <span class="No-Break">store those.</span></li>
+				<li>Optionally, implement the <strong class="source-inline">Is(error) bool</strong> method to control how to compare <span class="No-Break">this error.</span></li>
+				<li>Optionally, implement <strong class="source-inline">Unwrap() error</strong> or <strong class="source-inline">Unwrap() []error</strong> to return <span class="No-Break">wrapped errors.</span></li>
+			</ol>
+			<h2 id="_idParaDest-227"><a id="_idTextAnchor228"/>How it works...</h2>
+			<p>Any data type implementing the <strong class="source-inline">error</strong> interface (containing only one method, <strong class="source-inline">Error() string</strong>) can be used as an error. This means that you can create data structures containing detailed error information that can be later acted upon. So, if you need several data fields to describe an error, instead of building an elaborate string and returning it via <strong class="source-inline">fmt.Errorf</strong>, you can use <span class="No-Break">a struct.</span></p>
+			<p>As an example, let’s assume you are parsing a multi-line formatted text input. Returning accurate and useful information to your users is important; nobody will enjoy receiving a <strong class="source-inline">Syntax error</strong> message without showing where the error is. So, you declare this <span class="No-Break">error structure:</span></p>
+			<pre class="source-code">
+type ErrSyntax struct {
+   Line int
+   Col int
+   Diag string
+}
+func (err ErrSyntax) Error() string {
+  return fmt.Sprintf("Syntax error line: %d col: %d, %s", err.Line, 
+  err.Col, err.Diag)
+}</pre>			<p>You can <a id="_idIndexMarker319"/>now generate useful <span class="No-Break">error information:</span></p>
+			<pre class="source-code">
+func ParseInput(input string) error {
+  ...
+  if nextRune != ',' {
+     return ErrSyntax {
+        Line: line,
+        Col: col,
+        Diag: "Expected comma",
+    }
+  }
+  ...
+}</pre>			<p>You can use this error information to display useful messages to your users or control an interactive response, such as positioning the cursor to where the error is or highlighting text near the <span class="No-Break">error location.</span></p>
+			<h1 id="_idParaDest-228"><a id="_idTextAnchor229"/>Wrapping structured errors</h1>
+			<p>A structured <a id="_idIndexMarker320"/>error can be used to decorate another error with additional information by wrapping it. This recipe shows how to <span class="No-Break">do that.</span></p>
+			<h2 id="_idParaDest-229"><a id="_idTextAnchor230"/>How to do it...</h2>
+			<ol>
+				<li>Keep an error member variable (or a slice of errors) to store the root cause in <span class="No-Break">the structure.</span></li>
+				<li>Implement <strong class="source-inline">Unwrap() error</strong> (or <strong class="source-inline">Unwrap() []</strong><span class="No-Break"><strong class="source-inline">error</strong></span><span class="No-Break">) method.</span></li>
+			</ol>
+			<h2 id="_idParaDest-230"><a id="_idTextAnchor231"/>How it works...</h2>
+			<p>You can wrap <a id="_idIndexMarker321"/>the root cause error in a structured error. This allows you to add structured contextual information about <span class="No-Break">the error:</span></p>
+			<pre class="source-code">
+type ErrFile struct {
+   Name string
+   When string
+   Err error
+}
+func (err ErrFile) Error() string {
+   return fmt.Sprintf("%s: file %s, when %s", err.Err, err.Name, err.
+   When)
+}
+func (err ErrFile) Unwrap() error { return err.Err }
+func ReadConfigFile(name string) error {
+  f, err:=os.Open(name)
+  if err!=nil {
+     return ErrFile {
+        Name: name,
+        Err:err,
+        When: "opening configuration file",
+     }
+  }
+  ...
+}</pre>			<p>Note that <strong class="source-inline">Unwrap</strong> is necessary. Without that, the following code will fail to detect that the error <a id="_idIndexMarker322"/>is derived <span class="No-Break">from </span><span class="No-Break"><strong class="source-inline">os.ErrNotFound</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+err:=ReadConfig("config.json")
+if errors.Is(err,os.ErrNotFound) {
+   // file not found
+}</pre>			<p>With the <strong class="source-inline">Unwrap</strong> method, the <strong class="source-inline">errors.Is</strong> function can descend the enclosed errors, and determine if at least one of them <span class="No-Break">is </span><span class="No-Break"><strong class="source-inline">os.ErrNotFound</strong></span><span class="No-Break">.</span></p>
+			<h1 id="_idParaDest-231"><a id="_idTextAnchor232"/>Comparing structured errors by type</h1>
+			<p>In languages <a id="_idIndexMarker323"/>that support <strong class="source-inline">try</strong>-<strong class="source-inline">catch</strong> blocks, you usually catch errors based on their type. You can emulate the same functionality relying <span class="No-Break">on </span><span class="No-Break"><strong class="source-inline">errors.Is</strong></span><span class="No-Break">.</span></p>
+			<h2 id="_idParaDest-232"><a id="_idTextAnchor233"/>How to do it...</h2>
+			<p>Implement the <strong class="source-inline">Is(error) bool</strong> method in your error type to define what type of equivalence you <span class="No-Break">care about.</span></p>
+			<h2 id="_idParaDest-233"><a id="_idTextAnchor234"/>How it works...</h2>
+			<p>You may remember that the <strong class="source-inline">errors.Is(err,target)</strong> function first tests if <strong class="source-inline">err = target</strong>, and if that fails, it tests if <strong class="source-inline">err.Is(target)</strong>, provided <strong class="source-inline">err</strong> implements the <strong class="source-inline">Is(error) bool</strong> method. So, you can use the <strong class="source-inline">Is(error) bool</strong> method to tune how to compare your custom error types. Without the <strong class="source-inline">Is(error) bool</strong> method, <strong class="source-inline">errors.Is</strong> will compare using <strong class="source-inline">==</strong>, which will fail if the contents of two errors are different even if they are the same type. The following example allows you to check if the <a id="_idIndexMarker324"/>given error contains <strong class="source-inline">ErrSyntax</strong> somewhere in the <span class="No-Break">error tree:</span></p>
+			<pre class="source-code">
+type ErrSyntax struct {
+   Line int
+   Col int
+   Err error
+}
+func (err ErrSyntax) Error() string {...}
+func (err ErrSyntax) Is(e error) bool {
+  _,ok:=e.(ErrSyntax)
+  return ok
+}</pre>			<p>Now, you can test if an error is a <span class="No-Break">syntax error:</span></p>
+			<pre class="source-code">
+err:=Parse(input)
+if errors.Is(err,ErrSyntax{}) {
+   // err is a syntax error
+}</pre>			<h1 id="_idParaDest-234"><a id="_idTextAnchor235"/>Extracting a specific error from the error tree</h1>
+			<h2 id="_idParaDest-235"><a id="_idTextAnchor236"/>How to do it...</h2>
+			<p>Use the <strong class="source-inline">errors.As</strong> function <a id="_idIndexMarker325"/>to descend an error tree, find a particular error, and <span class="No-Break">extract it.</span></p>
+			<h2 id="_idParaDest-236"><a id="_idTextAnchor237"/>How it works...</h2>
+			<p>Similar to the <strong class="source-inline">errors.Is</strong> function, <strong class="source-inline">errors.As(err error, target any) bool</strong> descends the error tree of <strong class="source-inline">err</strong> until an error that is assignable to <strong class="source-inline">target</strong> is found. That is done by <span class="No-Break">the following:</span></p>
+			<ol>
+				<li>It checks if the value pointed to by <strong class="source-inline">target</strong> is assignable to the value pointed to <span class="No-Break">by </span><span class="No-Break"><strong class="source-inline">err</strong></span><span class="No-Break">.</span></li>
+				<li>If that fails, it checks if <strong class="source-inline">err</strong> has an <strong class="source-inline">As(error) bool</strong> method by calling <strong class="source-inline">err.As(target)</strong>. If it returns <strong class="source-inline">true</strong>, then an error <span class="No-Break">is found.</span></li>
+				<li>If not, it checks if <strong class="source-inline">err</strong> has an <strong class="source-inline">Unwrap() error</strong> method and <strong class="source-inline">err.Unwrap()</strong> is not <strong class="source-inline">nil</strong>, descending <span class="No-Break">the tree.</span></li>
+				<li>Otherwise, it checks if <strong class="source-inline">err</strong> has an <strong class="source-inline">Unwrap() []error</strong> method, and if it returns a non-empty slice, it descends the tree for each of those until a match <span class="No-Break">is found.</span></li>
+			</ol>
+			<p>In other words, <strong class="source-inline">errors.As</strong> copies the error that can be assigned to <strong class="source-inline">target</strong> <span class="No-Break">into </span><span class="No-Break"><strong class="source-inline">target</strong></span><span class="No-Break">.</span></p>
+			<p>The following example can be used to extract an instance of <strong class="source-inline">ErrSyntax</strong> from an <span class="No-Break">error tree:</span></p>
+			<pre class="source-code">
+func (err ErrSyntax) As(target any) bool {
+   if tgt, ok:=target.(*ErrSyntax); ok {
+      *tgt=err
+      return true
+   }
+   return false
+}
+func main() {
+  ...
+  err:=Parse(in)
+  var syntaxError ErrSyntax
+  if errors.As(err,&amp;syntaxError) {
+    // syntaxError has a copy of the ErrSyntax
+  }
+  ...
+}</pre>			<p>Note the <a id="_idIndexMarker326"/>use of pointers here. The error struct is used as a value, and you want a copy of that error struct, so you pass a pointer to it: an instance of <strong class="source-inline">ErrSyntax</strong> can be copied into an instance of <strong class="source-inline">*ErrSyntax</strong>. If your program used <strong class="source-inline">*ErrSyntax</strong> as the error value, you need to send <strong class="source-inline">**ErrSyntax</strong> by declaring <strong class="source-inline">var syntaxError *ErrSyntax</strong> and passing <strong class="source-inline">&amp;syntaxError</strong> to copy the pointer into the memory location pointed to by <span class="No-Break">the double-pointer.</span></p>
+			<h1 id="_idParaDest-237"><a id="_idTextAnchor238"/>Dealing with panics</h1>
+			<p>In general, a <strong class="bold">panic</strong> is an <a id="_idIndexMarker327"/>unrecoverable situation, such as resource exhaustion <a id="_idIndexMarker328"/>or a violation of an invariant (that is, a bug). Some panics, such as out of memory or divide by zero, will be raised by the runtime (or raised by the hardware and transferred to the program as a panic). You should generate a panic in your program when you detect a bug. But how do you decide if a situation is a bug and you should panic or <span class="No-Break">an error?</span></p>
+			<p>In general, an external input (user input, data submitted by an API, or data read from a file) should not cause a panic. Such situations should be detected and returned as meaningful errors to the user. A panic in this situation would be, for instance, a failed compilation of a regular expression that is declared as a constant string in your program. The input is <a id="_idIndexMarker329"/>not something that can be fixed by re-running the program with different inputs; it is simply <span class="No-Break">a bug.</span></p>
+			<p>If a panic is not handled with <strong class="source-inline">recover</strong>, the program will terminate by printing diagnostic output, including the reason for panic and the stacks of <span class="No-Break">active goroutines.</span></p>
+			<h1 id="_idParaDest-238"><a id="_idTextAnchor239"/>Panicking when necessary</h1>
+			<p>Most of the time, deciding whether to panic or to return an error is not an easy decision. This recipe <a id="_idIndexMarker330"/>offers some guidelines to make that <span class="No-Break">decision easier.</span></p>
+			<h2 id="_idParaDest-239"><a id="_idTextAnchor240"/>How to do it...</h2>
+			<p>There are two situations where you can panic. Panic if either of the following is <span class="No-Break">the case:</span></p>
+			<ul>
+				<li>An invariant <span class="No-Break">is violated</span></li>
+				<li>The program cannot continue in the <span class="No-Break">current state</span></li>
+			</ul>
+			<p>An invariant is a condition that cannot be violated in a program. Thus, if you detect that it is violated, instead of returning an <span class="No-Break">error, panic.</span></p>
+			<p>The following example is from a graph library I wrote. A graph contains nodes and edges, managed by a <strong class="source-inline">*Graph</strong> structure. The <strong class="source-inline">Graph.NewEdge</strong> method creates a new edge between two nodes. Those two nodes must belong to the same graph as the receiver of the <strong class="source-inline">NewEdge</strong> method so it is appropriate to panic if that is not the case, <span class="No-Break">as follows:</span></p>
+			<pre class="source-code">
+func (g *Graph) NewEdge(from,to *Node) *Edge {
+  if from.graph!=g {
+     panic("from node is not in graph")
+  }
+  if to.graph!=g {
+     panic("to node is not in graph")
+  }
+   ...
+}</pre>			<p>Above, there is nothing that can be gained by returning an error from this method. This is clearly a bug the caller did not realize, and if the program is allowed to continue, the integrity of the <strong class="source-inline">Graph</strong> object will be violated, creating hard-to-find bugs. The best <a id="_idIndexMarker331"/>course of action is <span class="No-Break">to panic.</span></p>
+			<p>The second situation is a broad case where continuation is not possible. As an example, consider you are writing a web application and you load HTML templates from the file system. If the compilation of such a template fails, the program cannot continue. You <span class="No-Break">should panic.</span></p>
+			<h1 id="_idParaDest-240"><a id="_idTextAnchor241"/>Recovering from panics</h1>
+			<p>An unhandled panic will terminate the program. Often, this is the only correct course of action. However, there <a id="_idIndexMarker332"/>are cases where you want to fail whatever caused the error, log it, and continue. For example, a server handling many requests concurrently does not terminate just because one of the requests panicked. This recipe shows how you can recover from <span class="No-Break">a panic.</span></p>
+			<h2 id="_idParaDest-241"><a id="_idTextAnchor242"/>How to do it...</h2>
+			<p>Use a <strong class="source-inline">recover</strong> statement in a <span class="No-Break"><strong class="source-inline">defer</strong></span><span class="No-Break"> function:</span></p>
+			<pre class="source-code">
+func main() {
+  defer func() {
+     if r:=recover(); r != nil {
+        // deal with the panic
+     }
+  }()
+  ...
+}</pre>			<h2 id="_idParaDest-242"><a id="_idTextAnchor243"/>How it works...</h2>
+			<p>When a program panics, the panicking function will return after all deferred blocks are executed. The stack of that goroutine will unroll one function after the other, cleaning up by running their <strong class="source-inline">deferred</strong> statements, until the beginning of the goroutine is reached, or one <a id="_idIndexMarker333"/>of the deferred functions invokes <strong class="source-inline">recover</strong>. If the panic is not recovered, the program will crash by printing out diagnostic and stack information. If the panic is recovered, the <strong class="source-inline">recover()</strong> function will return whatever parameter was given to <strong class="source-inline">panic</strong>, which can be <span class="No-Break">any value.</span></p>
+			<p>So, if you recover from a panic, you should check if the recovered value is an error that you can use to give more <span class="No-Break">useful information.</span></p>
+			<h1 id="_idParaDest-243"><a id="_idTextAnchor244"/>Changing return value in recover</h1>
+			<p>When you <a id="_idIndexMarker334"/>recover from a panic, you usually want to return some sort of error describing what happened. This recipe shows you how to <span class="No-Break">do that.</span></p>
+			<h2 id="_idParaDest-244"><a id="_idTextAnchor245"/>How to do it...</h2>
+			<p>To change the return value of a function when recovered from a panic, use named <span class="No-Break">return values.</span></p>
+			<h2 id="_idParaDest-245"><a id="_idTextAnchor246"/>How it works...</h2>
+			<p>A <strong class="bold">named return value</strong> allows you <a id="_idIndexMarker335"/>to access and set the return values of a function. As shown below, you can change the return value of a function using named <span class="No-Break">return values:</span></p>
+			<pre class="source-code">
+func process() (err error) {
+  defer func() {
+     r:=recover()
+     if e, ok:=r.(error); ok {
+         err = e
+     }</pre>			<h1 id="_idParaDest-246"><a id="_idTextAnchor247"/>Capturing the stack trace of a panic</h1>
+			<p>Printing or <a id="_idIndexMarker336"/>logging a stack trace when a panic is detected is a critical tool in identifying problems at runtime. This recipe shows how you can add a stack trace to your <span class="No-Break">logging messages.</span></p>
+			<h2 id="_idParaDest-247"><a id="_idTextAnchor248"/>How to do it...</h2>
+			<p>Use the <strong class="source-inline">debug.Stack</strong> function <span class="No-Break">with </span><span class="No-Break"><strong class="source-inline">recover</strong></span><span class="No-Break">:</span></p>
+			<pre class="source-code">
+import "runtime/debug"
+import "fmt"
+func main() {
+    defer func() {
+        if r := recover(); r != nil {
+            stackTrace := string(debug.Stack())
+            // Work with stackTrace
+            fmt.Println(stackTrace)
+        }
+    }()
+    f()
+}
+func f() {
+   var i *int
+   *i=0
+}</pre>			<p>When inside the recovery function, the <strong class="source-inline">debug.Stack</strong> function will return the stack of the panic <a id="_idIndexMarker337"/>that is being recovered, not the stack where it is called. Thus, if you can log this information or print it, it will show you the exact location of the source of <span class="No-Break">the panic.</span></p>
+			<p class="callout-heading">Warning</p>
+			<p class="callout">Getting the stack this way is an expensive operation. Use it carefully and only <span class="No-Break">when necessary.</span></p>
+			<p>The preceding program will print <span class="No-Break">the following:</span></p>
+			<pre class="source-code">
+goroutine 1 [running]:
+runtime/debug.Stack()
+     /usr/local/go-faketime/src/runtime/debug/stack.go:24 +0x5e
+main.main.func1()
+     /tmp/sandbox381445105/prog.go:13 +0x25
+panic({0x48bbc0?, 0x5287c0?})
+     /usr/local/go-faketime/src/runtime/panic.go:770 +0x132
+main.f(...)
+     /tmp/sandbox381445105/prog.go:23
+main.main()
+     /tmp/sandbox381445105/prog.go:18 +0x2e</pre>			<p><span class="No-Break">Here:</span></p>
+			<ul>
+				<li><strong class="source-inline">prog.go:13</strong> is where <strong class="source-inline">debug.Stack()</strong> <span class="No-Break">is called</span></li>
+				<li><strong class="source-inline">prog.go:23</strong> is where <strong class="source-inline">*i=0</strong> <span class="No-Break">is executed</span></li>
+				<li><strong class="source-inline">prog.go:18</strong> is where <strong class="source-inline">f()</strong> <span class="No-Break">is called</span></li>
+			</ul>
+			<p>As you <a id="_idIndexMarker338"/>can see, the stack pinpoints the exact location of the <span class="No-Break">error (</span><span class="No-Break"><strong class="source-inline">prog.go:23</strong></span><span class="No-Break">).</span></p>
+		</div>
+	</div></div></body></html>

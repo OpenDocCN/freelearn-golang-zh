@@ -1,0 +1,938 @@
+<html><head></head><body>
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Advanced Web Go Applications with Gin and React</h1>
+                </header>
+            
+            <article>
+                
+<p>In this chapter, we'll continue building our GoMusic web application. This chapter will cover some advanced concepts, as it will add to what we built in the previous chapter before it dives deeper into how to build advanced backend software. We will cover some important and practical topics such as database layers for connecting our application to a production database, <span><strong>object-relational mapping</strong> (</span><strong>ORM</strong>) for simplifying our database layer code, middleware for adding functionality on top of our Web API handlers, authentication to secure our web application, and credit card charging. We will also revisit the frontend of our GoMusic application in order to cover how our frontend would connect to our backend.</p>
+<p>Specifically, we'll cover the following topics i<span>n this chapter</span>:</p>
+<ul>
+<li>Database layers and ORMs</li>
+<li>Middleware</li>
+<li>Security, authentication, and authorization</li>
+<li>Credit card charging</li>
+<li>Proxying React applications</li>
+<li>Authorizing and authenticating from React applications</li>
+</ul>
+<p><span>This chapter will revisit the frontend layer of our application, in order to evolve our existing React application to utilize the new backend features.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Technical requirements</h1>
+                </header>
+            
+            <article>
+                
+<p>For this chapter, we recommend that you have the following software installed:</p>
+<ul>
+<li>The Go language</li>
+<li>A code editor or an IDE such as VS Code</li>
+<li>npm and Node.js</li>
+<li>React</li>
+</ul>
+<p>Knowledge of the following topics is required:</p>
+<ul>
+<li>Go (<a href="d638558d-2461-4bc9-b51b-317307ed899b.xhtml">Chapter 2</a>, <em>Building Blocks of the Go Language, </em>and <a href="72d04e99-a5af-4af9-b51a-54c4c750871f.xhtml">Chapter 3</a>, <em>Go Concurrency</em>)</li>
+<li>JavaScript</li>
+<li>React (<a href="e875a3eb-c517-4246-8233-cc681f6c3356.xhtml">Chapter 4</a>, <em>Frontend with React.js</em>, and <a href="e875a3eb-c517-4246-8233-cc681f6c3356.xhtml"/><a href="2047c922-b48b-4b36-afb5-a155031c60ea.xhtml"/><a href="2047c922-b48b-4b36-afb5-a155031c60ea.xhtml">Chapter 5</a>, <em>Building a Frontend for GoMusic</em>)</li>
+<li>Some familiarity with relational databases and MySQL</li>
+</ul>
+<p>The code for this chapter can be found in this book's GitHub repository at <a href="https://github.com/PacktPublishing/Hands-On-Full-Stack-Development-with-Go/tree/master/Chapter07">https://github.com/PacktPublishing/Hands-On-Full-Stack-Development-with-Go/tree/master/Chapter07</a>.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The database layer</h1>
+                </header>
+            
+            <article>
+                
+<p>In the previous chapter, we started writing our database layer. As a reminder, our database layer was hosted in the <kbd>backend\src\dblayer</kbd> folder. Our first step was to write the database layer interface, which defined all of the functionality that we expect from the database layer. This is what the database layer interface looked like:</p>
+<pre>type DBLayer interface {<br/>  GetAllProducts() ([]models.Product, error)<br/>  GetPromos() ([]models.Product, error)<br/>  GetCustomerByName(string, string) (models.Customer, error)<br/>  GetCustomerByID(int) (models.Customer, error)<br/>  GetProduct(int) (models.Product, error)<br/>  AddUser(models.Customer) (models.Customer, error)<br/>  SignInUser(username, password string) (models.Customer, error)<br/>  SignOutUserById(int) error<br/>  GetCustomerOrdersByID(int) ([]models.Order, error)<br/>}</pre>
+<p>Now, we need to implement these methods to get some solid functionality in our database layer. </p>
+<p>Before we start implementing this functionality, we first need to get a database ready. </p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Relational databases</h1>
+                </header>
+            
+            <article>
+                
+<p>A database is one of the key pieces of the backend of any application. This is where the backend layer can persist and retrieve data. </p>
+<p>A relational database can simply be described as a database that stores data in a number of tables and then establishes relationships between those tables.<span> </span></p>
+<p>When configuring a database, there are three things we need to define:</p>
+<ul>
+<li><strong>A database name</strong>: In our case, it will be called GoMusic.</li>
+<li><strong>Table names</strong>: In our case, for simplicity, we'll go with three tables:
+<ul>
+<li><strong>A</strong> <kbd>customer</kbd> <strong>table</strong>: This table is where we'll store our app user's information</li>
+</ul>
+<ul>
+<li><strong>An</strong><span> </span><kbd>orders</kbd><span> </span><strong>table</strong>: This table should map the customers to the products they bought</li>
+<li><strong>A</strong> <kbd>products</kbd> <strong>table</strong>: This table will host a list of the available products for GoMusic </li>
+</ul>
+</li>
+<li><strong>Indexes and relationships between the tables</strong>: In our case, the orders table will point to both the <kbd>customer</kbd> and <kbd>products</kbd> tables. Both tables will need an<span> </span><kbd>id</kbd><span> </span>index. Indexes are used to make queries more efficient and faster. </li>
+</ul>
+<p><span>MySQL is a well-known relational database, and we will be using it in this book. MySQL is a very popular open source database engine and is being used in numerous projects, both large and small.</span></p>
+<p class="mce-root"/>
+<p><span>Here is how our architecture looks like with a database serving data for our application's backend:</span></p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/6bc5864d-cde9-4dba-9c61-0eaa5ae5819a.png" style="width:68.08em;height:47.42em;"/></p>
+<p class="mce-root">Let's set up MySQL for our application in the next section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Setting up</h1>
+                </header>
+            
+            <article>
+                
+<p>Before we start creating databases and tables, we first need to install MySQL. There are Enterprise Editions as well as Community Editions of MySQL. The Community Edition of MySQL is what we would use in a project like ours. This is because the Community Editions are free and can be used for learning and exploration projects. To install the MySQL Community Edition Server, you need to download it from the following link: <a href="https://dev.mysql.com/downloads/">https://dev.mysql.com/downloads/</a>.</p>
+<p>Once we have installed MySQL, we need to install client tools to make use of the database. MySQL usually comes with a tool called <span class="packt_screen">MySQL Workbench</span><span><span>, which is shown in the following screenshot:</span></span></p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/203e2f14-59f5-431b-9122-8a77a1b66a20.png" style="width:88.42em;height:47.33em;"/></p>
+<div class="CDPAlignCenter CDPAlign packt_figref">The MySQL Workbench tool page</div>
+<p>You can use the tools in <span class="packt_screen">MySQL Workbench</span> to create MySQL databases, tables, indexes, and relationships. Let's go through the tables, one by one.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The customer table</h1>
+                </header>
+            
+            <article>
+                
+<p>As we mentioned earlier, this is the table where we will store our app user's information. Here is how the <kbd>customer</kbd> table will look like:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/da5fe63a-7c80-4faa-be1a-2ebfb3d966ee.png" style="width:37.75em;height:13.08em;"/></p>
+<p>The table consists of the following ten columns:</p>
+<ol>
+<li><kbd>id</kbd>: This is the unique ID for each customer.</li>
+<li><kbd>firstname</kbd>: This is the first name of the customer.</li>
+<li><kbd>lastname</kbd>: This is the last name of the customer.</li>
+<li><kbd>email</kbd>: This is the customer's email.</li>
+<li><kbd>pass</kbd>: This is the password for the customer. This field must be stored in a hashed form.</li>
+<li><kbd>cc_customerid</kbd>: This is an ID that represents the credit card of the customer. We'll cover this field later in this chapter.</li>
+<li><kbd>loggedin</kbd>: This flag specifies whether the user is logged in or not.</li>
+<li><kbd>created_at</kbd>: This field specifies the date when the customer was added.</li>
+<li><kbd>updated_at</kbd>: This field specifies the last time the row/customer was updated.</li>
+<li><kbd>deleted_at</kbd>: This field specifies the last time the row was deleted.</li>
+</ol>
+<p>This table will support two indexes. As mentioned earlier, i<span>ndexes are used to make queries more efficient and faster. This is done by identifying the columns, which we expect will be used as search keys in our queries. Indexes can also be used to identify fields that are unique and must not be duplicated.</span> </p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/8297973c-dc3e-4853-b28f-e125fc233358.png" style="width:18.67em;height:5.92em;"/></p>
+<p>The primary key is the customer<span> </span><kbd>id</kbd> field<span>;</span> it's a unique identification number per customer. The unique key is the<span> </span><kbd>email</kbd> <span>field.</span> We can't have two or more customers with the same email address.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The orders table</h1>
+                </header>
+            
+            <article>
+                
+<p>Now, let's look at the <kbd>orders</kbd> table, <span>which will host a list of the available products for GoMusic</span>:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/9f275965-fcde-4ae6-b04c-1ad0506f4f0a.png" style="width:41.00em;height:12.08em;"/></p>
+<p>This table consists of the following eight columns:</p>
+<ol>
+<li><kbd>id</kbd>: The unique ID of the order</li>
+<li><kbd>customer_id</kbd>: The ID of the customer making the order</li>
+<li><kbd>product_id</kbd>: The ID of the product the customer bought</li>
+<li><kbd>price</kbd>: The price of the purchase</li>
+<li><kbd>purchase_date</kbd>: The date of the purchase</li>
+<li><kbd>created_at</kbd>: The date/time the row was created</li>
+<li><kbd>updated_at</kbd>: The updated date/time when the row was last updated</li>
+<li><kbd>deleted_at</kbd>: The date/time when the row was deleted, if any</li>
+</ol>
+<p>This table will support one index, as shown in the following screenshot:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/1faac61c-5197-4e75-a3f7-5f9c0b3a76b8.png" style="width:19.25em;height:4.67em;"/></p>
+<p>The index is simply the unique ID index. Each order will have its own unique ID.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The products table</h1>
+                </header>
+            
+            <article>
+                
+<p>Finally, let's look at the <kbd>products</kbd> table. <span>T</span><span>his table will map the customers to the products they bought</span>:</p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/f4b3595d-b303-4faf-bf1d-21851bdd7094.png" style="width:45.83em;height:15.83em;"/></p>
+<p>The table consists of the following 10 columns:</p>
+<ol>
+<li><kbd>id</kbd>: The unique ID of the product</li>
+<li><kbd>image</kbd>: The relative location of the product image</li>
+<li><kbd>imgalt</kbd>: The alternative name for the image</li>
+<li><kbd>description</kbd>: The product description</li>
+<li><kbd>productname</kbd>: The name of the product</li>
+<li><kbd>price</kbd>: The original price of the product</li>
+<li><kbd>promotion</kbd>: The promotional price of the product</li>
+<li><kbd>created_at</kbd>: The time when the row was created</li>
+<li><kbd>updated_at</kbd>: The time when the row was last updated</li>
+<li><kbd>deleted_at</kbd>: The time when the row was deleted, if any</li>
+</ol>
+<p>This table supports just one index, that is, <span>our unique product </span><kbd>id</kbd><span> field:</span></p>
+<p class="CDPAlignCenter CDPAlign"><img src="assets/3280387c-db16-41ab-8198-7b3010d94b44.png" style="width:22.67em;height:4.33em;"/></p>
+<p>With this, we should have a good enough database to empower our application. Our database is relatively simple, but it is sufficient to showcase the concepts that we need to cover in this chapter.</p>
+<p><span>Now that we have covered what our database will look like, it's time to cover how to design the code that interacts with our database.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">ORM</h1>
+                </header>
+            
+            <article>
+                
+<p><span>To design the code that interacts with our database, w</span>e will utilize an approach known as <em>ORM </em>. ORMs allow you to interact with databases using object-oriented paradigms. ORMs generate code that represent database tables as code objects, and represents queries as methods in your favorite programming language.</p>
+<p>In the case of the Go language, we will need to create Go structs to represent each of our tables. We already started writing our models in the previous chapter, that is, <kbd>product</kbd>, <kbd>customer</kbd>, and <kbd>order</kbd>.</p>
+<p>Before we continue to write the code, let's first discuss the <strong><span>Go </span><span>object-relational mapping</span></strong> (<strong>GORM</strong>), which is the Go open source package, that offers support for ORMs.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">GORM</h1>
+                </header>
+            
+            <article>
+                
+<p>One of the most popular Go ORM packages is the GORM package, which can be found at <a href="http://gorm.io/">http://gorm.io/</a>. GORM offers some mature functionality that makes writing backend database layers a breeze. Let's continue writing our database layer by utilizing ORM, step by step:</p>
+<p>First, we need to retrieve the GORM package:</p>
+<pre><strong>go get -u github.com/jinzhu/gorm</strong></pre>
+<p><span>Then, we need</span> to evolve our models so that they can be used properly by GORM.</p>
+<p>An ORM needs model objects to accurately reflect the database table columns that are expected to be read and/or manipulated by the ORM library. The ORM can<span> also </span>make use of some meta information, for example, the last time a row was updated, deleted, or created, to ensure proper synchronization between the database and your application at runtime.</p>
+<p>In the case of GORM, there is a data type called <kbd>gorm.Model</kbd>, which is simply a Go struct that hosts fields representing the row <kbd>id</kbd> field, the <kbd>created_at</kbd> time, the <kbd>updated_at</kbd> time, and the <kbd>deleted_at</kbd> time. It is recommended to embed <kbd>gorm.Model</kbd> in Go structs that represent your data. In the case of the <kbd>customers</kbd> table, the Go struct would look like this:</p>
+<pre>type Customer struct {<br/>  <strong>gorm.Model</strong><br/>  Name string `json:"name"`<br/>  FirstName string `gorm:"column:firstname" json:"firstname"`<br/>  LastName string `gorm:"column:lastname" json:"lastname"`<br/>  Email string `gorm:"column:email" json:"email"`<br/>  Pass string `json:"password"`<br/>  LoggedIn bool `gorm:"column:loggedin" json:"loggedin"`<br/>  Orders []Order `json:"orders"`<br/>}</pre>
+<p>The preceding code also shows plenty of <kbd>struct tags</kbd>. The <kbd>gorm</kbd> struct tags in the preceding example are used to identify the column names that correspond to the field names. So, for instance, the struct field, <kbd>FirstName</kbd>, is represented by a column called <kbd>firstname</kbd>. This is identified by the line <kbd>gorm:"column:firstname"</kbd>.  </p>
+<p>We also make use of the <kbd>json</kbd> <kbd>struct</kbd> tag in the preceding code to identify what the field will look like in the JSON format. In theory, we don't always need to assign <kbd>struct</kbd> tags for every single field; however, I find it more practical to do so to avoid confusion. </p>
+<p>But how can GORM recognize the fact that the <kbd>Customer</kbd> Go struct corresponds to the <kbd>customers</kbd> table in our database? Usually, GORM changes <span>the first letter of our Go struct name to lowercase</span>, and then it adds an '<em>s'</em> at the end, which will convert <kbd>Customer</kbd> into <kbd>customers</kbd>. However, GORM also empowers us to explicitly declare the table name that corresponds to the Go struct. This can be done through a method whose signature is <kbd>TableName()string</kbd>. So, in other words, we can explicitly specify our table name using the following method:</p>
+<pre>func (Customer) TableName() string {<br/>  return "customers"<br/>}</pre>
+<p>Great! Now, inside our <kbd>backend\src\models\models.go</kbd> file, which sits inside our project folder, let's evolve the data models for the <kbd>products</kbd> and <kbd>orders</kbd> tables, similarly to what we did previously:</p>
+<pre>type Product struct {<br/>  gorm.Model<br/>  Image string `json:"img"`<br/>  ImagAlt string `json:"imgalt" gorm:"column:imgalt"`<br/>  Price float64 `json:"price"`<br/>  Promotion float64 `json:"promotion"` //sql.NullFloat64<br/>  PoructName string `gorm:"column:productname" json:"productname"`<br/>  Description string<br/>}<br/><br/>func (Product) TableName() string {<br/>  return "products"<br/>}<br/><br/>type Order struct {<br/>  gorm.Model<br/>  Product<br/>  Customer<br/>  CustomerID int `gorm:"column:customer_id"`<br/>  ProductID int `gorm:"column:product_id"`<br/>  Price float64 `gorm:"column:price" json:"sell_price"`<br/>  PurchaseDate time.Time `gorm:"column:purchase_date" json:"purchase_date"`<br/>}<br/><br/>func (Order) TableName() string {<br/>  return "orders"<br/>}</pre>
+<p>Let's implement of database layer in the next section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing the database layer</h1>
+                </header>
+            
+            <article>
+                
+<p>Now, we have to implement the functionality of our database layer.</p>
+<p>In the previous chapter, we designed a database layer interface that defined all of the database operations we are expected to need. This is what it looked like:</p>
+<pre>type DBLayer interface {<br/>  GetAllProducts() ([]models.Product, error)<br/>  GetPromos() ([]models.Product, error)<br/>  GetCustomerByName(string, string) (models.Customer, error)<br/>  GetCustomerByID(int) (models.Customer, error)<br/>  GetProduct(int) (models.Product, error)<br/>  AddUser(models.Customer) (models.Customer, error)<br/>  SignInUser(username, password string) (models.Customer, error)<br/>  SignOutUserById(int) error<br/>  GetCustomerOrdersByID(int) ([]models.Order, error)<br/>}</pre>
+<p>In our project folder, let's create a new file called <kbd>orm.go</kbd> in the same folder as <kbd>dblayer</kbd>. The file will exist in the <kbd>{our_project_folder}/backend/src/dblayer</kbd> folder.</p>
+<p>The GORM package relies on plugins to connect to the different databases that GORM supports. Plugins are Go packages that need to be imported silently in the package where GORM is being used.</p>
+<p>To import a plugin package silently in Go, along with the GORM package, we can use the following syntax:</p>
+<pre>import (<br/>    _ "github.com/go-sql-driver/mysql"<br/>    "github.com/jinzhu/gorm"<br/>)</pre>
+<p>Our plugin is the <kbd>github.com/go-sql-driver/mysql</kbd> package. If you don't already have it installed in your machine, you will need to retrieve it using the <kbd>go get</kbd> command from your favorite Terminal:</p>
+<pre><strong>go get github.com/go-sql-driver/mysql</strong></pre>
+<p>Next, we'll need to create a Go <kbd>struct</kbd> type, which will implement our <kbd>DBLayer</kbd> interface.</p>
+<p>Our Go struct will host a data type called <kbd>*gorm.DB</kbd>. The <kbd>*gorm.DB</kbd> type is our entry point for using GORM's functionality. Here is what the code will look like:</p>
+<pre>type DBORM struct {<br/>  *gorm.DB<br/>}</pre>
+<p>We need to create a constructor for our new type. The constructor will initialize our embedded <kbd>*gorm.DB</kbd> type. </p>
+<p>To obtain an initialized <kbd>*gorm.DB</kbd> type, we need to use a function called <kbd>gorm.Open()</kbd>. This function takes two arguments—our database type name, which in our case is <kbd>mysql</kbd>, and our connection string. A connection string basically contains information regarding how to connect to the specific database that we are trying to access. To make our constructor flexible, we won't hardcode the database name or the connection string. Instead, we'll allow this information to be passed to the constructor. Here is the code:</p>
+<pre>func NewORM(dbname, con string) (*DBORM, error) {<br/>  db, err := gorm.Open(dbname, con)<br/>  return &amp;DBORM{<br/>    DB: db,<br/>  }, err<br/>}</pre>
+<p>It's finally time to start implementing the methods of the <kbd>DBLayer</kbd> interface.</p>
+<p>We'll start by making use of GORM helpful methods, which will spare us from having to write explicit queries. The first method to implement is <kbd>GetAllProducts().</kbd> This method simply returns a list of all products, which is the equivalent of a <kbd>select *</kbd> SQL statement. This can be achieved using GORM's <kbd>db.Find()</kbd> method, which belongs to the <kbd>*gorm.DB</kbd> type. Here is the code:</p>
+<pre>func (db *DBORM) GetAllProducts() (products []models.Product, err error) {<br/>  return products, db.Find(&amp;products).Error<br/>}</pre>
+<p>You can see how using an ORM like GORM can produce extremely efficient code. The single line of code in the preceding method executed a <kbd>select * from products</kbd> query at the <kbd>products</kbd> table and then returned all of the results. The <kbd>Find()</kbd> method was able to detect that we seek the products table because we supplied it with an argument of type <kbd>[]models.Product</kbd>. </p>
+<p>Next, we write the <kbd>GetPromos()</kbd> method, which returns a list of products where the promotion field is not null.</p>
+<p>This is simply a select statement with a <kbd>where</kbd> clause. GORM allows you to achieve this by using a method called <kbd>Where()</kbd>, combined with the <kbd>Find()</kbd> method we covered earlier. Here is the code:</p>
+<pre>func (db *DBORM) GetPromos() (products []models.Product, err error) {<br/>  return products, db.Where("promotion IS NOT NULL").Find(&amp;products).Error<br/>}</pre>
+<p>Again, this is simple and efficient. The preceding method simply executed the equivalent of the following query:</p>
+<pre>select * from products where promotion IS NOT NULL</pre>
+<p>The <kbd>Where()</kbd> method can also take a Go struct value, which represents the condition in our query. We'll see that in our next <kbd>DBLayer</kbd> method, which is <kbd>GetCustomerByName</kbd>. This method takes the first and last names of a customer and then returns the customer's information. Here is the code:</p>
+<pre>func (db *DBORM) GetCustomerByName(firstname string, lastname string) (customer models.Customer, err error) {<br/>  return customer, db.Where(&amp;models.Customer{FirstName: firstname, LastName: lastname}).Find(&amp;customer).Error<br/>}</pre>
+<p>This method is very similar to the <kbd>GetPromos()</kbd> method, except that the <kbd>Where()</kbd> method is fed a Go struct value with the first and last names instead of a string <kbd>where</kbd> clause. The equivalent of the following query was executed:</p>
+<pre>select * from customers where firstname='..' and lastname='..'</pre>
+<p>Next, we will implement <kbd>GetCustomerByID()</kbd>, which will retrieve a customer by using their ID in the database.</p>
+<p>This time, instead of using a combination of <kbd>Where</kbd> and <kbd>Find</kbd>, we will use a method called <kbd>First</kbd>, which can get the first result that corresponds to a certain condition:</p>
+<pre>func (db *DBORM) GetCustomerByID(id int) (customer models.Customer, err error) {<br/>  return customer, db.First(&amp;customer, id).Error<br/>}</pre>
+<p>Next, we will implement a method to get a product by ID, which is very similar to <kbd>GetCustomerByID()</kbd>, except this time the result is a product and not a customer:</p>
+<pre>func (db *DBORM) GetProduct(id int) (product models.Product, error error) {<br/>  return product, db.First(&amp;product, id).Error<br/>}</pre>
+<p>So far, we have been writing methods that execute queries and retrieve results. But now, it's time to start writing methods that add or update rows.</p>
+<p>Our next method is <kbd>AddUser()</kbd>, which basically adds a new user to the database.</p>
+<p class="mce-root"/>
+<p>This method will also hash the user's password (which we will cover later in the <em>Security</em> section), and will set the user as logged in. GORM provides a very handy method called <kbd>Create()</kbd> so that we can add rows to our database:</p>
+<pre>func (db *DBORM) AddUser(customer models.Customer) (models.Customer, error) {<br/>  //we will cover the hashpassword function later<br/>  hashPassword(&amp;customer.Pass)<br/>  customer.LoggedIn = true<br/>  return customer, db.Create(&amp;customer).Error<br/>}<br/><br/></pre>
+<p>Next, we need to implement the <kbd>SignInUser</kbd> method, which basically updates the <kbd>loggedin</kbd> field in a row representing a specific customer in our customers table.</p>
+<p>The <kbd>SignInUser</kbd> method will identify the user that just logged in based on their email. We will then verify the user's password. If the password is correct, then we update the database. Here is what the code will look like:</p>
+<pre>func (db *DBORM) SignInUser(email, pass string) (customer models.Customer, err error) {<br/>  //Verify the password, we'll cover this function later<br/>  if !checkPassword(pass) {<br/>    return customer, errors.New("Invalid password")<br/>  }<br/>  //Obtain a *gorm.DB object representing our customer's row<br/>  result := db.Table("Customers").Where(&amp;models.Customer{Email: email})<br/>  //update the loggedin field<br/>  err = result.Update("loggedin", 1).Error<br/>  if err != nil {<br/>    return customer, err<br/>  }<br/>  //return the new customer row<br/>  return customer, result.Find(&amp;customer).Error<br/>}</pre>
+<p>The preceding code covers many of the methods we covered before, except in two places:</p>
+<ul>
+<li><kbd>result := db.Table("Customers").Where(&amp;models.Customer{Email: email})</kbd>: This is how we can obtain an object representing the row that we are interested in</li>
+<li><kbd>result.Update("loggedin", 1)</kbd>: This is how we update our row</li>
+</ul>
+<p class="mce-root"/>
+<p>The <kbd>SignOutUserById()</kbd> method is used to sign out users using their IDs. This will follow the same techniques that we have covered so far:</p>
+<pre>func (db *DBORM) SignOutUserById(id int) error {<br/> //Create a customer Go struct with the provided if<br/>  customer := models.Customer{<br/>    Model: gorm.Model{<br/>      ID: uint(id),<br/>    },<br/>  }<br/> //Update the customer row to reflect the fact that the customer is not logged in<br/>  return db.Table("Customers").Where(&amp;customer).Update("loggedin", 0).Error<br/>}</pre>
+<p>Finally, we implement the <kbd>GetCustomerOrdersByID()</kbd> <span>method </span>to get customer orders by <kbd>customer_id</kbd>:</p>
+<pre>func (db *DBORM) GetCustomerOrdersByID(id int) (orders []models.Order, err error) {<br/>    return orders, db.Table("orders").Select("*")<br/>                .Joins("join customers on customers.id = customer_id")<br/>                .Joins("join products on products.id = product_id")<br/>                .Where("customer_id=?", id).Scan(&amp;orders).Error <br/><br/>}</pre>
+<p>The preceding code is a bit different than the previous methods. This is because we need to execute a couple of joins to produce the results we seek. We need to join three tables: the <kbd>orders</kbd> table, the <kbd>customers</kbd> table, and the <kbd>products</kbd> table. From the <kbd>customers</kbd> table, we only want customers with IDs that correspond to the provided customer's ID. For the <kbd>products</kbd> table, we only want products where the product ID corresponds to the product ID of the current order. Luckily, the GORM package provides a method called <kbd>Joins</kbd>, which can be used to join tables. The preceding code will translate into the following query (assuming that we have a <kbd>customer_id</kbd> of value <kbd>'1'</kbd>):</p>
+<pre>SELECT * FROM `orders` join customers on customers.id = customer_id join products on products.id = product_id WHERE (customer_id='1')</pre>
+<p>And with that, our database layer is almost done. Let's take a look at what is middleware in the next section.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Middleware</h1>
+                </header>
+            
+            <article>
+                
+<p>Middleware is an important and fun topic in the world of modern web applications. The word <em>middleware</em> can mean many things in the software development industry. However, for the purpose of this book, we only care about one definition for it. <strong>Middleware</strong> can simply be defined as code that can run between the time you receive an HTTP request and the time your handler code gets executed on that request. This is best explained through an example.</p>
+<p>In the RESTful API that we built for our GoMusic application, let's pick on one of our API endpoints—the <kbd>/products</kbd> relative URL. Here was the code that was used to assign this relative URL to an action or a function handler:</p>
+<pre>r.GET("/products", h.GetProducts)</pre>
+<p>Here was the code of the <kbd>GetProducts</kbd> handler:</p>
+<pre>func (h *Handler) GetProducts(c *gin.Context) {<br/>  if h.db == nil {<br/>    return<br/>  }<br/>  products, err := h.db.GetAllProducts()<br/>  if err != nil {<br/>    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})<br/>    return<br/>  }<br/>  c.JSON(http.StatusOK, products)<br/>}</pre>
+<p class="mce-root">So far, so good. Here is the workflow for this API resource:</p>
+<ol>
+<li>An HTTP <kbd>GET</kbd> request is received at the <kbd>/products</kbd> relative URL address.</li>
+<li>The <kbd>GetProducts()</kbd> method gets executed.</li>
+</ol>
+<p class="mce-root">Our web API middleware is simply some code that we can inject between <em>steps 1</em> and <em>2</em> or even beyond. Technically, the middleware is simply an HTTP handler function that wraps our own handler function. In other words, it's a function that will encapsulate the <kbd>GetProducts()</kbd> method, which will allow you to insert functionality before and after your method.</p>
+<p>The Gin web framework comes preloaded with two pieces of middleware by default. The framework also allows you to define your own custom middleware when needed. </p>
+<p>The two default middlewares that get injected into the Gin web server are <strong>logger middleware</strong> and <strong>recovery middleware</strong>. The logger middleware simply logs the API activity throughout the life of your application. If you run a Go web application that's powered by Gin in a Terminal of your choice, you will see something like this:</p>
+<pre><strong>[GIN] 2018/12/29 - 13:33:19 |?[97;42m 200 ?[0m| 2.7849836s | 127.0.0.1 |?[97;44m GET ?[0m /products</strong><br/><strong>[GIN] 2018/12/29 - 13:33:19 |?[97;42m 200 ?[0m| 65.82ms | 127.0.0.1 |?[97;44m GET ?[0m /img/redguitar.jpeg</strong><br/><strong>[GIN] 2018/12/29 - 13:33:19 |?[97;42m 200 ?[0m| 65.82ms | 127.0.0.1 |?[97;44m GET ?[0m /img/drums.jpg</strong><br/><strong>[GIN] 2018/12/29 - 13:33:19 |?[97;42m 200 ?[0m| 67.4312ms | 127.0.0.1 |?[97;44m GET ?[0m /img/strings.png</strong><br/><strong>[GIN] 2018/12/29 - 13:33:19 |?[97;42m 200 ?[0m| 9.4939ms | 127.0.0.1 |?[97;44m GET ?[0m /img/flute.jpeg</strong><br/><strong>[GIN] 2018/12/29 - 13:33:19 |?[97;42m 200 ?[0m| 9.9734ms | 127.0.0.1 |?[97;44m GET ?[0m /img/saxophone.jpeg</strong><br/><strong>[GIN] 2018/12/29 - 13:33:19 |?[97;42m 200 ?[0m| 18.3846ms | 127.0.0.1 |?[97;44m GET ?[0m /img/blackguitar.jpeg</strong></pre>
+<p>This is basically Gin's logging middleware in action.</p>
+<p>On the other hand, Gin's recovery middleware ensures that your application is recovered from panics and writes the HTTP error code <kbd>500</kbd> in the response when necessary.</p>
+<p>There are numerous open source middleware options available for Gin. One list of supported middleware can be found at <a href="https://github.com/gin-gonic/contrib">https://github.com/gin-gonic/contrib</a>.</p>
+<p class="mce-root">Let's see how to write a custom middleware in the next section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Custom middleware</h1>
+                </header>
+            
+            <article>
+                
+<p>As we mentioned earlier, Gin allows you to author your own middleware so that you can embed some functionality in your web app. Writing custom middleware in Gin is relatively simple, as we can see in the following steps.</p>
+<p>The first step is to write the actual code for the middleware.</p>
+<p>As we mentioned earlier, a web API middleware is simply an HTTP handler function that encapsulates other HTTP handler functions. Here is what the code would look like for this:</p>
+<pre>func MyCustomMiddleware() gin.HandlerFunc {<br/>  return func(c *gin.Context) {<br/>    //The code that is to be executed before our request gets handled, starts here<br/><br/>    // Set example variable<br/>    c.Set("v", "123")<br/>    //We can then retrieve the variable later via c.Get("v")<br/><br/>   // Now we our request gets handled<br/>    c.Next()<br/><br/>    // This code gets executed after the handler gets handled<br/><br/>    // Access the status we are sending<br/>    status := c.Writer.Status()<br/>    // Do something with the status<br/>  }<br/>}</pre>
+<p>Let's write a very simple middleware that would print <kbd>************************************</kbd> before and after the request:</p>
+<pre>func MyCustomLogger() gin.HandlerFunc {<br/>     return func(c *gin.Context) {<br/>         fmt.Println("************************************")<br/>         c.Next()<br/>         fmt.Println("************************************")<br/>     }<br/>}</pre>
+<p>The next step is to add this middleware to our Gin engine. This can be done in two ways:</p>
+<ul>
+<li>If we want to keep Gin's default middleware, but then add <kbd>MyCustomLogger()</kbd><span>, we can do the following:</span></li>
+</ul>
+<pre style="padding-left: 60px">func RunAPIWithHandler(address string, h HandlerInterface) error {<br/>  //Get gin's default engine<br/>  r := gin.Default()<br/>  <strong>r.Use(MyCustomLogger())</strong><br/>  /*<br/>    The rest of our code<br/>    */<br/>}</pre>
+<ul>
+<li>If, on the other hand, we want to ignore Gin's default middleware and only enable our custom middleware, we can use the following code path:</li>
+</ul>
+<pre style="padding-left: 60px">r := gin.New()<br/>r.Use(MyCustomLogger())</pre>
+<p>If we'd like to enable more than one middleware, we just add them as an argument to the <kbd>Use()</kbd> method, as follows:</p>
+<pre> r := gin.New()<br/> r.Use(MyCustomLogger1(),MyCustomLogger2(),MyCustomLogger3())</pre>
+<p>In the next section, we'll discuss how to secure our web application.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Security</h1>
+                </header>
+            
+            <article>
+                
+<p>Security is a very important topic when it comes to deploying web applications to production. This topic is massive and can take chapters to cover, if not books. Since the purpose of this book is to cover practical hands-on topics and be to the point, we will cover the most vital nuggets of knowledge that are needed to build a secure web application.</p>
+<p>Secure web applications primarily rely on encrypting the data between the web client (browser) and the web server. In other words, they rely on encrypting the data between the frontend and the backend. </p>
+<p>As we mentioned earlier, HTTP is the protocol that's utilized between web clients and web servers. HTTP can be secured through a protocol that is known as <strong>TLS</strong> (<strong>Transport Layer Security</strong>).<strong> </strong>The combination of HTTP and TLS is commonly known as <strong>HTTPS</strong>. </p>
+<div class="packt_infobox">There is another protocol known as SSL, which was also utilized to secure HTTP. However, TLS is newer and more secure. </div>
+<p>Before we discuss the code, let's first cover some important background knowledge about HTTPS and how it works.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Certificates and private keys</h1>
+                </header>
+            
+            <article>
+                
+<p>HTTPS works as follows:</p>
+<ol>
+<li>Trust is established between the web client and the web server. This happens through a handshake and through certificates and private keys. We will cover this in more detail later.</li>
+<li>The web client and the web server agree on an encryption key.</li>
+<li>The web client and the web server will encrypt their communication using the encryption key they agreed on.</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Establishing trust between the client and the server</h1>
+                </header>
+            
+            <article>
+                
+<p>The certificates and private keys we mentioned in <em>step 1</em> of the <em>Certificates and private keys </em>section are an entirely different matter. To understand them, you first have to understand the concept of public key encryption or asymmetric cryptography. </p>
+<p>A <strong>public key</strong> is used to encrypt data, and it can be shared safely with other parties. However, the public key can't decrypt data. A different key is required to decrypt the data. This key is known as the <strong>private key</strong>, and it must not be shared. The public key can be used by any person to encrypt data. However, only the person with the private key that corresponds to the public key can decrypt the data back to its original human-readable form. The public and private keys are generated using complex computational algorithms. Utilizing a combination of public and private keys is known as asymmetrical cryptography.</p>
+<p>In <em>step 1 </em>of the<span> </span><em>Certificates and private keys </em><span>section</span>, asymmetrical cryptography is utilized between a web client and web server to agree on a shared encryption key (also known as a shared secret or session key), which is then used in symmetrical cryptography (<em>steps 2</em> and 3). A handshake occurs between the web client and web server, where the client indicates its intent to start a secure communication session with the server. Typically, this entails agreeing on some mathematical details on how the encryption occurs. The server then replies with a <em>digital certificate</em>.</p>
+<div class="packt_infobox">A <span class="packt_screen">digital certificate</span> (or a public key certificate) is an electronic document that proves the ownership of a public key. </div>
+<p>A digital certificate is a digital document that gets issued by a trusted third-party entity. The document contains a public encryption key, the server name that the key belongs to, and the name of the trusted third-party entity, who verifies that the information is correct and that the public key belongs to the expected key owner (also called the issuer of the certificate).</p>
+<p>The trusted third-party entity that issues the certificate is known as a <span><strong>certificate authority</strong> </span>(<span><strong>CA</strong></span>). There are multiple known CAs who issue a certificate and verify identities for businesses and organizations. Most CAs charge fees for their service; some are now free, such as Let's Encrypt (<a href="https://letsencrypt.org/">https://letsencrypt.org/</a>). For larger organizations or government bodies, they issue their own certificates; this process is known as self-signing, and hence their certificates are known as <strong>self-signed certificates</strong>. Certificates can have expiry dates by which the certificates will need to be renewed; this is for extra protection in case the entity that owned the certificate in the past has changed.</p>
+<p>A web client typically contains a list of CAs that it knows of. So, when the client attempts to connect to a web server, the web server responds with a digital certificate. The web client looks for the issuer of the certificate and compares the issuer with the list of CAs that it knows of. If the web client knows and trusts the certificate issuer, then it will continue with the connection to that server and use the public key in the certificate. The public key that's obtained from the server will then be used to encrypt communications to securely negotiate a shared encryption key (or session key or shared secret) to then be used in symmetrical cryptography communications between the web client and web server.</p>
+<p>There are a number of algorithms that can be used to generate this session key, but they are beyond the scope of this chapter. What we need to know is that, once a session key is agreed on, the initial handshake between the web client and web server will conclude, allowing the actual communication session to proceed securely under the protection of the shared session key. </p>
+<p>For our web server to support HTTPS, it needs a certificate and a private key to establish the initial HTTPS handshake, as outlined in <em>step 1 </em>of the<em><span> </span>Certificates and private keys </em>section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Agreeing on, and using an encryption key</h1>
+                </header>
+            
+            <article>
+                
+<p>An<span> </span>encryption<span> </span>key is a piece of code that relies on some complex math to encrypt a piece of data. Encrypting a piece of data simply means taking a piece of data in human-readable form and then transforming it into a form that is not readable by humans, and hence protects your data. Another key is then required to decrypt this unreadable data back to a human-readable form.</p>
+<p>The type of encryption key used in<span> </span><em>steps 2</em><span> </span>and<span> </span><em>3</em> in the preceding section is<span> </span>sometimes<span> </span>known as a <strong>symmetric cipher</strong>. This simply means that the same key is utilized by both the client and the server to<span> </span>encrypt<span> </span>and decrypt data between them. This is also known as<span> </span><strong>symmetrical cryptography</strong>.</p>
+<p>Most of the time, this key will be invisible to you during development. </p>
+<p>In the next section we will take a look at how to support HTTPS in Gin.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Supporting HTTPS in Gin</h1>
+                </header>
+            
+            <article>
+                
+<p>In the previous section, we obtained some valuable knowledge about how HTTPS actually works. But how do we support it in our code? It's actually fairly simple. In the previous chapter, we utilized the following piece of code to establish an HTTP web server that's empowered by Gin:</p>
+<pre>//Get gin's default engine<br/>  r := gin.Default()<br/>  /*<br/>    Our code<br/>  */<br/> //Start listening to incoming HTTP requests...<br/><strong>  r.Run(address)</strong></pre>
+<p>We need to apply a single change in the preceding code to support HTTPS instead of HTTP. Here, we are going to use a method called <kbd>RunTLS()</kbd>. This method needs three main arguments:</p>
+<ul>
+<li>The HTTPS address that we would like our backend web service to listen to</li>
+<li>The certificate file (covered in the previous section)</li>
+<li>The private key file (covered in the previous section)</li>
+</ul>
+<p>Here is what the code would look like:</p>
+<pre>r.RunTLS(address, "cert.pem", "key.pem")</pre>
+<p>But how do we generate a certificate file and a private key? Obviously, if this is a learning or a weekend project, we wouldn't need to obtain a fully legitimate certificate from a CA. </p>
+<p>In this case, we use what is known as a self-signed certificate. When you use such a certificate, it obviously won't be trusted by your web browser, because the certificate won't belong to the list of well-known CAs. For testing purposes, you will either need to configure your browser to trust the certificate or just ignore the warning and proceed.</p>
+<p>But how do we generate a self-signed certificate?</p>
+<p>There are multiple ways to do this. Most people rely on the OpenSSL (<a href="https://www.openssl.org/">https://www.openssl.org/</a>) tool to generate test self-signed certificates. However, because we are using Go, we can make use of a tool that's provided by the Go language in the standard library <span>instead</span>. </p>
+<p>In your project folder, simply run the following command:</p>
+<pre><strong>go run %GOROOT%/src/crypto/tls/generate_cert.go --host=127.0.0.1</strong></pre>
+<p>This is a simple tool that's provided by Go in the <kbd>tls</kbd> package folder. You can use it to generate certificates. Here, <kbd>%GOROOT%</kbd> represents your Go root environmental variable. If you were to run this command in Linux, you would need to use <kbd>$GOROOT</kbd> instead.</p>
+<p>The preceding command will generate a certificate for the <kbd>127.0.0.1</kbd> host (the loopback localhost). This tool has more flags/options that you can configure, such as the following:</p>
+<pre><strong>  -ca</strong><br/><strong>        whether this cert should be its own Certificate Authority</strong><br/><strong>  -duration duration</strong><br/><strong>        Duration that certificate is valid for (default 8760h0m0s)</strong><br/><strong>  -ecdsa-curve string</strong><br/><strong>        ECDSA curve to use to generate a key. Valid values are P224, P256 (recommended), P384, P521</strong><br/><strong>  -host string</strong><br/><strong>        Comma-separated hostnames and IPs to generate a certificate for</strong><br/><strong>  -rsa-bits int</strong><br/><strong>        Size of RSA key to generate. Ignored if --ecdsa-curve is set (default 2048)</strong><br/><strong>  -start-date string</strong><br/><strong>        Creation date formatted as Jan 1 15:04:05 2011</strong></pre>
+<p>The command will generate the certificate and the private key files and will place them in your current folder. You can then copy them wherever you would like and just reference them from your code.</p>
+<p>To get your React application to support HTTPS mode while testing, you will need to run the following command when you start your React application:</p>
+<pre><strong>set HTTPS=true&amp;&amp;npm start</strong></pre>
+<p class="mce-root">Let's take a look at Password hashing in the next section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Password hashing</h1>
+                </header>
+            
+            <article>
+                
+<p>Another very important security measure is known as password hashing. Password hashing is an approach that's used to protect the passwords of user accounts that are handled by our application. </p>
+<p>Let's take our GoMusic application as an example—we have a <kbd>customers</kbd> table, which hosts customer's usernames and passwords. So, should we store a customer's passwords in plain text? The answer is a loud and resounding <em>no</em>!</p>
+<p>What do we do instead? How do we protect our customers' passwords and, at the same time, verify their passwords when they log in? This is where password hashing comes into the picture. It consists of two simple steps:</p>
+<ol>
+<li>When saving a new customer password, hash the password and then save the hash. Hashing can simply be defined as one-way encryption—you can encrypt the password, but you can never decrypt it back. Hashing functions rely on complex math to achieve that.</li>
+<li>When it's time to verify an existing customer's password, hash the password provided in the sign-in request, then compare the hash of the new incoming password with the saved hash of the original password.</li>
+</ol>
+<p>Password hashing protect your customers' passwords because it ensures that no malicious hacker would be able to access them, even if they hack into your database.</p>
+<p>But what about protecting the password while it's en route from the web client to our web server? This is where HTTPS comes in. The password that's sent from the client will be fully encrypted until it reaches our backend web server.</p>
+<p>Now, let's start implementing some password hashing in our code. The first step is to go to our database layer and implement the logic to:</p>
+<ul>
+<li><span>Hash new user's passwords before saving it to the database</span></li>
+<li><span>When an existing user signs in, compare the provided password with the saved hashed password</span></li>
+</ul>
+<p>In the next sections we will take a look at how to implement password hashing and verifying incoming passwords</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Implementing password hashing</h1>
+                </header>
+            
+            <article>
+                
+<p>In our database layer, we will define a new type for invalid password errors. In our <kbd>dblayer.go</kbd> file, we will add the following line:</p>
+<pre>var ErrINVALIDPASSWORD = errors.New("Invalid password")</pre>
+<p>Then, in our <kbd>orm.go</kbd> file, we'll add the following function:</p>
+<pre>func hashPassword(s *string) error {<br/>  if s == nil {<br/>    return errors.New("Reference provided for hashing password is nil")<br/>  }<br/><br/>  //convert password string to byte slice so that we can use it with the bcrypt package<br/>  sBytes := []byte(*s)<br/><br/>  //Obtain hashed password via the GenerateFromPassword() method<br/>  hashedBytes, err := bcrypt.GenerateFromPassword(sBytes, bcrypt.DefaultCost)<br/>  if err != nil {<br/>    return err<br/>  }<br/><br/>  //update password string with the hashed version<br/>  *s = string(hashedBytes[:])<br/>  return nil<br/>}</pre>
+<p>The preceding code makes use of a package called <kbd>bcrypt</kbd>, which is very popular when it comes to hashing passwords. <kbd>bcrypt</kbd> stands for a popular password hashing function that was designed in the late 1990s. <kbd>bcrypt</kbd> is the default password hashing function in the OpenBSD operating system, and it enjoys support in numerous programming languages.</p>
+<p>The package also provides methods to compare hashed passwords with their human-readable counterparts.</p>
+<p>If the package is not yet installed in your environment, run the following command:</p>
+<pre><strong>go get golang.org/x/crypto/bcrypt</strong></pre>
+<p>We already came across the <kbd>hashPassword()</kbd> method in the <kbd>AddUser()</kbd> method, which will hash the password and then save it to the database.</p>
+<p>Add the following <kbd>HashPassword ()</kbd> method to your code:</p>
+<pre>func (db *DBORM) AddUser(customer models.Customer) (models.Customer, error) {<br/>  //pass received password by reference so that we can change it to its hashed version<br/>  hashPassword(&amp;customer.Pass)<br/>  customer.LoggedIn = true<br/>  err := db.Create(&amp;customer).Error<br/>  customer.Pass = ""<br/>  return customer, err<br/>}</pre>
+<p>The preceding code will perform the password hashing part. Before we return the customer object, we need to set the password to empty because this information doesn't need to be shared again for security purposes.</p>
+<p class="mce-root"/>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Comparing the password</h1>
+                </header>
+            
+            <article>
+                
+<p>Now, let's write the code that will compare the saved hashed passwords with passwords that are provided by users who are attempting to log in.</p>
+<p>We just need another method from the <kbd>bcrypt</kbd> package to compare our saved hash with the incoming password:</p>
+<pre>func checkPassword(existingHash, incomingPass string) bool {<br/>  //this method will return an error if the hash does not match the provided password string<br/>  return bcrypt.CompareHashAndPassword([]byte(existingHash), []byte(incomingPass)) == nil<br/>}</pre>
+<p>Next, we need to add code to the <kbd>SignInUser</kbd> method so that we can retrieve the hashed passwords of customers who are trying to sign in. Then, we can compare passwords. If the passwords don't match, we return an error. If they do, we continue to log the user in by setting the logged-in flag to <kbd>true</kbd>:</p>
+<pre>func (db *DBORM) SignInUser(email, pass string) (customer models.Customer, err error) {<br/>  //Obtain a *gorm.DB object representing our customer's row<br/>  result := db.Table("Customers").Where(&amp;models.Customer{Email: email})<br/>  //Retrieve the data for the customer with the passed email<br/>  err = result.First(&amp;customer).Error<br/>  if err != nil {<br/>    return customer, err<br/>  }<br/>  //Compare the saved hashed password with the password provided by the user trying to sign in<br/>  if !checkPassword(customer.Pass, pass) {<br/>    //If failed, returns an error<br/>    return customer, ErrINVALIDPASSWORD<br/>  }<br/>  //set customer pass to empty because we don't need to share this information again<br/>  customer.Pass = ""<br/>  //update the loggedin field<br/>  err = result.Update("loggedin", 1).Error<br/>  if err != nil {<br/>    return customer, err<br/>  }<br/>  //return the new customer row<br/>  return customer, result.Find(&amp;customer).Error<br/>}</pre>
+<p>Finally, there is a tiny change we need to add to our HTTP web handler to handle failed logins.</p>
+<p>Let's go back to the <kbd>handlers.go</kbd> file and edit the <kbd>SignIn</kbd> method a bit. The edited parts of the code are shown in bold:</p>
+<pre>func (h *Handler) SignIn(c *gin.Context) {<br/>  if h.db == nil {<br/>    return<br/>  }<br/>  var customer models.Customer<br/>  err := c.ShouldBindJSON(&amp;customer)<br/>  if err != nil {<br/>    c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})<br/>    return<br/>  }<br/>  customer, err = h.db.SignInUser(customer.Email, customer.Pass)<br/>  if err != nil {<br/>    //if the error is invalid password, return forbidden http error<br/>    <strong>if err == dblayer.ErrINVALIDPASSWORD {</strong><br/><strong>      c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})</strong><br/><strong>      return</strong><br/><strong>    }</strong><br/>    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})<br/>    return<br/>  }<br/>  c.JSON(http.StatusOK, customer)<br/>}</pre>
+<p class="mce-root">Let's take a look at credit card handling in the next section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Credit card handling</h1>
+                </header>
+            
+            <article>
+                
+<p><span>We already implemented the credit card logic at the frontend in <a href="2047c922-b48b-4b36-afb5-a155031c60ea.xhtml">Chapter 5</a>, <em>Building a Frontend for GoMusic</em>. </span>It's now time to implement the backend part of our credit card handling.</p>
+<p class="mce-root">For credit card processing at the frontend, we made use of the Stripe API (<a href="https://stripe.com/docs/api">https://stripe.com/docs/api</a>). In a product environment, you would need to create an account with Stripe and obtain an API key to use for your application. For testing purposes, however, we can make use of testing API keys and test credit card numbers, which Stripe happily provides for developers to build productive apps that are capable of processing credit cards. To learn more about testing credit card numbers and testing tokens that are provided by Stripe, take a look at <a href="https://stripe.com/docs/testing">https://stripe.com/docs/testing</a>.</p>
+<p>In our frontend code, we made use of the following Stripe API code to create a token:</p>
+<pre>let { token } = await this.props.stripe.createToken({ name: this.state.name });</pre>
+<p>We also made use of a very popular framework known as <em>Stripe elements</em>, which will collect all of our credit card information and then merge it with the create token request so that we get a token that represents the credit card that we are trying to process.</p>
+<p>We then send this token down to the backend so that it can be processed and/or saved.</p>
+<p>To process credit card payments, there are some key pieces of information that we need:</p>
+<ul>
+<li>The credit card token that's provided by the Stripe API</li>
+<li>The ID of the customer making the purchase</li>
+<li>The ID of the product the customer is trying to buy</li>
+<li>The selling price of the product</li>
+<li>Whether the card should be remembered for future use</li>
+<li>Whether to use a pre-saved card or not</li>
+</ul>
+<p>I changed the frontend code so that it can collect this information and pass it to the HTTP request that's bound to our backend. Here's the part of the frontend code that will create and submit our request. The following code is in the <kbd>creditcards.js</kbd> file:</p>
+<pre>    async handleSubmit(event) {<br/>        event.preventDefault();<br/>        let id = "";<br/>       //If we are not using a pre-saved card, connect with stripe to obtain a card token<br/>        if (!this.state.useExisting) {<br/>           //Create the token via Stripe's API<br/>            let { token } = await this.props.stripe.createToken({ name: this.state.name });<br/>            if (token == null) {<br/>                console.log("invalid token");<br/>                this.setState({ status: FAILEDSTATE });<br/>                return;<br/>            }<br/>            id = token.id;<br/>        }<br/>        //Create the request, then send it to the back-end<br/>      <strong>  let response = await fetch("/users/charge", {</strong><br/><strong>            method: "POST",</strong><br/><strong>            headers: { "Content-Type": "application/json" },</strong><br/><strong>            body: JSON.stringify({</strong><br/><strong>                token: id,</strong><br/><strong>                customer_id: this.props.user,</strong><br/><strong>                product_id: this.props.productid,</strong><br/><strong>                sell_price: this.props.price,</strong><br/><strong>                rememberCard: this.state.remember !== undefined,</strong><br/><strong>                useExisting: this.state.useExisting</strong><br/><strong>            })</strong><br/><strong>        });</strong><br/>        //If response is ok, consider the operation a success<br/>        if (response.ok) {<br/>            console.log("Purchase Complete!");<br/>            this.setState({ status: SUCCESSSTATE });<br/>        } else {<br/>            this.setState({ status: FAILEDSTATE });<br/>        }<br/>    }</pre>
+<p>The preceding code makes use of the <kbd>fetch()</kbd> method in order to send a <kbd>POST</kbd> request to the backend. The <kbd>POST</kbd> request will contain a JSON message which will host all the data that our backend needs to process the request.</p>
+<p class="mce-root">In the next section we'll take a look at how the backend of credit card handling works. </p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Credit card handling at the backend</h1>
+                </header>
+            
+            <article>
+                
+<p>We can use the Stripe API to process credit card transactions as follows:</p>
+<ol>
+<li>Create an object of the <kbd>*stripe.CustomerParams</kbd> <span>type, </span>which can then take the credit card token that's provided by the frontend. The credit card token is ingested using a method called <kbd>SetToken()</kbd>.</li>
+<li>Create an object of the <kbd>*stripe.Customer</kbd> <span>type, </span>which takes the object of the <kbd>stripe.CustomerParams</kbd> type as input. This is done through the <kbd>customer.New()</kbd> function.</li>
+<li>Create an object of the <kbd>*stripe.ChargeParams</kbd> type, which takes information about our transaction, such as the amount, the currency, and the description of the purchase.</li>
+<li>The <kbd>*stripe.ChargeParams</kbd> object must also receive a field, which represents the Stripe customer ID. This is provided by the <kbd>*stripe.Customer</kbd> object we covered in <em>step 2</em>.</li>
+</ol>
+<div class="packt_infobox">Remember that the Stripe customer ID is different to the actual customer ID that references the customer in our database.</div>
+<ol start="5">
+<li>If we would like to save this credit card and use it later, we can simply store the Stripe customer ID string for later use.</li>
+<li>Finally, we can charge the credit card by calling <kbd>charge.New()</kbd>, which takes the <kbd>*stripe.ChargeParams</kbd> object as an input.</li>
+</ol>
+<p>If the preceding steps sound too difficult to follow, don't worry. Once we start looking at the code, it will become clearer.</p>
+<p>Most of our code will live inside the <kbd>charge</kbd> handler method, which is inside the <kbd>handler.go</kbd> file. Here is the current state of the method:</p>
+<pre>func (h *Handler) Charge(c *gin.Context) {<br/>  if h.db == nil {<br/>    c.JSON(http.StatusInternalServerError, gin.H{"error": "server database error"})<br/>    return<br/>  }<br/>}</pre>
+<p>The method doesn't do anything yet. Here is what we need it to do:</p>
+<ol start="1">
+<li>Obtain the transaction information using the incoming HTTP request.</li>
+<li>If the request requires that we use an existing saved card, then we need to retrieve the saved customer Stripe ID and charge the card.</li>
+<li>If the request requires that we remember the currently provided credit card information, then we save it to the database before we charge the card.</li>
+</ol>
+<p>First, we need to create a type that can accept the data we are receiving from the frontend. Here is what this looks like:</p>
+<pre>request := struct {<br/>    models.Order<br/>    Remember bool `json:"rememberCard"`<br/>    UseExisting bool `json:"useExisting"`<br/>    Token string `json:"token"`<br/>  }{}</pre>
+<p>In the preceding code, we declared the Go struct and initialized it in the same piece of code. This is a quick way to create and use <kbd>struct</kbd> types on the fly in Go.</p>
+<p>Next, we need to parse the incoming JSON payload into the <kbd>request</kbd> variable:</p>
+<pre>err := c.ShouldBindJSON(&amp;request)<br/>  //If an error occurred during parsing, report it then return<br/>  if err != nil {<br/>    c.JSON(http.StatusBadRequest, request)<br/>    return<br/>  }</pre>
+<p>Now, it's time to start writing some Stripe code. The first thing we need to do is declare the stripe API key—we'll just use a test API key in this case. However, in a production environment, you'll need to use your own Stripe key and protect it very well:</p>
+<pre>stripe.Key = "sk_test_4eC39HqLyjWDarjtT1zdp7dc"</pre>
+<p>Next, we need to create a <kbd>*stripe.ChargeParams</kbd> object, which we covered in <em>step 3</em> at the beginning of this section. Here is what it looks like:</p>
+<pre>  chargeP := &amp;stripe.ChargeParams{<br/>    //the price we obtained from the incoming request:<br/>    Amount: stripe.Int64(int64(request.Price)),<br/>    //the currency:<br/>    Currency: stripe.String("usd"),<br/>    //the description:<br/>    Description: stripe.String("GoMusic charge..."),<br/>  }</pre>
+<p>Next, we initialize the stripe customer ID string. This is the important field, which was covered in <em>step 4</em> at the beginning of this section:</p>
+<pre>stripeCustomerID:=""</pre>
+<p>Now, if the incoming request expects us to use an existing card, we would retrieve the saved Stripe customer ID from the database and then use it. The following code uses a new database method that retrieves the Stripe customer ID from the database. We will implement this method later in this section:</p>
+<pre>if request.UseExisting {<br/>    //use existing<br/>    log.Println("Getting credit card id...")<br/>    //This is a new method which retrieve the stripe customer id from the database <br/>    stripeCustomerID, err = h.db.GetCreditCardCID(request.CustomerID)<br/>    if err != nil {<br/>      log.Println(err)<br/>      c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})<br/>      return<br/>    }<br/>  } </pre>
+<p>Otherwise, we can create a <kbd>*stripe.CustomerParams</kbd> object, which is used to create a <kbd>*stripe.Customer</kbd> object. This provides us with the Stripe customer ID:</p>
+<pre>...else {<br/>        cp := &amp;stripe.CustomerParams{}<br/>        cp.SetSource(request.Token)<br/>        customer, err := customer.New(cp)<br/>        if err != nil {<br/>             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})<br/>            return<br/>        }<br/>        stripeCustomerID = customer.ID</pre>
+<p>If we are asked to remember the card, we simply store the Stripe customer ID in the database:</p>
+<pre>if request.Remember {<br/>      //save the stripe customer id, and link it to the actual customer id in our database<br/>      err = h.db.SaveCreditCardForCustomer(request.CustomerID, stripeCustomerID)<br/>      if err != nil {<br/>        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})<br/>        return<br/>      }<br/>    }</pre>
+<p>Next, we attempt to charge the credit card:</p>
+<pre>  /*<br/>    we should check if the customer already ordered the same item or not but for simplicity, let's assume it's a new order<br/>*/<br/><br/>  //Assign the stipe customer id to the *stripe.ChargeParams object:<br/>  chargeP.Customer = stripe.String(stripeCustomerID)<br/><br/>  //Charge the credit card<br/>  _, err = charge.New(chargeP)<br/>  if err != nil {<br/>    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})<br/>    return<br/>  }</pre>
+<p>Finally, we add the order to our database:</p>
+<pre> err = h.db.AddOrder(request.Order)<br/>  if err != nil {<br/>    c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})<br/>  }</pre>
+<p>And that's it for the <kbd>charge()</kbd> method. </p>
+<p>There is still some work remaining. The newly added code to the <kbd>charge()</kbd> handler made use of several database methods, which we have not created yet:</p>
+<ul>
+<li><kbd>GetCreditCardCID()</kbd>: Retrieves a saved Stripe customer ID from the database</li>
+<li><kbd>SaveCreditCardForCustomer()</kbd>: Saves the stripe customer ID to our database</li>
+<li><kbd>AddOrder()</kbd>: Adds an order to the database</li>
+</ul>
+<p>We need to add these three methods to the database layer interface in our <kbd>dblayer.go</kbd> file:</p>
+<pre>type DBLayer interface {<br/>  GetAllProducts() ([]models.Product, error)<br/>  GetPromos() ([]models.Product, error)<br/>  GetCustomerByName(string, string) (models.Customer, error)<br/>  GetCustomerByID(int) (models.Customer, error)<br/>  GetProduct(int) (models.Product, error)<br/>  AddUser(models.Customer) (models.Customer, error)<br/>  SignInUser(username, password string) (models.Customer, error)<br/>  SignOutUserById(int) error<br/>  GetCustomerOrdersByID(int) ([]models.Order, error)<br/><strong>  AddOrder(models.Order) error</strong><br/><strong>  GetCreditCardCID(int) (string, error)</strong><br/><strong>  SaveCreditCardForCustomer(int, string) error</strong><br/>}</pre>
+<p>We add the three methods to our concrete implementation of the <kbd>DBLayer</kbd> interface. This is done in the <kbd>orm.go</kbd> file:</p>
+<pre>//Add the order to the orders table<br/>func (db *DBORM) AddOrder(order models.Order) error {<br/>  return db.Create(&amp;order).Error<br/>}<br/><br/>//Get the id representing the credit card from the database<br/>func (db *DBORM) GetCreditCardCID(id int) (string, error) {<br/>  cusomterWithCCID := struct {<br/>    models.Customer<br/>    CCID string `gorm:"column:cc_customerid"`<br/>  }{}<br/>  return cusomterWithCCID.CCID, db.First(&amp;cusomterWithCCID, id).Error<br/>}<br/><br/>//Save the credit card information for the customer<br/>func (db *DBORM) SaveCreditCardForCustomer(id int, ccid string) error {<br/>  result := db.Table("customers").Where("id=?", id)<br/>  return result.Update("cc_customerid", ccid).Error<br/>}</pre>
+<p>We now need to go back to our <kbd>handler.go</kbd> file, and modify our <kbd>handler</kbd> constructor, such that it can connect to our database:</p>
+<pre>func NewHandler(<strong>db,constring string)</strong> (HandlerInterface, error) {<br/>  db, err := dblayer.NewORM(<strong>db, constring</strong>)<br/>  if err != nil {<br/>    return nil, err<br/>  }<br/>  return &amp;Handler{<br/>    db: db,<br/>  }, nil<br/>}</pre>
+<p>Perfect! And with that, the backend code for our GoMusic app is 99% complete, let's revisit our frontend code in the next section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Revisiting the frontend code</h1>
+                </header>
+            
+            <article>
+                
+<p>The last deep dive we did in terms of the frontend code was in <a href="2047c922-b48b-4b36-afb5-a155031c60ea.xhtml">Chapter 5</a>, <em>Building a Frontend for GoMusic</em>. <a href="e875a3eb-c517-4246-8233-cc681f6c3356.xhtml">Chapter 4</a>, <em>Frontend with React.js</em>, and <a href="2047c922-b48b-4b36-afb5-a155031c60ea.xhtml">Chapter 5</a>, <em>Building a Frontend for GoMusic</em>, served to build solid and practical foundational knowledge about how to construct a working React app, which can be used as the frontend to our backend Go application.</p>
+<p>These two chapters covered about 85% of GoMusic's frontend. However, they did not cover all of the JavaScript code that's needed to glue together the different React components that we built in <a href="e875a3eb-c517-4246-8233-cc681f6c3356.xhtml">Chapter 4</a>, <em>Frontend with React.js, </em>and <a href="2047c922-b48b-4b36-afb5-a155031c60ea.xhtml"/><a href="2047c922-b48b-4b36-afb5-a155031c60ea.xhtml"/><a href="2047c922-b48b-4b36-afb5-a155031c60ea.xhtml">Chapter 5</a>, <em>Building a Frontend for GoMusic</em>. In this section, we will provide an overview of the overall frontend architectures and fill some of the gaps.</p>
+<p>In the next section, we will take a look at the application structure of the frontend of our application.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">The app structure</h1>
+                </header>
+            
+            <article>
+                
+<p>Our frontend component is divided into the following files:</p>
+<ul>
+<li><kbd>index.js</kbd>: The entry point to our React application, which calls the <kbd>App</kbd> component.</li>
+<li><kbd>App.js</kbd>: The main component of our React application. It combines all of the other components to form our app. The <kbd>App</kbd> component hosted in the <kbd>App.js</kbd> file takes care of some important central tasks such as the signing in or the signing out of a user.</li>
+<li><kbd>modalwindows.js</kbd>: This is responsible for all of the modal windows in our application. This includes the sign in, the new user registration, and the buy modal window.</li>
+<li><kbd>Navigation.js</kbd>: This is responsible for the navigational menu in our React application, which is how we move from one screen to another.</li>
+<li><kbd>creditcards.js</kbd>: This is responsible for the frontend side processing of credit cards.</li>
+<li><kbd>productcards.js</kbd>: This is responsible for showing the list of product cards. This includes normal product cards and promotions.</li>
+<li><kbd>orders.js</kbd>: This shows a list of customer's orders when a customer is signed in.</li>
+<li><kbd>about.js</kbd>: This shows the <span class="packt_screen">About</span> page.</li>
+</ul>
+<p>We'll see how to interconnect our frontend and backend in the next section.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Interactions between the frontend and the backend</h1>
+                </header>
+            
+            <article>
+                
+<p>In <a href="e875a3eb-c517-4246-8233-cc681f6c3356.xhtml">Chapter 4</a>, <em>Frontend with React.js</em>, we relied on a JSON file that contained some mock data to empower and run our frontend app without needing an actual working backend to be present. Now, we need to replace all of the code where we relied on the JSON sample data file and send full HTTP requests to the backend instead. </p>
+<p>For our React app to route the requests to our backend, we first need to add a field called <kbd>proxy</kbd> to the <kbd>package.json</kbd> file of our React application. The proxy field needs to point to the backend API address. In our case, the backend component of our application listens on local port <kbd>8000</kbd>:</p>
+<pre>"proxy": "http://127.0.0.1:8000/",</pre>
+<p>The <kbd>package.json</kbd> file will exist in the main folder of your React app. This file is used by <kbd>node</kbd> package managers to figure our global settings, scripts, and dependencies for your <kbd>node</kbd> app.</p>
+<p>Whenever we send a request to the backend, we make use of the powerful <kbd>fetch()</kbd> method. This method can send HTTP requests to a relative URL. Here is an example of a request to fetch customer's orders:</p>
+<pre>fetch(this.props.location) //send http request to a location. The location here is /products<br/>            .then(res =&gt; res.json())<br/>            .then((result) =&gt; {<br/>                this.setState({<br/>                    orders: result<br/>                });<br/>            });</pre>
+<p class="mce-root">In the next section we will explore how to make use of cookies in our application.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Using cookies</h1>
+                </header>
+            
+            <article>
+                
+<p>Since our application doesn't rely anymore on a global sample data file to answer important questions such as whether a user is currently signed in or not, what the user's information is, and so on. The frontend application now makes use of browser cookies for this. A simple definition for browser cookies is that they are small pieces of information that get stored in the user's device using the web browser. This information can then be simply retrieved from the cookie when needed.</p>
+<p>The frontend code makes use of cookies to easily save and retrieve the user's information to populate different screens and React components that need this information. This is done using the <kbd>js-cookie</kbd> JavaScript package. This package can be installed with the following command:</p>
+<pre><strong>npm install js-cookie --save</strong></pre>
+<p>Here is an example of setting a cookie:</p>
+<pre>cookie.set("user", userdata);</pre>
+<p>Here is an example of retrieving data from a cookie:</p>
+<pre>const user = cookie.getJSON("user");</pre>
+<p>Cookies are used to also check whether a user is currently signed in or signed out. Sign out handling code has been added to the React application since the code we covered in <a href="2047c922-b48b-4b36-afb5-a155031c60ea.xhtml">Chapter 5</a>, <em>Building a Frontend for GoMusic</em>, to handle the change of state that occurs when a user signs out. When a user signs out, we remove the information of the existing user from the cookie and just retain the fact that no one is logged in. Here is the code to do this:</p>
+<pre>cookie.set("user",{loggedin:false});</pre>
+<p>For more context on how we use cookies in our React application, and how to handle user sign out, have a look at the App react component of our application at:<a href="https://github.com/PacktPublishing/Hands-On-Full-Stack-Development-with-Go/blob/master/Chapter07/Frontend/src/App.js"> https://github.com/PacktPublishing/Hands-On-Full-Stack-Development-with-Go/blob/master/Chapter07/Frontend/src/App.js</a></p>
+<p><span>Now, let's explore how to deploy our frontend application to a production environment.</span></p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Deploying the frontend application</h1>
+                </header>
+            
+            <article>
+                
+<p>Once you are done with the frontend code, it will need to be transformed into a form that can be shared and copied to production server environments, without needing to reinstall all the Node.js tools and dependencies that were needed in the development process. </p>
+<p>The React framework comes to the rescue here. When we created our React application in <a href="e875a3eb-c517-4246-8233-cc681f6c3356.xhtml">Chapter 4</a>, <em>Frontend with React.js</em>, and <a href="2047c922-b48b-4b36-afb5-a155031c60ea.xhtml"/><a href="2047c922-b48b-4b36-afb5-a155031c60ea.xhtml">Chapter 5</a>, <em>Building a Frontend for GoMusic</em>, we used a tool called <kbd>create-react-app</kbd> to create our application and set up the toolchain. The tool supports some scripts that we can use to run and build our React application. We already mentioned the <kbd>npm start</kbd> command, which was used to run our React app in development mode, so that we can run our code and debug in real time as we are developing the application.</p>
+<p>There is a script that is vital for getting our React app ready for production use and is called <kbd>build</kbd>. To run this script, we simply type the <kbd>npm run build</kbd> command from the main folder of our React app. This command will compile our entire application to some static files, which we can then serve directly from our Go app. <span>The output of the build script goes to a folder called</span> <kbd>build</kbd><span>, which gets created in our React app root folder.</span></p>
+<p><span>Let's call this folder the React</span> <kbd>build</kbd> <span>folder. We can then copy this</span> <kbd>build</kbd> <span>folder anywhere and get our Go</span> app <span>to utilize it to serve the GoMusic app frontend.</span></p>
+<p>Here are the steps that we need to follow in our Go code to be able to serve the React output <kbd>build</kbd> folder.</p>
+<p>First, we need to import a Gin middleware called <kbd>static</kbd>, which we can do by executing the following command:</p>
+<pre style="padding-left: 60px"><strong>go get github.com/gin-contrib/static</strong></pre>
+<p>We will need to go to our <kbd>rest.go</kbd> file, which hosted our HTTP route definitions. This file can be found in <kbd>backend\src\rest.go</kbd>. Inside <kbd>rest.go</kbd>, we will import the Gin static middleware:</p>
+<pre style="padding-left: 60px">import (<br/>  "fmt" <br/><strong>  "github.com/gin-contrib/static"</strong><br/>  "github.com/gin-gonic/gin"<br/>)</pre>
+<p>Inside the <kbd>RunAPIWithHandler</kbd> function, which includes all of our HTTP route definitions, we will replace the code that's used to serve our <kbd>img</kbd> folder with code that serves all static files from the <kbd>build</kbd> folder that was generated by the React app. Here is what this will look like:</p>
+<pre style="padding-left: 60px">//remove this line: r.Static("/img", "../public/img")<br/>//This assumes the React app 'build' folder exists in the relative path '../public'<br/>r.Use(static.ServeRoot("/", "../public/build"))</pre>
+<p>The first argument of the <kbd>static.ServeRoot()</kbd> function is the relative HTTP root URL for our web application, while the second argument is basically the location of the React build folder.</p>
+<p>We will also need to move the <kbd>img</kbd> folder, which included all of the images of our musical instruments, so that it is inside the <kbd>build</kbd> folder. Now, the <kbd>build</kbd> folder has all of the assets for our web application.</p>
+<p>That's all we need to do. Now, we can just build our Go app into a single executable file by either using the <kbd>go build</kbd> or the <kbd>go install</kbd> command. Then, we can copy our <span>executable </span>web application along with the React build folder to wherever we would like to deploy our web application.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Summary</h1>
+                </header>
+            
+            <article>
+                
+<p>This chapter covered a lot of ground. In this chapter, we learned how to design and implement database layers for our backend services. We learned about the concept of web API middleware and how to make use of it. We also took a deep dive into some practical security concepts such as TLS and password hashing. We then learned how to process credit cards in our backend services through the powerful Stripe API. With this knowledge under your belt, you now have what it takes to build modern production web applications in Go.</p>
+<p>In the next chapter, we will cover how to test our application by writing unit tests, and how to measure it's performance, by running benchmarks.</p>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Questions</h1>
+                </header>
+            
+            <article>
+                
+<ol>
+<li>What is middleware?</li>
+<li>What is a Stripe customer ID?</li>
+<li>What is an ORM?</li>
+<li>What is GORM?</li>
+<li>How can we write a join query using GORM?</li>
+<li>What is TLS?</li>
+<li>What is meant by password hashing?</li>
+<li>What is <kbd>bcrypt</kbd>?</li>
+</ol>
+
+
+            </article>
+
+            
+        </section>
+    
+
+        <section>
+
+                            <header>
+                    <h1 class="header-title">Further reading</h1>
+                </header>
+            
+            <article>
+                
+<ul>
+<li><strong>Stripe API</strong>: <strong><a href="https://stripe.com/docs/api">https://stripe.com/docs/api</a></strong></li>
+<li><strong>GORM</strong>: <a href="http://gorm.io/">http://gorm.io/</a></li>
+<li><strong>Package <kbd>bcrypt</kbd></strong>: <a href="https://godoc.org/golang.org/x/crypto/bcrypt">https://godoc.org/golang.org/x/crypto/bcrypt</a></li>
+<li><strong>Transport layer security: </strong><a href="https://www.cloudflare.com/learning/ssl/transport-layer-security-tls/">https://www.cloudflare.com/learning/ssl/transport-layer-security-tls/</a></li>
+</ul>
+
+
+            </article>
+
+            
+        </section>
+    </body></html>
