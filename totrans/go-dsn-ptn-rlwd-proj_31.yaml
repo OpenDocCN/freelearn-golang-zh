@@ -1,243 +1,353 @@
 - en: Chapter 6.  Exposing Data and Functionality through a RESTful Data Web Service
     API
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 第6章。通过RESTful数据Web服务API公开数据和功能
 - en: In the previous chapter, we built a service that reads tweets from Twitter,
     counts the hash tag votes, and stores the results in a MongoDB database. We also
     used the MongoDB shell to add polls and see the poll results. This approach is
     fine if we are the only ones using our solution, but it would be madness if we
     released our project and expected users to connect directly to our MongoDB instance
     in order to use the service we built.
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 在上一章中，我们构建了一个从Twitter读取推文、统计标签投票并将结果存储在MongoDB数据库中的服务。我们还使用了MongoDB shell来添加投票并查看投票结果。如果我们是唯一使用我们解决方案的人，这种方法是可以的，但如果我们发布了我们的项目并期望用户直接连接到我们的MongoDB实例以使用我们构建的服务，那就疯了。
 - en: Therefore, in this chapter, we are going to build a RESTful data service through
     which the data and functionality will be exposed. We will also put together a
     simple website that consumes the new API. Users may then either use our website
     to create and monitor polls or build their own application on top of the web services
     we release.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 因此，在本章中，我们将构建一个RESTful数据服务，通过该服务将公开数据和功能。我们还将构建一个简单的网站来消费新的API。用户可以使用我们的网站创建和监控投票，或者在他们自己的应用上构建基于我们发布的Web服务。
 - en: Tip
+  id: totrans-3
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 小提示
 - en: Code in this chapter depends on the code in [Chapter 5](part0174_split_000.html#55U1S1-9c484ed022e64a0fb0e1aebf8e05d4fd
     "Chapter 5.  Building Distributed Systems and Working with Flexible Data"), *Building
     Distributed Systems and Working with Flexible Data*, so it is recommended that
     you complete that chapter first, especially since it covers setting up the environment
     that the code in this chapter runs on.
+  id: totrans-4
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章中的代码依赖于[第5章](part0174_split_000.html#55U1S1-9c484ed022e64a0fb0e1aebf8e05d4fd
+    "第5章。构建分布式系统和灵活数据处理")中的代码，*构建分布式系统和灵活数据处理*，因此建议您首先完成该章节，特别是因为它涵盖了本章代码运行的环境设置。
 - en: 'Specifically, you will learn:'
+  id: totrans-5
   prefs: []
   type: TYPE_NORMAL
+  zh: 具体来说，您将学习：
 - en: How wrapping `http.HandlerFunc` types can give us a simple but powerful pipeline
     of execution for our HTTP requests
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如何通过包装`http.HandlerFunc`类型为我们提供HTTP请求的简单但强大的执行管道
 - en: How to safely share data between HTTP handlers using the `context` package
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如何使用`context`包安全地在HTTP处理器之间共享数据
 - en: Best practices for the writing of handlers responsible for exposing data
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 负责公开数据的处理器的编写最佳实践
 - en: Where small abstractions can allow us to write the simplest possible implementations
     now but leave room to improve them later without changing the interface
+  id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在现在允许我们编写最简单的实现的同时，留出空间在以后改进它们而不改变接口的小抽象
 - en: How adding simple helper functions and types to our project will prevent us
     from (or at least defer) adding dependencies on external packages
+  id: totrans-10
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 通过向我们的项目中添加简单的辅助函数和类型，将防止我们（或至少推迟）对外部包的依赖
 - en: RESTful API design
+  id: totrans-11
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: RESTful API设计
 - en: For an API to be considered RESTful, it must adhere to a few principles that
     stay true to the original concepts behind the Web and are already known to most
     developers. Such an approach allows us to make sure we aren't building anything
     strange or unusual into our API while also giving our users a head start toward
     consuming it, since they are already familiar with its concepts.
+  id: totrans-12
   prefs: []
   type: TYPE_NORMAL
+  zh: 要使API被认为是RESTful的，它必须遵守一些原则，这些原则与Web背后的原始概念保持一致，并且大多数开发者都已经知道。这种做法可以确保我们不会在我们的API中构建任何奇怪或不寻常的东西，同时也可以让我们的用户在消费它时有一个先发优势，因为他们已经熟悉其概念。
 - en: 'Some of the important RESTful design concepts are:'
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 一些重要的RESTful设计概念包括：
 - en: HTTP methods describe the kind of action to take; for example, `GET` methods
     will only ever read data, while `POST` requests will create something
+  id: totrans-14
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: HTTP方法描述了要采取的操作类型；例如，`GET`方法将始终读取数据，而`POST`请求将创建某些内容
 - en: Data is expressed as a collection of resources
+  id: totrans-15
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 数据被表达为资源集合
 - en: Actions are expressed as changes to data
+  id: totrans-16
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 动作被表达为数据的变化
 - en: URLs are used to refer to specific data
+  id: totrans-17
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: URL用于引用特定数据
 - en: HTTP headers are used to describe the kind of representation coming into and
     going out of the server
+  id: totrans-18
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: HTTP头用于描述进入和离开服务器的表示类型
 - en: The following table shows the HTTP methods and URLs that represent the actions
     that we will support in our API, along with a brief description and an example
     use case of how we intend the call to be used.
+  id: totrans-19
   prefs: []
   type: TYPE_NORMAL
+  zh: 下表显示了我们将支持的HTTP方法和URL，包括简短描述和预期如何使用调用的示例用例。
 - en: '| **Request** | **Description** | **Use case** |'
+  id: totrans-20
   prefs: []
   type: TYPE_TB
+  zh: '| **请求** | **描述** | **用例** |'
 - en: '| `GET /polls` | Read all polls | Show a list of polls to the users |'
+  id: totrans-21
   prefs: []
   type: TYPE_TB
+  zh: '| `GET /polls` | 读取所有投票 | 向用户展示投票列表 |'
 - en: '| `GET /polls/{id}` | Read the poll | Show details or results of a specific
     poll |'
+  id: totrans-22
   prefs: []
   type: TYPE_TB
+  zh: '| `GET /polls/{id}` | 读取投票 | 显示特定投票的详细信息或结果 |'
 - en: '| `POST /polls` | Create a poll | Create a new poll |'
+  id: totrans-23
   prefs: []
   type: TYPE_TB
+  zh: '| `POST /polls` | 创建投票 | 创建一个新的投票 |'
 - en: '| `DELETE /polls/{id}` | Delete a poll | Delete a specific poll |'
+  id: totrans-24
   prefs: []
   type: TYPE_TB
+  zh: '| `DELETE /polls/{id}` | 删除投票 | 删除特定的投票 |'
 - en: The  `{id}` placeholder represents where in the path the unique ID for a poll
     will go.
+  id: totrans-25
   prefs: []
   type: TYPE_NORMAL
+  zh: '`{id}` 占位符表示在路径中唯一ID的位置将放在哪里。'
 - en: Sharing data between handlers
+  id: totrans-26
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 处理程序之间的数据共享
 - en: Occasionally, we need to share a state between our middleware and handlers.
     Go 1.7 brought the `context` package into the standard library, which gives us,
     among other things, a way to share basic request-scoped data.
+  id: totrans-27
   prefs: []
   type: TYPE_NORMAL
+  zh: 有时，我们需要在中间件和处理程序之间共享一个状态。Go 1.7 将 `context` 包引入了标准库，它为我们提供了共享基本请求范围数据的方式。
 - en: Every `http.Request` method comes with a `context.Context` object accessible
     via the `request.Context()` method, from which we can create new context objects.
     We can then call `request.WithContext()` to get a (cheap) shallow copied `http.Request`
     method that uses our new `Context` object.
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 每个 `http.Request` 方法都附带一个可通过 `request.Context()` 方法访问的 `context.Context` 对象，我们可以从中创建新的上下文对象。然后我们可以调用
+    `request.WithContext()` 来获取一个（便宜）浅拷贝的 `http.Request` 方法，它使用我们的新 `Context` 对象。
 - en: 'To add a value, we can create a new context (based on the existing one from
     the request) via the `context.WithValue` method:'
+  id: totrans-29
   prefs: []
   type: TYPE_NORMAL
+  zh: 要添加一个值，我们可以通过 `context.WithValue` 方法创建一个新的上下文（基于请求中现有的上下文）：
 - en: '[PRE0]'
+  id: totrans-30
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: Tip
+  id: totrans-31
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 小贴士
 - en: While you can technically store any type of data using this approach, it is
     only recommended that you store simple primitive types such as Strings and Integers
     and do not use it to inject dependencies or pointers to other objects that your
     handlers might need. Later in this chapter, we will explore patterns to access
     dependencies, such as a database connection.
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 虽然技术上可以使用这种方法存储任何类型的数据，但建议只存储简单的原始类型，如字符串和整数，并且不要用它来注入处理程序可能需要的依赖项或指向其他对象的指针。在本章的后面部分，我们将探讨访问依赖项的模式，例如数据库连接。
 - en: 'In middleware code, we can then use our new `ctx` object when we pass execution
     to the wrapped handler:'
+  id: totrans-33
   prefs: []
   type: TYPE_NORMAL
+  zh: 在中间件代码中，当我们传递执行到包装处理程序时，我们可以使用我们的新 `ctx` 对象：
 - en: '[PRE1]'
+  id: totrans-34
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: It is worth exploring the documentation for the context package at [https://golang.org/pkg/context/](https://golang.org/pkg/context/)
     in order to find out what other features it provides.
+  id: totrans-35
   prefs: []
   type: TYPE_NORMAL
+  zh: 值得探索上下文包的文档[https://golang.org/pkg/context/](https://golang.org/pkg/context/)，以了解它提供了哪些其他功能。
 - en: We are going to use this technique to allow our handlers to have access to an
     API key that is extracted and validated elsewhere.
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将使用这项技术来允许我们的处理程序访问一个在其他地方提取和验证的API密钥。
 - en: Context keys
+  id: totrans-37
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 上下文键
 - en: 'Setting a value in a context object requires us to use a key, and while it
     might seem obvious that the value argument is of type `interface{}`, which means
     we can (but not necessarily should) store anything we like, it might surprise
     you to learn the type of the key:'
+  id: totrans-38
   prefs: []
   type: TYPE_NORMAL
+  zh: 在上下文对象中设置值需要我们使用一个键，虽然值参数是 `interface{}` 类型可能看起来很明显，这意味着我们可以（但不一定应该）存储我们喜欢的任何东西，但了解键的类型可能会让你感到惊讶：
 - en: '[PRE2]'
+  id: totrans-39
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: The key is also an `interface{}`. This means we are not restricted to using
     only strings as the key, which is good news when you consider how disparate code
     might well attempt to set values with the same name in the same context, which
     would create problems.
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 键也是一个 `interface{}`。这意味着我们不仅限于使用字符串作为键，这对于考虑不同代码可能试图在相同上下文中使用相同名称设置值是有好处的，这可能会引起问题。
 - en: Instead, a pattern of a more stable way of keying values is emerging from the
     Go community (and is already used in some places inside the standard library).
     We are going to create a simple (private) `struct` for our keys and a helper method
     in order to get the value out of the context.
+  id: totrans-41
   prefs: []
   type: TYPE_NORMAL
+  zh: 相反，一个更稳定的键值模式正在Go社区中浮现（并且已经在标准库的一些地方使用）。我们将创建一个简单的（私有）`struct`来存储我们的键，并添加一个辅助方法来从上下文中获取值。
 - en: 'Add the essential minimal `main.go` file inside a new `api` folder:'
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 在新的 `api` 文件夹内添加必要的最小 `main.go` 文件：
 - en: '[PRE3]'
+  id: totrans-43
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'Add a new type called `contextKey`:'
+  id: totrans-44
   prefs: []
   type: TYPE_NORMAL
+  zh: 添加一个名为 `contextKey` 的新类型：
 - en: '[PRE4]'
+  id: totrans-45
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: 'This structure contains only the name of the key, but pointers to it will remain
     unique even if the `name` field is the same in two keys. Next, we are going to
     add a key to store our API key value in:'
+  id: totrans-46
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个结构只包含键的名称，但即使两个键的 `name` 字段相同，指向它的指针也将保持唯一。接下来，我们将添加一个键来存储我们的API密钥值：
 - en: '[PRE5]'
+  id: totrans-47
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: It is good practice to group related variables together with a common prefix;
     in our case, we can start the name all of our context key types with the `contextKey`
     prefix. Here, we have created a key called `contextKeyAPIKey`, which is a pointer
     to a `contextKey` type, setting the name as `api-key`.
+  id: totrans-48
   prefs: []
   type: TYPE_NORMAL
+  zh: 将相关变量组合在一起并使用共同的前缀是一种良好的实践；在我们的情况下，我们可以从`contextKey`前缀开始命名所有上下文键类型。在这里，我们创建了一个名为`contextKeyAPIKey`的键，它是一个指向`contextKey`类型的指针，名称设置为`api-key`。
 - en: 'Next, we are going to write a helper that will, given a context, extract the
     key:'
+  id: totrans-49
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，我们将编写一个辅助函数，它将根据上下文提取密钥：
 - en: '[PRE6]'
+  id: totrans-50
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: The function takes `context.Context` and returns the API key string along with
     an `ok` bool indicating whether the key was successfully obtained and cast to
     a string or not. If the key is missing, or if it's the wrong type, the second
     return argument will be false, but our code will not panic.
+  id: totrans-51
   prefs: []
   type: TYPE_NORMAL
+  zh: 函数接收`context.Context`并返回API密钥字符串以及一个`ok`布尔值，表示密钥是否成功获取并转换为字符串。如果密钥缺失或类型错误，第二个返回参数将为false，但我们的代码不会崩溃。
 - en: Note that `contextKey` and `contextKeyAPIKey` are internal (they start with
     a lowercase letter) but `APIKey` will be exported. In `main` packages, this doesn't
     really matter, but if you were writing a package, it's nice to know that the complexity
     of how you are storing and extracting data from a context is hidden from users.
+  id: totrans-52
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意，`contextKey`和`contextKeyAPIKey`是内部的（它们以小写字母开头），但`APIKey`将被导出。在`main`包中，这并不重要，但如果你正在编写一个包，了解你存储和从上下文中提取数据的方式的复杂性对用户来说是件好事。
 - en: Wrapping handler functions
+  id: totrans-53
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 包装处理函数
 - en: 'We are going to utilize one of the most valuable patterns to learn when building
     services and websites in Go, something we already explored a little in [Chapter
     2](part0158_split_000.html#4MLOS1-9c484ed022e64a0fb0e1aebf8e05d4fd "Chapter 2. 
@@ -245,12 +355,17 @@
     how we can wrap `http.Handler` types to run code before and after our main handlers
     execute, and we are going to apply the same technique to `http.HandlerFunc` function
     alternatives.'
+  id: totrans-54
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将利用在Go中构建服务和网站时学习到的最有价值的模式之一，我们已经在[第2章](part0158_split_000.html#4MLOS1-9c484ed022e64a0fb0e1aebf8e05d4fd
+    "第2章。添加用户账户")中稍微探索过，即*添加用户账户*：包装处理函数。我们已经看到如何包装`http.Handler`类型，在主处理函数执行前后运行代码，现在我们将应用相同的技巧到`http.HandlerFunc`函数替代品上。
 - en: API keys
+  id: totrans-55
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: API密钥
 - en: Most web APIs require clients to register an API key for their application,
     which they are asked to send along with every request. Such keys have many purposes,
     ranging from simply identifying which app the requests are coming from to addressing
@@ -258,15 +373,21 @@
     things based on what a user has allowed. While we don't actually need to implement
     API keys for our application, we are going to ask clients to provide one, which
     will allow us to add an implementation later, while keeping the interface constant.
+  id: totrans-56
   prefs: []
   type: TYPE_NORMAL
+  zh: 大多数Web API要求客户端为其应用程序注册一个API密钥，并要求他们在每次请求时发送该密钥。这些密钥有许多用途，从简单地识别请求来自哪个应用程序到解决某些应用程序只能根据用户允许的内容执行有限操作的情况下的授权问题。虽然我们实际上不需要为我们的应用程序实现API密钥，但我们要求客户端提供一个，这将允许我们稍后添加实现，同时保持接口不变。
 - en: 'We are going to add our first `HandlerFunc` wrapper function called `withAPIKey`
     to the bottom of `main.go`:'
+  id: totrans-57
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将在`main.go`的底部添加第一个`HandlerFunc`包装函数，命名为`withAPIKey`：
 - en: '[PRE7]'
+  id: totrans-58
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: As you can see, our `withAPIKey` function both takes an `http.HandlerFunc` type
     as an argument and returns one; this is what we mean by wrapping in this context.
     The `withAPIKey` function relies on a number of other functions that we are yet
@@ -279,25 +400,36 @@
     returns an `http.HandlerFunc` type too, the result can then be passed on to other
     wrappers or given directly to the `http.HandleFunc` function to actually register
     it as the handler for a particular path pattern.
+  id: totrans-59
   prefs: []
   type: TYPE_NORMAL
+  zh: 如您所见，我们的`withAPIKey`函数既接受一个`http.HandlerFunc`类型作为参数，也返回一个；这就是我们在这个上下文中所说的包装。`withAPIKey`函数依赖于我们尚未编写的许多其他函数，但您可以清楚地看到正在发生的事情。我们的函数立即返回一个新的`http.HandlerFunc`类型，通过调用`isValidAPIKey`来检查`key`查询参数。如果密钥被认为无效（通过返回`false`），我们则响应一个`invalid
+    API key`错误；否则，我们将密钥放入上下文并调用下一个处理器。要使用此包装器，我们只需将一个`http.HandlerFunc`类型传递给此函数，以便启用`key`参数检查。由于它也返回一个`http.HandlerFunc`类型，因此结果可以传递给其他包装器或直接传递给`http.HandleFunc`函数，以便将其注册为特定路径模式的处理器。
 - en: 'Let''s add our `isValidAPIKey` function next:'
+  id: totrans-60
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们接下来添加我们的`isValidAPIKey`函数：
 - en: '[PRE8]'
+  id: totrans-61
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: For now, we are simply going to hardcode the API key as `abc123`; anything else
     will return `false` and therefore be considered invalid. Later, we can modify
     this function to consult a configuration file or database to check the authenticity
     of a key without affecting how we use the `isValidAPIKey` method or the `withAPIKey`
     wrapper.
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
+  zh: 目前，我们只是将API密钥硬编码为`abc123`；任何其他内容都将返回`false`，因此被视为无效。稍后，我们可以修改这个函数，以便通过咨询配置文件或数据库来检查密钥的真实性，而不会影响我们使用`isValidAPIKey`方法或`withAPIKey`包装器的方式。
 - en: Cross-origin resource sharing
+  id: totrans-63
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 跨源资源共享
 - en: 'The same-origin security policy mandates that AJAX requests in web browsers
     be allowed only for services hosted on the same domain, which would make our API
     fairly limited since we won''t necessarily be hosting all of the websites that
@@ -308,28 +440,40 @@
     since we''re going to use the `Location` header in our create poll call – we''ll
     allow this header to be accessible by the client too, which can be done by listing
     it in the `Access-Control-Expose-Headers` header. Add the following code to `main.go`:'
+  id: totrans-64
   prefs: []
   type: TYPE_NORMAL
+  zh: 同源安全策略规定，在Web浏览器中，AJAX请求仅允许来自同一域的服务，这将使我们的API相当有限，因为我们不一定会在所有使用我们的Web服务的网站上托管。**CORS**（**跨源资源共享**）技术绕过了同源策略，使我们能够构建一个能够为托管在其他域上的网站提供服务的服务。为此，我们只需在响应中设置`Access-Control-Allow-Origin`头为`*`。既然我们将在创建投票调用中使用`Location`头，我们也将允许客户端访问此头，这可以通过在`Access-Control-Expose-Headers`头中列出它来实现。将以下代码添加到`main.go`：
 - en: '[PRE9]'
+  id: totrans-65
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: This is the simplest wrapper function yet; it just sets the appropriate header
     on the `ResponseWriter` type and calls the specified `http.HandlerFunc` type.
+  id: totrans-66
   prefs: []
   type: TYPE_NORMAL
+  zh: 这是迄今为止最简单的包装函数；它只是在`ResponseWriter`类型上设置适当的头，并调用指定的`http.HandlerFunc`类型。
 - en: Tip
+  id: totrans-67
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 小贴士
 - en: In this chapter, we are handling CORS explicitly so we can understand exactly
     what is going on; for real production code, you should consider employing an open
     source solution, such as [https://github.com/fasterness/cors](https://github.com/fasterness/cors).
+  id: totrans-68
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们明确处理CORS（跨源资源共享），以便我们能够确切地了解正在发生的情况；对于真正的生产代码，你应该考虑使用开源解决方案，例如[https://github.com/fasterness/cors](https://github.com/fasterness/cors)。
 - en: Injecting dependencies
+  id: totrans-69
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 依赖注入
 - en: Now that we can be sure that a request has a valid API key and is CORS-compliant,
     we must consider how handlers will connect to the database. One option is to have
     each handler dial its own connection, but this isn't very **DRY** (**Don't Repeat
@@ -338,146 +482,215 @@
     that if we wanted to change how we connected to the database (perhaps we want
     to use a domain name instead of a hardcoded IP address), we might have to modify
     our code in many places, rather than one.
+  id: totrans-70
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们可以确信请求有一个有效的API密钥并且是CORS兼容的，我们必须考虑处理器将如何连接到数据库。一个选项是让每个处理器自己拨号连接，但这不是非常**DRY**（不要重复自己），并且留下了可能产生错误代码的空间，例如忘记在完成数据库会话后关闭数据库会话的代码。这也意味着，如果我们想改变我们连接数据库的方式（也许我们想使用域名而不是硬编码的IP地址），我们可能需要在许多地方修改我们的代码，而不是一个地方。
 - en: Instead, we will create a new type that encapsulates all the dependencies for
     our handlers and construct it with a database connection in `main.go`.
+  id: totrans-71
   prefs: []
   type: TYPE_NORMAL
+  zh: 相反，我们将创建一个新类型，它封装了处理器的所有依赖，并在 `main.go` 中使用数据库连接来构建它。
 - en: 'Create a new type called `Server`:'
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建一个名为 `Server` 的新类型：
 - en: '[PRE10]'
+  id: totrans-73
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: Our handler functions will be methods of this server, which is how they will
     be able to access the database session.
+  id: totrans-74
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们的处理函数将是这个服务的方法，这样它们就能访问数据库会话。
 - en: Responding
+  id: totrans-75
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 响应
 - en: A big part of any API is responding to requests with a combination of status
     codes, data, errors, and sometimes headers – the `net/http` package makes all
     of this very easy to do. One option we have, which remains the best option for
     tiny projects or even the early stages of big projects, is to just build the response
     code directly inside the handler.
+  id: totrans-76
   prefs: []
   type: TYPE_NORMAL
+  zh: 任何API的一个重要部分是使用状态码、数据、错误以及有时是头部来响应请求——`net/http` 包使得所有这些都非常容易实现。我们有一个选项，对于小型项目或者大型项目的早期阶段来说，仍然是最佳选项，那就是直接在处理器内部构建响应代码。
 - en: As the number of handlers grows, however, we will end up duplicating a lot of
     code and sprinkling representation decisions all over our project. A more scalable
     approach is to abstract the response code into helper functions.
+  id: totrans-77
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，随着处理器的数量增加，我们最终会重复大量的代码，并在我们的项目中到处散布表示决策。一个更可扩展的方法是将响应代码抽象成辅助函数。
 - en: For the first version of our API, we are going to speak only JSON, but we want
     the flexibility to add other representations later if we need to.
+  id: totrans-78
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于我们API的第一个版本，我们将只使用JSON，但我们希望有灵活性，以便在需要时添加其他表示。
 - en: 'Create a new file called `respond.go` and add the following code:'
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建一个名为 `respond.go` 的新文件，并添加以下代码：
 - en: '[PRE11]'
+  id: totrans-80
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: These two functions abstract the decoding and encoding of data from and to the
     `Request` and `ResponseWriter` objects, respectively. The decoder also closes
     the request body, which is recommended. Although we haven't added much functionality
     here, it means that we do not need to mention JSON anywhere else in our code,
     and if we decide to add support for other representations or switch to a binary
     protocol instead, we only need to touch these two functions.
+  id: totrans-81
   prefs: []
   type: TYPE_NORMAL
+  zh: 这两个函数分别抽象了从 `Request` 和 `ResponseWriter` 对象中解码和编码数据。解码器还会关闭请求体，这是推荐的。尽管我们在这里没有添加很多功能，但这意味着我们不需要在我们的代码的其他地方提及JSON，如果我们决定添加对其他表示的支持或切换到二进制协议，我们只需要修改这两个函数。
 - en: 'Next, we are going to add a few more helpers that will make responding even
     easier. In `respond.go`, add the following code:'
+  id: totrans-82
   prefs: []
   type: TYPE_NORMAL
+  zh: 接下来，我们将添加一些额外的辅助函数，这将使响应变得更加容易。在 `respond.go` 中添加以下代码：
 - en: '[PRE12]'
+  id: totrans-83
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: This function makes it easy to write the status code and some data to the `ResponseWriter`
     object using our `encodeBody` helper.
+  id: totrans-84
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个函数使得使用我们的 `encodeBody` 辅助函数将状态码和一些数据写入 `ResponseWriter` 对象变得非常容易。
 - en: 'Handling errors is another important aspect that is worth abstracting. Add
     the following `respondErr` helper:'
+  id: totrans-85
   prefs: []
   type: TYPE_NORMAL
+  zh: 处理错误是另一个值得抽象的重要方面。添加以下 `respondErr` 辅助函数：
 - en: '[PRE13]'
+  id: totrans-86
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: 'This method gives us an interface similar to the `respond` function, but the
     data written will be enveloped in an `error` object in order to make it clear
     that something went wrong. Finally, we can add an HTTP-error-specific helper that
     will generate the correct message for us using the `http.StatusText` function
     from the Go standard library:'
+  id: totrans-87
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个方法提供了一个类似于 `respond` 函数的接口，但写入的数据将被包裹在一个 `error` 对象中，以便清楚地表明出了问题。最后，我们可以添加一个专门用于生成正确消息的HTTP错误特定辅助函数，该函数使用Go标准库中的
+    `http.StatusText` 函数：
 - en: '[PRE14]'
+  id: totrans-88
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: Note that these functions are all dog food, which means that they use each other
     (as in, eating your own dog food), which is important since we want actual responding
     to happen in only one place for if (or more likely, when) we need to make changes.
+  id: totrans-89
   prefs: []
   type: TYPE_NORMAL
+  zh: 注意，这些函数都是“狗粮”，这意味着它们相互使用（就像吃自己的狗粮一样），这对于我们希望在只有一个地方进行实际响应（如果或更可能地，当我们需要做出更改时）来说很重要。
 - en: Understanding the request
+  id: totrans-90
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 理解请求
 - en: 'The `http.Request` object gives us access to every piece of information we
     might need about the underlying HTTP request; therefore, it is worth glancing
     through the `net/http` documentation to really get a feel for its power. Examples
     include, but are not limited to, the following:'
+  id: totrans-91
   prefs: []
   type: TYPE_NORMAL
+  zh: '`http.Request` 对象为我们提供了访问底层 HTTP 请求可能需要的每一块信息的途径；因此，浏览一下 `net/http` 文档以真正了解其强大功能是值得的。以下是一些示例，但不仅限于以下内容：'
 - en: The URL, path, and query string
+  id: totrans-92
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: URL、路径和查询字符串
 - en: The HTTP method
+  id: totrans-93
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: HTTP 方法
 - en: Cookies
+  id: totrans-94
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: Cookies
 - en: Files
+  id: totrans-95
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 文件
 - en: Form values
+  id: totrans-96
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 表单值
 - en: The referrer and user agent of requester
+  id: totrans-97
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 请求者的引用和用户代理
 - en: Basic authentication details
+  id: totrans-98
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 基本认证详情
 - en: The request body
+  id: totrans-99
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 请求体
 - en: The header information
+  id: totrans-100
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 标头信息
 - en: There are a few things it doesn't address, which we need to either solve ourselves
     or look to an external package to help us with. URL path parsing is one such example
     – while we can access a path (such as `/people/1/books/2`) as a string via the `http.Request`
     type's `URL.Path` field, there is no easy way to pull out the data encoded in
     the path, such as the people ID of `1` or the book ID of  `2`.
+  id: totrans-101
   prefs: []
   type: TYPE_NORMAL
+  zh: 它没有解决一些问题，我们需要自己解决或寻找外部包来帮助我们。URL 路径解析就是这样一个问题——虽然我们可以通过 `http.Request` 类型中的
+    `URL.Path` 字段以字符串的形式访问路径（如 `/people/1/books/2`），但没有简单的方法可以提取路径中编码的数据，如 `1` 的人
+    ID 或 `2` 的书 ID。
 - en: Note
+  id: totrans-102
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 备注
 - en: A few projects do a good job of addressing this problem, such as Goweb or Gorillz's `mux`
     package. They let you map path patterns that contain placeholders for values that
     they then pull out of the original string and make available to your code. For
@@ -485,19 +698,28 @@
     will map paths such as `/users/1/comments/2`. In your handler code, you can then
     get the values by the names placed inside the curly braces rather than having
     to parse the path yourself.
+  id: totrans-103
   prefs: []
   type: TYPE_NORMAL
+  zh: 一些项目很好地解决了这个问题，例如 Goweb 或 Gorillz 的 `mux` 包。它们允许你映射包含占位符的路径模式，然后从原始字符串中提取这些值并将其提供给你的代码。例如，你可以映射一个模式
+    `/users/{userID}/comments/{commentID}`，这将映射路径，如 `/users/1/comments/2`。在你的处理程序代码中，你可以通过大括号内的名称来获取值，而不是自己解析路径。
 - en: Since our needs are simple, we are going to knock together a simple path-parsing
     utility; we can always use a different package later if we have to, but that would
     mean adding a dependency to our project.
+  id: totrans-104
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于我们的需求很简单，我们将构建一个简单的路径解析实用工具；如果需要，我们总是可以使用不同的包，但这意味着要向我们的项目中添加一个依赖。
 - en: 'Create a new file called `path.go` and insert the following code:'
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建一个名为 `path.go` 的新文件，并插入以下代码：
 - en: '[PRE15]'
+  id: totrans-106
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: This simple parser provides a `NewPath` function that parses the specified path
     string and returns a new instance of the `Path` type. Leading and trailing slashes
     are trimmed (using `strings.Trim`) and the remaining path is split (using `strings.Split`)
@@ -507,69 +729,104 @@
     the rest of the items for the remainder of the path using `s[:len(s)-1]`. On the
     same lines, we also rejoin the path segments with the `PathSeparator` constant
     to form a single string containing the path without the ID.
+  id: totrans-107
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个简单的解析器提供了一个 `NewPath` 函数，它解析指定的路径字符串，并返回一个 `Path` 类型的新的实例。使用 `strings.Trim`
+    去除前导和尾随斜杠，并使用 `PathSeparator` 常量（即一个正斜杠）将剩余的路径分割（使用 `strings.Split`）。如果有多个段（`len(s)
+    > 1`），最后一个被认为是 ID。我们使用 `s[len(s)-1]` 重新切片字符串以选择 ID，并使用 `s[:len(s)-1]` 选择路径的其余部分。同样，我们使用
+    `PathSeparator` 常量重新连接路径段，以形成一个不包含 ID 的单个字符串。
 - en: 'This supports any `collection/id` pair, which is all we need for our API. The
     following table shows the state of the `Path` type for the given original path
     string:'
+  id: totrans-108
   prefs: []
   type: TYPE_NORMAL
+  zh: 这支持任何 `collection/id` 对，这正是我们 API 所需要的。以下表格显示了给定原始路径字符串的 `Path` 类型的状态：
 - en: '| **Original path string** | **Path** | **ID** | **HasID** |'
+  id: totrans-109
   prefs: []
   type: TYPE_TB
+  zh: '| **原始路径字符串** | **路径** | **ID** | **HasID** |'
 - en: '| `/` | `/` | `nil` | `false` |'
+  id: totrans-110
   prefs: []
   type: TYPE_TB
+  zh: '| `/` | `/` | `nil` | `false` |'
 - en: '| `/people/` | `people` | `nil` | `false` |'
+  id: totrans-111
   prefs: []
   type: TYPE_TB
+  zh: '| `/people/` | `people` | `nil` | `false` |'
 - en: '| `/people/1/` | `people` | `1` | `true` |'
+  id: totrans-112
   prefs: []
   type: TYPE_TB
+  zh: '| `/people/1/` | `people` | `1` | `true` |'
 - en: Serving our API with one function
+  id: totrans-113
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 使用一个函数提供我们的API服务
 - en: A web service is nothing more than a simple Go program that binds to a specific
     HTTP address and port and serves requests, so we get to use all our command-line
     tool writing knowledge and techniques.
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: 一个网络服务不过是一个简单的Go程序，它绑定到特定的HTTP地址和端口，并处理请求，因此我们可以使用我们所有的命令行工具编写知识和技巧。
 - en: Tip
+  id: totrans-115
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 小贴士
 - en: We also want to ensure that our `main` function is as simple and modest as possible,
     which is always a goal of coding, especially in Go.
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们还希望确保我们的`main`函数尽可能简单和谦逊，这始终是编码的目标，尤其是在Go中。
 - en: 'Before writing our `main` function, let''s look at a few design goals of our
     API program:'
+  id: totrans-117
   prefs: []
   type: TYPE_NORMAL
+  zh: 在编写我们的`main`函数之前，让我们看看我们的API程序的一些设计目标：
 - en: We should be able to specify the HTTP address and port to which our API listens
     and the address of the MongoDB instances without having to recompile the program
     (through command-line flags)
+  id: totrans-118
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 我们应该能够指定API监听的HTTP地址和端口以及MongoDB实例的地址，而无需重新编译程序（通过命令行标志）
 - en: We want the program to gracefully shut down when we terminate it, allowing the
     in-flight requests (requests that are still being processed when the termination
     signal is sent to our program) to complete
+  id: totrans-119
   prefs:
   - PREF_IND
   type: TYPE_NORMAL
+  zh: 我们希望程序在终止时能够优雅地关闭，允许正在处理的请求（在发送终止信号给我们的程序时仍在处理的请求）完成
 - en: We want the program to log out status updates and report errors properly
+  id: totrans-120
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 我们希望程序能够正确地记录状态更新并报告错误
 - en: 'Atop the `main.go` file, replace the `main` function placeholder with the following
     code:'
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`main.go`文件顶部，将`main`函数占位符替换为以下代码：
 - en: '[PRE16]'
+  id: totrans-122
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: This function is the entirety of our API `main` function. The first thing we
     do is specify two command-line flags, `addr` and `mongo`, with some sensible defaults
     and ask the `flag` package to parse them. We then attempt to dial the MongoDB
@@ -578,92 +835,131 @@
     we store the reference in the  `db` variable before deferring the closing of the
     connection. This ensures that our program properly disconnects and tidies up after
     itself when it ends.
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个函数就是我们的API`main`函数的全部内容。我们首先指定两个命令行标志，`addr`和`mongo`，并设置一些合理的默认值，然后要求`flag`包解析它们。然后我们尝试在指定的地址拨号到MongoDB数据库。如果我们不成功，我们通过调用`log.Fatalln`来中止。假设数据库正在运行并且我们能够连接，我们在延迟关闭连接之前将引用存储在`db`变量中。这确保了我们的程序在结束时能够正确地断开连接并清理。
 - en: Tip
+  id: totrans-124
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 小贴士
 - en: We create our server and specify the database dependency. We are calling our
     server `s`, which some people think is a bad practice because it's difficult to
     read code referring to a single letter variable and know what it is. However,
     since the scope of this variable is so small, we can be sure that its use will
     be very near to its definition, removing the potential for confusion.
+  id: totrans-125
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们创建我们的服务器并指定数据库依赖项。我们调用我们的服务器`s`，有些人认为这是一种不好的做法，因为它很难阅读只引用单个字母变量的代码并知道它是什么。然而，由于这个变量的作用域很小，我们可以确信它的使用将非常接近其定义，从而消除了混淆的可能性。
 - en: We then create a new `http.ServeMux` object, which is a request multiplexer
     provided by the Go standard library, and register a single handler for all requests
     that begin with the `/polls/` path. Note that the `handlePolls` handler is a method
     on our server, and this is how it will be able to access the database.
+  id: totrans-126
   prefs: []
   type: TYPE_NORMAL
+  zh: 然后，我们创建一个新的`http.ServeMux`对象，这是Go标准库提供的请求多路复用器，并为以`/polls/`路径开始的请求注册一个单一的处理程序。请注意，`handlePolls`处理程序是我们服务器上的一个方法，这就是它将如何访问数据库。
 - en: Using handler function wrappers
+  id: totrans-127
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 使用处理程序函数包装器
 - en: 'It is when we call `HandleFunc` on the `ServeMux` handler that we are making
     use of our handler function wrappers with this line:'
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们在`ServeMux`处理程序上调用`HandleFunc`时，我们就在使用处理程序函数包装器，如下所示：
 - en: '[PRE17]'
+  id: totrans-129
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: 'Since each function takes an `http.HandlerFunc` type as an argument and also
     returns one, we are able to chain the execution just by nesting the function calls,
     as we have done previously. So when a request comes in with a path prefix of `/polls/`,
     the program will take the following execution path:'
+  id: totrans-130
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于每个函数都接受一个`http.HandlerFunc`类型作为参数，并返回一个，因此我们能够通过嵌套函数调用链式执行，就像我们之前所做的那样。因此，当接收到路径前缀为`/polls/`的请求时，程序将采取以下执行路径：
 - en: The `withCORS` function is called, which sets the appropriate header.
+  id: totrans-131
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 调用了`withCORS`函数，该函数设置了适当的头信息。
 - en: The `withAPIKey` function is called next, which checks the request for an API
     key and aborts if it's invalid or else calls the next handler function.
+  id: totrans-132
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 接下来调用 `withAPIKey` 函数，该函数检查请求中的 API 密钥，如果无效则终止，否则调用下一个处理器函数。
 - en: The `handlePolls` function is then called, which may use the helper functions
     in `respond.go` to write a response to the client.
+  id: totrans-133
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 然后调用 `handlePolls` 函数，该函数可能使用 `respond.go` 中的辅助函数向客户端写入响应。
 - en: Execution goes back to `withAPIKey`, which exits.
+  id: totrans-134
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 执行回到 `withAPIKey`，然后退出。
 - en: Execution finally goes back to `withCORS`, which exits.
+  id: totrans-135
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 执行最终回到 `withCORS`，然后退出。
 - en: Handling endpoints
+  id: totrans-136
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 处理端点
 - en: The final piece of the puzzle is the `handlePolls` function, which will use
     the helpers to understand the incoming request and access the database and generate
     a meaningful response that will be sent back to the client. We also need to model
     the poll data that we were working with in the previous chapter.
+  id: totrans-137
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后一个拼图是 `handlePolls` 函数，它将使用辅助函数来理解传入的请求、访问数据库并生成一个有意义的响应，该响应将被发送回客户端。我们还需要对上一章中我们正在处理的投票数据进行建模。
 - en: 'Create a new file called `polls.go` and add the following code:'
+  id: totrans-138
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建一个名为 `polls.go` 的新文件并添加以下代码：
 - en: '[PRE18]'
+  id: totrans-139
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: Here, we define a structure called `poll`, which has five fields that in turn
     describe the polls being created and maintained by the code we wrote in the previous
     chapter. We have also added the `APIKey` field, which you probably wouldn't do
     in the real world but which will allow us to demonstrate how we extract the API
     key from the context. Each field also has a tag (two in the `ID` case), which
     allows us to provide some extra metadata.
+  id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这里，我们定义了一个名为 `poll` 的结构体，它有五个字段，这些字段反过来描述了我们在上一章中编写的代码创建和维护的投票。我们还添加了 `APIKey`
+    字段，您可能不会在现实世界中这样做，但它将允许我们演示如何从上下文中提取 API 密钥。每个字段都有一个标签（`ID` 的情况有两个），这允许我们提供一些额外的元数据。
 - en: Using tags to add metadata to structs
+  id: totrans-141
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 使用标签向结构体添加元数据
 - en: 'Tags are just a string that follows a field definition within a `struct` type
     on the same line. We use the black tick character to denote literal strings, which
     means we are free to use double quotes within the tag string itself. The `reflect`
@@ -676,19 +972,30 @@
     talk with the MongoDB database and JSON to talk to the client, so we can actually
     specify different views of the same `struct` type. For example, consider the ID
     field:'
+  id: totrans-142
   prefs: []
   type: TYPE_NORMAL
+  zh: 标签只是跟在结构体类型字段定义同一行的字符串。我们使用黑色引号字符来表示字面字符串，这意味着我们可以在标签字符串内部自由使用双引号。`reflect`
+    包允许我们提取与任何键关联的值；在我们的例子中，`bson` 和 `json` 都是键的例子，它们是每个由空格字符分隔的键/值对。`encoding/json`
+    和 `gopkg.in/mgo.v2/bson` 包允许您使用标签来指定用于编码和解码的字段名称（以及一些其他属性），而不是从字段名称本身推断值。我们使用
+    BSON 与 MongoDB 数据库通信，使用 JSON 与客户端通信，因此我们可以实际指定同一 `struct` 类型的不同视图。例如，考虑 ID 字段：
 - en: '[PRE19]'
+  id: totrans-143
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: The name of the field in Go is `ID`, the JSON field is `id`, and the BSON field
     is `_id`, which is the special identifier field used in MongoDB.
+  id: totrans-144
   prefs: []
   type: TYPE_NORMAL
+  zh: Go 中字段的名称是 `ID`，JSON 字段是 `id`，BSON 字段是 `_id`，这是 MongoDB 中使用的特殊标识符字段。
 - en: Many operations with a single handler
+  id: totrans-145
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 使用单个处理器执行许多操作
 - en: 'Because our simple path-parsing solution cares only about the path, we have
     to do some extra work when looking at the kind of RESTful operation the client
     is making. Specifically, we need to consider the HTTP method so that we know how
@@ -698,110 +1005,160 @@
     such as the HTTP method or the presence of specific headers in the request. Since
     our case is ultra simple, we are going to use a simple `switch` case. In `polls.go`,
     add the `handlePolls` function:'
+  id: totrans-146
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于我们的简单路径解析解决方案只关心路径，因此当查看客户端正在进行的 RESTful 操作类型时，我们必须做一些额外的工作。具体来说，我们需要考虑 HTTP
+    方法，以便我们知道如何处理请求。例如，对 `/polls/` 路径的 `GET` 调用应读取投票，而 `POST` 调用将创建一个新的投票。一些框架通过允许您根据路径以外的更多内容映射处理器来解决此问题，例如
+    HTTP 方法或请求中存在特定头。由于我们的案例非常简单，我们将使用简单的 `switch` 语句。在 `polls.go` 中添加 `handlePolls`
+    函数：
 - en: '[PRE20]'
+  id: totrans-147
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: 'We switch on the HTTP method and branch our code depending on whether it is `GET`, `POST`,
     or `DELETE`. If the HTTP method is something else, we just respond with a `404
     http.StatusNotFound` error. To make this code compile, you can add the following
     function stubs underneath the `handlePolls` handler:'
+  id: totrans-148
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们根据HTTP方法进行分支，并根据它是`GET`、`POST`还是`DELETE`来分支我们的代码。如果HTTP方法不是这些，我们只响应一个`404
+    http.StatusNotFound`错误。为了使此代码编译，你可以在`handlePolls`处理程序下方添加以下函数存根：
 - en: '[PRE21]'
+  id: totrans-149
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: Tip
+  id: totrans-150
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 小贴士
 - en: In this section, we learned how to manually parse elements of the requests (the
     HTTP method) and make decisions in code. This is great for simple cases, but it's
     worth looking at packages such as Gorilla's `mux` package for some more powerful
     ways of solving these problems. Nevertheless, keeping external dependencies to
     a minimum is a core philosophy of writing good and contained Go code.
+  id: totrans-151
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本节中，我们学习了如何手动解析请求的元素（HTTP方法）并在代码中做出决策。这对于简单情况来说很好，但值得看看像Gorilla的`mux`包这样的包，它们提供了一些更强大的解决这些问题的方法。然而，将外部依赖降到最低是编写良好且封装良好的Go代码的核心原则。
 - en: Reading polls
+  id: totrans-152
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 读取投票
 - en: 'Now it''s time to implement the functionality of our web service. Add the following
     code:'
+  id: totrans-153
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在是时候实现我们的网络服务功能了。添加以下代码：
 - en: '[PRE22]'
+  id: totrans-154
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: The very first thing we do in each of our sub handler functions is create a
     copy of the database session that will allow us to interact with MongoDB. We then
     use `mgo` to create an object referring to the `polls` collection in the database
     – if you remember, this is where our polls live.
+  id: totrans-155
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们的每个子处理函数中，我们首先创建数据库会话的副本，这将允许我们与MongoDB交互。然后我们使用`mgo`创建一个指向数据库中`polls`集合的对象——如果你还记得，这就是我们的投票所在。
 - en: We then build up an `mgo.Query` object by parsing the path. If an ID is present,
     we use the `FindId` method on the `polls` collection; otherwise, we pass `nil`
     to the `Find` method, which indicates that we want to select all the polls. We
     are converting the ID from a string to a `bson.ObjectId` type with the `ObjectIdHex`
     method so that we can refer to the polls with their numerical (hex) identifiers.
+  id: totrans-156
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们通过解析路径构建一个`mgo.Query`对象。如果存在ID，我们在`polls`集合上使用`FindId`方法；否则，我们将`nil`传递给`Find`方法，这表示我们想要选择所有投票。我们使用`ObjectIdHex`方法将ID从字符串转换为`bson.ObjectId`类型，这样我们就可以用它们的数值（十六进制）标识符来引用投票。
 - en: Since the `All` method expects to generate a collection of  `poll` objects,
     we define the result as `[]*poll` or a slice of pointers to poll types. Calling
     the `All` method on the query will cause `mgo` to use its connection to MongoDB
     to read all the polls and populate the `result` object.
+  id: totrans-157
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于`All`方法期望生成一个`poll`对象的集合，我们定义结果为`[]*poll`或指向poll类型的指针切片。在查询上调用`All`方法将导致`mgo`使用其与MongoDB的连接来读取所有投票并填充`result`对象。
 - en: Note
+  id: totrans-158
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: For small scale, such as a small number of polls, this approach is fine, but
     as the polls grow, we will need to consider a more sophisticated approach. We
     can page the results by iterating over them using the `Iter` method on the query
     and using the `Limit` and `Skip` methods, so we do not try to load too much data
     into the memory or present too much information to users in one go.
+  id: totrans-159
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于小规模，例如少量投票，这种方法是可行的，但随着投票的增加，我们需要考虑一种更复杂的方法。我们可以通过在查询上使用`Iter`方法迭代它们，并使用`Limit`和`Skip`方法来分页结果，这样我们就不试图将太多数据加载到内存中，或者一次向用户提供太多信息。
 - en: Now that we have added some functionality, let's try out our API for the first
     time. If you are using the same MongoDB instance that we set up in the previous
     chapter, you should already have some data in the `polls` collection; to see our
     API working properly, you should ensure there are at least two polls in the database.
+  id: totrans-160
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们已经添加了一些功能，让我们第一次尝试我们的API。如果你正在使用我们在上一章中设置的相同MongoDB实例，你应该已经在`polls`集合中有些数据了；为了确保我们的API能够正常工作，你应该确保数据库中至少有两个投票。
 - en: 'If you need to add other polls to the database, in a terminal, run the `mongo`
     command to open a database shell that will allow you to interact with MongoDB.
     Then, enter the following commands to add some test polls:'
+  id: totrans-161
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你需要向数据库添加其他投票，在终端中运行`mongo`命令以打开一个数据库外壳，这将允许你与MongoDB交互。然后，输入以下命令以添加一些测试投票：
 - en: '[PRE23]'
+  id: totrans-162
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: 'In a terminal, navigate to your `api` folder and build and run the project:'
+  id: totrans-163
   prefs: []
   type: TYPE_NORMAL
+  zh: 在终端中，导航到你的`api`文件夹，构建并运行项目：
 - en: '[PRE24]'
+  id: totrans-164
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: Now make a `GET` request to the `/polls/` endpoint by navigating to `http://localhost:8080/polls/?key=abc123`
     in your browser; remember to include the trailing slash. The result will be an
     array of polls in the JSON format.
+  id: totrans-165
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，通过在浏览器中导航到`http://localhost:8080/polls/?key=abc123`来对该`/polls/`端点发起一个`GET`请求；请记住包括末尾的反斜杠。结果将是一个包含JSON格式的投票数组的数组。
 - en: Copy and paste one of the IDs from the polls list and insert it before the `?`
     character in the browser to access the data for a specific poll, for example, `http://localhost:8080/polls/5415b060a02cd4adb487c3ae?key=abc123`.
     Note that instead of returning all the polls, it only returns one.
+  id: totrans-166
   prefs: []
   type: TYPE_NORMAL
+  zh: 从投票列表中复制一个ID，并将其插入到浏览器中的`?`字符之前，以访问特定投票的数据，例如，`http://localhost:8080/polls/5415b060a02cd4adb487c3ae?key=abc123`。请注意，它不会返回所有投票，而只返回一个。
 - en: Tip
+  id: totrans-167
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 小贴士
 - en: Test the API key functionality by removing or changing the key parameter to
     see what the error looks like.
+  id: totrans-168
   prefs: []
   type: TYPE_NORMAL
+  zh: 通过移除或更改密钥参数来测试API密钥功能，以查看错误看起来像什么。
 - en: 'You might have also noticed that although we are only returning a single poll,
     this poll value is still nested inside an array. This is a deliberate design decision
     made for two reasons: the first and most important reason is that nesting makes
@@ -811,19 +1168,27 @@
     of polls. As an API designer, this is your decision to make. The second reason
     we left the object nested in an array is that it makes the API code simpler, allowing
     us to just change the `mgo.Query` object and leave the rest of the code the same.'
+  id: totrans-169
   prefs: []
   type: TYPE_NORMAL
+  zh: 你可能也注意到，尽管我们只返回一个投票，但这个投票值仍然嵌套在一个数组中。这是出于两个原因的故意设计决策：第一个也是最重要的原因是嵌套使得API用户编写代码来消费数据变得更加容易。如果用户总是期望一个JSON数组，他们可以编写描述这种期望的强类型，而不是为单个投票和投票集合使用不同的类型。作为API设计者，这是你的决定。第二个原因是，我们让对象嵌套在数组中使得API代码更加简单，这允许我们只更改`mgo.Query`对象，而让其他代码保持不变。
 - en: Creating a poll
+  id: totrans-170
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 创建投票
 - en: 'Clients should be able to make a `POST` request to `/polls/` in order to create
     a poll. Let''s add the following code inside the `POST` case:'
+  id: totrans-171
   prefs: []
   type: TYPE_NORMAL
+  zh: 客户应该能够向`/polls/`发送一个`POST`请求以创建投票。让我们在`POST`情况下添加以下代码：
 - en: '[PRE25]'
+  id: totrans-172
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: After we get a copy of the database session like earlier, we attempt to decode
     the body of the request that, according to RESTful principles, should contain
     a representation of the poll object the client wants to create. If an error occurs,
@@ -834,199 +1199,289 @@
     message, pointing to the URL from which the newly created poll may be accessed.
     Some APIs return the object instead of providing a link to it; there is no concrete
     standard so it's up to you as the designer.
+  id: totrans-173
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们获取到数据库会话的副本之后，我们尝试解码请求的正文，根据RESTful原则，该正文应该包含客户端想要创建的投票对象的表示。如果发生错误，我们使用`respondErr`辅助函数将错误写入用户并立即退出函数。然后我们为投票生成一个新的唯一ID，并使用`mgo`包的`Insert`方法将其发送到数据库。然后我们设置响应的`Location`头并使用`201
+    http.StatusCreated`消息响应，指向可以访问新创建的投票的URL。一些API返回对象而不是提供链接；没有具体的标准，所以这取决于你作为设计者的决定。
 - en: Deleting a poll
+  id: totrans-174
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 删除投票
 - en: 'The final piece of functionality we are going to include in our API is the
     ability to delete polls. By making a request with the `DELETE` HTTP method to
     the URL of a poll (such as`/polls/5415b060a02cd4adb487c3ae`), we want to be able
     to remove the poll from the database and return a `200 Success` response:'
+  id: totrans-175
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将要包含在我们API中的最后一块功能是能够删除投票。通过向投票的URL（例如`/polls/5415b060a02cd4adb487c3ae`）发送一个使用`DELETE`
+    HTTP方法的请求，我们希望能够从数据库中删除该投票并返回一个`200 成功`响应：
 - en: '[PRE26]'
+  id: totrans-176
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: Similar to the `GET` case, we parse the path, but this time, we respond with
     an error if the path does not contain an ID. For now, we don't want people to
     be able to delete all polls with one request, and so we use the suitable `StatusMethodNotAllowed`
     code. Then, using the same collection we used in the previous cases, we call `RemoveId`,
     passing the ID in the path after converting it into a `bson.ObjectId` type. Assuming
     things go well, we respond with an `http.StatusOK` message with no body.
+  id: totrans-177
   prefs: []
   type: TYPE_NORMAL
+  zh: 与`GET`情况类似，我们解析路径，但这次如果路径不包含ID，我们将返回一个错误。目前我们不希望人们能够通过一个请求删除所有投票，因此我们使用合适的`StatusMethodNotAllowed`代码。然后，使用我们在前一个案例中使用的相同集合，我们调用`RemoveId`，将路径中的ID转换为`bson.ObjectId`类型后传递。假设一切顺利，我们将以没有主体的`http.StatusOK`消息响应。
 - en: CORS support
+  id: totrans-178
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: CORS支持
 - en: 'In order for our `DELETE` capability to work over CORS, we must do a little
     extra work to support the way CORS browsers handle some HTTP methods such as `DELETE`.
     A CORS browser will actually send a preflight request (with an HTTP method of
     `OPTIONS`), asking for permission to make a `DELETE` request (listed in the `Access-Control-Request-Method`
     request header), and the API must respond appropriately in order for the request
     to work. Add another case in the `switch` statement for `OPTIONS`:'
+  id: totrans-179
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了让我们的`DELETE`功能能够在CORS下工作，我们必须做一些额外的工作来支持CORS浏览器处理某些HTTP方法（如`DELETE`）的方式。实际上，CORS浏览器会发送一个预检请求（带有`OPTIONS`
+    HTTP方法），请求允许发送`DELETE`请求（列在`Access-Control-Request-Method`请求头中），并且API必须适当地响应，以便请求能够工作。在`switch`语句中添加另一个针对`OPTIONS`的情况：
 - en: '[PRE27]'
+  id: totrans-180
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: If the browser asks for permission to send a `DELETE` request, the API will
     respond by setting the `Access-Control-Allow-Methods` header to `DELETE`, thus
     overriding the default `*` value that we set in our `withCORS` wrapper handler.
     In the real world, the value for the `Access-Control-Allow-Methods` header will
     change in response to the request made, but since `DELETE` is the only case we
     are supporting, we can hardcode it for now.
+  id: totrans-181
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果浏览器请求发送`DELETE`请求的权限，API将通过设置`Access-Control-Allow-Methods`头为`DELETE`来响应，从而覆盖我们在`withCORS`包装处理程序中设置的默认`*`值。在现实世界中，`Access-Control-Allow-Methods`头的值将根据请求做出相应改变，但由于我们只支持`DELETE`这一种情况，我们可以现在将其硬编码。
 - en: Note
+  id: totrans-182
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: The details of CORS are out of the scope of this book, but it is recommended
     that you research the particulars online if you intend to build truly accessible
     web services and APIs. Head over to [http://enable-cors.org/](http://enable-cors.org/)
     to get started.
+  id: totrans-183
   prefs: []
   type: TYPE_NORMAL
+  zh: CORS的详细信息超出了本书的范围，但如果您打算构建真正可访问的Web服务和API，建议您在网上研究具体细节。前往[http://enable-cors.org/](http://enable-cors.org/)开始。
 - en: Testing our API using curl
+  id: totrans-184
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 使用curl测试我们的API
 - en: Curl is a command-line tool that allows us to make HTTP requests to our service
     so that we can access it as though we were a real app or client consuming the
     service.
+  id: totrans-185
   prefs: []
   type: TYPE_NORMAL
+  zh: Curl是一个命令行工具，它允许我们向我们的服务发送HTTP请求，这样我们就可以像真正的应用程序或客户端一样访问它，消费该服务。
 - en: Note
+  id: totrans-186
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: Windows users do not have access to curl by default and will need to seek an
     alternative. Check out [http://curl.haxx.se/dlwiz/?type=bin](http://curl.haxx.se/dlwiz/?type=bin)
     or search the Web for Windows curl alternative.
+  id: totrans-187
   prefs: []
   type: TYPE_NORMAL
+  zh: Windows用户默认没有curl的访问权限，需要寻找替代方案。查看[http://curl.haxx.se/dlwiz/?type=bin](http://curl.haxx.se/dlwiz/?type=bin)或在网上搜索Windows
+    curl的替代方案。
 - en: 'In a terminal, let''s read all the polls in the database through our API. Navigate
     to your `api` folder and build and run the project and also ensure MongoDB is
     running:'
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
+  zh: 在终端中，让我们通过我们的API读取数据库中的所有投票。导航到您的`api`文件夹，构建并运行项目，并确保MongoDB正在运行：
 - en: '[PRE28]'
+  id: totrans-189
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: 'We then perform the following steps:'
+  id: totrans-190
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们接下来执行以下步骤：
 - en: 'Enter the following `curl` command that uses the `-X` flag to denote we want
     to make a `GET` request to the specified URL:'
+  id: totrans-191
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 输入以下使用`-X`标志的`curl`命令，表示我们想要向指定的URL发送一个`GET`请求：
 - en: '[PRE29]'
+  id: totrans-192
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: 'The output is printed after you hit*Enter*:'
+  id: totrans-193
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 在按下*Enter*键后，输出将被打印出来：
 - en: '[PRE30]'
+  id: totrans-194
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: 'While it isn''t pretty, you can see that the API returns the polls from your
     database. Issue the following command to create a new poll:'
+  id: totrans-195
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 虽然看起来不太美观，但您可以看到API返回了您的数据库中的投票。发出以下命令来创建一个新的投票：
 - en: '[PRE31]'
+  id: totrans-196
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: 'Get the list again to see the new poll included:'
+  id: totrans-197
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 再次获取列表以查看包含的新投票：
 - en: '[PRE32]'
+  id: totrans-198
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: 'Copy and paste one of the IDs and adjust the URL to refer specifically to that
     poll:'
+  id: totrans-199
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 复制并粘贴其中一个ID，并调整URL以具体指向该投票：
 - en: '[PRE33]'
+  id: totrans-200
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: 'Now we see only the selected poll. Let''s make a `DELETE` request to remove
     the poll:'
+  id: totrans-201
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在我们只看到选定的投票。让我们发送一个`DELETE`请求来删除这个投票：
 - en: '[PRE34]'
+  id: totrans-202
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: 'Now when we get all the polls again, we''ll see that the Beatles poll has gone:'
+  id: totrans-203
   prefs:
   - PREF_OL
   type: TYPE_NORMAL
+  zh: 现在我们再次获取所有投票时，我们会看到披头士的投票已经消失了：
 - en: '[PRE35]'
+  id: totrans-204
   prefs:
   - PREF_IND
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: So now that we know that our API is working as expected, it's time to build
     something that consumes the API properly.
+  id: totrans-205
   prefs: []
   type: TYPE_NORMAL
+  zh: 既然我们知道我们的API按预期工作，现在是时候构建一个能够正确消费API的东西了。
 - en: A web client that consumes the API
+  id: totrans-206
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 消费该API的Web客户端
 - en: 'We are going to put together an ultra simple web client that consumes the capabilities
     and data exposed through our API, allowing users to interact with the polling
     system we built in the previous chapter and earlier in this chapter. Our client
     will be made up of three web pages:'
+  id: totrans-207
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将构建一个超简单的Web客户端，该客户端消费通过我们的API公开的能力和数据，使用户能够与我们在上一章以及本章早期构建的投票系统进行交互。我们的客户端将由三个网页组成：
 - en: An `index.html` page that shows all the polls
+  id: totrans-208
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个显示所有投票的`index.html`页面
 - en: A `view.html` page that shows the results of a specific poll
+  id: totrans-209
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个显示特定投票结果的`view.html`页面
 - en: A `new.html` page that allows users to create new polls
+  id: totrans-210
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 一个允许用户创建新投票的`new.html`页面
 - en: 'Create a new folder called `web` alongside the `api` folder and add the following
     content to the `main.go` file:'
+  id: totrans-211
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`api`文件夹旁边创建一个名为`web`的新文件夹，并将以下内容添加到`main.go`文件中：
 - en: '[PRE36]'
+  id: totrans-212
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: These few lines of Go code really highlight the beauty of the language and the
     Go standard library. They represent a complete, highly scalable, static website
     hosting program. The program takes an `addr` flag and uses the familiar `http.ServeMux`
     type to serve static files from a folder called `public`.
+  id: totrans-213
   prefs: []
   type: TYPE_NORMAL
+  zh: 这几行Go代码真正凸显了语言和Go标准库的美丽。它们代表了一个完整、高度可扩展的静态网站托管程序。该程序接受一个`addr`标志，并使用熟悉的`http.ServeMux`类型从名为`public`的文件夹中提供静态文件。
 - en: Tip
+  id: totrans-214
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 小贴士
 - en: Building the next few pages –while we're building the UI â€“consists of writing
     a lot of HTML and JavaScript code. Since this is not Go code, if you'd rather
     not type it all out, feel free to head over to the GitHub repository for this
     book and copy and paste it from [https://github.com/matryer/goblueprints](https://github.com/matryer/goblueprints).
     You are also free to include the latest versions of the Bootstrap and jQuery libraries
     as you see fit, but there may be implementation differences with subsequent versions.
+  id: totrans-215
   prefs: []
   type: TYPE_NORMAL
+  zh: 在构建UI的同时构建接下来的几页，需要编写大量的HTML和JavaScript代码。由于这不是Go代码，如果你不想全部输入，请随意前往这本书的GitHub仓库[https://github.com/matryer/goblueprints](https://github.com/matryer/goblueprints)并复制粘贴。你也可以根据需要包含Bootstrap和jQuery库的最新版本，但可能与后续版本存在实现差异。
