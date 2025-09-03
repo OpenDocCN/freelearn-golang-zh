@@ -1,7 +1,9 @@
 - en: Chapter 8. Filesystem Backup
+  id: totrans-0
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 第 8 章. 文件系统备份
 - en: There are many solutions that provide filesystem backup capabilities. These
     include everything from apps such as Dropbox, Box, and Carbonite to hardware solutions
     such as Apple's Time Machine, Seagate, or network-attached storage products, to
@@ -11,98 +13,142 @@
     thanks to Go's standard library (which includes packages such as `ioutil` and
     `os`), we have everything we need to build a backup solution that behaves exactly
     the way we need it to.
+  id: totrans-1
   prefs: []
   type: TYPE_NORMAL
+  zh: 有许多提供文件系统备份功能的解决方案。这些包括从像 Dropbox、Box 和 Carbonite 这样的应用程序到像苹果的 Time Machine、Seagate
+    或网络附加存储产品等硬件解决方案，仅举几例。大多数消费级工具提供一些关键自动功能，以及一个应用程序或网站供您管理您的策略和内容。通常，特别是对于开发者来说，这些工具并不完全符合我们的需求。然而，多亏了
+    Go 的标准库（包括 `ioutil` 和 `os` 等包），我们拥有了构建一个完全符合我们需求的备份解决方案所需的一切。
 - en: For our next project, we will build a simple filesystem backup for our source
     code projects that archive specified folders and save a snapshot of them every
     time we make a change. The change could be when we tweak a file and save it, when
     we add new files and folders, or even when we delete a file. We want to be able
     to go back to any point in time to retrieve old files.
+  id: totrans-2
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于我们的下一个项目，我们将为我们的源代码项目构建一个简单的文件系统备份，它将归档指定的文件夹，并在我们每次进行更改时保存它们的快照。更改可能是当我们调整文件并保存它时，当我们添加新文件和文件夹时，甚至当我们删除一个文件时。我们希望能够回到任何时间点去检索旧文件。
 - en: 'Specifically, in this chapter, you will learn about the following topics:'
+  id: totrans-3
   prefs: []
   type: TYPE_NORMAL
+  zh: 具体来说，在本章中，你将学习以下主题：
 - en: How to structure projects that consist of packages and command-line tools
+  id: totrans-4
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如何构建由包和命令行工具组成的项目的结构
 - en: A pragmatic approach to persisting simple data across tool executions
+  id: totrans-5
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在工具执行之间持久化简单数据的一种实用方法
 - en: How the `os` package allows you to interact with a filesystem
+  id: totrans-6
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: '`os` 包如何允许你与文件系统交互'
 - en: How to run code in an infinite timed loop while respecting *Ctrl + C*
+  id: totrans-7
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如何在尊重 *Ctrl + C* 的情况下运行无限定时循环的代码
 - en: How to use `filepath.Walk` to iterate over files and folders
+  id: totrans-8
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如何使用 `filepath.Walk` 遍历文件和文件夹
 - en: How to quickly determine whether the contents of a directory have changed
+  id: totrans-9
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如何快速确定目录内容是否已更改
 - en: How to use the `archive/zip` package to zip files
+  id: totrans-10
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如何使用 `archive/zip` 包来压缩文件
 - en: How to build tools that care about a combination of command-line flags and normal
     arguments
+  id: totrans-11
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如何构建关注命令行标志和常规参数组合的工具
 - en: Solution design
+  id: totrans-12
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 解决方案设计
 - en: 'We will start by listing some high-level acceptance criteria for our solution
     and the approach we want to take:'
+  id: totrans-13
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将首先列出我们解决方案的一些高级验收标准和我们想要采取的方法：
 - en: The solution should create a snapshot of our files at regular intervals as we
     make changes to our source code projects
+  id: totrans-14
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 解决方案应在我们更改源代码项目时定期创建我们文件的快照
 - en: We want to control the interval at which the directories are checked for changes
+  id: totrans-15
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 我们希望控制检查目录更改的间隔
 - en: Code projects are primarily text-based, so zipping the directories to generate
     archives will save a lot of space
+  id: totrans-16
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 代码项目主要是基于文本的，所以将目录压缩以生成存档将节省大量空间
 - en: We will build this project quickly, while keeping a close watch over where we
     might want to make improvements later
+  id: totrans-17
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 我们将快速构建这个项目，同时密切关注我们可能希望在以后进行改进的地方
 - en: Any implementation decisions we make should be easily modified if we decide
     to change our implementation in the future
+  id: totrans-18
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 我们做出的任何实现决策都应易于修改，如果我们决定在未来更改我们的实现
 - en: 'We will build two command-line tools: the backend daemon that does the work
     and a user interaction utility that will let us list, add, and remove paths from
     the backup service'
+  id: totrans-19
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 我们将构建两个命令行工具：一个执行工作的后端守护程序和一个用户交互实用程序，它将允许我们列出、添加和从备份服务中删除路径
 - en: The project structure
+  id: totrans-20
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 项目结构
 - en: It is common in Go solutions to have, in a single project, both a package that
     allows other Go programmers to use your capabilities and a command-line tool that
     allows end users to use your programs.
+  id: totrans-21
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 Go 解决方案中，在单个项目中既有允许其他 Go 程序员使用你的功能的包，又有允许最终用户使用你的程序的命令行工具是很常见的。
 - en: As we saw in the last chapter, a convention to structure such projects is emerging
     whereby we have the package in the main project project folder and the command-line
     tool inside a subfolder called `cmd` or `cmds` if you have multiple commands.
@@ -112,40 +158,59 @@
     cyclical dependencies). This may seem like an unnecessary abstraction, but it
     is actually quite a common pattern and can be seen in the standard Go tool chain
     with examples such as `gofmt` and `goimports`.
+  id: totrans-22
   prefs: []
   type: TYPE_NORMAL
+  zh: 正如我们在上一章中看到的，一个用于结构化此类项目的约定正在出现，即我们将包放在主项目文件夹中，将命令行工具放在名为 `cmd` 或 `cmds` 的子文件夹中（如果你有多个命令）。由于在
+    Go 中所有包都是平等的（无论目录树如何），你可以从命令子包中导入包，知道你永远不需要从项目包中导入命令（这是非法的，因为你不能有循环依赖）。这看起来可能像是一个不必要的抽象，但实际上这是一个相当常见的模式，可以在标准
+    Go 工具链的示例中看到，例如 `gofmt` 和 `goimports`。
 - en: 'For example, for our project, we are going to write a package called `backup`
     and two command-line tools: the daemon and the user interaction tool. We will
     structure our project in the following way:'
+  id: totrans-23
   prefs: []
   type: TYPE_NORMAL
+  zh: 例如，对于我们的项目，我们将编写一个名为 `backup` 的包和两个命令行工具：守护程序和用户交互工具。我们将以以下方式组织我们的项目：
 - en: '[PRE0]'
+  id: totrans-24
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE0]'
 - en: Tip
+  id: totrans-25
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 小贴士
 - en: The reason we don't just put code directly inside the `cmd` folder (even if
     we only had one command) is that when `go install` builds projects, it uses the
     name of the folder as the command name, and it wouldn't be very useful if all
     of our tools were called `cmd`.
+  id: totrans-26
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们没有直接将代码放在 `cmd` 文件夹中（即使我们只有一个命令）的原因是，当 `go install` 构建项目时，它使用文件夹的名称作为命令名称，如果所有的工具都被称为
+    `cmd`，那就不会很有用。
 - en: The backup package
+  id: totrans-27
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 备份包
 - en: We are first going to write the `backup` package, of which we will become the
     first customer when we write the associated tools. The package will be responsible
     for deciding whether directories have changed and need backing up or not as well
     as actually performing the backup procedure.
+  id: totrans-28
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们首先将编写 `backup` 包，当我们编写相关的工具时，我们将成为该包的第一个客户。该包将负责决定目录是否已更改并需要备份，以及实际执行备份过程。
 - en: Considering obvious interfaces first
+  id: totrans-29
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 首先考虑明显的接口
 - en: One of the early things to think about when embarking on a new Go program is
     whether any interfaces stand out to you. We don't want to over-abstract or waste
     too much time upfront designing something that we know will change as we start
@@ -153,153 +218,224 @@
     worth pulling out. If you're not sure, that is perfectly acceptable; you should
     write your code using concrete types and revisit potential abstractions after
     you have actually solved the problems.
+  id: totrans-30
   prefs: []
   type: TYPE_NORMAL
+  zh: 在开始一个新的 Go 程序时，早期需要考虑的一件事是是否有任何接口显得突出。我们不想过度抽象或浪费太多时间在设计一些我们知道在编码开始时会改变的东西，但这并不意味着我们不应该寻找值得提取的明显概念。如果你不确定，这是完全可以接受的；你应该使用具体类型编写代码，并在实际解决问题后重新审视潜在的抽象。
 - en: However, since our code will archive files, the `Archiver` interface pops out
     as a candidate.
+  id: totrans-31
   prefs: []
   type: TYPE_NORMAL
+  zh: 然而，由于我们的代码将归档文件，`Archiver` 接口就凸显为一个候选者。
 - en: 'Create a new folder inside your `GOPATH/src` folder called `backup`, and add
     the following `archiver.go` code:'
+  id: totrans-32
   prefs: []
   type: TYPE_NORMAL
+  zh: 在你的 `GOPATH/src` 文件夹内创建一个新的文件夹，命名为 `backup`，并添加以下 `archiver.go` 代码：
 - en: '[PRE1]'
+  id: totrans-33
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE1]'
 - en: An `Archiver` interface will specify a method called `Archive`, which takes
     source and destination paths and returns an error. Implementations of this interface
     will be responsible for archiving the source folder and storing it in the destination
     path.
+  id: totrans-34
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Archiver` 接口将指定一个名为 `Archive` 的方法，该方法接受源路径和目标路径，并返回一个错误。该接口的实现将负责归档源文件夹并将其存储在目标路径中。'
 - en: Note
+  id: totrans-35
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: Defining an interface up front is a nice way to get some concepts out of our
     heads and into the code; it doesn't mean that this interface can't change as we
     evolve our solution as long as we remember the power of simple interfaces. Also,
     remember that most of the I/O interfaces in the `io` package expose only a single
     method.
+  id: totrans-36
   prefs: []
   type: TYPE_NORMAL
+  zh: 在一开始就定义一个接口是一个很好的方法，可以将一些概念从我们的脑海中提取出来并放入代码中；只要我们记得简单接口的力量，这个接口就可以随着我们解决方案的演变而改变。此外，记住
+    `io` 包中的大多数 I/O 接口只公开一个方法。
 - en: From the very beginning, we have made the case that while we are going to implement
     ZIP files as our archive format, we could easily swap this out later with another
     kind of `Archiver` format.
+  id: totrans-37
   prefs: []
   type: TYPE_NORMAL
+  zh: 从一开始，我们就提出了这样的观点：虽然我们将实现 ZIP 文件作为我们的归档格式，但我们很容易将其稍后与另一种 `Archiver` 格式交换。
 - en: Testing interfaces by implementing them
+  id: totrans-38
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 通过实现接口来测试接口
 - en: Now that we have the interface for our `Archiver` types, we are going to implement
     one that uses the ZIP file format.
+  id: totrans-39
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们有了 `Archiver` 类型的接口，我们将实现一个使用 ZIP 文件格式的类型。
 - en: 'Add the following `struct` definition to `archiver.go`:'
+  id: totrans-40
   prefs: []
   type: TYPE_NORMAL
+  zh: 将以下 `struct` 定义添加到 `archiver.go`：
 - en: '[PRE2]'
+  id: totrans-41
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE2]'
 - en: We are not going to export this type, which might make you jump to the conclusion
     that users outside of the package won't be able to make use of it. In fact, we
     are going to provide them with an instance of the type for them to use in order
     to save them from having to worry about creating and managing their own types.
+  id: totrans-42
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们不会导出这个类型，这可能会让你得出结论，即包外部的用户无法使用它。实际上，我们将为他们提供一个类型的实例，让他们可以使用，以避免他们必须担心创建和管理自己的类型。
 - en: 'Add the following exported implementation:'
+  id: totrans-43
   prefs: []
   type: TYPE_NORMAL
+  zh: 添加以下导出实现：
 - en: '[PRE3]'
+  id: totrans-44
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE3]'
 - en: 'Another handy side benefit to this trick is that the compiler will now be checking
     whether our zipper type properly implements the `Archiver` interface or not, so
     if you try to build this code, you''ll get a compiler error:'
+  id: totrans-45
   prefs: []
   type: TYPE_NORMAL
+  zh: 这个技巧的另一个实用的副作用是，编译器现在将检查我们的 `zipper` 类型是否正确实现了 `Archiver` 接口，所以如果你尝试构建这段代码，你会得到编译器错误：
 - en: '[PRE4]'
+  id: totrans-46
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE4]'
 - en: We see that our `zipper` type does not implement the `Archive` method as mandated
     in the interface.
+  id: totrans-47
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们看到我们的 `zipper` 类型没有实现接口中规定的 `Archive` 方法。
 - en: Tip
+  id: totrans-48
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: 'You can also use the `Archive` method in test code to ensure that your types
     implement the interfaces they should. If you don''t need to use the variable,
     you can always throw it away using an underscore and you''ll still get the compiler
     help:'
+  id: totrans-49
   prefs: []
   type: TYPE_NORMAL
+  zh: 你也可以在测试代码中使用 `Archive` 方法来确保你的类型实现了它们应该实现的接口。如果你不需要使用这个变量，你可以总是用一个下划线来丢弃它，你仍然会得到编译器的帮助：
 - en: '`var _ Interface = (*Implementation)(nil)`'
+  id: totrans-50
   prefs: []
   type: TYPE_NORMAL
+  zh: '`var _ Interface = (*Implementation)(nil)`'
 - en: To make the compiler happy, we are going to add the implementation of the `Archive`
     method for our `zipper` type.
+  id: totrans-51
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了让编译器满意，我们将为我们的 `zipper` 类型添加 `Archive` 方法的实现。
 - en: 'Add the following code to `archiver.go`:'
+  id: totrans-52
   prefs: []
   type: TYPE_NORMAL
+  zh: 将以下代码添加到 `archiver.go`：
 - en: '[PRE5]'
+  id: totrans-53
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE5]'
 - en: 'You will also have to import the `archive/zip` package from the Go standard
     library. In our `Archive` method, we take the following steps to prepare writing
     to a ZIP file:'
+  id: totrans-54
   prefs: []
   type: TYPE_NORMAL
+  zh: 你还必须从 Go 标准库中导入 `archive/zip` 包。在我们的 `Archive` 方法中，我们采取以下步骤来准备写入 ZIP 文件：
 - en: Use `os.MkdirAll` to ensure that the destination directory exists. The `0777`
     code represents the file permissions with which you may need to create any missing
     directories
+  id: totrans-55
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 `os.MkdirAll` 确保目标目录存在。`0777` 代码表示你可能需要创建任何缺失目录的文件权限
 - en: Use `os.Create` to create a new file as specified by the `dest` path
+  id: totrans-56
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 `os.Create` 创建一个新的文件，该文件由 `dest` 路径指定
 - en: If the file is created without an error, defer the closing of the file with
     `defer out.Close()`
+  id: totrans-57
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果文件创建没有错误，使用 `defer out.Close()` 延迟关闭文件
 - en: Use `zip.NewWriter` to create a new `zip.Writer` type that will write to the
     file we just created and defer the closing of the writer
+  id: totrans-58
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用 `zip.NewWriter` 创建一个新的 `zip.Writer` 类型，该类型将写入我们刚刚创建的文件，并延迟关闭写入器
 - en: Once we have a `zip.Writer` type ready to go, we use the `filepath.Walk` function
     to iterate over the source directory, `src`.
+  id: totrans-59
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦我们有了准备好的 `zip.Writer` 类型，我们使用 `filepath.Walk` 函数遍历源目录 `src`。
 - en: 'The `filepath.Walk` function takes two arguments: the root path and a callback
     function to be called for every item (files and folders) it encounters while iterating
     over the filesystem.'
+  id: totrans-60
   prefs: []
   type: TYPE_NORMAL
+  zh: '`filepath.Walk` 函数接受两个参数：根路径和一个回调函数，该函数将在遍历文件系统时对每个遇到的项（文件和文件夹）进行调用。'
 - en: Tip
+  id: totrans-61
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 提示
 - en: Functions are first class types in Go, which means you can use them as argument
     types as well as global functions and methods. The `filepath.Walk` function specifies
     the second argument type as `filepath.WalkFunc`, which is a function with a specific
     signature. As long as we adhere to the signature (correct input and return arguments)
     we can write inline functions rather than worrying about the `filepath.WalkFunc`
     type at all.
+  id: totrans-62
   prefs: []
   type: TYPE_NORMAL
+  zh: 函数是 Go 中的第一类类型，这意味着你可以将它们用作参数类型，以及全局函数和方法。`filepath.Walk` 函数指定第二个参数类型为 `filepath.WalkFunc`，这是一个具有特定签名的函数。只要我们遵守签名（正确的输入和返回参数），我们就可以编写内联函数，而无需担心
+    `filepath.WalkFunc` 类型。
 - en: Taking a quick look at the Go source code tell us that the signature for `filepath.WalkFunc`
     matches the function we are passing in `func(path string, info os.FileInfo, err
     error) error`
+  id: totrans-63
   prefs: []
   type: TYPE_NORMAL
+  zh: 快速查看 Go 源代码告诉我们 `filepath.WalkFunc` 的签名与我们在 `func(path string, info os.FileInfo,
+    err error) error` 中传递的函数匹配
 - en: 'The `filepath.Walk` function is recursive, so it will travel deep into subfolders
     too. The callback function itself takes three arguments: the full path of the
     file, the `os.FileInfo` object that describes the file or folder itself, and an
@@ -308,62 +444,86 @@
     value) being returned, the operation will be aborted and `filepath.Walk` returns
     that error. We simply pass this up to the caller of `Archive` and let them worry
     about it, since there''s nothing more we can do.'
+  id: totrans-64
   prefs: []
   type: TYPE_NORMAL
+  zh: '`filepath.Walk`函数是递归的，所以它也会深入到子文件夹中。回调函数本身接受三个参数：文件的完整路径、描述文件或文件夹本身的`os.FileInfo`对象，以及一个错误（如果发生错误，它也会返回一个错误）。如果回调函数的任何调用返回错误（除了特殊的`SkipDir`错误值），则操作将被终止，`filepath.Walk`返回该错误。我们只是将这个错误传递给`Archive`的调用者，让他们来处理，因为我们已经无能为力了。'
 - en: 'For each item in the tree, our code takes the following steps:'
+  id: totrans-65
   prefs: []
   type: TYPE_NORMAL
+  zh: 对于树中的每个项目，我们的代码采取以下步骤：
 - en: If the `info.IsDir` method tells us that the item is a folder, we just return
     `nil`, effectively skipping it. There is no reason to add folders to ZIP archives
     because the path of the files will encode that information for us.
+  id: totrans-66
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果`info.IsDir`方法告诉我们该项是一个文件夹，我们就返回`nil`，实际上跳过了它。没有理由将文件夹添加到ZIP存档中，因为文件的路径会为我们编码这些信息。
 - en: If an error is passed in (via the third argument), it means something went wrong
     when trying to access information about the file. This is uncommon, so we just
     return the error, which will eventually be passed out to the caller of `Archive`.
     As the implementor of `filepath.Walk`, you aren't forced to abort the operation
     here; you are free to do whatever makes sense in your individual case.
+  id: totrans-67
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 如果传递了错误（通过第三个参数），这意味着在尝试访问文件信息时出现了问题。这种情况很少见，所以我们只是返回错误，该错误最终会被传递给`Archive`的调用者。作为`filepath.Walk`的实现者，你在这里不需要强制终止操作；你可以自由地做你自己的情况中合理的事情。
 - en: Use `os.Open` to open the source file for reading, and if successful, defer
     its closing.
+  id: totrans-68
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用`os.Open`打开源文件进行读取，如果成功，则延迟其关闭。
 - en: Call `Create` on the `ZipWriter` object to indicate that we want to create a
     new compressed file and give it the full path of the file, which includes the
     directories it is nested inside.
+  id: totrans-69
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 在`ZipWriter`对象上调用`Create`方法，表示我们想要创建一个新的压缩文件，并给出文件的完整路径，包括它嵌套在内的目录。
 - en: Use `io.Copy` to read all of the bytes from the source file and write them through
     the `ZipWriter` object to the ZIP file we opened earlier.
+  id: totrans-70
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 使用`io.Copy`读取源文件的所有字节，并通过`ZipWriter`对象将它们写入我们之前打开的ZIP文件。
 - en: Return `nil` to indicate no errors.
+  id: totrans-71
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 返回`nil`以表示没有错误。
 - en: This chapter will not cover unit testing or **Test-driven Development** (**TDD**)
     practices, but feel free to write a test to ensure that our implementation does
     what it is meant to do.
+  id: totrans-72
   prefs: []
   type: TYPE_NORMAL
+  zh: 本章不会涵盖单元测试或**测试驱动开发**（**TDD**）实践，但你可以自由编写测试来确保我们的实现确实做了它应该做的事情。
 - en: Tip
+  id: totrans-73
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 小贴士
 - en: Since we are writing a package, spend some time commenting on the exported pieces
     so far. You can use `golint` to help you find anything you may have missed.
+  id: totrans-74
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于我们正在编写一个包，花些时间注释一下到目前为止导出的部分。你可以使用`golint`来帮助你找到可能遗漏的任何内容。
 - en: Has the filesystem changed?
+  id: totrans-75
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 文件系统是否已更改？
 - en: 'One of the biggest problems our backup system has is deciding whether a folder
     has changed or not in a cross-platform, predictable, and reliable way. After all,
     there''s no point in creating a backup if nothing is different from the previous
@@ -372,45 +532,64 @@
     notifications to be informed whenever a file we care about changes? There are
     problems with both of these approaches, and it turns out it''s not a simple problem
     to solve.'
+  id: totrans-76
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们备份系统最大的问题之一是决定一个文件夹是否在跨平台、可预测和可靠的方式下发生了变化。毕竟，如果没有与上一次备份不同的内容，创建备份就没有意义。当我们思考这个问题时，会想到以下几点：我们是否只需检查顶级文件夹的最后修改日期？我们是否应该使用系统通知来告知我们关心的文件何时发生变化？这两种方法都存在问题，而且事实证明，这并不是一个简单的问题。
 - en: Tip
+  id: totrans-77
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 小贴士
 - en: 'Check out the `fsnotify` project at [https://fsnotify.org](https://fsnotify.org)
     (project source: [https://github.com/fsnotify](https://github.com/fsnotify)).
     The authors are attempting to build a cross-platform package for subscription
     to filesystem events. At the time of writing this, the project is still in its
     infancy and it not a viable option for this chapter, but in the future, it could
     well become the standard solution for filesystem events.'
+  id: totrans-78
   prefs: []
   type: TYPE_NORMAL
+  zh: 查看位于 [https://fsnotify.org](https://fsnotify.org)（项目源：[https://github.com/fsnotify](https://github.com/fsnotify)）的
+    `fsnotify` 项目。作者们正在尝试构建一个跨平台的包，用于订阅文件系统事件。在撰写本文时，该项目仍处于起步阶段，并且不是本章的可行选项，但将来，它可能会成为文件系统事件的行业标准解决方案。
 - en: We are, instead, going to generate an MD5 hash made up of all of the information
     that we care about when considering whether something has changed or not.
+  id: totrans-79
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将生成一个由我们在考虑是否发生变化时关心的所有信息组成的 MD5 哈希值。
 - en: 'Looking at the `os.FileInfo` type, we can see that we can find out a lot of
     information about a file or folder:'
+  id: totrans-80
   prefs: []
   type: TYPE_NORMAL
+  zh: 查看 `os.FileInfo` 类型，我们可以看到我们可以了解关于文件或文件夹的大量信息：
 - en: '[PRE6]'
+  id: totrans-81
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE6]'
 - en: To ensure we are aware of a variety of changes to any file in a folder, the
     hash will be made up of the filename and path (so if they rename a file, the hash
     will be different), size (if a file changes size, it's obviously different), the
     last modified date, whether the item is a file or folder, and the file mode bits.
     Even though we won't be archiving the folders, we still care about their names
     and the tree structure of the folder.
+  id: totrans-82
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了确保我们了解文件夹中任何文件的多种更改，哈希值将由文件名和路径（如果它们重命名了一个文件，哈希值将不同）组成，大小（如果文件更改大小，它显然不同），最后修改日期，项目是文件还是文件夹，以及文件模式位。即使我们不会存档文件夹，我们仍然关心它们的名称和文件夹的树状结构。
 - en: 'Create a new file called `dirhash.go` and add the following function:'
+  id: totrans-83
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建一个名为 `dirhash.go` 的新文件，并添加以下函数：
 - en: '[PRE7]'
+  id: totrans-84
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE7]'
 - en: We first create a new `hash.Hash` function that knows how to calculate MD5s
     before using `filepath.Walk` again to iterate over all of the files and folders
     inside the specified path directory. For each item, assuming there are no errors,
@@ -418,8 +597,12 @@
     which lets us write a string to `io.Writer` and `fmt.Fprintf`, which does the
     same but exposes formatting capabilities at the same time, allowing us to generate
     the default value format for each item using the `%v` format verb.
+  id: totrans-85
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们首先创建一个新的 `hash.Hash` 函数，该函数知道如何计算 MD5 值，然后再使用 `filepath.Walk` 再次遍历指定路径目录内的所有文件和文件夹。对于每个项目，假设没有错误发生，我们使用
+    `io.WriteString` 将差异信息写入哈希生成器，这允许我们将字符串写入 `io.Writer`，同时使用 `fmt.Fprintf` 执行相同的操作，但同时也暴露了格式化功能，使我们能够使用
+    `%v` 格式说明符为每个项目生成默认值格式。
 - en: Once each file has been processed, and assuming no errors occurred, we then
     use `fmt.Sprintf` to generate the result string. The `Sum` method in `hash.Hash`
     calculates the final hash value with the specified values appended. In our case,
@@ -427,151 +610,222 @@
     we care about, so we just pass `nil`. The `%x` format verb indicates that we want
     the value to be represented in hex (base 16) with lowercase letters. This is the
     usual way of representing an MD5 hash.
+  id: totrans-86
   prefs: []
   type: TYPE_NORMAL
+  zh: 一旦每个文件都已被处理，并且假设没有错误发生，我们随后使用 `fmt.Sprintf` 生成结果字符串。`hash.Hash` 中的 `Sum` 方法通过附加指定的值来计算最终的哈希值。在我们的情况下，我们不想附加任何内容，因为我们已经添加了我们关心的所有信息，所以我们只传递
+    `nil`。`%x` 格式说明符表示我们希望值以十六进制（基数为 16）和小写字母的形式表示。这是表示 MD5 哈希的常用方式。
 - en: Checking for changes and initiating a backup
+  id: totrans-87
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 检查更改并启动备份
 - en: Now that we have the ability to hash a folder and perform a backup, we are going
     to put the two together in a new type called `Monitor`. The `Monitor` type will
     have a map of paths with their associated hashes, a reference to any `Archiver`
     type (of course, we'll use `backup.ZIP` for now), and a destination string representing
     where to put the archives.
+  id: totrans-88
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们有了对文件夹进行哈希处理和执行备份的能力，我们将这两个功能结合在一个新的类型 `Monitor` 中。`Monitor` 类型将包含路径及其相关哈希值的映射，对任何
+    `Archiver` 类型（当然，我们现在将使用 `backup.ZIP`）的引用，以及表示存档位置的字符串。
 - en: 'Create a new file called `monitor.go` and add the following definition:'
+  id: totrans-89
   prefs: []
   type: TYPE_NORMAL
+  zh: 创建一个名为 `monitor.go` 的新文件，并添加以下定义：
 - en: '[PRE8]'
+  id: totrans-90
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE8]'
 - en: 'In order to trigger a check for changes, we are going to add the following
     `Now` method:'
+  id: totrans-91
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了触发更改检查，我们将添加以下 `Now` 方法：
 - en: '[PRE9]'
+  id: totrans-92
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE9]'
 - en: The `Now` method iterates over every path in the map and generates the latest
     hash of that folder. If the hash does not match the hash from the map (generated
     the last time it checked), then it is considered to have changed and needs backing
     up again. We do this with a call to the as-yet-unwritten `act` method before then
     updating the hash in the map with this new hash.
+  id: totrans-93
   prefs: []
   type: TYPE_NORMAL
+  zh: '`Now`方法遍历映射中的每个路径，并生成该文件夹的最新哈希值。如果哈希值与映射中上一次检查生成的哈希值不匹配，则认为它已更改，需要再次备份。我们在调用尚未编写的`act`方法之前这样做，然后使用这个新哈希值更新映射中的哈希值。'
 - en: 'To give our users a high-level indication of what happened when they called
     `Now`, we are also maintaining a counter, which we increment every time we back
     up a folder. We will use this later to keep our end users up to date on what the
     system is doing without bombarding them with information:'
+  id: totrans-94
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了给用户一个关于他们调用`Now`时发生了什么的概述，我们还在维护一个计数器，每次我们备份一个文件夹时都会增加这个计数器。我们将在稍后使用这个计数器来让我们的最终用户了解系统正在做什么，而不会用信息轰炸他们：
 - en: '[PRE10]'
+  id: totrans-95
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE10]'
 - en: 'The compiler is helping us again and reminding us that we have yet to add the
     `act` method:'
+  id: totrans-96
   prefs: []
   type: TYPE_NORMAL
+  zh: 编译器再次帮助我们并提醒我们尚未添加`act`方法：
 - en: '[PRE11]'
+  id: totrans-97
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE11]'
 - en: Because we have done the heavy lifting in our ZIP `Archiver` type, all we have
     to do here is generate a filename, decide where the archive will go, and call
     the `Archive` method.
+  id: totrans-98
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于我们在ZIP `Archiver`类型中已经完成了繁重的工作，我们在这里只需要生成一个文件名，决定归档将放在哪里，然后调用`Archive`方法。
 - en: Tip
+  id: totrans-99
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 小贴士
 - en: If the `Archive` method returns an error, the `act` method and then the `Now`
     method will each return it. This mechanism of passing errors up the chain is very
     common in Go and allows you to either handle cases where you can do something
     useful to recover or else defer the problem to somebody else.
+  id: totrans-100
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果`Archive`方法返回错误，`act`方法和`Now`方法将分别返回它。这种将错误向上传递的机制在Go中非常常见，允许你处理可以采取一些有用措施来恢复的情况，或者将问题推迟给其他人。
 - en: The `act` method in the preceding code uses `time.Now().UnixNano()` to generate
     a timestamp filename and hardcodes the `.zip` extension.
+  id: totrans-101
   prefs: []
   type: TYPE_NORMAL
+  zh: 前面代码中的`act`方法使用`time.Now().UnixNano()`生成时间戳文件名，并硬编码了`.zip`扩展名。
 - en: Hardcoding is OK for a short while
+  id: totrans-102
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 硬编码在短时间内是可以接受的
 - en: Hardcoding the file extension like we have is OK in the beginning, but if you
     think about it, we have blended concerns a little here. If we change the `Archiver`
     implementation to use RAR or a compression format of our making, the `.zip` extension
     would no longer be appropriate.
+  id: totrans-103
   prefs: []
   type: TYPE_NORMAL
+  zh: 就像我们现在这样硬编码文件扩展名在开始时是可以接受的，但如果你这么想，我们在某种程度上混合了关注点。如果我们更改`Archiver`实现以使用RAR或我们制作的压缩格式，`.zip`扩展名就不再合适了。
 - en: Tip
+  id: totrans-104
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 小贴士
 - en: Before reading on, think about what steps you might take to avoid this hardcoding.
     Where does the filename extension decision live? What changes would you need to
     make in order to avoid hardcoding?
+  id: totrans-105
   prefs: []
   type: TYPE_NORMAL
+  zh: 在继续阅读之前，思考一下你可能会采取哪些步骤来避免这种硬编码。文件名扩展的决定在哪里？你需要做出哪些更改才能避免硬编码？
 - en: The right place for the filename extensions decision is probably in the `Archiver`
     interface, since it knows the kind of archiving it will be doing. So we could
     add an `Ext()` string method and access that from our `act` method. But we can
     add a little extra power with not much extra work by allowing `Archiver` authors
     to specify the entire filename format rather than just the extension instead.
+  id: totrans-106
   prefs: []
   type: TYPE_NORMAL
+  zh: 文件名扩展的决定可能应该在`Archiver`接口中，因为它知道将要进行的归档类型。因此，我们可以添加一个`Ext()`字符串方法，并从我们的`act`方法中访问它。但我们可以通过允许`Archiver`作者指定整个文件名格式而不是仅指定扩展名来添加一些额外的功能，而无需做太多额外的工作。
 - en: 'Back in `archiver.go`, update the `Archiver` interface definition:'
+  id: totrans-107
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`archiver.go`中，更新`Archiver`接口定义：
 - en: '[PRE12]'
+  id: totrans-108
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE12]'
 - en: 'Our `zipper` type needs to now implement this:'
+  id: totrans-109
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们的`zipper`类型现在需要实现以下功能：
 - en: '[PRE13]'
+  id: totrans-110
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE13]'
 - en: 'Now that we can ask our `act` method to get the whole format string from the
     `Archiver` interface, update the `act` method:'
+  id: totrans-111
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在我们可以要求`act`方法从`Archiver`接口获取整个格式字符串，更新`act`方法：
 - en: '[PRE14]'
+  id: totrans-112
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE14]'
 - en: The user command-line tool
+  id: totrans-113
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 用户命令行工具
 - en: The first of two tools we will build allows the user to add, list, and remove
     paths for the backup daemon tool (which we will write later). You can expose a
     web interface or even use the binding packages for the desktop user interface
     integration, but we are going to keep things simple and build ourselves a command-line
     tool.
+  id: totrans-114
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将构建的两个工具中的第一个允许用户为备份守护程序工具（我们稍后将编写）添加、列出和删除路径。你可以公开一个Web界面，甚至使用桌面用户界面集成的绑定包，但我们将保持简单，并构建自己的命令行工具。
 - en: Create a new folder called `cmds` inside the `backup` folder and create another
     `backup` folder inside that so you have `backup/cmds/backup`.
+  id: totrans-115
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 `backup` 文件夹内创建一个名为 `cmds` 的新文件夹，并在其中创建另一个 `backup` 文件夹，这样你就有 `backup/cmds/backup`。
 - en: 'Inside our new `backup` folder, add the following code to `main.go`:'
+  id: totrans-116
   prefs: []
   type: TYPE_NORMAL
+  zh: 在我们的新 `backup` 文件夹内，将以下代码添加到 `main.go` 文件中：
 - en: '[PRE15]'
+  id: totrans-117
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE15]'
 - en: We first define our `fatalErr` variable and defer the function that checks to
     ensure that value is `nil`. If it is not, it will print the error along with flag
     defaults and exit with a nonzero status code. We then define a flag called `db`
     that expects the path to the `filedb` database directory before parsing the flags
     and getting the remaining arguments and ensuring that there is at least one.
+  id: totrans-118
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们首先定义了 `fatalErr` 变量，并延迟执行检查以确保该值是 `nil`。如果不是，它将打印错误信息以及标志默认值，并以非零状态码退出。然后我们定义了一个名为
+    `db` 的标志，它期望在解析标志和获取剩余参数以及确保至少有一个参数之前，提供 `filedb` 数据库目录的路径。
 - en: Persisting small data
+  id: totrans-119
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 持久化小数据
 - en: 'In order to keep track of the paths and the hashes that we generate, we will
     need some kind of data storage mechanism that ideally works even when we stop
     and start our programs. We have lots of choices here: everything from a text file
@@ -579,8 +833,11 @@
     tells us that building-in a database dependency to our little backup program would
     not be a great idea; rather, we should ask what the simplest way in which we can
     solve this problem is.'
+  id: totrans-120
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了跟踪我们生成的路径和哈希值，我们需要一种数据存储机制，理想情况下即使在停止和启动程序时也能正常工作。这里有各种各样的选择：从文本文件到完整的水平可扩展数据库解决方案。Go
+    的简洁性原则告诉我们，在我们的小型备份程序中内置数据库依赖并不是一个好主意；相反，我们应该考虑以最简单的方式解决这个问题。
 - en: The `github.com/matryer/filedb` package is an experimental solution for just
     this kind of problem. It lets you interact with the filesystem as though it were
     a very simple, schemaless database. It takes its design lead from packages such
@@ -588,12 +845,18 @@
     `filedb`, a database is a folder, and a collection is a file where each line represents
     a different record. Of course, this could all change as the `filedb` project evolves,
     but the interface, hopefully, won't.
+  id: totrans-121
   prefs: []
   type: TYPE_NORMAL
+  zh: '`github.com/matryer/filedb` 包正是针对这类问题的一个实验性解决方案。它允许你以非常简单、无模式的数据库方式与文件系统交互。其设计灵感来源于
+    `mgo` 等包，并且适用于数据查询需求非常简单的情况。在 `filedb` 中，数据库是一个文件夹，而集合是一个文件，其中每一行代表一个不同的记录。当然，随着
+    `filedb` 项目的不断发展，这一切都可能发生变化，但希望接口不会改变。'
 - en: Note
+  id: totrans-122
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: Adding dependencies such as this to a Go project should be done very carefully
     because over time, dependencies go stale, change beyond their initial scope, or
     disappear altogether in some cases. While it sounds counterintuitive, you should
@@ -602,129 +865,193 @@
     the dependency by copying the entire package into the `vendor` folder of your
     command. This is akin to storing a snapshot of the dependency that you know works
     for your tool.
+  id: totrans-123
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 Go 项目中添加此类依赖项应非常谨慎，因为随着时间的推移，依赖项可能会过时、超出其初始范围或在某些情况下完全消失。虽然听起来有些反直觉，但你应该考虑将几个文件复制并粘贴到你的项目中是否比依赖外部依赖项更好。或者，考虑通过将整个包复制到命令的
+    `vendor` 文件夹中来维护依赖项。这类似于存储依赖项的快照，你知道它对你的工具是有效的。
 - en: 'Add the following code to the end of the `main` function:'
+  id: totrans-124
   prefs: []
   type: TYPE_NORMAL
+  zh: 将以下代码添加到 `main` 函数的末尾：
 - en: '[PRE16]'
+  id: totrans-125
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE16]'
 - en: Here, we use the `filedb.Dial` function to connect with the `filedb` database.
     In actuality, nothing much happens here except specifying where the database is,
     since there are no real database servers to connect to (although this might change
     in the future, which is why such provisions exist in the interface). If that was
     successful, we defer the closing of the database. Closing the database does actually
     do something, since files may be open that need to be cleaned up.
+  id: totrans-126
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这里，我们使用 `filedb.Dial` 函数连接到 `filedb` 数据库。实际上，这里并没有发生太多事情，除了指定数据库的位置，因为没有真正的数据库服务器需要连接（尽管这可能在将来发生变化，这就是为什么接口中存在这样的规定）。如果连接成功，我们延迟关闭数据库。关闭数据库实际上会做一些事情，因为可能还有需要清理的打开的文件。
 - en: Following the `mgo` pattern, next we specify a collection using the `C` method
     and keep a reference to it in the `col` variable. If an error occurs at any point,
     we assign it to the `fatalErr` variable and return.
+  id: totrans-127
   prefs: []
   type: TYPE_NORMAL
+  zh: 按照与 `mgo` 的模式，接下来我们使用 `C` 方法指定一个集合，并将其引用保存在 `col` 变量中。如果在任何点上发生错误，我们将它分配给 `fatalErr`
+    变量并返回。
 - en: 'To store data, we are going to define a type called `path`, which will store
     the full path and the last hash value and use JSON encoding to store this in our
     `filedb` database. Add the following `struct` definition above the `main` function:'
+  id: totrans-128
   prefs: []
   type: TYPE_NORMAL
+  zh: 要存储数据，我们将定义一个名为`path`的类型，该类型将存储完整路径和最后一个哈希值，并使用JSON编码将此存储在我们的`filedb`数据库中。在`main`函数上方添加以下`struct`定义：
 - en: '[PRE17]'
+  id: totrans-129
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE17]'
 - en: Parsing arguments
+  id: totrans-130
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 解析参数
 - en: When we call `flag.Args` (as opposed to `os.Args`), we receive a slice of arguments
     excluding the flags. This allows us to mix flag arguments and non-flag arguments
     in the same tool.
+  id: totrans-131
   prefs: []
   type: TYPE_NORMAL
+  zh: 当我们调用`flag.Args`（而不是`os.Args`）时，我们接收一个不包括标志的参数切片。这允许我们在同一工具中混合标志参数和非标志参数。
 - en: 'We want our tool to be able to be used in the following ways:'
+  id: totrans-132
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们希望我们的工具能够以下方式使用：
 - en: 'To add a path:'
+  id: totrans-133
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要添加路径：
 - en: '[PRE18]'
+  id: totrans-134
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE18]'
 - en: 'To remove a path:'
+  id: totrans-135
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要删除路径：
 - en: '[PRE19]'
+  id: totrans-136
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE19]'
 - en: 'To list all paths:'
+  id: totrans-137
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 要列出所有路径：
 - en: '[PRE20]'
+  id: totrans-138
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE20]'
 - en: To achieve this, since we have already dealt with flags, we must check the first
     (non-flag) argument.
+  id: totrans-139
   prefs: []
   type: TYPE_NORMAL
+  zh: 要实现这一点，因为我们已经处理了标志，所以我们必须检查第一个（非标志）参数。
 - en: 'Add the following code to the `main` function:'
+  id: totrans-140
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`main`函数中添加以下代码：
 - en: '[PRE21]'
+  id: totrans-141
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE21]'
 - en: Here, we simply switch on the first argument after setting it to lowercase (if
     the user types `backup LIST`, we still want it to work).
+  id: totrans-142
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这里，我们简单地根据设置成小写的第一个参数进行切换（如果用户输入`backup LIST`，我们仍然希望它能够工作）。
 - en: Listing the paths
+  id: totrans-143
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 列出路径
 - en: 'To list the paths in the database, we are going to use a `ForEach` method on
     the path''s `col` variable. Add the following code to the list case:'
+  id: totrans-144
   prefs: []
   type: TYPE_NORMAL
+  zh: 要列出数据库中的路径，我们将使用路径的`col`变量的`ForEach`方法。在`list`情况中添加以下代码：
 - en: '[PRE22]'
+  id: totrans-145
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE22]'
 - en: We pass in a callback function to `ForEach`, which will be called for every
     item in that collection. We then unmarshal it from JSON into our `path` type,
     and just print it out using `fmt.Printf`. We return `false` as per the `filedb`
     interface, which tells us that returning `true` would stop iterating and that
     we want to make sure we list them all.
+  id: totrans-146
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们向`ForEach`传递一个回调函数，该函数将为该集合中的每个项目被调用。然后我们将其从JSON反序列化为我们的`path`类型，并使用`fmt.Printf`打印出来。根据`filedb`接口，我们返回`false`，这告诉我们返回`true`将停止迭代，而我们想确保我们列出所有路径。
 - en: String representations for your own types
+  id: totrans-147
   prefs:
   - PREF_H4
   type: TYPE_NORMAL
+  zh: 为您自己的类型提供字符串表示
 - en: 'If you print structs in Go in this way, using the `%s` format verbs, you can
     get some messy results that are difficult for users to read. If, however, the
     type implements a `String()` string method, it will be used instead, and we can
     use this to control what gets printed. Below the path struct, add the following
     method:'
+  id: totrans-148
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果你以这种方式在Go中打印结构体，使用`%s`格式说明符，你可能会得到一些混乱的结果，这些结果难以阅读。然而，如果类型实现了`String()`字符串方法，它将被使用，我们可以利用这个方法来控制打印的内容。在路径结构体下方添加以下方法：
 - en: '[PRE23]'
+  id: totrans-149
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE23]'
 - en: This tells the `path` type how it should represent itself as a string.
+  id: totrans-150
   prefs: []
   type: TYPE_NORMAL
+  zh: 这告诉`path`类型如何将其自身表示为字符串。
 - en: Adding paths
+  id: totrans-151
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 添加路径
 - en: 'To add a path, or many paths, we are going to iterate over the remaining arguments
     and call the `InsertJSON` method for each one. Add the following code to the `add`
     case:'
+  id: totrans-152
   prefs: []
   type: TYPE_NORMAL
+  zh: 要添加路径或多个路径，我们将遍历剩余的参数并调用每个的`InsertJSON`方法。在`add`情况中添加以下代码：
 - en: '[PRE24]'
+  id: totrans-153
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE24]'
 - en: If the user hasn't specified any additional arguments, for example if they just
     called `backup add` without typing any paths, we will return a fatal error. Otherwise,
     we do the work and print out the path string (prefixed with a `+` symbol) to indicate
@@ -732,104 +1059,162 @@
     archived` string literal this is an invalid hash but serves the dual purposes
     of letting the user know that it hasn't yet been archived as well as indicating
     as such to our code (given that a hash of the folder will never equal that string).
+  id: totrans-154
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果用户没有指定任何其他参数，例如，如果他们只是调用`backup add`而没有输入任何路径，我们将返回一个致命错误。否则，我们完成工作并打印出路径字符串（以`+`符号为前缀），以指示它已成功添加。默认情况下，我们将哈希设置为`尚未存档`字符串字面量，这是一个无效的哈希，但同时也让用户知道它尚未存档，并通知我们的代码（因为文件夹的哈希永远不会等于该字符串）。
 - en: Removing paths
+  id: totrans-155
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 删除路径
 - en: 'To remove a path, or many paths, we use the `RemoveEach` method for the path''s
     collection. Add the following code to the `remove` case:'
+  id: totrans-156
   prefs: []
   type: TYPE_NORMAL
+  zh: 要删除路径或多个路径，我们使用路径集合的`RemoveEach`方法。在`remove`情况中添加以下代码：
 - en: '[PRE25]'
+  id: totrans-157
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE25]'
 - en: 'The callback function we provide to `RemoveEach` expects us to return two bool
     types: the first one indicates whether the item should be removed or not, and
     the second one indicates whether we should stop iterating or not.'
+  id: totrans-158
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们提供给`RemoveEach`的回调函数期望我们返回两个bool类型：第一个指示项目是否应该被删除，第二个指示我们是否应该停止迭代。
 - en: Using our new tool
+  id: totrans-159
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 使用我们的新工具
 - en: We have completed our simple `backup` command-line tool. Let's look at it in
     action. Create a folder called `backupdata` inside `backup/cmds/backup`; this
     will become the `filedb` database.
+  id: totrans-160
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们已经完成了简单的 `backup` 命令行工具。让我们看看它的实际运行情况。在 `backup/cmds/backup` 内创建一个名为 `backupdata`
+    的文件夹；这将成为 `filedb` 数据库。
 - en: 'Build the tool in a terminal by navigating to the `main.go` file and running
     this:'
+  id: totrans-161
   prefs: []
   type: TYPE_NORMAL
+  zh: 在终端中通过导航到 `main.go` 文件并运行以下命令来构建工具：
 - en: '[PRE26]'
+  id: totrans-162
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE26]'
 - en: 'If all is well, we can now add a path:'
+  id: totrans-163
   prefs: []
   type: TYPE_NORMAL
+  zh: 如果一切顺利，我们现在可以添加一个路径：
 - en: '[PRE27]'
+  id: totrans-164
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE27]'
 - en: 'You should see the expected output:'
+  id: totrans-165
   prefs: []
   type: TYPE_NORMAL
+  zh: 你应该看到预期的输出：
 - en: '[PRE28]'
+  id: totrans-166
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE28]'
 - en: 'Now let''s add another path:'
+  id: totrans-167
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在让我们添加另一个路径：
 - en: '[PRE29]'
+  id: totrans-168
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE29]'
 - en: 'You should now see the complete list:'
+  id: totrans-169
   prefs: []
   type: TYPE_NORMAL
+  zh: 你现在应该看到完整的列表：
 - en: '[PRE30]'
+  id: totrans-170
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE30]'
 - en: 'Our program should yield the following:'
+  id: totrans-171
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们的程序应该产生以下结果：
 - en: '[PRE31]'
+  id: totrans-172
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE31]'
 - en: 'Let''s remove `test3` in order to make sure the `remove` functionality is working:'
+  id: totrans-173
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们移除 `test3` 以确保 `remove` 功能正常工作：
 - en: '[PRE32]'
+  id: totrans-174
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE32]'
 - en: 'This will take us back to this:'
+  id: totrans-175
   prefs: []
   type: TYPE_NORMAL
+  zh: 这将带我们回到这里：
 - en: '[PRE33]'
+  id: totrans-176
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE33]'
 - en: We are now able to interact with the `filedb` database in a way that makes sense
     for our use case. Next, we build the daemon program that will actually use our
     `backup` package to do the work.
+  id: totrans-177
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，我们能够以一种对我们用例有意义的方式与 `filedb` 数据库进行交互。接下来，我们构建一个守护程序，它将实际使用我们的 `backup` 包来完成工作。
 - en: The daemon backup tool
+  id: totrans-178
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 守护程序备份工具
 - en: The `backup` tool, which we will call `backupd`, will be responsible for periodically
     checking the paths listed in the `filedb` database, hashing the folders to see
     whether anything has changed, and using the `backup` package to actually perform
     the archiving of the folders that need it.
+  id: totrans-179
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们将称为 `backupd` 的 `backup` 工具将负责定期检查 `filedb` 数据库中列出的路径，对文件夹进行哈希处理以查看是否有任何变化，并使用
+    `backup` 包实际执行需要归档的文件夹的归档工作。
 - en: 'Create a new folder called `backupd` alongside the `backup/cmds/backup` folder,
     and let''s jump right into handling the fatal errors and flags:'
+  id: totrans-180
   prefs: []
   type: TYPE_NORMAL
+  zh: 在 `backup/cmds/backup` 文件夹旁边创建一个名为 `backupd` 的新文件夹，然后让我们直接进入处理致命错误和标志：
 - en: '[PRE34]'
+  id: totrans-181
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE34]'
 - en: 'You must be quite used to seeing this kind of code by now. We defer the handling
     of fatal errors before specifying three flags: `interval`, `archive`, and `db`.
     The `interval` flag represents the number of seconds between checks to see whether
@@ -837,88 +1222,129 @@
     ZIP files will go, and the `db` flag is the path to the same `filedb` database
     that the `backup` command is interacting with. The usual call to `flag.Parse`
     sets the variables up and validates whether we''re ready to move on.'
+  id: totrans-182
   prefs: []
   type: TYPE_NORMAL
+  zh: 你现在应该非常熟悉这种代码了。在指定三个标志：`interval`、`archive` 和 `db` 之前，我们推迟处理致命错误。`interval`
+    标志表示检查文件夹是否发生变化之间的秒数，`archive` 标志是ZIP文件将要存放的归档位置的路径，而 `db` 标志是与 `backup` 命令交互的相同
+    `filedb` 数据库的路径。通常的 `flag.Parse` 调用设置变量并验证我们是否准备好继续。
 - en: 'In order to check the hashes of the folders, we are going to need an instance
     of `Monitor` that we wrote earlier. Append the following code to the `main` function:'
+  id: totrans-183
   prefs: []
   type: TYPE_NORMAL
+  zh: 为了检查文件夹的哈希值，我们需要一个我们之前编写的 `Monitor` 实例。将以下代码添加到 `main` 函数中：
 - en: '[PRE35]'
+  id: totrans-184
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE35]'
 - en: Here, we create `backup.Monitor` using the `archive` value as the `Destination`
     type. We'll use the `backup.ZIP` archiver and create a map ready for it to store
     the paths and hashes internally. At the start of the daemon, we want to load the
     paths from the database so that it doesn't archive unnecessarily as we stop and
     start things.
+  id: totrans-185
   prefs: []
   type: TYPE_NORMAL
+  zh: 在这里，我们使用 `archive` 值作为 `Destination` 类型创建 `backup.Monitor`。我们将使用 `backup.ZIP`
+    归档器并创建一个映射，以便它能够内部存储路径和哈希值。在守护程序启动时，我们希望从数据库中加载路径，这样它就不会在不必要的情况下进行归档，因为我们停止和启动某些操作。
 - en: 'Add the following code to the `main` function:'
+  id: totrans-186
   prefs: []
   type: TYPE_NORMAL
+  zh: 将以下代码添加到 `main` 函数中：
 - en: '[PRE36]'
+  id: totrans-187
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE36]'
 - en: You have seen this code earlier too; it dials the database and creates an object
     that allows us to interact with the `paths` collection. If anything fails, we
     set `fatalErr` and return.
+  id: totrans-188
   prefs: []
   type: TYPE_NORMAL
+  zh: 你之前也见过这段代码；它连接到数据库并创建一个对象，使我们能够与 `paths` 集合交互。如果任何操作失败，我们设置 `fatalErr` 并返回。
 - en: Duplicated structures
+  id: totrans-189
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 重复的结构
 - en: 'Since we''re going to use the same path structure as we used in our user command-line
     tool program, we need to include a definition of it for this program too. Insert
     the following structure above the `main` function:'
+  id: totrans-190
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于我们将使用与我们在用户命令行工具程序中使用的相同路径结构，因此我们需要为这个程序也包含一个定义。在 `main` 函数上方插入以下结构：
 - en: '[PRE37]'
+  id: totrans-191
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE37]'
 - en: Caching data
+  id: totrans-192
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 缓存数据
 - en: We can now query all existing paths and update the `Paths` map, which is a useful
     technique to increase the speed of a program, especially given slow or disconnected
     data stores. By loading the data into a cache (in our case, the `Paths` map),
     we can access it at lightning speed without having to consult the files each time
     we need information.
+  id: totrans-193
   prefs: []
   type: TYPE_NORMAL
+  zh: 现在，我们可以查询所有现有的路径并更新`Paths`映射，这是一种有用的技术，可以增加程序的速度，尤其是在处理缓慢或断开的数据存储时。通过将数据加载到缓存中（在我们的例子中是`Paths`映射），我们可以在需要信息时以闪电般的速度访问它，而无需每次都咨询文件。
 - en: 'Add the following code to the body of the `main` function:'
+  id: totrans-194
   prefs: []
   type: TYPE_NORMAL
+  zh: 将以下代码添加到`main`函数的主体中：
 - en: '[PRE38]'
+  id: totrans-195
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE38]'
 - en: Using the `ForEach` method again allows us to iterate over all the paths in
     the database. We unmarshal the JSON bytes into the same `path` structure as we
     used in our other program and set the values in the `Paths` map. Assuming that
     nothing goes wrong, we do a final check to make sure there is at least one path,
     and if not, we return with an error.
+  id: totrans-196
   prefs: []
   type: TYPE_NORMAL
+  zh: 再次使用`ForEach`方法允许我们遍历数据库中的所有路径。我们将JSON字节反序列化到我们在其他程序中使用的相同的`path`结构中，并在`Paths`映射中设置值。假设一切顺利，我们进行最后的检查以确保至少有一条路径，如果没有，我们返回错误。
 - en: Note
+  id: totrans-197
   prefs:
   - PREF_H3
   type: TYPE_NORMAL
+  zh: 注意
 - en: One limitation to our program is that it will not dynamically add paths once
     it has started. The daemon would need to be restarted. If this bothers you, you
     can always build in a mechanism that updates the `Paths` map periodically or uses
     some other kind of configuration management.
+  id: totrans-198
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们程序的一个限制是，一旦它开始运行，它将不会动态添加路径。守护进程需要重新启动。如果你觉得这很麻烦，你总是可以构建一个机制，定期更新`Paths`映射或使用其他类型的配置管理。
 - en: Infinite loops
+  id: totrans-199
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 无限循环
 - en: The next thing we need to do is perform a check on the hashes right away to
     see whether anything needs archiving before entering into an infinite timed loop
     where we perform the check again at regular, specified intervals.
+  id: totrans-200
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们接下来需要做的事情是立即对哈希进行检查，看看在进入无限定时循环之前是否需要存档。在这个无限定时循环中，我们会以规定的、规律的间隔再次执行检查。
 - en: An infinite loop sounds like a bad idea; in fact, to some, it sounds like a
     bug. However, since we're talking about an infinite loop within this program,
     and since infinite loops can be easily broken with a simple `break` command, they're
@@ -926,27 +1352,39 @@
     statement that has no default case, we are able to run the code in a manageable
     way without gobbling up CPU cycles as we wait for something to happen. The execution
     will be blocked until one of the two channels receive data.
+  id: totrans-201
   prefs: []
   type: TYPE_NORMAL
+  zh: 无限循环听起来像是一个糟糕的想法；实际上，对某些人来说，它听起来像是一个错误。然而，既然我们在这里讨论的是程序内的无限循环，并且由于无限循环可以通过简单的`break`命令轻松中断，所以它们并不像听起来那么戏剧化。当我们把无限循环与没有默认情况的`select`语句混合时，我们能够以可管理的方式运行代码，而不会在等待某事发生时消耗CPU周期。执行将被阻塞，直到两个通道之一接收数据。
 - en: 'In Go, to write an infinite loop is as simple as running this:'
+  id: totrans-202
   prefs: []
   type: TYPE_NORMAL
+  zh: 在Go语言中，编写一个无限循环就像运行以下代码一样简单：
 - en: '[PRE39]'
+  id: totrans-203
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE39]'
 - en: The instructions inside the braces get executed over and over again, as quickly
     as the machine running the code can execute them. Again, this sounds like a bad
     plan unless you're careful about what you're asking it to do. In our case, we
     are immediately initiating a `select` case on the two channels that will block
     safely until one of the channels has something interesting to say.
+  id: totrans-204
   prefs: []
   type: TYPE_NORMAL
+  zh: 大括号内的指令会不断地被执行，速度取决于运行代码的机器。再次强调，除非你小心地处理你要求它执行的任务，否则这听起来像是一个糟糕的计划。在我们的例子中，我们立即在两个通道上启动一个`select`情况，它会安全地阻塞，直到其中一个通道有有趣的东西要说。
 - en: 'Add the following code:'
+  id: totrans-205
   prefs: []
   type: TYPE_NORMAL
+  zh: 添加以下代码：
 - en: '[PRE40]'
+  id: totrans-206
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE40]'
 - en: 'Of course, as responsible programmers, we care about what happens when the
     user terminates our programs. So after a call to the `check` method (which doesn''t
     yet exist), we make a signal channel and use `signal.Notify` to ask for the termination
@@ -955,35 +1393,49 @@
     sends a message or the termination signal channel sends a message. If it''s the
     `timer` channel message, we call `check` again; if it''s `signalChan`, we go about
     terminating the program; otherwise, we''ll loop back and wait.'
+  id: totrans-207
   prefs: []
   type: TYPE_NORMAL
+  zh: 当然，作为负责任的程序员，我们关心当用户终止我们的程序时会发生什么。因此，在调用`check`方法（该方法尚未存在）之后，我们创建一个信号通道，并使用`signal.Notify`请求将终止信号发送到通道，而不是自动处理。在我们的无限`for`循环中，我们选择两种可能性：要么`timer`通道发送消息，要么终止信号通道发送消息。如果是`timer`通道的消息，我们再次调用`check`；如果是`signalChan`，我们就开始终止程序；否则，我们将循环回并等待。
 - en: The `time.After` function returns a channel that will send a signal (actually,
     the current time) after the specified time has elapsed. Since we are using `flag.Duration`,
     we can pass this (deferenced via `*`) as the `time.Duration` argument directly
     into the function. Using `flag.Duration` also means that users can specify time
     durations in a human readable way, such as `10s` for 10 seconds or `1m` for a
     minute.
+  id: totrans-208
   prefs: []
   type: TYPE_NORMAL
+  zh: '`time.After`函数返回一个通道，该通道将在指定时间过后发送一个信号（实际上，是当前时间）。由于我们使用`flag.Duration`，我们可以直接将这个（通过`*`解引用）作为`time.Duration`参数传递给函数。使用`flag.Duration`还意味着用户可以用人类可读的方式指定时间长度，例如`10s`代表10秒或`1m`代表一分钟。'
 - en: Finally, we return from the main function, causing the deferred statements to
     execute, such as closing the database connection.
+  id: totrans-209
   prefs: []
   type: TYPE_NORMAL
+  zh: 最后，我们从主函数返回，导致延迟语句执行，例如关闭数据库连接。
 - en: Updating filedb records
+  id: totrans-210
   prefs:
   - PREF_H2
   type: TYPE_NORMAL
+  zh: 更新filedb记录
 - en: All that is left is for us is implement the `check` function that should call
     the `Now` method on the `Monitor` type and update the database with new hashes
     if there are any.
+  id: totrans-211
   prefs: []
   type: TYPE_NORMAL
+  zh: 剩下的就是我们实现`check`函数，该函数应该调用`Monitor`类型的`Now`方法，并在有新哈希值的情况下更新数据库。
 - en: 'Underneath the `main` function, add the following code:'
+  id: totrans-212
   prefs: []
   type: TYPE_NORMAL
+  zh: 在`main`函数下方，添加以下代码：
 - en: '[PRE41]'
+  id: totrans-213
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE41]'
 - en: The `check` function first tells the user that a check is happening before immediately
     calling `Now`. If the `Monitor` type did any work for us, which is to ask whether
     it archived any files, we output them to the user and go on to update the database
@@ -992,138 +1444,199 @@
     the bytes to get the path structure, update the hash value, and return the marshaled
     bytes. This ensures that the next time we start a `backupd` process, it will do
     so with the correct hash values.
+  id: totrans-214
   prefs: []
   type: TYPE_NORMAL
+  zh: '`check`函数首先告诉用户正在执行检查，然后立即调用`Now`。如果`Monitor`类型为我们做了任何工作，即询问是否存档了任何文件，我们将它们输出给用户，并继续用新值更新数据库。`SelectEach`方法允许我们通过返回替换字节来更改集合中的每个记录。因此，我们解包字节以获取路径结构，更新哈希值，并返回打包的字节。这确保了下次我们启动`backupd`进程时，它将使用正确的哈希值。'
 - en: Testing our solution
+  id: totrans-215
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 测试我们的解决方案
 - en: Let's see whether our two programs play nicely together. You may want to open
     two terminal windows for this, since we'll be running two programs.
+  id: totrans-216
   prefs: []
   type: TYPE_NORMAL
+  zh: 让我们看看我们的两个程序是否能够很好地一起工作。你可能需要为这个打开两个终端窗口，因为我们将会运行两个程序。
 - en: 'We have already added some paths to the database, so let''s use `backup` to
     see them:'
+  id: totrans-217
   prefs: []
   type: TYPE_NORMAL
+  zh: 我们已经将一些路径添加到数据库中，所以让我们使用`backup`来看看：
 - en: '[PRE42]'
+  id: totrans-218
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE42]'
 - en: 'You should see the two test folders; if you don''t, refer to the *Adding paths*
     section:'
+  id: totrans-219
   prefs: []
   type: TYPE_NORMAL
+  zh: 你应该看到两个测试文件夹；如果没有，请参考*添加路径*部分：
 - en: '[PRE43]'
+  id: totrans-220
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE43]'
 - en: In another window, navigate to the `backupd` folder and create our two test
     folders, called `test` and `test2`.
+  id: totrans-221
   prefs: []
   type: TYPE_NORMAL
+  zh: 在另一个窗口中，导航到`backupd`文件夹，并创建我们的两个测试文件夹，分别命名为`test`和`test2`。
 - en: 'Build `backupd` using the usual method:'
+  id: totrans-222
   prefs: []
   type: TYPE_NORMAL
+  zh: 使用通常的方法构建`backupd`：
 - en: '[PRE44]'
+  id: totrans-223
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE44]'
 - en: 'Assuming all is well, we can now start the backup process, being sure to point
     the `db` path to the same path as we used for the `backup` program and specifying
     that we want to use a new folder called `archive` to store the ZIP files. For
     testing purposes, let''s specify an interval of `5` seconds in order to save time:'
+  id: totrans-224
   prefs: []
   type: TYPE_NORMAL
+  zh: 假设一切顺利，我们现在可以开始备份过程，确保将`db`路径指向与`backup`程序相同的路径，并指定我们想要使用一个名为`archive`的新文件夹来存储ZIP文件。为了测试目的，让我们指定一个`5`秒的间隔以节省时间：
 - en: '[PRE45]'
+  id: totrans-225
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE45]'
 - en: 'Immediately, `backupd` should check the folders, calculate the hashes, note
     that they are different (to `Not yet archived`), and initiate the archive process
     for both folders. It will print the output that tells us this:'
+  id: totrans-226
   prefs: []
   type: TYPE_NORMAL
+  zh: 立即，`backupd`应该检查文件夹，计算哈希值，并注意它们是不同的（与`尚未存档`不同），并为两个文件夹启动存档过程。它将打印出以下输出：
 - en: '[PRE46]'
+  id: totrans-227
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE46]'
 - en: 'Open the newly created `archive` folder inside `backup/cmds/backupd` and note
     that it has created two subfolders: `test` and `test2`. Inside these are compressed
     archive versions of the empty folders. Feel free to unzip one and see; nothing
     very exciting so far.'
+  id: totrans-228
   prefs: []
   type: TYPE_NORMAL
+  zh: 打开在`backup/cmds/backupd`中新建的`archive`文件夹，并注意它创建了两个子文件夹：`test`和`test2`。在这些文件夹内是空文件夹的压缩存档版本。你可以随意解压一个看看；到目前为止，没有什么特别激动人心的。
 - en: 'Meanwhile, back in the terminal window, `backupd` has been checking the folders
     for changes again:'
+  id: totrans-229
   prefs: []
   type: TYPE_NORMAL
+  zh: 同时，回到终端窗口，`backupd`正在再次检查文件夹是否有变化：
 - en: '[PRE47]'
+  id: totrans-230
   prefs: []
   type: TYPE_PRE
+  zh: '[PRE47]'
 - en: In your favorite text editor, create a new text file inside the `test2` folder,
     containing the word `test`, and save it as `one.txt`. After a few seconds, you
     will see that `backupd` has noticed the new file and created another snapshot
     inside the `archive/test2` folder.
+  id: totrans-231
   prefs: []
   type: TYPE_NORMAL
+  zh: 在你最喜欢的文本编辑器中，在`test2`文件夹内创建一个新的文本文件，包含单词`test`，并将其保存为`one.txt`。几秒钟后，你会看到`backupd`已经注意到了新文件，并在`archive/test2`文件夹内创建了一个新的快照。
 - en: Of course, it has a different filename because the time is different, but if
     you unzip it, you will notice that it has indeed created a compressed archive
     version of the folder.
+  id: totrans-232
   prefs: []
   type: TYPE_NORMAL
+  zh: 当然，由于时间不同，它有一个不同的文件名，但如果你解压它，你会注意到它确实创建了一个文件夹的压缩存档版本。
 - en: 'Play around with the solution by taking the following actions:'
+  id: totrans-233
   prefs: []
   type: TYPE_NORMAL
+  zh: 通过以下操作尝试解决方案：
 - en: Change the contents of the `one.txt` file
+  id: totrans-234
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 修改`one.txt`文件的内容
 - en: Add a file to the `test` folder too
+  id: totrans-235
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 将一个文件添加到`test`文件夹中
 - en: Delete a file
+  id: totrans-236
   prefs:
   - PREF_UL
   type: TYPE_NORMAL
+  zh: 删除一个文件
 - en: Summary
+  id: totrans-237
   prefs:
   - PREF_H1
   type: TYPE_NORMAL
+  zh: 摘要
 - en: In this chapter, we successfully built a very simple backup system for your
     code projects. You can see how simple it would be to extend or modify the behavior
     of these programs. The scope for potential problems that you could go on to solve
     is limitless.
+  id: totrans-238
   prefs: []
   type: TYPE_NORMAL
+  zh: 在本章中，我们成功地为你的代码项目构建了一个非常简单的备份系统。你可以看到扩展或修改这些程序的行为是多么简单。你可以继续解决的问题的范围是无限的。
 - en: Rather than having a local archive destination folder like we did in the previous
     section, imagine mounting a network storage device and using that instead. Suddenly,
     you have off-site (or at least off-machine) backups of these vital files. You
     can easily set a Dropbox folder as the archive destination, which would mean that
     not only do you get access to the snapshots yourself, but a copy is also stored
     in the cloud and can even be shared with other users.
+  id: totrans-239
   prefs: []
   type: TYPE_NORMAL
+  zh: 与我们在上一节中使用的本地存档目标文件夹不同，想象一下挂载一个网络存储设备并使用它。突然之间，你有了这些重要文件的异地（或至少非本地）备份。你可以轻松地将Dropbox文件夹设置为存档目标，这意味着你不仅可以访问快照，而且一份副本也存储在云端，甚至可以与其他用户共享。
 - en: Extending the `Archiver` interface to support `Restore` operations (which would
     just use the `encoding/zip` package to unzip the files) allows you to build tools
     that can peer inside the archives and access the changes of individual files,
     much like Time Machine on a Mac allows you to do. Indexing the files gives you
     the complete search across the entire history of your code, much like GitHub does.
+  id: totrans-240
   prefs: []
   type: TYPE_NORMAL
+  zh: 将`Archiver`接口扩展以支持`Restore`操作（这将仅使用`encoding/zip`包解压文件）允许你构建可以查看存档并访问单个文件更改的工具，就像Mac上的Time
+    Machine允许你做的那样。对文件进行索引可以让你在整个代码历史中完成完整的搜索，就像GitHub做的那样。
 - en: Since the filenames are timestamps, you could have backupd retiring old archives
     to less active storage mediums or summarized the changes into a daily dump.
+  id: totrans-241
   prefs: []
   type: TYPE_NORMAL
+  zh: 由于文件名是时间戳，你可以将备份的旧存档转移到不太活跃的存储介质，或者将更改总结成每日存档。
 - en: Obviously, backup software exists, is well tested, and is used throughout the
     world, and it may be a smart move to focus on solving problems that haven't been
     solved yet. But when it requires such little effort to write small programs to
     get things done, it is often worth doing because of the control it gives you.
     When you write the code, you can get exactly what you want without compromise,
     and it's down to each individual to make that call.
+  id: totrans-242
   prefs: []
   type: TYPE_NORMAL
+  zh: 显然，备份软件已经存在，经过良好的测试，并且在全球范围内使用，因此专注于解决尚未解决的问题可能是一个明智的选择。但是，当编写小程序来完成这些事情只需要如此少的努力时，它通常值得去做，因为它给你带来的控制力。当你编写代码时，你可以得到你想要的确切结果，而不需要妥协，这取决于每个人自己做出决定。
 - en: 'Specifically, in this chapter, we explored how easy Go''s standard library
     makes it to interact with the filesystem: opening files for reading, creating
     new files, and making directories. The `os` package mixed in with the powerful
     types from the `io` package, blended further with capabilities such as `encoding/zip`
     and others, gives a clear example of how extremely simple Go interfaces can be
     composed to deliver very powerful results.'
+  id: totrans-243
   prefs: []
   type: TYPE_NORMAL
+  zh: 具体来说，在本章中，我们探讨了Go的标准库如何使与文件系统的交互变得简单：打开文件进行读取、创建新文件和创建目录。`os`包与`io`包中的强大类型混合，进一步与`encoding/zip`和其他功能结合，清楚地展示了如何将Go接口组合起来以提供非常强大的结果。
