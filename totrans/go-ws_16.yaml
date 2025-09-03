@@ -1,0 +1,3369 @@
+- en: 16\. Concurrent Work
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 16. 并发工作
+- en: Overview
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 概述
+- en: This chapter introduces you to the Go features that will allow you to perform
+    concurrent work, or, in other words, achieve concurrency. The first feature you
+    will learn is called a Goroutine. You'll learn what a Goroutine is and how you
+    can use it to achieve concurrency. Then, you'll learn how to utilize WaitGroups
+    to synchronize the execution of several Goroutines. You will also learn how to
+    implement synchronized and thread-safe changes to variables shared across different
+    Goroutines using atomic changes. To synchronize more complex changes, you will
+    work with mutexes.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章介绍了Go的特性，这些特性将允许你执行并发工作，换句话说，实现并发。你将学习的第一个特性被称为Goroutine。你将了解Goroutine是什么以及如何使用它来实现并发。然后，你将学习如何利用WaitGroups来同步多个Goroutines的执行。你还将学习如何使用原子更改来实现跨不同Goroutines共享变量的同步和线程安全更改。为了同步更复杂的变化，你将使用互斥锁。
+- en: Later in the chapter, you will experiment with the functionalities of channels
+    and use message tracking to track the completion of a task.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章的后面部分，你将实验通道的功能，并使用消息跟踪来跟踪任务的完成情况。
+- en: Introduction
+  id: totrans-4
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 简介
+- en: There is software that's meant to be used by a single user, and most of what
+    you've learned so far in this book allows you to develop such applications. There
+    is other software, however, that is meant to be used by several users at the same
+    time. An example of this is a web server. You created web servers in *Chapter
+    15, HTTP Servers*. They are designed to serve websites or web applications that
+    are generally used by thousands of users at the same time.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一些软件是为单个用户使用的，而你在这本书中学到的许多内容都允许你开发这样的应用程序。然而，还有一些软件是为同时供多个用户使用的。一个例子是网络服务器。你在*第15章，HTTP服务器*中创建了网络服务器。它们被设计用来服务于网站或通常由数千个用户同时使用的网络应用程序。
+- en: When multiple users are accessing a web server, it sometimes needs to perform
+    a series of actions that are totally independent and whose result is the only
+    thing that matters to the final output. All these situations call for a type of
+    programming in which different tasks can be executed at the same time, independently
+    from each other. Some languages allow parallel computation, where tasks are computed
+    simultaneously. However, in some languages, such as Go, tasks are accomplished
+    by the machine one piece per task; that is, each task, or process, is split into
+    small pieces, and the program will execute a small piece of task at a time, until
+    all the tasks are completed. This is known as concurrent programming.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当多个用户访问一个网络服务器时，有时它需要执行一系列完全独立且其结果对最终输出唯一重要的事情。所有这些情况都需要一种编程方式，在这种方式中，不同的任务可以同时执行，彼此独立。一些语言允许并行计算，其中任务可以同时计算。然而，在某些语言中，例如Go，任务是通过机器逐个完成的；也就是说，每个任务或进程被分成小块，程序将一次执行一小块任务，直到所有任务都完成。这被称为并发编程。
+- en: In concurrent programming, when a task starts, all the other tasks start as
+    well, but instead of completing them one by one, the machine performs a bit of
+    each task at the same time. While Go allows concurrent programming, tasks can
+    also be performed in parallel when the machine has multiple cores. From the perspective
+    of the programmer, however, this distinction is not that important, as the tasks
+    are created with the idea that they will be performed in parallel, and in whatever
+    way the machine will perform them. Let's find out more in this chapter.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在并发编程中，当一个任务开始时，所有其他任务也会开始，但机器不是逐个完成它们，而是同时执行每个任务的一小部分。虽然Go允许并发编程，但当机器有多个核心时，任务也可以并行执行。然而，从程序员的视角来看，这种区别并不重要，因为任务是按照它们将并行执行的想法创建的，以及机器将如何执行它们的任何方式。让我们在本章中了解更多。
+- en: Goroutines
+  id: totrans-8
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Goroutines
+- en: Imagine several people have some nails to hammer into a wall. Each person has
+    a different number of nails and a different area of the wall, but there is only
+    one hammer. Each person uses the hammer for one nail, then passes the hammer to
+    the next person, and so on. The person with the fewest nails will finish earlier
+    but they will all share the same hammer; this is how Goroutines work.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象有几个人有一些钉子要钉到墙上。每个人都有不同数量的钉子和不同的墙面区域，但只有一把锤子。每个人用锤子钉一个钉子，然后传给下一个人，以此类推。钉子最少的人会先完成，但他们都会使用同一把锤子；这就是Goroutines的工作方式。
+- en: Using Goroutines, Go allows multiple tasks to run at the same time (they are
+    also called coroutines). These are routines (read tasks) that can co-run inside
+    the same process but are totally concurrent. Goroutines do not share memory, which
+    is why they are different from threads. However, we will see how easy it is to
+    pass variables across them in your code, and how this might lead to some unexpected
+    behavior.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Goroutines，Go允许多个任务同时运行（它们也被称为协程）。这些是可以在同一进程中并发运行的线程（读取任务）。Goroutines不共享内存，这就是它们与线程不同的原因。然而，我们将看到如何在你的代码中轻松地在它们之间传递变量，以及这可能会引起一些意外的行为。
+- en: Writing a Goroutine is nothing special; they are just normal functions. Actually,
+    each function can easily become a Goroutine; all we have to do is to write the
+    word `go` before calling the function.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 编写Goroutine并没有什么特别之处；它们只是普通的函数。实际上，每个函数都可以轻松地成为Goroutine；我们只需要在调用函数之前写上单词`go`。
+- en: 'Let''s consider a function called `hello`:'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们考虑一个名为`hello`的函数：
+- en: '[PRE0]'
+  id: totrans-13
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'In order to call our function as a Goroutine, we do the following:'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了将我们的函数作为Goroutine调用，我们进行以下操作：
+- en: '[PRE1]'
+  id: totrans-15
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'The function will run as a Goroutine. What this means can be understood better
+    through the following code:'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 函数将以Goroutine的形式运行。这意味着什么可以通过以下代码更好地理解：
+- en: '[PRE2]'
+  id: totrans-17
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: The code starts by printing `Start`, then it calls the `hello()` function. Then,
+    the execution goes straight to printing `End` without waiting for the `hello()`
+    function to complete. No matter how long it takes to run the `hello()` function,
+    the `main()` function will not care about the `hello()` function as these functions
+    will run independently. In order to better understand how this works, let's do
+    some exercises.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代码首先打印`Start`，然后调用`hello()`函数。然后，执行直接跳转到打印`End`，而不等待`hello()`函数完成。无论`hello()`函数运行多长时间，`main()`函数都不会关心`hello()`函数，因为这些函数将以独立的方式运行。为了更好地理解这是如何工作的，让我们做一些练习。
+- en: Note
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The important thing to remember is that Go is not a parallel language, but concurrent,
+    which means that Goroutines do not work in an independent manner, but each Goroutine
+    is split into smaller parts and each Goroutine runs one of its subparts at a time.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要记住的重要一点是，Go不是一种并行语言，而是一种并发语言，这意味着Goroutines不是以独立的方式工作，而是每个Goroutine被分割成更小的部分，并且每个Goroutine一次运行其子部分之一。
+- en: 'Exercise 16.01: Using Concurrent Routines'
+  id: totrans-21
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 练习16.01：使用并发线程
+- en: Let's imagine we want to make two calculations. First, we sum all the numbers
+    from `1` to `10`, then the numbers from `1` to `100`. In order to save time, we
+    want to make both of these calculations happen independently and see both results
+    at the same time.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们假设我们想要进行两个计算。首先，我们将`1`到`10`之间的所有数字相加，然后是`1`到`100`之间的数字。为了节省时间，我们希望这两个计算独立进行，并且同时看到两个结果。
+- en: 'Create a new folder in your filesystem, and, inside it, create a `main.go`
+    file and write the following:'
+  id: totrans-23
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在你的文件系统中创建一个新的文件夹，并在其中创建一个`main.go`文件，并编写以下内容：
+- en: '[PRE3]'
+  id: totrans-24
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'Create a function to sum two numbers:'
+  id: totrans-25
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个函数来求两个数的和：
+- en: '[PRE4]'
+  id: totrans-26
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: This accepts two integers as extremes (the minimum and maximum of an interval)
+    and returns the sum of all the numbers in the range between these two extremes.
+  id: totrans-27
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这个函数接受两个整数作为极值（区间的最小值和最大值），并返回这两个极值之间所有数字的总和。
+- en: 'Create the `main()` function, which sums the numbers `1` and `100`, then print
+    the result:'
+  id: totrans-28
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个`main()`函数，它将数字`1`和`100`相加，然后打印结果：
+- en: '[PRE5]'
+  id: totrans-29
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'Run the program:'
+  id: totrans-30
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行程序：
+- en: '[PRE6]'
+  id: totrans-31
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'You will see the following output:'
+  id: totrans-32
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 你将看到以下输出：
+- en: '[PRE7]'
+  id: totrans-33
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'Now, let''s introduce some concurrency. Modify the `main()` function to look
+    like this:'
+  id: totrans-34
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在，让我们引入一些并发性。将`main()`函数修改如下：
+- en: '[PRE8]'
+  id: totrans-35
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Here, we are running an anonymous function that assigns the value `s1` to the
+    sum as before, but, if we run the code, the result will be `0`. If you try to
+    remove the term `go` before the `func()` part, you will see that the result is
+    `5050`. In this case, the anonymous function will run and start summing the numbers,
+    but then there is a call to `fmt.Println`, which prints the value of `s1`. Here,
+    the program waits for the `sum()` function to end before printing the value of
+    `s1`, hence returning the correct result.
+  id: totrans-36
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，我们正在运行一个匿名函数，它将值`s1`赋给总和，就像之前一样，但如果我们运行代码，结果将是`0`。如果你尝试在`func()`部分之前移除`go`，你会看到结果是`5050`。在这种情况下，匿名函数将运行并开始求和数字，但随后有一个调用`fmt.Println`，它打印`s1`的值。在这里，程序在打印`s1`的值之前等待`sum()`函数结束，因此返回正确的结果。
+- en: If we call the function and prepend the `go` word, the program prints the current
+    value of `s1` while the function is still computing the sum, which is still `0`,
+    and terminates.
+  id: totrans-37
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 如果我们在调用函数时在前面加上`go`这个词，程序会在函数仍在计算总和时（总和仍然是`0`）打印出`s1`的当前值，然后终止。
+- en: 'Let''s call the `sum` function twice with two different ranges. Modify the
+    `main()` function:'
+  id: totrans-38
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 让我们调用两次`sum`函数，使用两个不同的范围。修改`main()`函数：
+- en: '[PRE9]'
+  id: totrans-39
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: If you run this program, it will print the numbers `0` and `55`. This is because
+    the concurrent function, `go func()`, does not have the time to return the result.
+    The `main()` function is faster as it just has to count to `55` and not `5050`,
+    so the program terminates before the concurrent function is finished.
+  id: totrans-40
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 如果你运行这个程序，它将打印出数字`0`和`55`。这是因为并发函数`go func()`没有时间返回结果。`main()`函数更快，因为它只需要数到`55`，而不是`5050`，所以程序在并发函数完成之前就终止了。
+- en: 'To solve this problem, we want to find a way to wait for the *concurrent* function
+    to finish. There are some correct ways to do this but, for now, let''s do something
+    quite crude but effective, which is to wait for a fixed amount of time. In order
+    to do so, just add this line before the `fmt.Println` command:'
+  id: totrans-41
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 为了解决这个问题，我们想要找到一个等待并发函数完成的方法。有一些正确的方法可以做到这一点，但现在，让我们做一件相当粗糙但有效的事情，那就是等待固定的时间。为了做到这一点，只需在`fmt.Println`命令之前添加这一行：
+- en: '[PRE10]'
+  id: totrans-42
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'If your IDE does not do it for you, modify the `import` section, just below
+    the `package main` instruction, to look as follows:'
+  id: totrans-43
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果你的IDE没有为你做这件事，修改`import`部分，就在`package main`指令下面，使其看起来如下：
+- en: '[PRE11]'
+  id: totrans-44
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: If you run your program now, you should see `5050 55` printed on the screen.
+  id: totrans-45
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 如果你现在运行你的程序，你应该在屏幕上看到打印出`5050 55`。
+- en: 'In the `main()` function, write code for the log to be printed:'
+  id: totrans-46
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在`main()`函数中，编写要打印的日志代码：
+- en: '[PRE12]'
+  id: totrans-47
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'If you run your program now, you will see the same output again, `5050` `55`,
+    but prepended by a timestamp representing when you ran the code:'
+  id: totrans-48
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果你现在运行你的程序，你将再次看到相同的输出，`5050` `55`，但前面会加上一个时间戳，表示你运行代码的时间：
+- en: '[PRE13]'
+  id: totrans-49
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: As you can see, the calculations have happened concurrently, and we have received
+    both the outputs at the same time.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如你所见，计算是并发发生的，我们同时收到了两个输出。
+- en: Note
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: 'The full code for this exercise is available at: [https://packt.live/2Qek69K](https://packt.live/2Qek69K)'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个练习的完整代码可以在以下链接找到：[https://packt.live/2Qek69K](https://packt.live/2Qek69K)
+- en: WaitGroup
+  id: totrans-53
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: WaitGroup
+- en: 'In the previous exercise, we used a not-so-elegant method to ensure that the
+    Goroutine ends by making the main routine wait for a second. The important thing
+    to understand is that even if a program does not explicitly use Goroutines via
+    the `go` call, it still uses one Goroutine, which is the main routine. When we
+    run our program and create a new Goroutine, we are running two Goroutines: the
+    main one and the one we just created. In order to synchronize these two Goroutines,
+    Go gives us a function called `WaitGroup`. You can define a WaitGroup using the
+    following code:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一个练习中，我们使用了一种不太优雅的方法来确保Goroutine通过让主例程等待一秒来结束。重要的是要理解，即使程序没有通过`go`调用显式使用Goroutines，它仍然使用了一个Goroutine，那就是主例程。当我们运行程序并创建一个新的Goroutine时，我们实际上运行了两个Goroutines：一个是主Goroutine，另一个是我们刚刚创建的。为了同步这两个Goroutine，Go提供了一个名为`WaitGroup`的函数。你可以使用以下代码定义一个WaitGroup：
+- en: '[PRE14]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'WaitGroup needs the `sync` package to be imported. A typical code using the
+    WaitGroup will be something like this:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: WaitGroup需要导入`sync`包。使用WaitGroup的典型代码可能如下所示：
+- en: '[PRE15]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: Here, we create a pointer to a new WaitGroup, then we mention that we are adding
+    an asynchronous operation that adds 1 to the group using `wg.Add(1)`. This is
+    essentially a counter holding the number of all the concurrent routines that are
+    running. Later, we add the code that will actually run the concurrent call. At
+    the end, we tell the WaitGroup to wait for the Goroutines to end using `wg.Wait()`.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们创建了一个指向新WaitGroup的指针，然后提到我们正在添加一个异步操作，该操作使用`wg.Add(1)`将1添加到组中。这本质上是一个计数器，用于记录所有正在运行的并发例程的数量。稍后，我们添加实际运行并发调用的代码。最后，我们告诉WaitGroup使用`wg.Wait()`等待Goroutines结束。
+- en: 'How does the wait group know that the routines are complete? Well, we need
+    to explicitly tell the WaitGroup about it inside the Goroutine with the following:'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: WaitGroup是如何知道例程已经完成的呢？嗯，我们需要在Goroutine内部显式地告诉WaitGroup，如下所示：
+- en: '[PRE16]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: This must be inside the main Goroutine function, which means it needs a reference
+    to the WaitGroup. We will see this in the next exercise.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这必须在主Goroutine函数内部，这意味着它需要一个对WaitGroup的引用。我们将在下一个练习中看到这一点。
+- en: 'Exercise 16.02: Experimenting with WaitGroup'
+  id: totrans-62
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 练习16.02：使用WaitGroup进行实验
+- en: Let's say we calculate the addition in *Exercise 16.01*, *Using Concurrent Routines*,
+    again using a Goroutine that runs concurrently with the main process. However,
+    this time, we want to use a `WaitGroup` to synchronize the results. We have a
+    few changes to make. Essentially, the `sum()` function needs to accept a new parameter
+    for the `WaitGroup`, and there is no need to use the `time` package.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们再次计算 *练习 16.01*，*使用并发线程* 中的加法，这次使用与主进程并发运行的 Goroutine。然而，这次我们想要使用 `WaitGroup`
+    来同步结果。我们需要做一些更改。本质上，`sum()` 函数需要接受一个新的 `WaitGroup` 参数，并且不需要使用 `time` 包。
+- en: 'Create a new folder and a `main.go` file inside it. The package and import
+    parts of your file will be as follows:'
+  id: totrans-64
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在新文件夹中创建一个 `main.go` 文件。你的文件的包和导入部分如下所示：
+- en: '[PRE17]'
+  id: totrans-65
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Here, we just define the package as the `main` package, and then we import the
+    `log` and `sync` packages. `log` will be used again to print out messages and
+    `sync` will be used for the `WaitGroup`.
+  id: totrans-66
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，我们只是定义包为 `main` 包，然后导入 `log` 和 `sync` 包。`log` 将再次用于打印消息，而 `sync` 将用于 `WaitGroup`。
+- en: 'Next, write the `sum` function:'
+  id: totrans-67
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 接下来，编写 `sum` 函数：
+- en: '[PRE18]'
+  id: totrans-68
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: Now, we add a parameter called `wg` with a pointer to the `sync.WaitGroup` along
+    with the result parameter. In the previous exercise, we wrapped the `sum` function
+    with an anonymous function that ran as a Goroutine. Here, we want to avoid that,
+    but we need to somehow get the result of the `sum` function. Hence, we pass an
+    extra parameter as a pointer that will return the correct value.
+  id: totrans-69
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 现在，我们添加一个名为 `wg` 的参数，它是一个指向 `sync.WaitGroup` 的指针，以及结果参数。在前一个练习中，我们用匿名函数包装了 `sum`
+    函数，该函数作为一个 Goroutine 运行。这里，我们想要避免这样做，但我们需要以某种方式获取 `sum` 函数的结果。因此，我们传递一个额外的指针参数，它将返回正确的值。
+- en: 'Create a loop to increment the `sum` function:'
+  id: totrans-70
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个循环来增加 `sum` 函数：
+- en: '[PRE19]'
+  id: totrans-71
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: Here, we set the value of what is held by the `res` pointer to `0`, then we
+    just use the same loop that we saw earlier, but again associating the `sum` with
+    the value pointed by the `res` parameter.
+  id: totrans-72
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，我们将 `res` 指针所持有的值设置为 `0`，然后我们只是使用之前看到的相同循环，但再次将 `sum` 与 `res` 参数所指向的值关联起来。
+- en: 'We can now complete this function:'
+  id: totrans-73
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们现在可以完成这个函数：
+- en: '[PRE20]'
+  id: totrans-74
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: Here, we tell the `WaitGroup` that this Goroutine is completed and then we return.
+  id: totrans-75
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，我们告诉 `WaitGroup` 这个 Goroutine 已完成，然后返回。
+- en: 'Now, let''s write the `main()` function, which will set up the variables and
+    then run the Goroutine that calculates the `sum`. We will then wait for the Goroutine
+    to finish and display the result:'
+  id: totrans-76
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在，让我们编写 `main()` 函数，该函数将设置变量并运行计算 `sum` 的 Goroutine。然后我们将等待 Goroutine 完成，并显示结果：
+- en: '[PRE21]'
+  id: totrans-77
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: Here, the `main()` function is defined, and then a variable called `s1` is set
+    to `0`. Also, a pointer to the WaitGroup is created.
+  id: totrans-78
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，定义了 `main()` 函数，并设置了一个名为 `s1` 的变量为 `0`。同时，创建了一个指向 WaitGroup 的指针。
+- en: 'Add one to the count of the WaitGroup and then run the Goroutine:'
+  id: totrans-79
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将 WaitGroup 的计数加一，然后运行 Goroutine：
+- en: '[PRE22]'
+  id: totrans-80
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: This code notifies the WaitGroup that there is one Goroutine running and then
+    creates a new Goroutine calculating the `sum`. The `sum()` function will call
+    the`.Done()` method to notify the `WaitGroup` of its completion.
+  id: totrans-81
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 此代码通知 WaitGroup 有一个 Goroutine 正在运行，然后创建一个新的 Goroutine 来计算 `sum`。`sum()` 函数将调用
+    `.Done()` 方法来通知 `WaitGroup` 其完成。
+- en: 'We need to wait for the Goroutine to finish. To do so, write the following:'
+  id: totrans-82
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们需要等待 Goroutine 完成。为此，编写以下代码：
+- en: '[PRE23]'
+  id: totrans-83
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: This also logs the result to the standard output.
+  id: totrans-84
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这也将结果记录到标准输出。
+- en: 'Run the program:'
+  id: totrans-85
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行程序：
+- en: '[PRE24]'
+  id: totrans-86
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: 'You will see the log output for the function using WaitGroups, as follows,
+    with the timestamp:'
+  id: totrans-87
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 你将看到使用 WaitGroups 的函数的日志输出，如下所示，带有时间戳：
+- en: '[PRE25]'
+  id: totrans-88
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: With this exercise, we have explored the functionality of `WaitGroup` by synchronizing
+    Goroutines in our code.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过这个练习，我们通过在我们的代码中同步 Goroutines 探索了 `WaitGroup` 的功能。
+- en: Race Conditions
+  id: totrans-90
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 竞态条件
+- en: 'One important thing to consider is that whenever we run multiple functions
+    concurrently, we have no guarantee in what order each instruction in each function
+    will be performed. In many architectures, this is not a problem. Some functions
+    are not connected in any way with other functions, and whatever a function does
+    in its routine does not affect the actions performed in other routines. This is,
+    however, not always true. The first situation we can think of is when some functions
+    need to share the same parameter. Some functions will just read from this parameter,
+    while others will write to this parameter. As we do not know which operation will
+    run first, there is a high likelihood that one function will override the value
+    updated by another function. Let''s see an example that explains this situation:'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要考虑的一个重要问题是，无论何时我们并发运行多个函数，我们都没有保证每个函数中的每个指令将按什么顺序执行。在许多架构中，这并不是一个问题。有些函数与其他函数没有任何联系，并且函数在其例程中执行的操作不会影响其他例程中执行的操作。然而，这并不总是正确的。我们可以想到的第一个情况是，当一些函数需要共享相同的参数时。一些函数将只从这个参数中读取，而其他函数将写入这个参数。由于我们不知道哪个操作将首先运行，一个函数覆盖另一个函数更新的值的可能性很高。让我们看看一个解释这种情况的例子：
+- en: '[PRE26]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: 'This function takes a pointer to an integer as a parameter. It is a pointer
+    because we want to run several Goroutines with the `next` function and update
+    `v`. If we run the following code, we would expect that `a` will hold the value
+    3:'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个函数将一个指向整数的指针作为参数。这是因为我们想要使用`next`函数运行几个Goroutines并更新`v`。如果我们运行以下代码，我们预计`a`将持有值3：
+- en: '[PRE27]'
+  id: totrans-94
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'This is perfectly fine. However, what if we run the following code:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这完全没问题。然而，如果我们运行以下代码：
+- en: '[PRE28]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'In this case, we might see that `a` holds 3, or 2, or 1\. Why would this happen?
+    Because when a function executes the following statement, the value of `v` might
+    be 0 for all the functions running in independent Goroutines:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，我们可能会看到`a`的值是3、2或1。为什么会这样呢？因为当一个函数执行以下语句时，所有在独立Goroutines中运行的函数的`v`值可能都是0：
+- en: '[PRE29]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: If this happens, then each function will set `v` to `c+1`, which means none
+    of the routines are aware of what the other routines are doing and override any
+    changes made by another routine. This problem is called a *race condition* and
+    happens every time we work with shared resources without taking precautions. Fortunately,
+    we have several ways to prevent this situation and to make sure that the same
+    change is made only once. We will look at these solutions in the next sections,
+    and we will explore the situation we just described in more detail, with a proper
+    solution and race detection.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果这种情况发生，那么每个函数都会将`v`设置为`c+1`，这意味着没有任何一个例程知道其他例程正在做什么，并覆盖了其他例程所做的任何更改。这个问题被称为*竞态条件*，每次我们在没有采取预防措施的情况下处理共享资源时都会发生。幸运的是，我们有几种方法可以防止这种情况，并确保相同的更改只发生一次。我们将在下一节中查看这些解决方案，并更详细地探讨我们刚才描述的情况，包括适当的解决方案和竞态检测。
+- en: Atomic Operations
+  id: totrans-100
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 原子操作
+- en: Let's imagine we want to run independent functions again. However, in this case,
+    we want to modify the value held by a variable. We still want to sum the numbers
+    from 1 to 100, but we want to split the work into two concurrent Goroutines. We
+    can sum the numbers from 1 to 50 in one routine and the numbers from 51 to 100
+    in another routine. At the end, we will need still to receive the value of 5050,
+    but two different routines can add a number at the same time to the same variable.
+    Let's see an example with only 4 numbers where we want to sum 1, 2, 3, and 4,
+    and the result is 10\.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们假设我们再次想要运行独立的函数。然而，在这种情况下，我们想要修改变量的值。我们仍然想要从1加到100，但我们将工作分成两个并发的Goroutines。我们可以在一个例程中计算从1到50的数字之和，在另一个例程中计算从51到100的数字之和。最后，我们仍然需要得到5050这个值，但两个不同的例程可以同时向同一个变量添加一个数字。让我们看看一个只有4个数字的例子，我们想要计算1、2、3和4的和，结果是10。
+- en: 'Think of it like having a variable called `s:=0` and then making a loop where
+    the value of `s` becomes the following:'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象有一个名为`s:=0`的变量，然后进行一个循环，其中`s`的值变为以下：
+- en: '[PRE30]'
+  id: totrans-103
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: 'However, we could also have the following loop. In this case, the order in
+    which the numbers are summed is different:'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，我们也可以有以下的循环。在这种情况下，数字求和的顺序不同：
+- en: '[PRE31]'
+  id: totrans-105
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: Essentially, this is just the commutative property of the sum, but this gives
+    us a hint that we can actually split the sum into two or more concurrent calls.
+    The problem that arises here is that all the functions need to manipulate the
+    same variable, `s`, which can lead to *race conditions* and incorrect final values.
+    A *race condition* happens when two processes change the same variable and one
+    process overrides the changes made by another process without taking into account
+    the previous change. Thankfully, we have a package called *atomic*, which allows
+    us to safely modify variables across Goroutines.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，这只是求和的交换律，但这给我们一个提示，我们可以将求和拆分成两个或更多的并发调用。这里出现的问题是，所有函数都需要操作同一个变量`s`，这可能导致*竞态条件*和最终值不正确。*竞态条件*发生在两个进程更改同一个变量时，其中一个进程在未考虑先前更改的情况下覆盖了另一个进程所做的更改。幸运的是，我们有一个名为*atomic*的包，它允许我们在Goroutines之间安全地修改变量。
+- en: 'We will take a look at how this package works soon, but, for now, all you need
+    to know is that this package has some functions for executing simple concurrent
+    safe operations on variables. Let''s look at an example:'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将很快查看这个包是如何工作的，但，现在你需要知道的是，这个包有一些函数可以执行变量上的简单并发安全操作。让我们看一个例子：
+- en: '[PRE32]'
+  id: totrans-108
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: This code takes a pointer to `int32` and modifies it by adding the value it
+    points at to the value of `delta`. If `addr` holds a value of 2 and `delta` is
+    4, after calling this function, `addr` will hold 6.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码接受`int32`的指针，并通过将指针指向的值添加到`delta`的值来修改它。如果`addr`持有值为2且`delta`为4，在调用此函数后，`addr`将持有6。
+- en: 'Exercise 16.03: An Atomic Change'
+  id: totrans-110
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 练习16.03：原子更改
+- en: In this exercise, we want to calculate the sum of all the numbers between 1
+    and 100 but with more concurrent Goroutines, let's say 4\. So, we have one function
+    summing in the range of 1-25, one in the range of 26-50, then 51-75, and finally
+    76-100\. We will use what we've learned about atomic operations and WaitGroups.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，我们想要计算1到100之间所有数字的总和，但使用更多的并发Goroutines，比如说4个。因此，我们有一个函数在1-25的范围内求和，一个在26-50的范围内，然后是51-75，最后是76-100。我们将使用我们关于原子操作和WaitGroups的知识。
+- en: 'Create a new folder and a `main.go` file. Inside it, write the following code:'
+  id: totrans-112
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个新的文件夹和一个`main.go`文件。在它里面，编写以下代码：
+- en: '[PRE33]'
+  id: totrans-113
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: This will import the same packages used for the previous exercises, in addition
+    to the `sync/atomic` package.
+  id: totrans-114
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这将导入之前练习中使用的相同包，以及`sync/atomic`包。
+- en: 'The next step is to refactor the `sum` function from *Exercise 16.02*, *Experimenting
+    with WaitGroup*, to use the `atomic` package:'
+  id: totrans-115
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 下一步是将*练习16.02*，*使用WaitGroup进行实验*中的`sum`函数重构，以使用`atomic`包：
+- en: '[PRE34]'
+  id: totrans-116
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: Here, we just changed `res` from `int` to `*int32`. The reason for this is that
+    the `atomic` operations available specifically for arithmetic operations only
+    work on `int32/64` and relative `uint32/64`.
+  id: totrans-117
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，我们将`res`从`int`改为`*int32`。这样做的原因是，专门用于算术操作的原子操作仅适用于`int32/64`和相关的`uint32/64`。
+- en: 'At this point, write a loop to add each number to the total:'
+  id: totrans-118
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在这一点上，编写一个循环将每个数字加到总数中：
+- en: '[PRE35]'
+  id: totrans-119
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: As you can see, instead of assigning the value of `res` as `0`, we are now adding
+    `i` to the total value held by `res`. The rest of the code is unchanged.
+  id: totrans-120
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 如你所见，我们不再将`res`的值赋为`0`，而是现在将`i`加到`res`持有的总值上。其余的代码保持不变。
+- en: 'The next step is to write the `main()` function to calculate the `sum` in four
+    different Goroutines:'
+  id: totrans-121
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 下一步是编写`main()`函数，在四个不同的Goroutines中计算`sum`：
+- en: '[PRE36]'
+  id: totrans-122
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: Here, we set `s1` to an `int32` type rather than `int` so we can send it as
+    a parameter to the `sum` function. Then we create the pointer to WaitGroup.
+  id: totrans-123
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，我们将`s1`设置为`int32`类型而不是`int`，这样我们就可以将其作为参数发送到`sum`函数。然后我们创建WaitGroup的指针。
+- en: 'Now, tell the WaitGroup that we will have four Goroutines running:'
+  id: totrans-124
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在，告诉WaitGroup我们将有四个Goroutines在运行：
+- en: '[PRE37]'
+  id: totrans-125
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: 'Now, run four Goroutines performing the sum over four ranges: 1-25, 26-50,
+    51-75, and 76-100:'
+  id: totrans-126
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在，运行四个Goroutines，分别对四个范围进行求和：1-25，26-50，51-75和76-100：
+- en: '[PRE38]'
+  id: totrans-127
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: 'Now, add the code that waits for the routines to complete and print the result:'
+  id: totrans-128
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在，添加等待例程完成并打印结果的代码：
+- en: '[PRE39]'
+  id: totrans-129
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: 'Now, if you run the code with the following:'
+  id: totrans-130
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在，如果你使用以下代码运行：
+- en: '[PRE40]'
+  id: totrans-131
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: 'You will see something like this:'
+  id: totrans-132
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 你会看到类似这样的内容：
+- en: '[PRE41]'
+  id: totrans-133
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: The actual date will be different because it depends on when you run this code.
+  id: totrans-134
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 实际的日期将不同，因为它取决于你何时运行此代码。
+- en: 'Now, let''s test the code. We will use it in order to show you what it means
+    to have a race condition, and why we use this atomic package, and what concurrency
+    safety is. Here is the test code:'
+  id: totrans-135
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在，让我们测试一下代码。我们将使用它来向您展示什么是竞态条件，为什么我们使用这个原子包，以及什么是并发安全性。以下是测试代码：
+- en: '[PRE42]'
+  id: totrans-136
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE42]'
+- en: We will run the same test 10,000 times.
+  id: totrans-137
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 我们将运行相同的测试10,000次。
+- en: 'Run your test:'
+  id: totrans-138
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行你的测试：
+- en: '[PRE43]'
+  id: totrans-139
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE43]'
+- en: 'The result of the test on atomic changes is as follows:'
+  id: totrans-140
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 原子更改测试的结果如下：
+- en: '[PRE44]'
+  id: totrans-141
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE44]'
+- en: 'And now add the `race` flag:'
+  id: totrans-142
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在添加`race`标志：
+- en: '[PRE45]'
+  id: totrans-143
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE45]'
+- en: 'The output when running these tests with the `race` flag is as follows:'
+  id: totrans-144
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 使用`race`标志运行这些测试的输出如下：
+- en: '[PRE46]'
+  id: totrans-145
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE46]'
+- en: Again, everything is fine so far.
+  id: totrans-146
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 再次，到目前为止一切正常。
+- en: 'Let''s now remove the `sync/atomic` import and modify the `sum` function where
+    you see this line:'
+  id: totrans-147
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在让我们移除`sync/atomic`导入，并修改`sum`函数中看到此行的地方：
+- en: '[PRE47]'
+  id: totrans-148
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE47]'
+- en: 'Change it to this:'
+  id: totrans-149
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将其改为：
+- en: '[PRE48]'
+  id: totrans-150
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE48]'
+- en: 'Now run your program:'
+  id: totrans-151
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在运行你的程序：
+- en: '[PRE49]'
+  id: totrans-152
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE49]'
+- en: 'The log output for a non-atomic change stays the same when using pointers:'
+  id: totrans-153
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用指针时，非原子更改的日志输出保持不变：
+- en: '[PRE50]'
+  id: totrans-154
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE50]'
+- en: 'But if you try running the test multiple times, you may see some different
+    results, even though, in this case, that is quite unlikely. At this point, however,
+    try running the tests with the `-race` flag:'
+  id: totrans-155
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 但如果你尝试多次运行测试，你可能会看到一些不同的结果，尽管在这种情况下，这种情况相当不可能。然而，此时尝试使用`-race`标志运行测试：
+- en: '[PRE51]'
+  id: totrans-156
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE51]'
+- en: 'You will see the following output:'
+  id: totrans-157
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 你将看到以下输出：
+- en: '![Figure 16.1: Race conditions arise when using the pointer here'
+  id: totrans-158
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '![图16.1：在此使用指针时会出现竞态条件'
+- en: '](img/B14177_16_01.jpg)'
+  id: totrans-159
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '](img/B14177_16_01.jpg)'
+- en: 'Figure 16.1: Race conditions arise when using the pointer here'
+  id: totrans-160
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 图16.1：在此使用指针时会出现竞态条件
+- en: Note
+  id: totrans-161
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 注意
+- en: '''GCC'' must be installed in order to run this code.'
+  id: totrans-162
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '''GCC''必须安装才能运行此代码。'
+- en: 'Now, let''s run the code without the `race` flag:'
+  id: totrans-163
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在，让我们在没有`race`标志的情况下运行代码：
+- en: '![Figure 16.2: Stack trace with racing conditions'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![图16.2：带有竞态条件的堆栈跟踪'
+- en: '](img/B14177_16_02.jpg)'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '](img/B14177_16_02.jpg)'
+- en: 'Figure 16.2: Stack trace with racing conditions'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图16.2：带有竞态条件的堆栈跟踪
+- en: By running the code several times, you can see different results because each
+    routine can change the value of `s1` at any time and in any order, which we cannot
+    know in advance.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过多次运行代码，你可以看到不同的结果，因为每个例程可以在任何时间以任何顺序更改`s1`的值，而我们无法提前知道。
+- en: In this exercise, you've learned how to use the atomic package to safely modify
+    variables shared by multiple Goroutines. You've learned how direct access to the
+    same variable from different Goroutines can be dangerous and how to use the atomic
+    package to avoid this situation.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，你学习了如何使用原子包安全地修改多个Goroutine共享的变量。你已经了解到从不同的Goroutine直接访问相同的变量可能会很危险，以及如何使用原子包来避免这种情况。
+- en: Note
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The full code for this exercise is available at [https://packt.live/35UXbqD](https://packt.live/35UXbqD).
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本练习的完整代码可在[https://packt.live/35UXbqD](https://packt.live/35UXbqD)找到。
+- en: Invisible Concurrency
+  id: totrans-171
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 不可见并发
+- en: We've seen in the previous exercise, the effects of concurrency through race
+    conditions, but we want to see them in practice. It is easy to understand that
+    concurrency problems are difficult to visualize as they do not manifest in the
+    same way every time we run a program. That's why we are focusing on finding ways
+    to synchronize concurrent work. One easy way to visualize it, however, but that
+    is difficult to use in tests, is to print out each concurrent routine and see
+    the order in which these routines are called. In the previous exercise, for example,
+    we could have sent another parameter with a name and printed the name of the function
+    at each iteration in the `for` loop.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的练习中，我们已经看到了通过竞态条件产生的并发影响，但我们想在实际中看到它们。很容易理解并发问题很难可视化，因为它们在每次运行程序时并不以相同的方式表现出来。这就是为什么我们专注于寻找同步并发工作的方法。然而，有一种简单的方法可以可视化它，但在测试中很难使用，那就是打印出每个并发例程，并查看这些例程被调用的顺序。例如，在前面的练习中，我们可以在`for`循环的每次迭代中发送另一个带有名称的参数，并打印出函数的名称。
+- en: 'If we want to see the effects of concurrency and still be able to test it,
+    we could use the atomic package again, this time with strings so that we can build
+    a string containing a message from each Goroutine. For this scenario, we will
+    use the `sync` package again, but we will not make use of the atomic operations.
+    Instead, we will use a new struct called the `mutex`. Mutex is short for "mutual
+    exclusion" and is essentially a way to stop all the routines, run the code in
+    one, and then carry on with the concurrent code. Let''s see how we can use it.
+    First of all, it needs the `sync` package to be imported. Then, we create a mutex
+    like this:'
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们想看到并发的影响并仍然能够测试它，我们可以再次使用原子包，这次使用字符串，这样我们就可以构建一个包含每个Goroutine消息的字符串。对于这种情况，我们将再次使用`sync`包，但我们将不使用原子操作。相反，我们将使用一个新的结构体，称为`mutex`。互斥锁（Mutex）是“互斥”的缩写，它本质上是一种停止所有例程、运行代码中的一个，然后继续并发代码的方式。让我们看看我们如何使用它。首先，它需要导入`sync`包。然后，我们创建一个互斥锁，如下所示：
+- en: '[PRE52]'
+  id: totrans-174
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE52]'
+- en: 'But most of the time we want to pass a mutex across several functions, so we''d
+    better create a pointer to a mutex:'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但大多数时候我们希望将互斥锁传递给几个函数，所以我们最好创建一个指向互斥锁的指针：
+- en: '[PRE53]'
+  id: totrans-176
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE53]'
+- en: 'This ensures we use the same mutex everywhere. It is important to use the same
+    mutex, but the reason why the mutex has to be only one will be clear after analyzing
+    the methods in the Mutex struct; consider the following code:'
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这确保了我们可以在任何地方使用相同的互斥锁。使用相同的互斥锁很重要，但为什么互斥锁必须只有一个的原因将在分析Mutex结构中的方法后变得清晰；考虑以下代码：
+- en: '[PRE54]'
+  id: totrans-178
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE54]'
+- en: The preceding code snippet will lock the execution of all the routines, except
+    the one that will change the variable. At this point, we will add 5 to the current
+    value of `s`. After this, we release the lock using the following command so that
+    any other routine can modify the value of `s`.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述代码片段将锁定所有例程的执行，除了将更改变量的那个例程。在此阶段，我们将向`s`的当前值添加5。之后，我们将使用以下命令释放锁，以便任何其他例程都可以修改`s`的值。
+- en: '[PRE55]'
+  id: totrans-180
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE55]'
+- en: From now on, any following code will run concurrently. We will see later some
+    better ways to ensure safety when we modify a variable, but, for now, do not worry
+    about adding much code between the lock/unlock part. The more code there is between
+    these constructs, the less concurrent your code will be. So, you should lock the
+    execution of the program, add only the logic required to ensure safety, and unlock
+    and then carry on with the execution of the rest of the code, which does not touch
+    the shared variables.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从现在开始，任何后续的代码都将并发运行。我们稍后会看到一些更好的方法来确保在修改变量时的安全性，但，目前请不要担心在锁定/解锁部分之间添加过多的代码。在这些结构之间有越多的代码，你的代码并发性就越低。因此，你应该锁定程序的执行，只添加确保安全性的逻辑，然后解锁并继续执行剩余的代码，这些代码不会触及共享变量。
+- en: One important thing to notice is that the order of asynchronously performed
+    code can change. This is because Goroutines run independently and you cannot know
+    which one runs first. However, each routine runs completely before letting another
+    one run. You should then not rely on Goroutines to order things correctly; you
+    might need to order your results afterward if you need a specific order.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个需要注意的重要事情是异步执行代码的顺序可能会改变。这是因为Goroutines是独立运行的，你无法知道哪个先运行。然而，每个例程在让另一个例程运行之前都会完全运行。因此，你不应该依赖Goroutines来正确排序事物；如果你需要一个特定的顺序，你可能需要在之后对结果进行排序。
+- en: 'Activity 16.01: Listing Numbers'
+  id: totrans-183
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 活动十六.01：列出数字
+- en: 'In this activity, you will need to build a string with all the numbers from
+    1 to 100\. However, instead of using a single loop, you need to split the work
+    across four loops, like in *Exercise 16.03*. Moreover, each loop will add the
+    numbers in its own loop. Here are the steps:'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个活动中，你需要构建一个包含从1到100的所有数字的字符串。然而，你不需要使用单个循环，你需要将工作分配给四个循环，就像在*练习16.03*中一样。此外，每个循环将在其自己的循环中添加数字。以下是步骤：
+- en: Create a folder and a `main.go` file.
+  id: totrans-185
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个文件夹和一个`main.go`文件。
+- en: Create a function that takes a range in its parameters and a string to which
+    you will add all the numbers in its range (also as strings).
+  id: totrans-186
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个函数，该函数接受一个范围作为参数，并将一个字符串作为参数，你将在其中添加该范围内的所有数字（也作为字符串）。
+- en: Wrap each number with the character `"|"`, for example, `|4|`, so that the list
+    will have the form `|4||10|`.
+  id: totrans-187
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将每个数字用字符`"|"`包裹起来，例如，`|4|`，这样列表将具有`|4||10|`的形式。
+- en: Create the `main()` function where you will create four Goroutines, each one
+    having a range of 25 numbers.
+  id: totrans-188
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个`main()`函数，在其中创建四个Goroutines，每个Goroutine有一个25个数字的范围。
+- en: Make sure all the routines modify the same string safely.
+  id: totrans-189
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 确保所有例程安全地修改相同的字符串。
+- en: Make sure the `main()` function will wait for the completion of the routines.
+  id: totrans-190
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 确保`main()`函数等待例程的完成。
+- en: Print the final string and run the program.
+  id: totrans-191
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 打印最终的字符串并运行程序。
+- en: You should be able to complete this activity using everything you've studied
+    so far in this chapter.
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你应该能够使用本章迄今为止学到的所有内容来完成这个活动。
+- en: 'When you run your program, you should see something like this:'
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你运行你的程序时，你应该看到类似以下的内容：
+- en: '![Figure 16.3: First output when listing numbers'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![图16.3：列出数字时的第一次输出'
+- en: '](img/B14177_16_03.jpg)'
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![图片](img/B14177_16_03.jpg)'
+- en: 'Figure 16.3: First output when listing numbers'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图16.3：列出数字时的第一次输出
+- en: 'However, if you run it again multiple times, you will most likely see a different
+    result:'
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，如果你多次运行它，你很可能会看到不同的结果：
+- en: '![](img/B14177_16_04.jpg)'
+  id: totrans-198
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](img/B14177_16_04.jpg)'
+- en: 'Figure 16.4: Second attempt of listing numbers returns with a different order'
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图16.4：列出数字的第二次尝试返回不同的顺序
+- en: Note
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The solution for this activity can be found on page 766.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个活动的解决方案可以在第766页找到。
+- en: Channels
+  id: totrans-202
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 通道
+- en: 'We''ve seen how to create concurrent code via Goroutines, how to synchronize
+    it with WaitGroup, how to perform atomic operations, and how to temporarily stop
+    the concurrency in order to synchronize access to shared variables. We will now
+    introduce a different concept, the channel, which is typical of Go. A channel
+    is what the name essentially suggests – it''s something where messages can be
+    piped, and any routine can send or receive messages through a channel. Similar
+    to a slice, a channel is created the following way:'
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经看到了如何通过Goroutines创建并发代码，如何使用WaitGroup进行同步，如何执行原子操作，以及如何暂时停止并发以同步对共享变量的访问。现在，我们将介绍一个不同的概念，即通道，这是Go语言的特点。通道就是名字所暗示的——它是一个可以传递消息的地方，任何协程都可以通过通道发送或接收消息。与切片类似，通道的创建方式如下：
+- en: '[PRE56]'
+  id: totrans-204
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE56]'
+- en: 'Of course, it is possible to instantiate the channel directly with the following:'
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，可以直接使用以下方式实例化通道：
+- en: '[PRE57]'
+  id: totrans-206
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE57]'
+- en: 'Just like with slices, we can also do the following:'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像切片一样，我们也可以做以下操作：
+- en: '[PRE58]'
+  id: totrans-208
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE58]'
+- en: Here, a channel is created with a buffer of 10 items.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里，我们创建了一个带有10个项的缓冲区通道。
+- en: A channel can be of any type, such as `integer`, `Boolean`, `float`, and any
+    `struct` that can be defined, and even slices and pointers, though the last two
+    are generally used less frequently.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通道可以是任何类型，例如`整数`、`布尔值`、`浮点数`，以及任何可以定义的`结构体`，甚至切片和指针，尽管后两者使用得较少。
+- en: 'Channels can be passed as parameters to functions, and that''s how different
+    Goroutines can share content. Let''s see how to send a message to a channel:'
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通道可以作为参数传递给函数，这就是不同的Goroutines如何共享内容。让我们看看如何向通道发送消息：
+- en: '[PRE59]'
+  id: totrans-212
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE59]'
+- en: In this case, we send the value of 2 to the `ch` channel, which is a channel
+    of integers. Of course, trying to send something else than an integer to an integer
+    channel will cause an error.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，我们将数字2的值发送到`ch`通道，这是一个整数通道。当然，尝试向整数通道发送非整数值将导致错误。
+- en: 'After sending a message, we need to be able to receive a message from a channel.
+    To do that, we can just do the following:'
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在发送消息后，我们需要能够从通道接收消息。为此，我们可以这样做：
+- en: '[PRE60]'
+  id: totrans-215
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE60]'
+- en: 'Doing this ensures that the message is received; however, the message is not
+    stored. It might seem useless to lose the message, but we will see that it might
+    actually make sense. Nevertheless, we might want to keep the value received from
+    the channel, and we can do so by storing the value into a new variable:'
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样做可以确保消息被接收；然而，消息并没有被存储。失去消息似乎没有用处，但我们将看到这实际上可能是有意义的。尽管如此，我们可能希望保留从通道接收到的值，我们可以通过将值存储到新变量中来实现这一点：
+- en: '[PRE61]'
+  id: totrans-217
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE61]'
+- en: 'Let''s see a simple program that shows us how to use what we''ve learned so
+    far:'
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看一个简单的程序，它展示了我们如何使用到目前为止所学的知识：
+- en: '[PRE62]'
+  id: totrans-219
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE62]'
+- en: 'This program essentially creates a new channel, pipes the integer 1 in, then
+    reads it, and finally prints out the value of `i`, which should be 1\. This code
+    is not that useful in practice, but with a small change we can see something interesting.
+    Let''s make the channel unbuffered by changing the channel definition to the following:'
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个程序本质上创建了一个新的通道，将整数1管道输入，然后读取它，最后打印出`i`的值，应该是1。在实际应用中，这段代码并不那么有用，但通过一个小改动，我们可以看到一些有趣的东西。让我们通过将通道定义改为以下内容来使通道无缓冲：
+- en: '[PRE63]'
+  id: totrans-221
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE63]'
+- en: 'If you run the code, you will get the following output:'
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你运行代码，你将得到以下输出：
+- en: '[PRE64]'
+  id: totrans-223
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE64]'
+- en: 'The message may be different depending on the version of Go you are using.
+    Also, some errors like these have been introduced in newer versions. In older
+    versions, though, the compiler was more permissive. In this specific case, the
+    problem is simple: if we do not know how big the channel is, the routines wait
+    indefinitely, and this is called a deadlock. This does not mean we cannot handle
+    unbuffered channels. We will see later how to handle them, as they require more
+    than one routine running. With only one routine, after we send the message, we
+    block the execution and there is no other routine able to receive the message;
+    hence, we have a deadlock.'
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 消息可能因你使用的Go版本而异。此外，一些错误如这些在新版本中已经被引入。然而，在旧版本中，编译器更为宽容。在这个特定的情况下，问题很简单：如果我们不知道通道的大小，协程将无限期地等待，这被称为死锁。这并不意味着我们不能处理无缓冲通道。我们将在后面看到如何处理它们，因为它们需要多个协程运行。只有一个协程时，在我们发送消息后，我们将阻塞执行，没有其他协程能够接收消息；因此，我们遇到了死锁。
+- en: 'Before we go further, let''s see one more characteristic of the channels, which
+    is that they can be closed. Channels need to be closed when the task they have
+    been created for is finished. In order to close a channel, type in the following:'
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们进一步之前，让我们看看通道的一个更多特性，即它们可以被关闭。当通道被创建的任务完成后，需要关闭通道。为了关闭通道，请输入以下内容：
+- en: '[PRE65]'
+  id: totrans-226
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE65]'
+- en: 'Alternatively, you can defer the closing, as shown in the following code snippet:'
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者，你可以延迟关闭，如下面的代码片段所示：
+- en: '[PRE66]'
+  id: totrans-228
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE66]'
+- en: In this case, after the `return` statement, the channel is closed as the closing
+    is deferred to run after the `return` statement.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，在 `return` 语句之后，通道被关闭，因为关闭被延迟到 `return` 语句之后执行。
+- en: 'Exercise 16.04: Exchange Greeting Messages via Channels'
+  id: totrans-230
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 练习 16.04：通过 Channels 交换问候消息
+- en: In this exercise, we will use a Goroutine to send a greeting message and then
+    we will receive the greeting in the main process. The exercise is very simple
+    and does not need concurrency, but it is a starting point to understand how message
+    passing works.
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，我们将使用 Goroutine 发送问候消息，然后我们在主进程中接收问候。这个练习非常简单，不需要并发，但它是一个了解消息传递如何工作的起点。
+- en: 'Create a folder. In it, create a `main.go` file with the `main` package:'
+  id: totrans-232
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个文件夹。在其中创建一个 `main.go` 文件，并使用 `main` 包：
+- en: '[PRE67]'
+  id: totrans-233
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE67]'
+- en: 'Then, create the `greeter()` function:'
+  id: totrans-234
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 然后，创建 `greeter()` 函数：
+- en: '[PRE68]'
+  id: totrans-235
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE68]'
+- en: This function just sends a `Hello` message to a channel and ends.
+  id: totrans-236
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 此函数只是向通道发送一个 `Hello` 消息并结束。
+- en: 'Now create the `main()` function where you instantiate a channel and pass it
+    to the `greeter`:'
+  id: totrans-237
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在创建一个 `main()` 函数，在其中实例化一个通道并将其传递给 `greeter`：
+- en: '[PRE69]'
+  id: totrans-238
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE69]'
+- en: Here, only a channel of strings is created and passed as a parameter to the
+    call to a new routine called `greet`.
+  id: totrans-239
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这里，只创建了一个字符串通道并将其作为参数传递给新调用的 `greet` 函数：
+- en: 'Now print the result and complete the function:'
+  id: totrans-240
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在打印结果并完成函数：
+- en: '[PRE70]'
+  id: totrans-241
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE70]'
+- en: 'Here, we are printing whatever comes from the channel. The following part of
+    the code returns a value, which is passed straight to the `Println` function:'
+  id: totrans-242
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这里，我们正在打印从通道中来的任何内容。代码的以下部分返回一个值，该值直接传递给 `Println` 函数：
+- en: '[PRE71]'
+  id: totrans-243
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE71]'
+- en: 'Run the program with the following:'
+  id: totrans-244
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用以下命令运行程序：
+- en: '[PRE72]'
+  id: totrans-245
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE72]'
+- en: 'You will see the following output:'
+  id: totrans-246
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 你将看到以下输出：
+- en: '[PRE73]'
+  id: totrans-247
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE73]'
+- en: Now we can see that the message has been delivered to the `main` function through
+    the channel.
+  id: totrans-248
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 现在我们可以看到消息已经通过通道传递到了 `main` 函数。
+- en: In this exercise, you have seen how to use channels to make different Goroutines
+    communicate with each other and to synchronize their computations.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，你看到了如何使用通道使不同的 Goroutine 互相通信并同步它们的计算。
+- en: 'Exercise 16.05: Two-Way Message Exchange with Channels'
+  id: totrans-250
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 练习 16.05：使用 Channels 进行双向消息交换
+- en: 'What we want now is to send messages from the main routine to the second routine
+    and then get a message back as a response. We will base our code on the previous
+    one and expand it. The main routine will send a `"Hello John"` message, while
+    the second routine will return "`Thanks`" for the message received, stating it
+    in full, and will then add a message: `"Hello David"`.'
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们想要从主程序向第二个程序发送消息，然后得到一个响应消息。我们将基于之前的代码并扩展它。主程序将发送一个 `"Hello John"` 消息，而第二个程序将返回
+    "`Thanks`" 作为收到的消息的回复，并完整地表达出来，然后添加一条消息："Hello David"。
+- en: 'Create a folder. In it, create a `main.go` file with the main package:'
+  id: totrans-252
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个文件夹。在其中创建一个 `main.go` 文件，并使用 main 包：
+- en: '[PRE74]'
+  id: totrans-253
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE74]'
+- en: With the necessary imports, we will use the `fmt` package to manipulate the
+    strings.
+  id: totrans-254
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在导入必要的包后，我们将使用 `fmt` 包来操作字符串。
+- en: 'Write a `greet()` function to return the expected messages:'
+  id: totrans-255
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 编写一个 `greet()` 函数以返回预期的消息：
+- en: '[PRE75]'
+  id: totrans-256
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE75]'
+- en: The `greet()` function signature has not changed. However, now before sending
+    a message, it will first wait for a message and then reply. After receiving the
+    message, this function sends a message back thanking for the greeting, and then
+    sends its own greeting.
+  id: totrans-257
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '`greet()` 函数签名没有改变。然而，现在在发送消息之前，它将首先等待一个消息，然后回复。在收到消息后，此函数发送一条消息表示感谢问候，然后发送它自己的问候。'
+- en: 'Now create the `main()` function and call the `greet()` function as a Goroutine:'
+  id: totrans-258
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在创建 `main()` 函数并作为 Goroutine 调用 `greet()` 函数：
+- en: '[PRE76]'
+  id: totrans-259
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE76]'
+- en: Here, the main function is created and a string channel is instantiated. Then,
+    the second Goroutine is started. Next, we need to send the first message from
+    the main routine to the second, which is currently waiting.
+  id: totrans-260
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，创建了主函数并实例化了一个字符串通道。然后，启动了第二个 Goroutine。接下来，我们需要从主程序向第二个等待的程序发送第一条消息。
+- en: 'Now, to send the message "`Hello John`" to the channel, write the following
+    code:'
+  id: totrans-261
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在，要将消息 "`Hello John`" 发送到通道，请编写以下代码：
+- en: '[PRE77]'
+  id: totrans-262
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE77]'
+- en: 'And finally, add the code that waits for the messages to come back before printing
+    them:'
+  id: totrans-263
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 最后，添加在打印消息之前等待消息返回的代码：
+- en: '[PRE78]'
+  id: totrans-264
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE78]'
+- en: 'You can see that you need to log twice as you expect two messages to come back.
+    In many cases, you will use a loop to retrieve all the messages, which we will
+    see in the next exercise. For now, try to run your code, and you will see something
+    as follows:'
+  id: totrans-265
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 你可以看到，你需要记录两次，因为你预计会收到两条消息。在许多情况下，你会使用循环来检索所有消息，我们将在下一个练习中看到。现在，尝试运行你的代码，你将看到如下内容：
+- en: '[PRE79]'
+  id: totrans-266
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE79]'
+- en: From the output, you can see that both the messages have been received through
+    the channel.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从输出中，你可以看到两条消息都已经通过通道接收到了。
+- en: In this exercise, you have learned how a goroutine can both send and receive
+    messages through the same channel and that two goroutines can exchange messages
+    through the same channel in both directions.
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，你学习了goroutine如何通过同一个通道发送和接收消息，以及两个goroutine如何通过同一个通道在两个方向上交换消息。
+- en: 'Exercise 16.06: Sum Numbers from Everywhere'
+  id: totrans-269
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 练习16.06：从各个地方求和数字
+- en: Imagine you want to add a few numbers but the numbers come from several sources.
+    They might come from a feed or from a database; we just do not know which numbers
+    we are going to add and where they come from. However, we need to add them all
+    in one place. In this exercise, we will have four Goroutines sending numbers in
+    particular ranges, and the main routine, which will calculate their sum.
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设你想要加几个数字，但这些数字来自多个来源。它们可能来自一个源或数据库；我们并不知道我们将要加的哪些数字以及它们来自哪里。然而，我们需要将它们全部加在一个地方。在这个练习中，我们将有四个Goroutines在特定的范围内发送数字，以及主程序，它将计算它们的总和。
+- en: 'Let''s start by creating a new folder and the main file. After you''ve done
+    that, write the package and imports:'
+  id: totrans-271
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 让我们先创建一个新的文件夹和主文件。完成这些后，编写包和导入语句：
+- en: '[PRE80]'
+  id: totrans-272
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE80]'
+- en: Here, we also include the `time` package, which we will use to do a small trick
+    that will help us to better visualize the effects of concurrency.
+  id: totrans-273
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这里，我们还包含了`time`包，我们将使用它来做一个小技巧，这将帮助我们更好地可视化并发的影响。
+- en: 'Now write the `push` function:'
+  id: totrans-274
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在编写`push`函数：
+- en: '[PRE81]'
+  id: totrans-275
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE81]'
+- en: This sends all the numbers in the `from, to` range to the channel. After each
+    message is sent, the routine sleeps for a microsecond so that another routine
+    will pick up the work.
+  id: totrans-276
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这会将`from, to`范围内的所有数字发送到通道。在每条消息发送后，程序将暂停一微秒，以便另一个程序可以接手工作。
+- en: 'Now write the `main()` function:'
+  id: totrans-277
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在编写`main()`函数：
+- en: '[PRE82]'
+  id: totrans-278
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE82]'
+- en: This code creates a variable for the final sum, `s1`, and one for the channel,
+    `ch`, which has a buffer of 100.
+  id: totrans-279
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这段代码创建了一个用于最终总和的变量`sum1`和一个具有100个缓冲区的通道`ch`。
+- en: 'Now create the four `go` routines:'
+  id: totrans-280
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在创建四个`go` routines：
+- en: '[PRE83]'
+  id: totrans-281
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE83]'
+- en: 'At this point, we need to gather all the numbers to add, so we create a loop
+    of 100 cycles:'
+  id: totrans-282
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在这个阶段，我们需要收集所有需要相加的数字，因此我们创建了一个包含100个周期的循环：
+- en: '[PRE84]'
+  id: totrans-283
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE84]'
+- en: 'Then read the number from the channel like this:'
+  id: totrans-284
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 然后按照这种方式从通道读取数字：
+- en: '[PRE85]'
+  id: totrans-285
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE85]'
+- en: 'We also want to see which number came from which Goroutine:'
+  id: totrans-286
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们还想知道哪个数字来自哪个Goroutine：
+- en: '[PRE86]'
+  id: totrans-287
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE86]'
+- en: 'Finally, we calculate the sum and show the result:'
+  id: totrans-288
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 最后，我们计算总和并显示结果：
+- en: '[PRE87]'
+  id: totrans-289
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE87]'
+- en: 'Here, we have the truncated output once you run the program:'
+  id: totrans-290
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，一旦运行程序，我们将得到以下截断的输出：
+- en: '[PRE88]'
+  id: totrans-291
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE88]'
+- en: Here, based on the results, we can easily guess which number comes from which
+    routine. The last line displays the sum of all numbers. If you run your program
+    multiple times, you will see that the order of the numbers changes as well.
+  id: totrans-292
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 根据结果，我们可以轻松地猜测哪个数字来自哪个程序。最后一行显示了所有数字的总和。如果你多次运行程序，你还会看到数字的顺序也会改变。
+- en: In this exercise, we saw how we can split some computational work across several
+    concurrent routines and then gather all the computation in a single routine. Each
+    routine performs a task. In this case, one sends numbers, while another receives
+    the numbers and performs a sum.
+  id: totrans-293
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，我们看到了如何将一些计算工作分配给几个并发程序，然后在单个程序中汇总所有计算。每个程序执行一个任务。在这种情况下，一个发送数字，而另一个接收数字并执行求和。
+- en: 'Exercise 16.07: Request to Goroutines'
+  id: totrans-294
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 练习16.07：请求Goroutines
+- en: In this exercise, we will solve the same problem mentioned in *Exercise 16.06*,
+    *Sum Numbers from Everywhere*, but in a different way. Instead of receiving numbers
+    as the routines send them, we will make the main routine ask for the numbers from
+    the other routines. We will play with channel operations and experiment with their
+    blocking nature.
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，我们将解决与练习16.06相同的相同问题，即*从各个地方求和数字*，但以不同的方式。我们不会像程序发送时那样接收数字，而是让主程序从其他程序请求数字。我们将玩转通道操作，并实验它们的阻塞特性。
+- en: 'Create a folder and a `main.go` file with the main package. Then, add the following
+    import:'
+  id: totrans-296
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个文件夹和一个名为`main.go`的`main`包文件。然后，添加以下导入：
+- en: '[PRE89]'
+  id: totrans-297
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE89]'
+- en: 'Then write the signature of the `push` function:'
+  id: totrans-298
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 然后编写`push`函数的签名：
+- en: '[PRE90]'
+  id: totrans-299
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE90]'
+- en: Here, there are two channels, a Boolean one called `in`, which represents the
+    incoming requests, and `out`, which will be used to send back messages.
+  id: totrans-300
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这里有两个通道，一个布尔通道称为`in`，代表传入的请求，另一个是`out`，将用于发送回消息。
+- en: 'Now write a loop for sending numbers when a request comes in:'
+  id: totrans-301
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在编写一个循环，当接收到请求时发送数字：
+- en: '[PRE91]'
+  id: totrans-302
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE91]'
+- en: As you can see, the loop is still for a fixed number of items. Before sending
+    anything, it waits for a request from the `in` channel. When it receives a request,
+    it sends a number.
+  id: totrans-303
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 如你所见，循环仍然是固定数量的项。在发送任何内容之前，它等待从`in`通道来的请求。当它收到请求时，它发送一个数字。
+- en: 'Now create the `main()` function, where you call the `push` function in four
+    different goroutines, each one sending a subset of the numbers 1 to 100:'
+  id: totrans-304
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在创建`main()`函数，在其中调用四个不同的goroutine中的`push`函数，每个goroutine发送1到100的数字的子集：
+- en: '[PRE92]'
+  id: totrans-305
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE92]'
+- en: This is pretty similar to the previous exercise, but it creates the extra channel,
+    `in`.
+  id: totrans-306
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这与上一个练习非常相似，但它创建了额外的通道`in`。
+- en: 'Now create a loop to request a number, print it, and add it to the total:'
+  id: totrans-307
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在创建一个循环来请求一个数字，打印它，并将其添加到总数中：
+- en: '[PRE93]'
+  id: totrans-308
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE93]'
+- en: 'In this case, the loop first requests a number, then waits to receive another
+    number. Here, we do not need to sleep for a microsecond because after we receive
+    a number, the next request will go to any active Goroutine. If you run the program,
+    you will again see something similar to what you saw in the previous exercise.
+    Here, we have the truncated output:'
+  id: totrans-309
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这种情况下，循环首先请求一个数字，然后等待接收另一个数字。在这里，我们不需要等待一微秒，因为我们收到一个数字后，下一个请求将转到任何活动的Goroutine。如果你运行程序，你将再次看到与上一个练习类似的内容。这里，我们有截断的输出：
+- en: '[PRE94]'
+  id: totrans-310
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE94]'
+- en: You can see that each number is printed in the order it is received. Then, the
+    sum of all numbers is printed on the screen.
+  id: totrans-311
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以看到每个数字都是按照接收的顺序打印的。然后，所有数字的总和打印在屏幕上。
+- en: In this exercise, you've learned how you can use channels to request other goroutines
+    to perform some actions. A channel can be used to send some trigger messages and
+    not only to exchange content and values.
+  id: totrans-312
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，你学习了如何使用通道请求其他goroutine执行某些操作。通道可以用来发送一些触发消息，而不仅仅是交换内容和值。
+- en: The Importance of Concurrency
+  id: totrans-313
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 并发的重要性
+- en: So far, we've seen how to use concurrency to split the work over several Goroutines,
+    but in all these exercises concurrency was not really needed. In fact, you do
+    not save much time doing what we did, nor do you have any other advantage. Concurrency
+    is important when you need to perform several tasks that are logically independent
+    from each other, and the easiest case to understand is a web server. You saw in
+    *Chapter 15,* *HTTP Servers*, that several clients will most likely connect to
+    the same server and all these connections will result in the server performing
+    some actions. Also, these actions are all independent; that's where concurrency
+    is important, as you do not want one of your users to have to wait for all the
+    other HTTP requests to be completed before their request gets handled. Another
+    case for concurrency is when you have different data sources to gather data and
+    you can actually gather that data in different routines and combine the result
+    at the end. We will see now some more complex applications for concurrency and
+    learn how to use it for HTTP servers.
+  id: totrans-314
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们看到了如何使用并发将工作分配给多个Goroutine，但在所有这些练习中，并发并不是真正必要的。事实上，你做我们做的事情并没有节省多少时间，也没有其他优势。当你需要执行几个逻辑上相互独立的不同任务时，并发就很重要了。最容易理解的情况是Web服务器。你在*第15章*，*HTTP服务器*中看到，几个客户端很可能会连接到同一个服务器，所有这些连接都会导致服务器执行一些操作。此外，这些操作都是独立的；这就是并发之所以重要的地方，因为你不希望你的用户在他们的请求得到处理之前必须等待所有其他HTTP请求完成。并发的另一个情况是，当你有不同数据源来收集数据，你实际上可以在不同的goroutine中收集这些数据，并在最后将结果合并。我们现在将看到一些更复杂的并发应用，并学习如何将其用于HTTP服务器。
+- en: 'Exercise 16.08: Equally Splitting the Work between Routines'
+  id: totrans-315
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 练习16.08：在goroutine之间平均分配工作
+- en: In this exercise, we will see how we can perform our sum of numbers in a predefined
+    number of routines for them to gather the result at the end. Essentially, we want
+    to create a function that adds numbers and receives the numbers from a channel.
+    When no more numbers are received by the function, we will send the sum to the
+    main function through the channel.
+  id: totrans-316
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，我们将看到我们如何在预定义的例程中执行数字的求和，以便它们在最后收集结果。本质上，我们想要创建一个函数，该函数可以添加数字并从通道接收数字。当函数不再接收更多数字时，我们将通过通道将总和发送到主函数。
+- en: One thing to note here is that the function performing the sum does not know
+    in advance how many numbers it will receive, which means we cannot have a fixed
+    `from, to` range. So, we have to find another solution. We need to be able to
+    split the work in any number of Goroutines and not be bound by a `from, to` range.
+    Also, we do not want to do the addition in the main function. Instead, we want
+    to create a function that will split the work over several routines.
+  id: totrans-317
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里需要注意的一点是，执行求和的函数事先不知道它将接收多少数字，这意味着我们不能有一个固定的 `from, to` 范围。因此，我们必须找到另一种解决方案。我们需要能够将工作分割成任意数量的
+    Goroutines，而不仅仅受 `from, to` 范围的限制。此外，我们不想在主函数中进行加法。相反，我们想要创建一个函数，该函数将在多个例程之间分割工作。
+- en: 'Create a folder and a `main.go` file with the main package and write the following:'
+  id: totrans-318
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个文件夹和一个名为 `main.go` 的文件，包含主包，并编写以下内容：
+- en: '[PRE95]'
+  id: totrans-319
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE95]'
+- en: 'Now let''s write the function to do a partial addition. We will call it `worker()`
+    as we will have a fixed set of routines running this same function, waiting for
+    numbers to arrive:'
+  id: totrans-320
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在让我们编写一个执行部分加法的函数。我们将称之为 `worker()`，因为我们将会有一组固定的例程运行这个相同的函数，等待数字的到来：
+- en: '[PRE96]'
+  id: totrans-321
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE96]'
+- en: As you can see, we have an `in` channel and an `out` channel of integers. Then,
+    we instantiate the `sum` variable, which will store the sum of all the numbers
+    sent to this worker.
+  id: totrans-322
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 如你所见，我们有一个整数 `in` 通道和一个 `out` 通道。然后，我们实例化 `sum` 变量，它将存储发送到这个工人的所有数字的总和。
+- en: 'At this point, we have a loop that ranges over the channel. This is interesting
+    because we do not use `in` directly as follows:'
+  id: totrans-323
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 到这一点，我们有一个遍历通道的循环。这很有趣，因为我们没有直接使用 `in` 如下：
+- en: '[PRE97]'
+  id: totrans-324
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE97]'
+- en: We, instead, rely only on the range to get the numbers in. In the loop, we just
+    add `i` to the total and, at the end, we send the partial sum back. Even if we
+    do not know how many items are going to be sent to the channel, we can still loop
+    over the range without a problem. We rely on the fact that when no more items
+    are sent, the `in` channel will be closed.
+  id: totrans-325
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 我们相反，只依赖于范围来获取数字。在循环中，我们只需将 `i` 添加到总数中，并在最后将部分和发送回去。即使我们不知道将要发送多少项到通道，我们仍然可以无问题地遍历范围。我们依赖于这样一个事实：当没有更多项发送时，`in`
+    通道将被关闭。
+- en: 'Now create the `sum()` function:'
+  id: totrans-326
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在创建 `sum()` 函数：
+- en: '[PRE98]'
+  id: totrans-327
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE98]'
+- en: This is the actual `sum` function that has the number of workers and the usual
+    range for the numbers to add.
+  id: totrans-328
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这是实际的 `sum` 函数，它具有工人数和通常的加数范围。
+- en: 'Now write a loop to run the requested number of workers:'
+  id: totrans-329
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在编写一个循环来运行请求的工人数：
+- en: '[PRE99]'
+  id: totrans-330
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE99]'
+- en: This creates the two `in`/`out` channels and runs the number of workers set
+    by the `workers` parameter.
+  id: totrans-331
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这创建了两个 `in`/`out` 通道，并运行由 `workers` 参数设置的工人数。
+- en: 'Then create a loop to send all the numbers to the `in` channel:'
+  id: totrans-332
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 然后创建一个循环，将所有数字发送到 `in` 通道：
+- en: '[PRE100]'
+  id: totrans-333
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE100]'
+- en: This sends all the numbers to be summed to the channel, which will distribute
+    the numbers across all the routines. If you were to print out the numbers received
+    across with the index of the worker, you could see how the numbers are distributed
+    uniformly across the routines, which does not mean an exact split, but at least
+    it's a fair one.
+  id: totrans-334
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这将所有要加的数字发送到通道，该通道将数字分配给所有例程。如果你要打印出带有工人索引接收到的数字，你可以看到数字是如何均匀地分配给例程的，这并不意味着一个精确的分割，但至少是公平的。
+- en: 'As we sent all the numbers, we now need to receive the partial sums back, but
+    before that we need to notify the function that the numbers to sum are finished,
+    so add the following:'
+  id: totrans-335
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 由于我们发送了所有数字，我们现在需要接收部分和，但在那之前，我们需要通知函数数字加法已完成，所以添加以下内容：
+- en: '[PRE101]'
+  id: totrans-336
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE101]'
+- en: 'And then perform the sum of the partials:'
+  id: totrans-337
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 然后执行部分和的求和：
+- en: '[PRE102]'
+  id: totrans-338
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE102]'
+- en: 'Then, finally, close the `out` channel and return the result:'
+  id: totrans-339
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 然后，最后，关闭 `out` 通道并返回结果：
+- en: '[PRE103]'
+  id: totrans-340
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE103]'
+- en: 'At this point, we need to somehow execute this function. So, let''s write a
+    simple main function to do that:'
+  id: totrans-341
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 到这一点，我们需要以某种方式执行这个函数。所以，让我们编写一个简单的 `main` 函数来做这件事：
+- en: '[PRE104]'
+  id: totrans-342
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE104]'
+- en: This simply outputs a sum from a function that makes use of concurrency, and
+    then prints out the result.
+  id: totrans-343
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这只是从一个使用并发性的函数中输出一个总和，然后打印出结果。
+- en: 'If you run your program, you should see the log output of the sum of numbers
+    split into different routines as follows:'
+  id: totrans-344
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果运行你的程序，你应该看到数字总和的日志输出被分成不同的例程，如下所示：
+- en: '[PRE105]'
+  id: totrans-345
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE105]'
+- en: As you can see, after splitting the computation across multiple goroutines,
+    the result is synchronized into one single result.
+  id: totrans-346
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如你所见，在将计算分配到多个goroutine之后，结果被同步到一个单一的结果中。
+- en: In this exercise, you've learned how to make use of concurrency to split your
+    computation across several concurrent goroutines and then combine all these computations
+    into one single result.
+  id: totrans-347
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，你学习了如何利用并发将你的计算分配到几个并发goroutine，然后将所有这些计算组合成一个单一的结果。
+- en: Concurrency Patterns
+  id: totrans-348
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 并发模式
+- en: The way we organize our concurrent work is pretty much the same in every application.
+    We will look at one common pattern that is called a *pipeline*, where we have
+    a source, and then messages are sent from one routine to another until the end
+    of the line, until all the routines in the pipeline have been utilized. Another
+    pattern is the *fan out*/ *fan in* pattern where, as in the previous exercise,
+    the work is sent to several routines reading from the same channel. All these
+    patterns, however, are generally made of a *source* stage, which is the first
+    stage of the pipeline and the one that gathers, or sources, the data, then some
+    internal steps, and at the end a *sink*, which is the final stage where the results
+    of the process from all the other routines get merged. It is known as a sink because
+    all the data sinks into it.
+  id: totrans-349
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在每一个应用中组织并发工作的方式几乎都是一样的。我们将查看一个称为*管道*的常见模式，其中有一个源，然后消息从一个例程发送到另一个例程，直到线路的尽头，直到管道中的所有例程都被利用。另一个模式是*扇出/扇入*模式，其中，就像之前的练习一样，工作被发送到几个从同一通道读取的例程。然而，所有这些模式通常都由一个*源*阶段组成，这是管道的第一个阶段，它收集或提供数据，然后是一些内部步骤，最后是一个*汇*，这是所有其他例程处理结果的最终合并阶段。它被称为汇，因为所有数据都流入其中。
+- en: 'Activity 16.02: Source Files'
+  id: totrans-350
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 活动 16.02：源文件
+- en: In this activity, you will create a program that will read two files at the
+    same time containing some numbers. You will need to pipe those numbers to a function
+    that will split them into even and odd based on their values. It will then send
+    the odd numbers to one routine, even numbers to another. It will then write the
+    addition of all the even and odd numbers to another file.
+  id: totrans-351
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个活动中，你将创建一个程序，该程序将同时读取包含一些数字的两个文件。你需要将这些数字通过管道传输到一个函数，该函数将根据它们的值将它们分成偶数和奇数。然后，它将奇数发送到一个例程，偶数发送到另一个例程。然后，它将所有偶数和奇数的总和写入另一个文件。
+- en: 'You will need two files with numbers that you will use as the sources. Then,
+    you will produce one file with the sum of all the odd numbers in one row and then
+    the sum of all the even numbers in the row below. The high-level steps for this
+    activity are as follows:'
+  id: totrans-352
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你将需要两个包含数字的文件，这些数字将作为源文件使用。然后，你将生成一个文件，其中包含一行中所有奇数的总和，然后是下一行中所有偶数的总和。这个活动的概要步骤如下：
+- en: Create two input files. You could use more, but the suggested code will use
+    two.
+  id: totrans-353
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建两个输入文件。你可以使用更多，但建议的代码将使用两个。
+- en: Add some numbers in your input files, one number per line and nothing else.
+    You need an empty line at the end of each file.
+  id: totrans-354
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在你的输入文件中添加一些数字，每行一个数字，不要添加其他内容。你需要在每个文件的末尾添加一个空行。
+- en: Create your main program and start with your imports.
+  id: totrans-355
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建你的主程序并从导入开始。
+- en: Create a function to read a file and pipe each line to a channel. Be careful
+    here, though; you may need to add a WaitGroup or something else to avoid any deadlocks.
+  id: totrans-356
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个函数来读取文件并将每一行通过管道传输到通道。不过，请注意；你可能需要添加一个WaitGroup或其他东西来避免任何死锁。
+- en: Create a function to receive the numbers and pipe the odd numbers to one channel
+    and the even numbers to another channel.
+  id: totrans-357
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个函数来接收数字并将奇数通过一个通道传输，偶数通过另一个通道传输。
+- en: Create a function to sum the numbers and pipe the result to a new channel.
+  id: totrans-358
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个函数来计算数字并将结果通过管道传输到新的通道。
+- en: Create a merging function to read from the odd and even channels and write to
+    a file called `result.txt`. Each line in this file should contain the word "Odd"
+    or "Even," depending on the value, followed by the sum.
+  id: totrans-359
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个合并函数，从奇数和偶数通道读取并将结果写入名为`result.txt`的文件。该文件中的每一行应包含根据值确定的单词“Odd”或“Even”，后跟总和。
+- en: Create the main function to run all the Goroutines and handle the WaitGroups,
+    if needed.
+  id: totrans-360
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建主函数来运行所有的Goroutines，并在需要时处理WaitGroups。
+- en: 'If you run your program, you should see nothing in the console, but a file
+    called `result.txt` should have been created. Depending on the numbers in your
+    input files, you will find that the content of the output file is something similar
+    to the following:'
+  id: totrans-361
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你运行你的程序，你应该在控制台看到什么都没有，但应该创建一个名为`result.txt`的文件。根据你的输入文件中的数字，你会发现输出文件的内容类似于以下内容：
+- en: '[PRE106]'
+  id: totrans-362
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE106]'
+- en: Note
+  id: totrans-363
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The solution for this activity can be found on page 768.
+  id: totrans-364
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个活动的解决方案可以在第768页找到。
+- en: Buffers
+  id: totrans-365
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 缓冲区
+- en: 'You''ve seen in the previous exercises that there are channels with a defined
+    length and channels with an undetermined length:'
+  id: totrans-366
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你在之前的练习中看到，有固定长度的通道和不确定长度的通道：
+- en: '[PRE107]'
+  id: totrans-367
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE107]'
+- en: Let's see how we can make use of this.
+  id: totrans-368
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看我们如何利用这一点。
+- en: 'A buffer is like a container that needs to be filled with some content, so
+    you prepare it when you expect to receive that content. We said that operations
+    on channels are blocking operations, which means the execution of the routine
+    will stop and wait whenever you try to read a message from the channel. Let''s
+    try to understand what this means in practice with an example. Let''s say we have
+    the following code in a Goroutine:'
+  id: totrans-369
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缓冲区就像一个需要填充一些内容的容器，所以当你期望接收那个内容时，你就准备它。我们说过，通道上的操作是阻塞操作，这意味着每次你尝试从通道读取消息时，程序的执行都会停止并等待。让我们通过一个例子来尝试理解这在实践中意味着什么。假设我们在一个Goroutine中有以下代码：
+- en: '[PRE108]'
+  id: totrans-370
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE108]'
+- en: We know that before we can carry on with the execution of the code, we need
+    to receive a message. However, there is something more about this blocking behavior.
+    If the channel does not have a buffer, the Goroutine is blocked as well. It is
+    not possible to write to a channel, nor to receive a channel. We'll get a better
+    idea of this with an example, and we will show how to use unbuffered channels
+    to achieve the same result, so you will get a better understanding of what you've
+    seen in the previous exercises.
+  id: totrans-371
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们知道在我们可以继续执行代码之前，我们需要收到一条消息。然而，关于这种阻塞行为还有一些其他的事情。如果通道没有缓冲区，Goroutine 也会被阻塞。无法向通道写入，也无法从通道接收。我们可以通过一个例子更好地理解这一点，并展示如何使用无缓冲通道达到相同的结果，这样你将更好地理解你在之前的练习中看到的内容。
+- en: 'Let''s have a look at this code:'
+  id: totrans-372
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看这段代码：
+- en: '[PRE109]'
+  id: totrans-373
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE109]'
+- en: 'If you put this code inside a function, you will see that it works perfectly
+    and will display something as follows:'
+  id: totrans-374
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你将这段代码放入一个函数中，你会看到它工作得非常完美，并将显示以下内容：
+- en: '[PRE110]'
+  id: totrans-375
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE110]'
+- en: 'But what if you add an extra read? Let''s take a look:'
+  id: totrans-376
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但如果你添加一个额外的读取操作呢？让我们看看：
+- en: '[PRE111]'
+  id: totrans-377
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE111]'
+- en: 'In this case, you will see an error:'
+  id: totrans-378
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，你会看到一个错误：
+- en: '[PRE112]'
+  id: totrans-379
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE112]'
+- en: 'This happens because the routine running this code is blocked after the buffer
+    of size 2 is filled with a data size of 2 coming from the read operations (commonly
+    referred to as reads), which result in the buffer being filled with data, which,
+    in this case, has 2 data and the buffer has a size of 2\. We can increase the
+    buffer:'
+  id: totrans-380
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是因为运行这段代码的程序在缓冲区大小为2的情况下被阻塞，因为从读取操作（通常称为读取）中来的数据大小为2，这导致缓冲区被数据填满，在这种情况下，有2个数据，缓冲区的大小为2。我们可以增加缓冲区的大小：
+- en: '[PRE113]'
+  id: totrans-381
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE113]'
+- en: And it will work again; we are just not displaying the third number.
+  id: totrans-382
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并且它将再次工作；我们只是没有显示第三个数字。
+- en: 'Now, let''s see what happens if we remove the buffer. Try, and again you will
+    see the previous error. This happens because the buffer is always full and the
+    routine is blocked. An unbuffered channel is equivalent to the following:'
+  id: totrans-383
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们看看如果我们移除缓冲区会发生什么。试一试，你将再次看到之前的错误。这是因为缓冲区总是满的，程序被阻塞了。无缓冲通道相当于以下内容：
+- en: '[PRE114]'
+  id: totrans-384
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE114]'
+- en: 'We''ve used unbuffered channels without any issues. Let''s see an example of
+    how to use them:'
+  id: totrans-385
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经无问题地使用了无缓冲通道。让我们看看如何使用它们的例子：
+- en: '[PRE115]'
+  id: totrans-386
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE115]'
+- en: 'If you run this program, you should see something as follows:'
+  id: totrans-387
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你运行这个程序，你应该看到以下内容：
+- en: '[PRE116]'
+  id: totrans-388
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE116]'
+- en: 'But there is a chance you could see fewer numbers. If you run this on the Go
+    Playground, you should see this result, but if you run it in your machine, you
+    might see fewer numbers. Try sending more numbers:'
+  id: totrans-389
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但你可能会看到更少的数字。如果你在Go Playground上运行这个程序，你应该看到这个结果，但如果你在自己的机器上运行它，你可能看到更少的数字。尝试发送更多的数字：
+- en: '[PRE117]'
+  id: totrans-390
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE117]'
+- en: 'At each addition, run your program; you might not see all the numbers. Basically,
+    there are two routines: one is reading messages from an unbuffered channel, and
+    the main routine is sending these messages through the same channel. Due to this,
+    there is no deadlock. This shows that we can make use of unbuffered channels for
+    read and write operations flawlessly by using two routines. We still have, however,
+    an issue with not all numbers showing up, which we can fix in the following way:'
+  id: totrans-391
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在每次添加时运行你的程序；你可能看不到所有数字。基本上，有两个常规：一个是读取来自无缓冲通道的消息，而主常规是通过相同的通道发送这些消息。因此，没有死锁。这表明我们可以通过使用两个常规，完美地利用无缓冲通道进行读写操作。然而，我们仍然有一个问题，即不是所有数字都显示出来，我们可以在以下方式中修复它：
+- en: '[PRE118]'
+  id: totrans-392
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE118]'
+- en: Here, we iterate over the channel inside the Goroutine, and we stop as soon
+    as the channel gets closed. This is because when the channel gets closed, the
+    range stops iterating. The channel gets closed in the main routine after everything
+    is sent. We make use of a WaitGroup here to know that everything is completed.
+    If we were not closing the channel in the main function, we would be in the main
+    routine, which will terminate before the second routine would print all the numbers.
+    There is another way, however, to wait for the execution of the second routine
+    to be completed, and this is with explicit notification, which we will see in
+    the next exercise. One thing to notice is that even though we close the channel,
+    the messages still all arrive at the receiving routine. This is because the channel
+    is closed only after all the messages are received by the receiver.
+  id: totrans-393
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们在 Goroutine 内部迭代通道，一旦通道关闭就停止迭代。这是因为当通道关闭时，range 停止迭代。通道在主常规中关闭，在所有消息发送完毕后。我们在这里使用
+    WaitGroup 来知道一切已完成。如果我们不在主函数中关闭通道，我们就会在主常规中，这将在第二个常规打印所有数字之前终止。然而，还有另一种等待第二个常规执行完成的方法，那就是通过显式通知，我们将在下一个练习中看到。需要注意的是，即使我们关闭了通道，消息仍然会到达接收常规。这是因为通道仅在所有消息被接收者接收后才会关闭。
+- en: 'Exercise 16.09: Notifying When Computation Has Finished'
+  id: totrans-394
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 练习 16.09：在计算完成后通知
+- en: In this exercise, we want to have one routine to send messages and another one
+    to print them. Moreover, we want to know when the sender has finished sending
+    the messages. The code will be similar to the previous example, with some modifications.
+  id: totrans-395
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，我们希望有一个常规用于发送消息，另一个用于打印它们。此外，我们还想知道发送者何时完成消息的发送。代码将与之前的示例类似，但有一些修改。
+- en: 'Create a new file and import the necessary packages:'
+  id: totrans-396
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个新文件并导入必要的包：
+- en: '[PRE119]'
+  id: totrans-397
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE119]'
+- en: 'Then define the function that will first receive the strings and print them
+    later:'
+  id: totrans-398
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 然后定义一个函数，该函数首先接收字符串，稍后打印它们：
+- en: '[PRE120]'
+  id: totrans-399
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE120]'
+- en: 'Then create the loop over the channel until the channel is closed:'
+  id: totrans-400
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 然后创建一个循环，直到通道关闭：
+- en: '[PRE121]'
+  id: totrans-401
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE121]'
+- en: 'And finally, send the notification saying that the processing has finished:'
+  id: totrans-402
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 最后，发送通知，表示处理已完成：
+- en: '[PRE122]'
+  id: totrans-403
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE122]'
+- en: 'Now, let''s build the `main()` function:'
+  id: totrans-404
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在，让我们构建 `main()` 函数：
+- en: '[PRE123]'
+  id: totrans-405
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE123]'
+- en: Here, we've also set the `log` flags to `0` so we do not see anything other
+    than the strings we send.
+  id: totrans-406
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，我们还将 `log` 标志设置为 `0`，这样我们就不会看到除了我们发送的字符串之外的其他内容。
+- en: 'Now, create the necessary channels and use them to spin up the Goroutine:'
+  id: totrans-407
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在，创建必要的通道并使用它们来启动 Goroutine：
+- en: '[PRE124]'
+  id: totrans-408
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE124]'
+- en: 'Next, create a set of strings and loop over them, sending each string to the
+    channel:'
+  id: totrans-409
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 接下来，创建一个字符串集并遍历它们，将每个字符串发送到通道：
+- en: '[PRE125]'
+  id: totrans-410
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE125]'
+- en: 'After that, close the channel you used to send the messages and wait for the
+    done signal:'
+  id: totrans-411
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 之后，关闭用于发送消息的通道并等待完成信号：
+- en: '[PRE126]'
+  id: totrans-412
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE126]'
+- en: 'If you run your program, you will see the log output of code using a `done`
+    channel:'
+  id: totrans-413
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 如果你运行程序，你会看到使用 `done` 通道的代码的日志输出：
+- en: '[PRE127]'
+  id: totrans-414
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE127]'
+- en: We see that the main function has received all the messages from the Goroutine
+    and has printed them. The main function terminates only when it has been notified
+    that all the incoming messages have been sent.
+  id: totrans-415
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 我们看到主函数已经从 Goroutine 接收了所有消息并打印了它们。主函数仅在通知所有传入消息都已发送后才终止。
+- en: In this exercise, you've learned how you can make a Goroutine notify another
+    Goroutine that the work has finished by passing a message through a channel without
+    needing WaitGroup.
+  id: totrans-416
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，你学习了如何通过通过通道传递消息而不需要 WaitGroup 来让一个 Goroutine 通知另一个 Goroutine 工作已完成。
+- en: Some More Common Practices
+  id: totrans-417
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 一些常见实践
+- en: 'In all these examples, we''ve created channels and passed them through, but
+    functions can also return channels and can also spin up new routines. Here is
+    an example:'
+  id: totrans-418
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在所有这些示例中，我们创建了通道并通过它们传递，但函数也可以返回通道，并可以启动新的常规。以下是一个示例：
+- en: '[PRE128]'
+  id: totrans-419
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE128]'
+- en: 'In this case, we can actually have the following in our `main()` function:'
+  id: totrans-420
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，我们实际上可以在`main()`函数中有以下内容：
+- en: '[PRE129]'
+  id: totrans-421
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE129]'
+- en: We do not need to call the `doSomething` function as a Goroutine because it
+    will actually spin up a new one by itself.
+  id: totrans-422
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不需要将`doSomething`函数作为Goroutine来调用，因为它实际上会自己启动一个新的。
+- en: 'Some functions can also return or accept:'
+  id: totrans-423
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些函数也可以返回或接受：
+- en: '[PRE130]'
+  id: totrans-424
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE130]'
+- en: 'Or:'
+  id: totrans-425
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者：
+- en: '[PRE131]'
+  id: totrans-426
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE131]'
+- en: This makes clear what the function does with the channels. In fact, you could
+    try to specify the direction in all the exercises we've done so far and see what
+    happens if you specify an incorrect one.
+  id: totrans-427
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这清楚地说明了函数如何使用通道。实际上，你可以尝试在所有之前的练习中指定方向，并看看如果你指定了一个错误的方向会发生什么。
+- en: HTTP Servers
+  id: totrans-428
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: HTTP服务器
+- en: You've seen how to build HTTP servers in *Chapter 15, HTTP Servers*, but you
+    might remember that there was something that's difficult to handle with HTTP servers,
+    and this was the application's state. Essentially, an HTTP server runs as a single
+    program and listens to requests in the main routine. However, when a new HTTP
+    request is made by one of the clients, a new routine is created that handles that
+    specific request. You have not done it manually, nor have you managed the server's
+    channels, but this is how it works internally. You do not actually need to send
+    anything across the different Goroutines because each routine and each request
+    is independent since they have been made by different people.
+  id: totrans-429
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你已经看到了如何在*第15章，HTTP服务器*中构建HTTP服务器，但你可能还记得，在HTTP服务器中有些东西很难处理，那就是应用程序的状态。本质上，HTTP服务器作为一个单独的程序运行，并在主例程中监听请求。然而，当客户端发起一个新的HTTP请求时，会创建一个新的例程来处理该特定请求。你没有手动做这件事，也没有管理服务器的通道，但这是它内部的工作方式。你实际上不需要在不同的Goroutines之间发送任何东西，因为每个例程和每个请求都是独立的，因为它们是由不同的人发起的。
+- en: However, what you must think of is how to not create race conditions when you
+    want to keep a state. Most HTTP servers are stateless, especially if you're building
+    a microservice environment. However, you might want to keep track of things with
+    a counter, or you might actually work with TCP servers or a gaming server or a
+    chat app where you need to keep the state and gather information from all the
+    peers. The techniques you've learned in this chapter allow you to do so. You can
+    use a mutex to make sure a counter is thread-safe, or better, routine-safe, across
+    all the requests. I'd suggest you go back to your code for the HTTP server and
+    ensure safety with mutexes.
+  id: totrans-430
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，你必须考虑的是，当你想要保持状态时，如何不创建竞态条件。大多数HTTP服务器是无状态的，特别是如果你正在构建一个微服务环境。然而，你可能想用计数器跟踪一些事情，或者你可能实际上在与TCP服务器、游戏服务器或聊天应用一起工作，在这些应用中你需要保持状态并从所有对等方收集信息。你在这章中学到的技术允许你这样做。你可以使用互斥锁来确保计数器在所有请求中是线程安全的，或者更好的是，是例程安全的。我建议你回到你的HTTP服务器代码，并使用互斥锁来确保安全性。
+- en: Methods as Routines
+  id: totrans-431
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 作为例程的方法
+- en: So far, you've only seen functions used as Goroutines, but methods are simple
+    functions with a receiver; hence, they can be used asynchronously too. This can
+    be useful if you want to share some properties of your struct, such as for your
+    counter in an HTTP server.
+  id: totrans-432
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，你只看到函数被用作Goroutines，但方法实际上是带有接收者的简单函数；因此，它们也可以异步使用。如果你想要共享你结构体的一些属性，比如在HTTP服务器中的计数器，这可能会很有用。
+- en: With this technique, you can encapsulate the channels you use across several
+    routines belonging to the same instance of a struct without having to pass these
+    channels everywhere.
+  id: totrans-433
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这种技术，你可以封装你用于同一结构体实例所属的多个例程之间的通道，而无需将这些通道传递到每个地方。
+- en: 'Here is a simple example of how to do that:'
+  id: totrans-434
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有一个简单的例子说明如何做到这一点：
+- en: '[PRE132]'
+  id: totrans-435
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE132]'
+- en: But let's see how to apply this in an exercise.
+  id: totrans-436
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但让我们看看如何在练习中应用这一点。
+- en: 'Exercise 16.10: A Structured Work'
+  id: totrans-437
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 练习16.10：结构化工作
+- en: In this exercise, we will calculate a sum using several workers. A worker is
+    essentially a function, and we will be organizing these workers into a single
+    struct.
+  id: totrans-438
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，我们将使用几个工作线程来计算总和。工作线程本质上是一个函数，我们将把这些工作线程组织到一个单独的结构体中。
+- en: 'Create your folder and `main` file. In it, add the required imports and define
+    a `Worker` struct with two channels – `in` and `out`. Ensure that you add a mutex
+    as well:'
+  id: totrans-439
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建你的文件夹和`main`文件。在其中，添加所需的导入并定义一个带有两个通道`in`和`out`的`Worker`结构体。确保你添加了一个互斥锁：
+- en: '[PRE133]'
+  id: totrans-440
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE133]'
+- en: 'To create its methods, write the following:'
+  id: totrans-441
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 要创建其方法，请编写以下内容：
+- en: '[PRE134]'
+  id: totrans-442
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE134]'
+- en: Here, we create a method and increment the number of `subworkers`. Sub-workers
+    are basically identical routines that split the work that needs to be done. Note
+    that the function is meant to be used directly and not as a Goroutine, as it itself
+    creates a new Goroutine.
+  id: totrans-443
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，我们创建一个方法并增加`subworkers`的数量。子工作基本上是相同的程序，它们将需要完成的工作分割开来。请注意，这个函数旨在直接使用，而不是作为一个Goroutine，因为它本身会创建一个新的Goroutine。
+- en: 'Now, build the content of the spawned routine:'
+  id: totrans-444
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在，构建产生程序的内容：
+- en: '[PRE135]'
+  id: totrans-445
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE135]'
+- en: 'This is pretty similar to what you''ve done before; now comes the tricky part:'
+  id: totrans-446
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 这与你之前所做的是类似的；现在来谈谈难点部分：
+- en: '[PRE136]'
+  id: totrans-447
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE136]'
+- en: Here, we've locked the routine, reduced the counter on the sub-workers safely,
+    and then, in case all the workers have terminated, we've closed the output channel.
+    Then we've unlocked the execution to allow the program to carry on.
+  id: totrans-448
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，我们锁定程序，安全地减少子工作的计数器，然后，如果所有工作都终止了，我们关闭了输出通道。然后我们解锁执行，允许程序继续。
+- en: 'At this point, we need to make a function that''s able to return the sum:'
+  id: totrans-449
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在这一点上，我们需要创建一个能够返回总和的函数：
+- en: '[PRE137]'
+  id: totrans-450
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE137]'
+- en: 'Here, we create a total, then a Waitgroup, and we add 1 to it as we will spawn
+    only one routine whose content is as follows:'
+  id: totrans-451
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在这里，我们创建了一个总数，然后是一个Waitgroup，并且我们给它加1，因为我们只将产生一个内容如下所示的程序：
+- en: '[PRE138]'
+  id: totrans-452
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE138]'
+- en: As you can see, we have looped until the out channel is closed by one of the
+    sub-workers.
+  id: totrans-453
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 正如你所见，我们已经循环直到子工作中的一个关闭了输出通道。
+- en: 'At this point, we can wait for the routine to finish and return the result:'
+  id: totrans-454
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在这一点上，我们可以等待程序完成并返回结果：
+- en: '[PRE139]'
+  id: totrans-455
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE139]'
+- en: 'The main code just sets up the variables for the worker and its sub-workers:'
+  id: totrans-456
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 主代码只是为工作及其子工作设置变量：
+- en: '[PRE140]'
+  id: totrans-457
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE140]'
+- en: 'Now create a loop where you call the `readThem()` method `wrNum` times. This
+    will create some sub-workers:'
+  id: totrans-458
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在创建一个循环，调用`readThem()`方法`wrNum`次。这将创建一些子工作：
+- en: '[PRE141]'
+  id: totrans-459
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE141]'
+- en: 'Now send the numbers to be summed to the channel:'
+  id: totrans-460
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在将需要求和的数字发送到通道：
+- en: '[PRE142]'
+  id: totrans-461
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE142]'
+- en: 'Close the channel to notify that all the numbers have been sent:'
+  id: totrans-462
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 关闭通道以通知所有数字都已发送：
+- en: '[PRE143]'
+  id: totrans-463
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE143]'
+- en: 'Then wait for the result and print it out:'
+  id: totrans-464
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 然后等待结果并打印出来：
+- en: '[PRE144]'
+  id: totrans-465
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE144]'
+- en: 'If you run the program, you will see the log output of a sum made using structs
+    to organize our work:'
+  id: totrans-466
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果你运行程序，你将看到使用结构体组织我们的工作所做的求和的日志输出：
+- en: '[PRE145]'
+  id: totrans-467
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE145]'
+- en: In this exercise, you've learned how to use a method of a struct to create a
+    new Goroutine. The method can just be called like any function, but the result
+    will be a new anonymous goroutine being created.
+  id: totrans-468
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，你学习了如何使用结构体的方法来创建一个新的Goroutine。这个方法可以像任何函数一样被调用，但结果将创建一个新的匿名Goroutine。
+- en: Go Context Package
+  id: totrans-469
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Go Context Package
+- en: 'We''ve seen how to run concurrent code and run it until it has finished, waiting
+    for the completion of some processing through WaitGroup or channel reads. You
+    might have seen in some Go code, especially code related to HTTP calls, some parameters
+    from the `context` package, and you might have wondered what it is and why it
+    is used. All the code we''ve written here is running in our machines and does
+    not pass through the internet, so we hardly have any delay due to latency; however,
+    in situations involving HTTP calls, we might encounter servers that do not respond
+    and get stuck. In such cases, how do we stop our call if the server does not respond
+    after a while? How do we stop the execution of a routine that runs independently
+    when an event occurs? Well, we have several ways, but a standard one is to use
+    contexts, and we will see now how they work. A context is a variable that is passed
+    through a series of calls and might hold some values or may be empty. It is a
+    container, but it is not used in order to send values across functions; you can
+    use normal integers, strings, and so on for this purpose. A `context` is passed
+    through in order to get back control of what is happening:'
+  id: totrans-470
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经看到了如何运行并发代码，并运行它直到完成，通过WaitGroup或通道读取等待某些处理完成。你可能在一些Go代码中看到过，特别是与HTTP调用相关的代码，一些来自`context`包的参数，你可能想知道它是什么以及为什么使用它。我们在这里编写的所有代码都在我们的机器上运行，并不通过互联网，所以我们几乎没有因为延迟造成的延迟；然而，在涉及HTTP调用的场合，我们可能会遇到不响应的服务器并卡住。在这种情况下，如果服务器在一段时间后没有响应，我们如何停止我们的调用？当发生事件时，我们如何停止独立运行的程序的执行？嗯，我们有一些方法，但一个标准的方法是使用上下文，我们现在将看到它们是如何工作的。上下文是一个变量，它通过一系列调用传递，可能包含一些值或者可能是空的。它是一个容器，但它不是用来在函数之间发送值的；你可以使用正常的整数、字符串等来达到这个目的。上下文被传递是为了获取对正在发生的事情的控制：
+- en: '[PRE146]'
+  id: totrans-471
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE146]'
+- en: As you can see, there are several calls, and `c` is passed through but we do
+    not do anything with it. However, it can contain data, and it contains functions
+    that we can use in order to stop the execution of the current routine. We will
+    see how it works in the next exercise.
+  id: totrans-472
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你所见，有几个调用，`c`被传递了，但我们并没有对它做任何事情。然而，它可以包含数据，并且它包含了我们可以用来停止当前例程执行的函数。我们将在下一个练习中看到它是如何工作的。
+- en: 'Exercise 16.11: Managing Routines with Context'
+  id: totrans-473
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 练习 16.11：使用上下文管理例程
+- en: In this exercise, we will start a Goroutine with an infinite loop counting from
+    zero until we decide to stop it. We will make use of the context to notify the
+    routine to stop and a sleeping function to make sure we know how many iterations
+    we do.
+  id: totrans-474
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，我们将启动一个无限循环的 Goroutine，从零开始计数，直到我们决定停止它。我们将利用上下文来通知例程停止，并使用睡眠函数来确保我们知道我们进行了多少次迭代。
+- en: 'Create your folder and a `main.go` file, then write the following:'
+  id: totrans-475
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建你的文件夹和一个`main.go`文件，然后编写以下内容：
+- en: '[PRE147]'
+  id: totrans-476
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE147]'
+- en: For the usual imports, we have `logs` and `time`, which we've already seen,
+    plus the `context` package.
+  id: totrans-477
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 对于常规导入，我们有`logs`和`time`，我们已经见过，加上`context`包。
+- en: 'Let''s write a function that counts every 100 milliseconds from 0:'
+  id: totrans-478
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 让我们编写一个每100毫秒从0开始计数的函数：
+- en: '[PRE148]'
+  id: totrans-479
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE148]'
+- en: Here, `v` is the value we count from zero. The `c` variable is the context,
+    while the `r` variable is the channel returning the result. Then, we start defining
+    the loop.
+  id: totrans-480
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，`v`是我们从零开始计数的值。`c`变量是上下文，而`r`变量是返回结果的通道。然后，我们开始定义循环。
+- en: 'Now, we start an infinite loop, but inside it we will have `select`:'
+  id: totrans-481
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在，我们开始一个无限循环，但在这个循环内部我们将有`select`：
+- en: '[PRE149]'
+  id: totrans-482
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE149]'
+- en: In this `select` group, we have a case where we check whether the context is
+    `done`, and if it is, we just break the loop and return the value we have counted
+    so far.
+  id: totrans-483
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这个`select`组中，我们有一个检查上下文是否`完成`的情况，如果是，我们就跳出循环并返回到目前为止所计的值。
+- en: 'If the context is not `done`, we need to keep counting:'
+  id: totrans-484
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果上下文尚未`完成`，我们需要继续计数：
+- en: '[PRE150]'
+  id: totrans-485
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE150]'
+- en: Here, we sleep for 100 milliseconds and then we increment the value by 1.
+  id: totrans-486
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，我们睡眠100毫秒，然后增加值1。
+- en: 'The next step is to write a `main()` function that makes use of this counter:'
+  id: totrans-487
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 下一步是编写一个`main()`函数，使其使用这个计数器：
+- en: '[PRE151]'
+  id: totrans-488
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE151]'
+- en: We create an integer channel to pass to the counter and a `context`.
+  id: totrans-489
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 我们创建了一个整数通道来传递给计数器和一个`上下文`。
+- en: 'We need to be able to cancel the context, so we extend this simple context
+    with a cancellable context:'
+  id: totrans-490
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们需要能够取消上下文，所以我们将这个简单的上下文扩展为可取消的上下文：
+- en: '[PRE152]'
+  id: totrans-491
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE152]'
+- en: Here, we also finally call the counting routine.
+  id: totrans-492
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，我们也最终调用了计数例程。
+- en: 'At this point, we need a way to break the loop, so we will use the `stop()`
+    function returned by `context.WithCancel`, but we will do that inside another
+    Goroutine. This will stop the context after 300 milliseconds:'
+  id: totrans-493
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在这一点上，我们需要一种方法来跳出循环，所以我们将使用`context.WithCancel`返回的`stop()`函数，但我们将在另一个Goroutine中这样做。这将使上下文在300毫秒后停止：
+- en: '[PRE153]'
+  id: totrans-494
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE153]'
+- en: 'And at this point, we just need to wait for the message with the count to be
+    received and log it:'
+  id: totrans-495
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在这一点上，我们只需要等待收到带有计数的消息并将其记录下来：
+- en: '[PRE154]'
+  id: totrans-496
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE154]'
+- en: 'After 300 milliseconds have passed, the counter will return 3 since, due to
+    context manipulation, the routine stopped at the third iteration:'
+  id: totrans-497
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 经过300毫秒后，计数器将返回3，因为由于上下文操作，例程在第三次迭代时停止：
+- en: '[PRE155]'
+  id: totrans-498
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE155]'
+- en: Here, we can see that even though the loop is infinite, the execution stops
+    after three iterations.
+  id: totrans-499
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在这里，我们可以看到，尽管循环是无限的，但执行在三次迭代后停止。
+- en: In this exercise, you've learned how you can use the context to stop the execution
+    of a routine. This is very useful in many cases, such as when performing long
+    tasks that you want to stop after a maximum amount of time.
+  id: totrans-500
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，你学习了如何使用上下文来停止例程的执行。这在许多情况下非常有用，例如在执行长时间任务且希望在其后最多时间内停止任务时。
+- en: One thing to mention is that, in this exercise, we did something that in some
+    situations could lead to problems. What we did was create a channel in one Goroutine,
+    but close it in another one. This is not wrong; in some cases, it might be useful,
+    but try to avoid it as it could lead to problems when somebody looks at the code,
+    or when you look at the code after several months, because it is difficult to
+    track where a channel is closed across several functions.
+  id: totrans-501
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一个需要提到的是，在这个练习中，我们做了一些在某些情况下可能导致问题的操作。我们所做的是在一个Goroutine中创建了一个通道，但在另一个Goroutine中关闭了它。这并不错；在某些情况下，它可能是有用的，但尽量避免它，因为它可能导致在有人查看代码或几个月后查看代码时出现问题，因为很难跟踪在多个函数中关闭通道的位置。
+- en: Summary
+  id: totrans-502
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: In this chapter, you've learned how to create production-ready concurrent code,
+    how to handle race conditions, and how to make sure that your code is concurrent-safe.
+    You've learned how to use channels to make your goroutines communicate with each
+    other and how to stop their executions using the context.
+  id: totrans-503
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，你已经学会了如何创建生产就绪的并发代码，如何处理竞态条件，以及如何确保你的代码是并发安全的。你学习了如何使用通道使goroutines之间相互通信，以及如何使用上下文来停止它们的执行。
+- en: You've worked on several techniques to handle concurrent computation. In many
+    real-life scenarios, you might just use functions and methods that handle concurrency
+    for you, especially if you're doing web programming, but there are cases where
+    you have to handle the work coming from some different sources by yourself. You
+    need to match requests with your response through different channels. You might
+    need to gather different data into one single routine from different ones. With
+    what you've learned here, you'll be able to do all that. You'll be able to ensure
+    you do not lose data by waiting for all the Goroutines to finish. You'll be able
+    to modify the same variable from different routines, making sure you do not override
+    a value if it is not what you want. You've also learned how to avoid deadlocks
+    and how to use channels in order to share information. One of the Go mottos is
+    "share by communicating, do not communicate by sharing." This means that the preferred
+    way to share values is to send them via a channel and not rely on mutexes if not
+    strictly necessary. You now know how to do all that.
+  id: totrans-504
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你已经掌握了处理并发计算的一些技术。在许多实际场景中，你可能只需要使用为你处理并发的函数和方法，尤其是如果你在进行Web编程的话，但也有一些情况，你必须自己处理来自不同来源的工作。你需要通过不同的通道匹配请求和响应。你可能需要从不同的来源将不同的数据汇集到单个例程中。通过在这里学到的知识，你将能够完成所有这些。你将能够确保在等待所有Goroutines完成时不会丢失数据。你将能够从不同的例程中修改相同的变量，确保如果你不希望覆盖值时不会覆盖。你还学习了如何避免死锁，以及如何使用通道来共享信息。Go的一个座右铭是“通过通信来共享，而不是通过共享来通信。”这意味着共享值的首选方式是通过通道发送，如果不是严格必要的话，不要依赖互斥锁。你现在知道如何做到所有这些。
+- en: In the next chapter, you will learn to make your code more professional. Essentially,
+    you will learn what you are expected to do as a professional in a real working
+    environment, which is testing and checking your code, making sure, essentially,
+    that your code works and is valid.
+  id: totrans-505
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一章中，你将学习如何让你的代码更加专业。本质上，你将学习作为一个专业人士在真实工作环境中应该做什么，那就是测试和检查你的代码，确保你的代码能够工作并且是有效的。
