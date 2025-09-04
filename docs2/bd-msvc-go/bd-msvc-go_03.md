@@ -1,4 +1,4 @@
-# 介绍 Docker
+# 第三章：介绍 Docker
 
 在我们继续本书的内容之前，我们需要先了解一下被称为 Docker 的这个小东西，在我们开始之前，别忘了克隆示例代码仓库 [`github.com/building-microservices-with-go/chapter3.git`](https://github.com/building-microservices-with-go/chapter3.git)。
 

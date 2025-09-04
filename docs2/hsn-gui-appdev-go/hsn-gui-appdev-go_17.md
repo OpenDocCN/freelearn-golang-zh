@@ -1,4 +1,4 @@
-# Go GUI 开发的最佳实践
+# 第十三章：Go GUI 开发的最佳实践
 
 Go 语言有明确的格式化、文档和代码结构实践。您可以在许多地方找到这些参考，例如，[`golang.org/doc/effective_go.html#formatting`](https://golang.org/doc/effective_go.html#formatting) 和 [`github.com/golang/go/wiki/CodeReviewComments`](https://github.com/golang/go/wiki/CodeReviewComments)。此外，有一个强大的社区推动编写惯用的 Go 语言，例如 [`dmitri.shuralyov.com/idiomatic-go`](https://dmitri.shuralyov.com/idiomatic-go)。许多这些设计决策都编码在工具如`gofmt`和`golint`中，这使得人们学习并维护标准化代码变得容易。
 

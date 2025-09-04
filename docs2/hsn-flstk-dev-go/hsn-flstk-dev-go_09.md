@@ -1,4 +1,4 @@
-# 使用 Gin 框架在 Go 中构建 RESTful Web API
+# 第六章：使用 Gin 框架在 Go 中构建 RESTful Web API
 
 在前面的章节中，我们探讨了如何利用流行的 React 框架构建我们应用程序的引人入胜的前端。
 

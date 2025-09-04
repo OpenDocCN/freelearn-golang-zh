@@ -1,4 +1,4 @@
-# Walk - 构建图形窗口应用程序
+# 第四章：Walk - 构建图形窗口应用程序
 
 Walk 是 Go 编程语言的 Windows GUI 工具包——它的目的是使我们能够使用 Go 构建 Windows 的原生桌面 GUI 应用程序。它是基于同一作者编写的 win 包构建的，该包是 Windows API 的直接 Go 绑定。主要的 API 设计旨在使与**Windows API**（**WinAPI**）的工作既容易又符合 Go 设计原则。
 

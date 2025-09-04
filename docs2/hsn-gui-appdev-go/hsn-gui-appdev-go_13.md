@@ -1,4 +1,4 @@
-# Fyne - 基于 Material Design 的 GUI
+# 第十章：Fyne - 基于 Material Design 的 GUI
 
 Fyne 是一个 UI 工具包和应用 API，旨在易于使用。其界面设计遵循材料设计原则，提供跨平台的图形，在所有支持的平台上都看起来相同。本章探讨了如何使用 Fyne 编写多平台的图形应用程序。
 

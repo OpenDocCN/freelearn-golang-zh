@@ -1,6 +1,6 @@
 
 
-# 使用 GoReleaser 将你的 Go 二进制文件作为 Homebrew 公式发布
+# 第十四章：使用 GoReleaser 将你的 Go 二进制文件作为 Homebrew 公式发布
 
 在本章中，我们将探讨 GoReleaser 和 GitHub Actions 以及它们如何协同使用来自动化将 Go 二进制文件作为 Homebrew 公式发布的过程。首先，我们将探讨 **GoReleaser**，这是一个流行的开源工具，它简化了 Go 二进制文件的创建、测试和分发。我们将探讨其各种配置和选项，以及它是如何与 GitHub Actions 一起工作的。
 
