@@ -1,6 +1,6 @@
-# Python 卖空算法教程
+# Go 微服务构建指南
 
-> 原文：[`zh.annas-archive.org/md5/ceefdd89e585c59c20db6a7760dc11f1`](https://zh.annas-archive.org/md5/ceefdd89e585c59c20db6a7760dc11f1)
+> 原文：[`zh.annas-archive.org/md5/a1277f7208f41609e82de5cdeffdf508`](https://zh.annas-archive.org/md5/a1277f7208f41609e82de5cdeffdf508)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 

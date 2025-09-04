@@ -1,6 +1,6 @@
-# Python 卖空算法教程
+# TinyGO DIY 微控制器项目创建指南
 
-> 原文：[`zh.annas-archive.org/md5/ceefdd89e585c59c20db6a7760dc11f1`](https://zh.annas-archive.org/md5/ceefdd89e585c59c20db6a7760dc11f1)
+> 原文：[`zh.annas-archive.org/md5/b484a78bd7af455037b5eacd9dc45866`](https://zh.annas-archive.org/md5/b484a78bd7af455037b5eacd9dc45866)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 

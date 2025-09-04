@@ -1,4 +1,4 @@
-# Python 卖空算法教程
+# Fyre 跨平台 GUI 应用构建指南
 
 > 原文：[`zh.annas-archive.org/md5/ceefdd89e585c59c20db6a7760dc11f1`](https://zh.annas-archive.org/md5/ceefdd89e585c59c20db6a7760dc11f1)
 > 
