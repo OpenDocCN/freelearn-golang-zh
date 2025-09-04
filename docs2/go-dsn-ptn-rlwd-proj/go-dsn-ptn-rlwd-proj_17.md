@@ -1,0 +1,1148 @@
+# 第三章：结构模式 - 组合、适配器和桥接设计模式
+
+我们将开始探索结构模式的世界。正如其名所示，结构模式帮助我们使用常用的结构和关系来塑造我们的应用程序。
+
+Go 语言由于其缺乏继承，本质上鼓励几乎完全使用组合。正因为如此，我们至今一直在广泛使用组合设计模式，所以让我们首先定义组合设计模式。
+
+# 组合设计模式
+
+组合设计模式倾向于组合（通常定义为“有一个”关系）而不是继承（“是一个”关系）。自九十年代以来，“组合优于继承”的方法一直是工程师们讨论的来源。我们将学习如何通过使用“有一个”方法来创建对象结构。总的来说，Go 语言没有继承，因为它不需要它！
+
+## 描述
+
+在组合设计模式中，你将创建对象层次结构和树。对象内部有不同的对象，它们有自己的字段和方法。这种方法非常强大，解决了许多继承和多继承的问题。例如，一个典型的继承问题是你有一个实体从两个完全不同的类继承，这两个类之间没有任何关系。想象一个既训练又游泳的运动员：
+
++   `Athlete` 类有一个 `Train()` 方法
+
++   `Swimmer` 类有一个 `Swim()` 方法
+
+`Swimmer` 类从 `Athlete` 类继承，因此继承了它的 `Train()` 方法并声明了自己的 `Swim()` 方法。你也可以有一个既是运动员又是骑手的自行车手，并声明一个 `Ride()` 方法。
+
+但现在想象一个像狗一样既能吃又能吠叫的动物：
+
++   `Cyclist` 类有一个 `Ride()` 方法
+
++   `Animal` 类有 `Eat()`、`Dog()` 和 `Bark()` 方法
+
+没有什么花哨的。你也可以有一个既是动物又会游泳的鱼！那么，你该如何解决这个问题呢？鱼不能既是游泳者又是训练者。据我所知，鱼不会训练！你可以创建一个带有 `Swim()` 方法的 `Swimmer` 接口，并让游泳运动员和鱼实现它。这将是一个最佳方法，但你仍然需要两次实现 `swim` 方法，因此代码的可重用性会受到影响。那么铁人三项运动员呢？他们是既游泳又跑步又骑行的运动员。使用多继承，你可以有一种解决方案，但很快就会变得复杂且难以维护。
+
+## 目标
+
+如你可能已经想象到的，组合的目标是避免这种类型的高度层次地狱，应用程序的复杂性可能会变得过大，代码的清晰度受到影响。
+
+## 游泳者和鱼
+
+我们将以非常符合 Go 风格的编程方式解决描述的运动员和游泳的鱼的问题。使用 Go，我们可以使用两种类型的组合——**直接**组合和**嵌入**组合。我们将首先通过使用直接组合来解决这个问题，即在结构体内部作为字段包含所需的所有内容。
+
+## 需求和验收标准
+
+需求与验收标准类似。我们将有一个运动员和一个泳者。我们还将有一个动物和一条鱼。`Swimmer`和`Fish`方法必须共享代码。运动员必须训练，动物必须进食：
+
++   我们必须有一个具有`Train`方法的`Athlete`结构
+
++   我们必须有一个具有`Swim`方法的`Swimmer`
+
++   我们必须有一个具有`Eat`方法的`Animal`结构
+
++   我们必须有一个具有与`Swimmer`共享的`Swim`方法的`Fish`结构，并且没有继承或层次问题
+
+## 创建组合
+
+复合设计模式是一个纯结构模式，除了结构本身之外，没有太多可以测试的内容。在这种情况下，我们不会编写单元测试，而只是描述在 Go 中创建这些组合的方法。
+
+首先，我们将从`Athlete`结构和它的`Train`方法开始：
+
+```go
+type Athlete struct{} 
+
+func (a *Athlete) Train() { 
+  fmt.Println("Training") 
+} 
+
+```
+
+之前的代码相当简单。它的`Train`方法打印出单词`Training`和一行新内容。我们将创建一个包含`Athlete`结构的复合泳者：
+
+```go
+type CompositeSwimmerA struct{ 
+  MyAthlete Athlete 
+  MySwim func() 
+} 
+
+```
+
+`CompositeSwimmerA`类型有一个类型为`Athlete`的`MyAthlete`字段。它还存储一个`func()`类型。记住，在 Go 中，函数是一等公民，它们可以用作参数、字段或参数，就像任何变量一样。所以`CompositeSwimmerA`有一个存储**闭包**的`MySwim`字段，该闭包不接受任何参数也不返回任何内容。我如何将它分配给它？好吧，让我们创建一个与`func()`签名匹配的函数（没有参数，没有返回）：
+
+```go
+func Swim(){ 
+  fmt.Println("Swimming!") 
+} 
+
+```
+
+那就足够了！`Swim()`函数不接受任何参数也不返回任何内容，因此它可以作为`CompositeSwimmerA`结构中的`MySwim`字段使用：
+
+```go
+swimmer := CompositeSwimmerA{ 
+  MySwim: Swim, 
+} 
+
+swimmer.MyAthlete.Train() 
+swimmer.MySwim() 
+
+```
+
+因为我们有一个名为`Swim()`的函数，我们可以将其分配给`MySwim`字段。请注意，`Swim`类型没有执行其内容的括号。这样我们就取整个函数并将其复制到`MySwim`方法中。
+
+但是等等。我们没有将任何运动员传递给`MyAthlete`字段，并且正在使用它！这将会失败！让我们看看执行此代码片段会发生什么：
+
+```go
+$ go run main.go
+Training
+Swimming!
+
+```
+
+这很奇怪，不是吗？其实并不是，因为这是 Go 中零初始化的特性。如果你没有将`Athlete`结构传递给`CompositeSwimmerA`类型，编译器将创建一个具有零初始化值的结构，即字段初始化为零的`Athlete`结构。查看第一章，*准备... 集合... 开始！*来回忆零初始化，如果这看起来很困惑。再次考虑`CompositeSwimmerA`结构代码：
+
+```go
+type CompositeSwimmerA struct{ 
+  MyAthlete Athlete 
+  MySwim    func() 
+} 
+
+```
+
+现在我们有一个指向存储在`MySwim`字段中的函数的指针。我们可以以相同的方式分配`Swim`函数，但需要额外的一步：
+
+```go
+localSwim := Swim 
+
+swimmer := CompositeSwimmerA{ 
+  MySwim: localSwim, 
+} 
+
+swimmer.MyAthlete.Train() 
+swimmer.MySwim () 
+
+```
+
+首先，我们需要一个包含`Swim`函数的变量。这是因为函数没有地址可以传递给`CompositeSwimmerA`类型。然后，为了在结构体中使用这个函数，我们必须进行两步调用。
+
+那么，我们的鱼问题呢？有了我们的`Swim`函数，这不再是问题。首先，我们创建`Animal`结构体：
+
+```go
+type Animal struct{} 
+
+func (r *Animal)Eat() { 
+  println("Eating") 
+} 
+
+```
+
+然后，我们将创建一个嵌入`Animal`对象的`Shark`对象：
+
+```go
+type Shark struct{ 
+  Animal 
+  Swim func() 
+} 
+
+```
+
+等一下！`Animal`类型的字段名在哪里？你意识到我在上一段中使用了*嵌入*这个词吗？这是因为，在 Go 中，你还可以在对象中嵌入对象，使其看起来非常像继承。也就是说，我们不需要显式地调用字段名来访问其字段和方法，因为它们将是我们的一部分。所以以下代码将完全没问题：
+
+```go
+fish := Shark{ 
+  Swim: Swim, 
+} 
+
+fish.Eat() 
+fish.Swim() 
+
+```
+
+现在我们有一个`Animal`类型，它是零初始化并嵌入的。这就是为什么我可以调用`Animal`结构体的`Eat`方法，而无需创建它或使用中间字段名。这个代码片段的输出如下：
+
+```go
+$ go run main.go 
+Eating 
+Swimming!
+
+```
+
+最后，还有第三种使用复合模式的方法。我们可以创建一个带有`Swim`方法的`Swimmer`接口和一个`SwimmerImpl`类型来在运动员游泳者中嵌入它。
+
+```go
+type Swimmer interface { 
+  Swim() 
+} 
+type Trainer interface { 
+  Train() 
+} 
+
+type SwimmerImpl struct{} 
+func (s *SwimmerImpl) Swim(){ 
+  println("Swimming!") 
+} 
+
+type CompositeSwimmerB struct{ 
+  Trainer 
+  Swimmer 
+} 
+
+```
+
+使用这种方法，你对对象创建有更多的显式控制。`Swimmer`字段是嵌入的，但不会进行零初始化，因为它是一个接口的指针。正确使用这种方法的方式如下：
+
+```go
+swimmer := CompositeSwimmerB{ 
+  &Athlete{}, 
+  &SwimmerImpl{}, 
+} 
+
+swimmer.Train() 
+swimmer.Swim() 
+
+```
+
+并且`CompositeSwimmerB`的输出正如预期的那样：
+
+```go
+$ go run main.go
+Training
+Swimming!
+
+```
+
+哪种方法更好？嗯，我有一个个人的偏好，但这不应该被视为一个规则。在我看来，*接口*方法由于很多原因，尤其是由于明确性，是最好的。首先，你正在使用接口而不是结构体。其次，你没有将代码的一部分留给编译器的零初始化功能。这是一个非常强大的功能，但必须谨慎使用，因为它可能导致运行时问题，这些问题你会在使用接口时在编译时发现。在不同的情境下，零初始化会在运行时为你节省时间！但我的偏好是尽可能多地使用接口，所以这实际上并不是一个选项。
+
+## 二叉树组合
+
+复合模式的另一种非常常见的方法是在处理二叉树结构时。在二叉树中，你需要在一个字段中存储它自己的实例：
+
+```go
+type Tree struct { 
+  LeafValue int 
+  Right     *Tree 
+  Left      *Tree 
+} 
+
+```
+
+这是一种递归复合，由于递归的性质，我们必须使用指针，这样编译器就知道为这个结构体保留多少内存。我们的`Tree`结构体为每个实例存储了一个`LeafValue`对象，并在其`Right`和`Left`字段中存储了一个新的`Tree`。
+
+使用这种结构，我们可以创建一个像这样的对象：
+
+```go
+root := Tree{ 
+  LeafValue: 0, 
+  Right:&Tree{ 
+    LeafValue: 5, 
+    Right: &1Tree{ 6, nil, nil }, 
+    Left: nil, 
+  }, 
+  Left:&Tree{ 4, nil, nil }, 
+} 
+
+```
+
+我们可以像这样打印其最深层的分支内容：
+
+```go
+fmt.Println(root.Right.Right.LeafValue) 
+
+$ go run main.go 
+6
+
+```
+
+## 组合模式与继承的比较
+
+在 Go 中使用组合设计模式时，你必须非常小心，不要将其与继承混淆。例如，当你将`Parent`结构体嵌入到`Son`结构体中时，如下例所示：
+
+```go
+type Parent struct { 
+  SomeField int 
+} 
+
+type Son struct { 
+  Parent 
+} 
+
+```
+
+你不能认为`Son`结构体也是`Parent`结构体。这意味着你不能将`Son`结构体的实例传递给期望`Parent`结构体的函数，如下所示：
+
+```go
+func GetParentField(p *Parent) int{ 
+  fmt.Println(p.SomeField) 
+} 
+
+```
+
+当你尝试将`Son`实例传递给`GetParentField`方法时，你会得到以下错误信息：
+
+```go
+cannot use son (type Son) as type Parent in argument to GetParentField
+
+```
+
+实际上，这很有道理。这个问题的解决方案是什么？嗯，你可以简单地通过组合而不是内嵌的方式将`Son`结构体与父结构体组合起来，这样你就可以稍后访问`Parent`实例：
+
+```go
+type Son struct { 
+  P Parent 
+} 
+
+```
+
+因此现在你可以使用`P`字段将其传递给`GetParentField`方法：
+
+```go
+son := Son{} 
+GetParentField(son.P) 
+
+```
+
+## 关于组合模式的最后几句话
+
+在这个阶段，你应该已经非常熟练地使用组合设计模式了。这是 Go 语言的一个非常地道的特性，从纯面向对象语言切换过来并不痛苦。组合设计模式使得我们的结构更加可预测，同时也允许我们创建大多数将在后续章节中看到的设计模式。
+
+# 适配器设计模式
+
+最常用的结构型模式之一是**适配器**模式。就像在现实生活中，你有插头适配器和螺栓适配器一样，在 Go 中，适配器将允许我们使用最初并非为特定任务构建的东西。
+
+## 描述
+
+当例如接口过时，无法轻松或快速替换时，适配器模式非常有用。相反，你可以创建一个新的接口来处理应用程序的当前需求，而实际上，它使用的是旧接口的实现。
+
+适配器还帮助我们保持应用程序中的*开放/封闭原则*，使它们更加可预测。它们还允许我们编写使用某些无法修改的基类的代码。
+
+### 注意
+
+开放/封闭原则最初由伯特兰·梅耶在他的书《面向对象软件构造》中提出。他提出，代码应该对新功能开放，但对修改封闭。这意味着什么？嗯，它暗示了几件事情。一方面，我们应该尝试编写可扩展的代码，而不仅仅是能工作的代码。同时，我们应该尽量少修改源代码（无论是你的还是别人的），因为我们并不总是意识到这种修改的后果。只需记住，代码的可扩展性只有通过使用设计模式和面向接口的编程才能实现。
+
+## 目标
+
+适配器设计模式将帮助您适应代码中最初不兼容的两个部分。这是决定适配器模式是否是您问题的良好设计的关键——两个最初不兼容但必须一起工作的接口是适配器模式的良好候选（但它们也可以使用外观模式，例如）。
+
+## 使用适配器对象的不兼容接口
+
+对于我们的示例，我们将有一个旧的 `Printer` 接口和一个新的接口。新接口的用户不会期望旧接口的签名，我们需要一个适配器，以便用户在必要时仍然可以使用旧实现（例如，与某些旧代码一起工作）。
+
+## 需求和验收标准
+
+有一个名为 `LegacyPrinter` 的旧接口和一个名为 `ModernPrinter` 的新接口，创建一个实现 `ModernPrinter` 接口的结构，并且可以使用以下步骤中描述的 `LegacyPrinter` 接口：
+
+1.  创建一个实现 `ModernPrinter` 接口的适配器对象。
+
+1.  新的适配器对象必须包含 `LegacyPrinter` 接口的一个实例。
+
+1.  当使用 `ModernPrinter` 时，必须在底层调用 `LegacyPrinter` 接口，并在其前添加文本 `Adapter`。
+
+## 单元测试我们的打印机适配器
+
+我们将首先编写旧代码，但我们将不会对其进行测试，因为我们应该想象它不是我们的代码：
+
+```go
+type LegacyPrinter interface { 
+  Print(s string) string 
+} 
+type MyLegacyPrinter struct {} 
+
+func (l *MyLegacyPrinter) Print(s string) (newMsg string) { 
+  newMsg = fmt.Sprintf("Legacy Printer: %s\n", s) 
+  println(newMsg) 
+  return 
+} 
+
+```
+
+旧接口 `LegacyPrinter` 有一个接受字符串并返回消息的 `Print` 方法。我们的 `MyLegacyPrinter` 结构体实现了 `LegacyPrinter` 接口，并通过在文本前添加 `Legacy Printer:` 来修改传递的字符串。修改文本后，`MyLegacyPrinter` 结构体将在控制台上打印文本，然后返回它。
+
+现在我们将声明我们将要适配的新接口：
+
+```go
+type ModernPrinter interface { 
+  PrintStored() string 
+} 
+
+```
+
+在这种情况下，新的 `PrintStored` 方法不接受任何字符串作为参数，因为它必须事先存储在实现者中。我们将称我们的适配器模式的 `PrinterAdapter` 接口为：
+
+```go
+type PrinterAdapter struct{ 
+  OldPrinter LegacyPrinter 
+  Msg        string 
+} 
+func(p *PrinterAdapter) PrintStored() (newMsg string) { 
+  return 
+} 
+
+```
+
+如前所述，`PrinterAdapter` 适配器必须有一个字段来存储要打印的字符串。它还必须有一个字段来存储 `LegacyPrinter` 适配器的一个实例。因此，让我们编写单元测试：
+
+```go
+func TestAdapter(t *testing.T){ 
+  msg := "Hello World!" 
+
+```
+
+我们将为适配器使用消息 `Hello World!`。当使用这个消息与 `MyLegacyPrinter` 结构体的一个实例时，它将打印文本 `Legacy Printer: Hello World!`：
+
+```go
+adapter := PrinterAdapter{OldPrinter: &MyLegacyPrinter{}, Msg: msg} 
+
+```
+
+我们创建了一个名为 `adapter` 的 `PrinterAdapter` 接口实例。我们将 `MyLegacyPrinter` 结构体的一个实例作为 `LegacyPrinter` 字段 `OldPrinter` 传递。我们还设置了 `Msg` 字段中我们想要打印的消息：
+
+```go
+returnedMsg := adapter.PrintStored() 
+
+if returnedMsg != "Legacy Printer: Adapter: Hello World!\n" { 
+  t.Errorf("Message didn't match: %s\n", returnedMsg) 
+} 
+
+```
+
+然后，我们使用了`ModernPrinter`接口的`PrintStored`方法；这个方法不接受任何参数，必须返回修改后的字符串。我们知道`MyLegacyPrinter`结构返回的是带有文本`LegacyPrinter:`的前缀的传递字符串，适配器将使用文本`Adapter:`作为前缀。因此，最终我们必须有文本`Legacy Printer: Adapter: Hello World!\n`。
+
+由于我们正在存储一个接口的实例，我们还必须检查我们是否处理了指针为 nil 的情况。这是通过以下测试完成的：
+
+```go
+adapter = PrinterAdapter{OldPrinter: nil, Msg: msg} 
+returnedMsg = adapter.PrintStored() 
+
+if returnedMsg != "Hello World!" { 
+  t.Errorf("Message didn't match: %s\n", returnedMsg) 
+} 
+
+```
+
+如果我们没有传递`LegacyPrinter`接口的实例，适配器必须忽略其适配特性，简单地打印并返回原始消息。现在是运行我们的测试的时候了；考虑以下情况：
+
+```go
+$ go test -v .
+=== RUN   TestAdapter
+--- FAIL: TestAdapter (0.00s)
+ adapter_test.go:11: Message didn't match: 
+ adapter_test.go:17: Message didn't match: 
+FAIL
+exit status 1
+FAIL
+
+```
+
+## 实现
+
+为了使我们的单个测试通过，我们必须重用存储在`PrinterAdapter`结构体中的旧的`MyLegacyPrinter`：
+
+```go
+type PrinterAdapter struct{ 
+  OldPrinter LegacyPrinter 
+  Msg        string 
+} 
+
+func(p *PrinterAdapter) PrintStored() (newMsg string) { 
+  if p.OldPrinter != nil { 
+    newMsg = fmt.Sprintf("Adapter: %s", p.Msg) 
+    newMsg = p.OldPrinter.Print(newMsg) 
+  } 
+  else { 
+    newMsg = p.Msg 
+  } 
+return 
+} 
+
+```
+
+在`PrintStored`方法中，我们检查是否实际上有一个`LegacyPrinter`的实例。在这种情况下，我们使用存储的消息和`Adapter`前缀组合成一个新的字符串，并将其存储在返回变量（称为`newMsg`）中。然后我们使用指向`MyLegacyPrinter`结构的指针，使用`LegacyPrinter`接口打印组合的消息。
+
+如果在`OldPrinter`字段中没有存储`LegacyPrinter`实例，我们只需将存储的消息赋值给返回变量`newMsg`并返回方法。这应该足以通过我们的测试：
+
+```go
+$ go test -v .
+=== RUN   TestAdapter
+Legacy Printer: Adapter: Hello World!
+--- PASS: TestAdapter (0.00s)
+PASS
+ok
+
+```
+
+完美！现在我们可以在使用`ModernPrinter`接口进行未来实现的同时，仍然使用旧的`LegacyPrinter`接口通过这个`Adapter`。只需记住，适配器模式理想上只应提供使用旧的`LegacyPrinter`的方式，而不做其他事情。这样，它的作用域将更加封装，未来的可维护性也会更高。
+
+## Go 源代码中适配器模式的示例
+
+你可以在 Go 语言源代码的许多地方找到适配器实现。著名的`http.Handler`接口有一个非常有趣的适配器实现。一个简单的 Go 语言`Hello World`服务器通常是这样实现的：
+
+```go
+package main 
+
+import ( 
+    "fmt" 
+    "log" 
+    "net/http" 
+) 
+type MyServer struct{ 
+  Msg string 
+} 
+func (m *MyServer) ServeHTTP(w http.ResponseWriter,r *http.Request){ 
+  fmt.Fprintf(w, "Hello, World") 
+} 
+
+func main() { 
+  server := &MyServer{ 
+  Msg:"Hello, World", 
+} 
+
+http.Handle("/", server)  
+log.Fatal(http.ListenAndServe(":8080", nil)) 
+} 
+
+```
+
+HTTP 包有一个名为`Handle`的函数（类似于 Java 中的`static`方法），它接受两个参数——一个表示路由的字符串和一个`Handler`接口。`Handler`接口如下：
+
+```go
+type Handler interface { 
+  ServeHTTP(ResponseWriter, *Request) 
+} 
+
+```
+
+我们需要实现一个`ServeHTTP`方法，该方法是 HTTP 连接的客户端用来执行其上下文的。但还有一个名为`HandlerFunc`的函数，它允许你定义一些端点行为：
+
+```go
+func main() { 
+  http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { 
+    fmt.Fprintf(w, "Hello, World") 
+  }) 
+
+  log.Fatal(http.ListenAndServe(":8080", nil)) 
+} 
+
+```
+
+`HandleFunc`函数实际上是用于直接将函数用作`ServeHTTP`实现的适配器的一部分。再次慢慢阅读最后一句——你能猜到它是如何实现的吗？
+
+```go
+type HandlerFunc func(ResponseWriter, *Request) 
+
+func (f HandlerFunc) ServeHTTP(w ResponseWriter, r *Request) { 
+  f(w, r) 
+} 
+
+```
+
+我们可以定义一个类型，就像我们定义结构体一样。我们使这个函数类型来实现`ServeHTTP`方法。最后，从`ServeHTTP`函数中，我们调用接收器本身`f(w, r)`。
+
+你必须考虑 Go 的隐式接口实现。当我们定义一个像 `func(ResponseWriter, *Request)` 这样的函数时，它隐式地被识别为 `HandlerFunc`。因为 `HandleFunc` 函数实现了 `Handler` 接口，所以我们的函数也隐式地实现了 `Handler` 接口。这听起来熟悉吗？如果 *A = B* 和 *B = C*，那么 *A = C*。隐式实现给 Go 带来了很多灵活性和强大的功能，但你必须也要小心，因为你不知道一个方法或函数是否在实现一个可能会引起不良行为的接口。
+
+我们可以在 Go 的源代码中找到更多例子。`io` 包使用管道的另一个强大例子。Linux 中的管道是一种流机制，它从输入获取一些内容，并在输出输出其他内容。`io` 包有两个接口，这些接口在 Go 的源代码中到处使用——`io.Reader` 和 `io.Writer` 接口：
+
+```go
+type Reader interface { 
+  Read(p []byte) (n int, err error) 
+} 
+
+type Writer interface { 
+  Write(p []byte) (n int, err error) 
+} 
+
+```
+
+我们到处都使用 `io.Reader`，例如，当你使用 `os.OpenFile` 打开一个文件时，它返回一个文件，实际上实现了 `io.Reader` 接口。为什么它有用呢？想象一下你写一个 `Counter` 结构体，它从你提供的数字开始计数到零：
+
+```go
+type Counter struct {} 
+func (f *Counter) Count(n uint64) uint64 { 
+  if n == 0 { 
+    println(strconv.Itoa(0)) 
+    return 0 
+  } 
+
+  cur := n 
+  println(strconv.FormatUint(cur, 10)) 
+  return f.Count(n - 1) 
+} 
+
+```
+
+如果你向这个小片段提供数字 3，它将打印以下内容：
+
+```go
+3
+2
+1
+
+```
+
+嗯，这并不太令人印象深刻！如果我想写入文件而不是打印怎么办？我们也可以实现这个方法。如果我想将打印输出到文件和控制台怎么办？嗯，我们也可以实现这个方法。我们必须通过使用 `io.Writer` 接口来进一步模块化它：
+
+```go
+type Counter struct { 
+  Writer io.Writer 
+} 
+func (f *Counter) Count(n uint64) uint64 { 
+  if n == 0 { 
+    f.Writer.Write([]byte(strconv.Itoa(0) + "\n")) 
+    return 0 
+  } 
+
+  cur := n 
+  f.Writer.Write([]byte(strconv.FormatUint(cur, 10) + "\n")) 
+  return f.Count(n - 1) 
+}
+
+```
+
+现在我们提供一个 `io.Writer` 到 `Writer` 字段。这样，我们可以创建计数器，例如：`c := Counter{os.Stdout}`，我们将会得到一个控制台 `Writer`。但是等等，我们还没有解决我们想要将计数传递到多个 `Writer` 控制台的问题。但是我们可以写一个新的 `Adapter`，带有 `io.Writer`，并使用 `Pipe()` 连接一个读取器和一个写入器，我们可以在相反的极端读取。这样，你可以解决这两个接口，`Reader` 和 `Writer`，不兼容的问题，使它们可以一起使用。
+
+实际上，我们不需要编写 Adapter——Go 的 `io` 库在 `io.Pipe()` 中为我们提供了一个。管道将允许我们将 `Reader` 转换为 `Writer` 接口。`io.Pipe()` 方法将为我们提供一个 `Writer`（管道的入口）和一个 `Reader`（出口）来操作。所以让我们创建一个管道，并将提供的写入器分配给前面例子中的 `Counter`：
+
+```go
+pipeReader, pipeWriter := io.Pipe() 
+defer pw.Close() 
+defer pr.Close() 
+
+counter := Counter{ 
+  Writer: pipeWriter, 
+} 
+
+```
+
+现在我们有一个 `Reader` 接口，之前我们有 `Writer`。我们可以在哪里使用 `Reader`？`io.TeeReader` 函数帮助我们从一个 `Reader` 接口复制数据流到 `Writer` 接口，并且它返回一个新的 `Reader`，你仍然可以使用它再次将数据流到一个第二个写入器。所以我们将数据从同一个读取器流到两个写入器——文件和 `Stdout`。
+
+```go
+tee := io.TeeReader(pipeReader, file) 
+
+```
+
+因此，现在我们知道我们正在写入传递给`TeeReader`函数的文件。我们仍然需要打印到控制台。`io.Copy`适配器可以像`TeeReader`一样使用--它接受一个读取器并将内容写入一个写入器：
+
+```go
+go func(){ 
+  io.Copy(os.Stdout, tee) 
+}() 
+
+```
+
+我们必须在不同的 Go 协程中启动`Copy`函数，以便并发执行写入，一个读写操作不会阻塞另一个读写操作。让我们修改`counter`变量，使其再次计数到 5：
+
+```go
+counter.Count(5) 
+
+```
+
+通过对代码的此修改，我们得到以下输出：
+
+```go
+$ go run counter.go
+5
+4
+3
+2
+1
+0
+
+```
+
+好的，计数已经打印在控制台上了。文件呢？
+
+```go
+$ cat /tmp/pipe
+5
+4
+3
+2
+1
+0
+
+```
+
+太棒了！通过使用 Go 原生库中提供的`io.Pipe()`适配器，我们已经将计数器与其输出解耦，并将`Writer`接口适配到`Reader`接口。
+
+## Go 源代码告诉我们关于适配器模式的信息
+
+使用适配器设计模式，你已经学会了一种快速实现应用程序中开闭原则的方法。而不是修改你的旧源代码（在某些情况下可能不可能做到），你创建了一种使用旧功能以新签名的方式。
+
+# 桥接设计模式
+
+**桥接**模式是从原始的《设计模式：可复用面向对象软件的基础》书中来的一个定义稍显晦涩的设计。它将抽象与其实现解耦，以便两者可以独立变化。这种晦涩的解释只是意味着你甚至可以解耦最基本的功能形式：将对象与其所执行的事情解耦。
+
+## 描述
+
+桥接模式试图像通常的设计模式一样解耦事物。它将抽象（一个对象）与其实现（对象所执行的事情）解耦。这样，我们可以根据需要尽可能多地改变对象的行为。它还允许我们在重用相同实现的同时改变抽象对象。
+
+## 目标
+
+桥接模式的目标是为经常变化的结构提供灵活性。了解方法输入和输出，它允许我们在不了解太多的情况下更改代码，并为双方提供更容易修改的自由。
+
+## 两个打印机和每种打印方式
+
+对于我们的示例，我们将使用控制台打印抽象来保持简单。我们将有两个实现。第一个将写入控制台。在上一节学习了`io.Writer`接口后，我们将使第二个实现写入`io.Writer`接口，以提供更多灵活性。我们还将有两个使用这些实现的抽象对象用户--一个`Normal`对象，它将以直接的方式使用每个实现，以及一个`Packt`实现，它将在打印消息中附加句子`Message from Packt:`。
+
+在本节的结尾，我们将有两个抽象对象，它们具有其功能的不同实现。所以，实际上，我们将有 2²种可能的组合对象功能。
+
+## 需求和验收标准
+
+如我们之前提到的，我们将有两个对象（`Packt`和`Normal`打印机）和两个实现（`PrinterImpl1`和`PrinterImpl2`），我们将使用桥接设计模式将它们连接起来。大致来说，我们将有以下要求和验收标准：
+
++   一个接受要打印的消息的`PrinterAPI`
+
++   一个简单的 API 实现，将消息打印到控制台
+
++   一个将消息打印到`io.Writer`接口的 API 实现
+
++   一个具有`Print`方法的`Printer`抽象，用于实现打印类型
+
++   一个实现`Printer`和`PrinterAPI`接口的`normal`打印机对象
+
++   `normal`打印机将直接将消息转发到实现
+
++   一个实现`Printer`抽象和`PrinterAPI`接口的`Packt`打印机
+
++   `Packt`打印机将在所有打印中附加消息`Message from Packt:`
+
+## 单元测试桥接模式
+
+让我们从*验收标准 1*开始，即`PrinterAPI`接口。实现此接口的开发者必须提供一个`PrintMessage(string)`方法，该方法将打印作为参数传递的消息：
+
+```go
+type PrinterAPI interface { 
+  PrintMessage(string) error 
+} 
+
+```
+
+我们将使用前一个 API 的实现来传递到*验收标准 2*：
+
+```go
+type PrinterImpl1 struct{} 
+
+func (p *PrinterImpl1) PrintMessage(msg string) error { 
+  return errors.New("Not implemented yet") 
+} 
+
+```
+
+我们的`PrinterImpl1`是一个实现`PrinterAPI`接口的类型，它通过提供`PrintMessage`方法的实现来实现。`PrintMessage`方法尚未实现，并返回错误。这足以编写我们的第一个单元测试来覆盖`PrinterImpl1`：
+
+```go
+func TestPrintAPI1(t *testing.T){ 
+  api1 := PrinterImpl1{} 
+
+  err := api1.PrintMessage("Hello") 
+  if err != nil { 
+    t.Errorf("Error trying to use the API1 implementation: Message: %s\n", err.Error()) 
+  } 
+} 
+
+```
+
+在我们的测试中覆盖`PrintAPI1`时，我们创建了一个`PrinterImpl1`类型的实例。然后我们使用它的`PrintMessage`方法将消息`Hello`打印到控制台。由于我们还没有实现，它必须返回错误字符串`Not implemented yet`：
+
+```go
+$ go test -v -run=TestPrintAPI1 . 
+=== RUN   TestPrintAPI1 
+--- FAIL: TestPrintAPI1 (0.00s) 
+        bridge_test.go:14: Error trying to use the API1 implementation: Message: Not implemented yet 
+FAIL 
+exit status 1 
+FAIL    _/C_/Users/mario/Desktop/go-design-patterns/structural/bridge/traditional
+
+```
+
+好的。现在我们必须编写第二个 API 测试，该测试将使用`io.Writer`接口：
+
+```go
+type PrinterImpl2 struct{ 
+  Writer io.Writer 
+} 
+
+func (d *PrinterImpl2) PrintMessage(msg string) error { 
+  return errors.New("Not implemented yet") 
+} 
+
+```
+
+如您所见，我们的`PrinterImpl2`结构体存储了一个`io.Writer`实现者。此外，我们的`PrintMessage`方法遵循`PrinterAPI`接口。
+
+现在我们已经熟悉了`io.Writer`接口，我们将创建一个实现此接口的测试对象，并将写入的内容存储在本地字段中。这将帮助我们检查通过 writer 发送的内容：
+
+```go
+type TestWriter struct { 
+  Msg string 
+} 
+
+func (t *TestWriter) Write(p []byte) (n int, err error) { 
+  n = len(p) 
+  if n > 0 { 
+    t.Msg = string(p) 
+    return n, nil 
+  } 
+  err = errors.New("Content received on Writer was empty") 
+  return 
+} 
+
+```
+
+在我们的测试对象中，我们在将其写入本地字段之前检查了内容是否为空。如果为空，我们返回错误，如果不为空，我们将`p`的内容写入`Msg`字段。我们将在以下针对第二个 API 的测试中使用这个小结构体：
+
+```go
+func TestPrintAPI2(t *testing.T){ 
+  api2 := PrinterImpl2{} 
+
+  err := api2.PrintMessage("Hello") 
+  if err != nil { 
+    expectedErrorMessage := "You need to pass an io.Writer to PrinterImpl2" 
+    if !strings.Contains(err.Error(), expectedErrorMessage) { 
+      t.Errorf("Error message was not correct.\n 
+      Actual: %s\nExpected: %s\n", err.Error(), expectedErrorMessage) 
+    } 
+  } 
+
+```
+
+让我们在这里暂停一下。在前面的代码的第一行中，我们创建了一个名为`PrinterImpl2`的实例，称为`api2`。我们故意没有传递任何`io.Writer`实例，因此我们也检查了我们是否首先收到一个错误。然后我们尝试使用它的`PrintMessage`方法，但我们必须得到一个错误，因为它在`Writer`字段中没有存储任何`io.Writer`实例。错误必须是`您需要向 PrinterImpl2 传递一个 io.Writer`，并且我们隐式地检查了错误的正文。让我们继续进行测试：
+
+```go
+  testWriter := TestWriter{} 
+  api2 = PrinterImpl2{ 
+    Writer: &testWriter, 
+  } 
+
+  expectedMessage := "Hello" 
+  err = api2.PrintMessage(expectedMessage) 
+  if err != nil { 
+    t.Errorf("Error trying to use the API2 implementation: %s\n", err.Error()) 
+  } 
+
+  if testWriter.Msg !=  expectedMessage { 
+    t.Fatalf("API2 did not write correctly on the io.Writer. \n  Actual: %s\nExpected: %s\n", testWriter.Msg, expectedMessage) 
+  } 
+} 
+
+```
+
+对于这个单元测试的第二部分，我们使用`TestWriter`对象的实例作为`io.Writer`接口，称为`testWriter`。我们将消息`Hello`传递给`api2`，并检查是否收到任何错误。然后，我们检查`testWriter.Msg`字段的正文——记住我们已经编写了一个`io.Writer`接口，它将传递给其`Write`方法的任何字节存储在`Msg`字段中。如果一切正常，消息应该包含单词`Hello`。
+
+这些是我们对`PrinterImpl2`的测试。由于我们还没有任何实现，当我们运行这个测试时，我们应该得到一些错误：
+
+```go
+$ go test -v -run=TestPrintAPI2 .
+=== RUN   TestPrintAPI2
+--- FAIL: TestPrintAPI2 (0.00s)
+bridge_test.go:39: Error message was not correct.
+Actual: Not implemented yet
+Expected: You need to pass an io.Writer to PrinterImpl2
+bridge_test.go:52: Error trying to use the API2 implementation: Not 
+implemented yet
+bridge_test.go:57: API2 did not write correctly on the io.Writer.
+Actual:
+Expected: Hello
+FAIL
+exit status 1
+FAIL
+
+```
+
+至少有一个测试通过——这个测试检查在使用`PrintMessage`而没有存储`io.Writer`实例时是否返回错误消息（任何错误）。其他所有测试都未通过，正如预期在这个阶段。
+
+现在我们需要一个可以用于`PrinterAPI`实现者的对象的打印机抽象。我们将定义这个为`PrinterAbstraction`接口，其中包含一个`Print`方法。这涵盖了*验收标准 4*：
+
+```go
+type PrinterAbstraction interface { 
+  Print() error 
+} 
+
+```
+
+对于*验收标准 5*，我们需要一个普通打印机。`Printer`抽象需要一个字段来存储`PrinterAPI`。所以我们的`NormalPrinter`可能看起来像以下这样：
+
+```go
+type NormalPrinter struct { 
+  Msg     string 
+  Printer PrinterAPI 
+} 
+
+func (c *NormalPrinter) Print() error { 
+  return errors.New("Not implemented yet") 
+} 
+
+```
+
+这足以编写`Print()`方法的单元测试：
+
+```go
+func TestNormalPrinter_Print(t *testing.T) { 
+  expectedMessage := "Hello io.Writer" 
+
+  normal := NormalPrinter{ 
+    Msg:expectedMessage, 
+    Printer: &PrinterImpl1{}, 
+  } 
+
+  err := normal.Print() 
+  if err != nil { 
+    t.Errorf(err.Error()) 
+  } 
+} 
+
+```
+
+测试的第一部分检查在使用`PrinterImpl1 PrinterAPI`接口时`Print()`方法尚未实现。我们将使用的消息是`Hello io.Writer`。使用`PrinterImpl1`，我们没有一种简单的方法来检查消息的内容，因为我们直接打印到控制台。在这种情况下，检查是可视的，因此我们可以检查*验收标准 6*：
+
+```go
+  testWriter := TestWriter{} 
+  normal = NormalPrinter{ 
+    Msg: expectedMessage, 
+    Printer: &PrinterImpl2{ 
+      Writer:&testWriter, 
+    }, 
+  } 
+
+  err = normal.Print() 
+  if err != nil { 
+    t.Error(err.Error()) 
+  } 
+
+  if testWriter.Msg != expectedMessage { 
+    t.Errorf("The expected message on the io.Writer doesn't match actual.\n  Actual: %s\nExpected: %s\n", testWriter.Msg, expectedMessage) 
+  } 
+} 
+
+```
+
+`NormalPrinter`测试的第二部分使用`PrinterImpl2`，这是需要`io.Writer`接口实现者的一个。我们在这里重用我们的`TestWriter`结构来检查消息的内容。所以，简而言之，我们想要一个接受类型为字符串的`Msg`和类型为`PrinterAPI`的`Printer`的`NormalPrinter`结构。在这个时候，如果我使用`Print`方法，我不应该得到任何错误，并且`TestWriter`上的`Msg`字段必须包含我们传递给`NormalPrinter`的消息。
+
+让我们运行测试：
+
+```go
+$ go test -v -run=TestNormalPrinter_Print .
+=== RUN   TestNormalPrinter_Print
+--- FAIL: TestNormalPrinter_Print (0.00s)
+ bridge_test.go:72: Not implemented yet
+ bridge_test.go:85: Not implemented yet
+ bridge_test.go:89: The expected message on the io.Writer doesn't match actual.
+ Actual:
+ Expected: Hello io.Writer
+FAIL
+exit status 1
+FAIL
+
+```
+
+快速检查单元测试有效性的技巧是——我们调用 `t.Error` 或 `t.Errorf` 的次数必须与控制台上错误消息的数量以及它们产生的行数相匹配。在先前的测试结果中，第 72 行、第 85 行和第 89 行有三个错误，这与我们编写的检查完全一致。
+
+在这一点上，我们的 `PacktPrinter` 结构体将与 `NormalPrinter` 结构体有非常相似的定义：
+
+```go
+type PacktPrinter struct { 
+  Msg     string 
+  Printer PrinterAPI 
+} 
+
+func (c *PacktPrinter) Print() error { 
+  return errors.New("Not implemented yet") 
+} 
+
+```
+
+这涵盖了 *验收标准 7*。我们几乎可以复制并粘贴先前的测试内容，只需进行一些修改：
+
+```go
+func TestPacktPrinter_Print(t *testing.T) { 
+  passedMessage := "Hello io.Writer" 
+  expectedMessage := "Message from Packt: Hello io.Writer" 
+
+  packt := PacktPrinter{ 
+    Msg:passedMessage, 
+    Printer: &PrinterImpl1{}, 
+  } 
+
+  err := packt.Print() 
+  if err != nil { 
+    t.Errorf(err.Error()) 
+  } 
+
+  testWriter := TestWriter{} 
+  packt = PacktPrinter{ 
+    Msg: passedMessage, 
+    Printer:&PrinterImpl2{ 
+      Writer:&testWriter, 
+    }, 
+  } 
+
+  err = packt.Print() 
+  if err != nil { 
+    t.Error(err.Error()) 
+  } 
+
+  if testWriter.Msg != expectedMessage { 
+    t.Errorf("The expected message on the io.Writer doesn't match actual.\n  Actual: %s\nExpected: %s\n", testWriter.Msg,expectedMessage) 
+  } 
+} 
+
+```
+
+我们在这里做了什么改变？现在我们有 `passedMessage`，它代表我们传递给 `PackPrinter` 的消息。我们还有一个包含 `Packt` 前缀消息的预期消息。如果你还记得 *验收标准 8*，这个抽象必须将文本 `Message from Packt:` 前缀到任何传递给它的消息，同时它还必须能够使用任何 `PrinterAPI` 接口的实现。
+
+第二个变化是我们实际上创建了 `PacktPrinter` 结构体而不是 `NormalPrinter` 结构体；其他一切都是相同的：
+
+```go
+$ go test -v -run=TestPacktPrinter_Print .
+=== RUN   TestPacktPrinter_Print
+--- FAIL: TestPacktPrinter_Print (0.00s)
+ bridge_test.go:104: Not implemented yet
+ bridge_test.go:117: Not implemented yet
+ bridge_test.go:121: The expected message on the io.Writer d
+oesn't match actual.
+ Actual:
+ Expected: Message from Packt: Hello io.Writer
+FAIL
+exit status 1
+FAIL
+
+```
+
+三个检查，三个错误。所有测试都已覆盖，我们最终可以继续到实现部分。
+
+## 实现
+
+我们将按照创建测试的顺序开始实现，首先是 `PrinterImpl1` 的定义：
+
+```go
+type PrinterImpl1 struct{} 
+func (d *PrinterImpl1) PrintMessage(msg string) error { 
+  fmt.Printf("%s\n", msg) 
+  return nil 
+} 
+
+```
+
+我们的第一个 API 接收消息 `msg` 并将其打印到控制台。在空字符串的情况下，不会打印任何内容。这足以通过第一个测试：
+
+```go
+$ go test -v -run=TestPrintAPI1 .
+=== RUN   TestPrintAPI1
+Hello
+--- PASS: TestPrintAPI1 (0.00s)
+PASS
+ok
+
+```
+
+你可以在测试输出的第二行看到 `Hello` 消息，就在 `RUN` 消息之后。
+
+`PrinterImpl2` 结构体也不太复杂。区别在于，我们不是打印到控制台，而是将要写入 `io.Writer` 接口，这必须存储在结构体中：
+
+```go
+type PrinterImpl2 struct { 
+  Writer io.Writer 
+} 
+
+func (d *PrinterImpl2) PrintMessage(msg string) error { 
+  if d.Writer == nil { 
+    return errors.New("You need to pass an io.Writer to PrinterImpl2") 
+  } 
+
+  fmt.Fprintf(d.Writer, "%s", msg) 
+  return nil 
+} 
+
+```
+
+如我们的测试所定义，我们首先检查 `Writer` 字段的值，如果没有存储任何内容，则返回预期的错误消息 `**您需要向 PrinterImpl2 传递一个 io.Writer**`。这是我们将在测试中稍后检查的消息。然后，`fmt.Fprintf` 方法将 `io.Writer` 接口作为第一个字段，将格式化的消息作为其余部分，所以我们只需将 `msg` 参数的内容转发给提供的 `io.Writer`：
+
+```go
+$ go test -v -run=TestPrintAPI2 .
+=== RUN   TestPrintAPI2
+--- PASS: TestPrintAPI2 (0.00s)
+PASS
+ok
+
+```
+
+现在，我们将继续使用正常的打印机。这个打印机必须简单地转发消息到存储的 `PrinterAPI` 接口，没有任何修改。在我们的测试中，我们使用了 `PrinterAPI` 接口的两个实现——一个打印到控制台，另一个写入 `io.Writer` 接口：
+
+```go
+type NormalPrinter struct { 
+  Msg     string 
+  Printer PrinterAPI 
+} 
+
+func (c *NormalPrinter) Print() error { 
+  c.Printer.PrintMessage(c.Msg) 
+  return nil 
+}
+```
+
+我们返回了 `nil`，因为没有发生错误。这应该足以通过单元测试：
+
+```go
+$ go test -v -run=TestNormalPrinter_Print . 
+=== RUN   TestNormalPrinter_Print 
+Hello io.Writer 
+--- PASS: TestNormalPrinter_Print (0.00s) 
+PASS 
+ok
+
+```
+
+在先前的输出中，你可以看到 `PrinterImpl1` 结构体写入 `stdout` 的 `Hello io.Writer` 消息。我们可以认为这个检查已经通过：
+
+最后，`PackPrinter` 方法与 `NormalPrinter` 方法类似，但只是将每条消息前缀为文本 `Message from Packt:`：
+
+```go
+type PacktPrinter struct { 
+  Msg     string 
+  Printer PrinterAPI 
+} 
+
+func (c *PacktPrinter) Print() error { 
+  c.Printer.PrintMessage(fmt.Sprintf("Message from Packt: %s", c.Msg)) 
+  return nil 
+} 
+
+```
+
+就像在`NormalPrinter`方法中一样，我们在`Printer`字段中接受了一个`Msg`字符串和一个`PrinterAPI`实现。然后我们使用`fmt.Sprintf`方法将文本`Message from Packt:`和提供的信息组合成一个新的字符串。我们将组合后的文本传递给存储在`PacktPrinter`结构体`Printer`字段的`PrinterAPI`的`PrintMessage`方法：
+
+```go
+$ go test -v -run=TestPacktPrinter_Print .
+=== RUN   TestPacktPrinter_Print
+Message from Packt: Hello io.Writer
+--- PASS: TestPacktPrinter_Print (0.00s)
+PASS
+ok
+
+```
+
+再次，你可以看到使用`PrinterImpl1`将文本`Message from Packt: Hello io.Writer`写入`stdout`的结果。这个最后的测试应该覆盖我们桥接模式中的所有代码。正如你之前看到的，你可以使用`-cover`标志来检查覆盖率：
+
+```go
+$ go test -cover .
+ok      
+2.622s  coverage: 100.0% of statements
+
+```
+
+哇！100%覆盖率——这看起来不错。然而，这并不意味着代码是完美的。我们还没有检查消息的内容是否为空，这可能是一些应该避免的事情，但这不是我们的要求的一部分，这也是一个重要的观点。仅仅因为某个功能不在要求或验收标准中，并不意味着它不应该被覆盖。
+
+## 使用桥接模式重用一切
+
+通过桥接模式，我们学习了如何解耦对象及其`PrintMessage`方法的实现。这样，我们可以重用其抽象以及其实现。我们可以像我们想要的那样交换打印抽象以及打印 API，而不会影响用户代码。
+
+我们也试图尽可能保持简单，但我确信你已经意识到，所有`PrinterAPI`接口的实现都可以使用工厂来创建。这将是非常自然的，你可能会找到许多遵循这种方法的实现。然而，我们不应该过度设计，而应该分析每个问题，精确地设计其需求，并找到创建可重用、可维护和*可读*源代码的最佳方式。可读的代码常常被忽视，但如果没有人能够理解它来维护它，那么健壮且解耦的源代码就毫无用处。它就像十世纪的书籍——如果它是一个珍贵的故事，但如果我们难以理解它的语法，那么它就会非常令人沮丧。
+
+# 摘要
+
+我们在本章中看到了组合的力量，以及 Go 如何利用其本质的优势。我们看到了适配器模式可以通过在中间使用`Adapter`对象来帮助我们使两个不兼容的接口协同工作。同时，我们也看到了 Go 源代码中的真实例子，语言创造者使用这种设计模式来提高标准库中某些特定部分的可行性。最后，我们看到了桥接模式及其可能性，它允许我们创建具有完全可重用性的交换结构，在对象及其实现之间。
+
+此外，我们在整章中使用了组合设计模式，不仅是在解释它的时候。我们之前也提到过，设计模式之间经常相互使用。我们使用纯组合而非内嵌来提高可读性，但正如你所学的，你可以根据需要相互交替使用。在接下来的章节中，我们将继续使用组合模式，因为它是构建 Go 编程语言中关系的基础。
