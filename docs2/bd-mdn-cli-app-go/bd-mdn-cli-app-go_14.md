@@ -1,4 +1,4 @@
-# 14
+
 
 # 使用 GoReleaser 将你的 Go 二进制文件作为 Homebrew 公式发布
 
