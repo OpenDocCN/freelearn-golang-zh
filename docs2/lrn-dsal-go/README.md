@@ -1,6 +1,6 @@
-# Python 卖空算法教程
+# Go 数据结构与算法学习指南
 
-> 原文：[`zh.annas-archive.org/md5/ceefdd89e585c59c20db6a7760dc11f1`](https://zh.annas-archive.org/md5/ceefdd89e585c59c20db6a7760dc11f1)
+> 原文：[`zh.annas-archive.org/md5/4c0cad9e4d8ed148ba3cdbe40d759bf6`](https://zh.annas-archive.org/md5/4c0cad9e4d8ed148ba3cdbe40d759bf6)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 
